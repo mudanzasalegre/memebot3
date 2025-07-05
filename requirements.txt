@@ -1,0 +1,32 @@
+# ─── Async stack ──────────────────────────────────────────────
+aiohttp>=3.9,<4
+aiosqlite>=0.19          # driver async para SQLite
+tenacity>=8.2            # reintentos con back-off
+
+# ─── ORM & Config ─────────────────────────────────────────────
+SQLAlchemy[asyncio]>=2.0.30
+python-dotenv>=1.0
+
+# ─── Datos / indicadores ─────────────────────────────────────
+pandas>=2.2              # usa PyArrow como backend por defecto
+numpy>=2.0
+pyarrow>=16.0            # lectura/escritura Parquet
+ta>=0.11                 # EMA/RSI puro-python
+pytz>=2024.1
+
+# ─── Machine-Learning (tabular) ───────────────────────────────
+lightgbm>=4.2            # booster rápido
+scikit-learn>=1.4        # métricas + split
+joblib>=1.4              # persistencia modelos
+
+# ─── Solana signing ───────────────────────────────────────────
+solders>=0.15            # keypair & tx bindings (Rust)
+solana>=0.32
+base58>=2.1
+
+# ─── Networking / utilidades varias ───────────────────────────
+requests>=2.32
+typing-extensions>=4.11
+
+# ─── Notebook / exploración (opcional, no requerido en prod) ──
+jupyterlab>=4.2          # sólo para EDA offline
