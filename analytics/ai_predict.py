@@ -3,98 +3,119 @@ analytics.ai_predict
 ~~~~~~~~~~~~~~~~~~~~
 Inferencia en tiempo real para MemeBot 3.
 
-• Carga «ml/model.pkl» (LightGBM/Sklearn) con joblib.
-• Devuelve una probabilidad 0-1 via `should_buy(row)`.
-• Soporta *hot-reload* mediante `reload_model()`.
+•  Carga «ml/model.pkl» (LightGBM / sklearn) y la lista de *features*
+   guardada en «ml/model.meta.json».
+•  Expone:
+       should_buy(vec)  →  probabilidad 0-1
+       reload_model()   →  fuerza recarga en caliente
+•  Convierte cualquier entrada (dict / Series / DataFrame) a un
+   DataFrame de una fila con las columnas exactas que espera el modelo,
+   convierte a numérico, llena NaN con 0 y hace la predicción.
 """
 
 from __future__ import annotations
 
-import pathlib
+import json
 import threading
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional, Sequence
 
 import joblib
+import numpy as np
 import pandas as pd
 
-# Ruta al modelo persistido ― relativa a la raíz del proyecto
-_MODEL_PATH = pathlib.Path(__file__).resolve().parents[1] / "ml" / "model.pkl"
+from config.config import CFG
 
-# ────────────────────────────── estado interno ──────────────────────────────
+# ───────────────────────── paths ──────────────────────────────
+_MODEL_PATH: Path = CFG.MODEL_PATH
+_META_PATH:  Path = _MODEL_PATH.with_suffix(".meta.json")
+
+# ──────────────────── estado global ───────────────────────────
 _model_lock = threading.Lock()
-_model: Optional[object] = None          # objeto sklearn / lightgbm
-_model_mtime: Optional[float] = None     # timestamp del fichero en disco
+_model: Optional[Any]            = None          # objeto LightGBM / sklearn
+_model_mtime: Optional[float]    = None          # timestamp del .pkl
+_FEATURES: Optional[Sequence[str]] = None        # orden de columnas
 
 
-def _lazy_load() -> None:
-    """
-    Carga el modelo si aún no está en memoria o si el fichero ha cambiado
-    desde la última vez (muy útil para *hot-reload* sin reiniciar el bot).
-    """
-    global _model, _model_mtime
+# ╭────────────────── helpers internos ─────────────────╮
+def _load_model() -> None:
+    """Carga modelo y lista de features en memoria (lazy, thread-safe)."""
+    global _model, _model_mtime, _FEATURES
 
-    if not _MODEL_PATH.exists():
-        # Nada entrenado todavía → fallback a probabilidad 0.0
+    if not _MODEL_PATH.exists():        # aún no hay modelo entrenado
         _model = None
         _model_mtime = None
+        _FEATURES = None
         return
 
     mtime = _MODEL_PATH.stat().st_mtime
-    if _model is None or mtime != _model_mtime:
-        with _model_lock:           # doble-check por seguridad en entornos async
-            if _model is None or mtime != _model_mtime:
-                _model = joblib.load(_MODEL_PATH)
-                _model_mtime = mtime
-                print(f"[AI] 🧠  Modelo cargado: {_MODEL_PATH.name} (mtime={mtime})")
+    if _model is not None and mtime == _model_mtime:
+        return                          # ya actualizado
 
-
-# Carga inicial al importar el módulo
-_lazy_load()
-
-# ─────────────────────────── API pública ────────────────────────────
-def reload_model() -> None:
-    """
-    Fuerza la recarga desde disco (se usa tras `ml.train.train_and_save()`).
-    """
     with _model_lock:
-        if _MODEL_PATH.exists():
-            _lazy_load()
-            print("[AI] 🔄  Modelo recargado manualmente.")
-        else:
-            print("[AI] ⚠️  No se encontró model.pkl para recargar.")
+        # doble-check por concurrencia
+        if _model is None or _MODEL_PATH.stat().st_mtime != _model_mtime:
+            _model = joblib.load(_MODEL_PATH)
+            _model_mtime = mtime
+
+            # lista de columnas entrenadas
+            if _META_PATH.exists():
+                _FEATURES = json.loads(_META_PATH.read_text())["features"]
+            else:                       # fallback
+                _FEATURES = list(_model.feature_name())
+
+            print(f"[AI] 🧠  Modelo cargado: {_MODEL_PATH.name} (mtime={mtime})")
 
 
-def should_buy(row: pd.Series) -> float:
+def _to_dataframe(vec: Any) -> pd.DataFrame:
     """
-    Calcula la probabilidad de compra para un único vector de características.
-
-    Parameters
-    ----------
-    row : pd.Series
-        Serie con las mismas columnas que se usaron al entrenar.
-
-    Returns
-    -------
-    float
-        Probabilidad (0-1). Si no hay modelo entrenado aún, devuelve 0.0
-        para que el bot lo descarte por la capa de IA.
+    Convierte dict / Series / DataFrame → DataFrame de 1 fila
+    con las columnas en el orden exacto de _FEATURES.
     """
-    if not isinstance(row, pd.Series):
-        raise TypeError("`row` debe ser pandas.Series")
+    if _FEATURES is None:
+        raise RuntimeError("Modelo no cargado: _FEATURES desconocido")
 
-    _lazy_load()                # comprueba si hay un modelo más nuevo en disco
+    if isinstance(vec, pd.DataFrame):
+        X = vec[list(_FEATURES)]           # subset + orden
+    else:
+        if isinstance(vec, pd.Series):
+            vec = vec.to_dict()
+        row = {k: vec.get(k) for k in _FEATURES}
+        X = pd.DataFrame([row], columns=_FEATURES)
+
+    # cast numérico (strings → NaN) y fillna
+    X = X.apply(pd.to_numeric, errors="coerce").fillna(0).astype(np.float32)
+    return X
+
+
+# ╭────────────────── API pública ─────────────────╮
+def should_buy(vec: Any) -> float:
+    """
+    Devuelve la probabilidad de compra (label = 1) para el vector de características.
+    •  `vec` puede ser dict, pandas.Series o pandas.DataFrame (1 fila).
+    """
+    _load_model()
     if _model is None:
         return 0.0
 
-    df = row.to_frame().T       # → shape (1, n_features)
+    X = _to_dataframe(vec)
 
-    # LightGBM/Sklearn compatibility: algunos modelos no exponen predict_proba
+    # LightGBM Booster o sklearn estimators
     try:
-        proba = _model.predict_proba(df)[0, 1]
+        proba = _model.predict_proba(X)[0, 1]   # sklearn-style
     except AttributeError:
-        proba = _model.predict(df)[0]
-
+        proba = _model.predict(X)[0]            # LightGBM Booster
     return float(proba)
+
+
+def reload_model() -> None:
+    """Borra el modelo en memoria para forzar recarga (p. ej. tras retrain)."""
+    global _model, _model_mtime
+    with _model_lock:
+        _model = None
+        _model_mtime = None
+    _load_model()
+    print("[AI] 🔄  Modelo recargado manualmente.")
 
 
 __all__ = ["should_buy", "reload_model"]

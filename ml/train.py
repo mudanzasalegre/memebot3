@@ -1,13 +1,12 @@
-"""
-ml.train
-~~~~~~~~
-Entrena el clasificador LightGBM a partir de los Parquet generados por
-features.store y guarda el modelo en `CFG.MODEL_PATH`.
-"""
+# ml.train
+# ~~~~~~~~
+# Entrena el clasificador LightGBM a partir de los Parquet generados por
+# features.store y guarda el modelo en `CFG.MODEL_PATH`.
 from __future__ import annotations
 
 import glob
 import json
+import os
 import pathlib
 import tempfile
 from typing import Tuple
@@ -17,7 +16,6 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import train_test_split  # noqa: F401
 
 from config.config import CFG
 
@@ -45,6 +43,7 @@ def _load_dataset() -> pd.DataFrame:
 
     return df
 
+
 def _split(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Split temporal: último 20 % como hold-out."""
     df = df.sort_values("timestamp")
@@ -54,9 +53,14 @@ def _split(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
 # ───────────────────── función principal ──────────────────────
 def train_and_save() -> float:
     df = _load_dataset().dropna(subset=["label"])
+
+    # ── eliminar columnas de tipo object (texto) ──────────────
+    obj_cols = df.select_dtypes(include="object").columns  # p.ej. ['address', 'discovered_via']
+
     X_cols = [
         c for c in df.columns
         if c not in ("label", "pnl", "timestamp", "ts", "pnl_pct")
+        and c not in obj_cols
     ]
 
     train_df, valid_df = _split(df)
@@ -81,19 +85,31 @@ def train_and_save() -> float:
         lgb_train,
         valid_sets=[lgb_valid],
         num_boost_round=500,
-        early_stopping_rounds=50,
-        verbose_eval=False,
+        callbacks=[
+            lgb.early_stopping(stopping_rounds=50, verbose=False),
+            lgb.log_evaluation(period=0),  # silencia el output
+        ],
     )
 
     auc = roc_auc_score(valid_df["label"], model.predict(valid_df[X_cols]))
     print(f"[ML] AUC hold-out = {auc:.4f}")
 
-    # Persiste de forma atómica
+    # ───────── persistir de forma atómica (mismo volumen) ────────
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        joblib.dump(model, tmp.name)
-        pathlib.Path(tmp.name).replace(MODEL_PATH)
 
+    # Creamos el temporal en la MISMA carpeta que MODEL_PATH
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=MODEL_PATH.parent,
+        prefix=".tmp_model_",
+        suffix=".pkl",
+    )
+    os.close(tmp_fd)            # cerramos para que Windows no bloquee
+    joblib.dump(model, tmp_path)
+
+    # rename/replace atómico dentro del mismo directorio/volumen
+    pathlib.Path(tmp_path).replace(MODEL_PATH)
+
+    # Metadatos
     META_PATH.write_text(json.dumps({
         "auc": auc,
         "train_rows": int(len(train_df)),
