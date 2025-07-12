@@ -46,38 +46,27 @@ def _save() -> None:
 
 # ───────────────────────── helpers público ──────────────────────
 async def buy(address: str, amount_sol: float) -> dict:
-    """
-    Simula la compra.  Calcula el precio USD vía DexScreener.
-    Devuelve estructura equivalente a `trader.buyer.buy`.
-    """
+    # intentar precio de DexScreener; si falla usa estimación fija
     pair = await dexscreener.get_pair(address)
-    if not pair or not pair.get("price_usd"):
-        raise RuntimeError(f"Precio no disponible para {address[:4]}")
+    price_usd = float(pair.get("price_usd") or 0.0) if pair else 0.0
 
-    price_usd = float(pair["price_usd"])
-    # — simplificación: 1 SOL ≈ 160 USD (ajusta si quieres) —
-    sol_usd   = 160.0
-    cost_usd  = amount_sol * sol_usd
-    qty_lp    = int(amount_sol * 1e9)      # lamports simbólicos
+    SOL_USD = 160.0
+    cost_usd = amount_sol * SOL_USD
+    qty_lp   = int(amount_sol * 1e9)
 
     _PORTFOLIO[address] = {
         "qty_lamports": qty_lp,
-        "buy_price_usd": price_usd,
+        "buy_price_usd": price_usd or cost_usd / qty_lp * 1e9,  # fallback
         "amount_sol": amount_sol,
         "opened_at": utc_now().isoformat(),
     }
     _save()
 
-    log.info("📝 PAPER-BUY %s  %.3f SOL (≈%.0f USD)  price=%.6f",
-             address[:4], amount_sol, cost_usd, price_usd)
-
+    log.info("📝 PAPER-BUY %s %.3f SOL", address[:4], amount_sol)
     return {
         "qty_lamports": qty_lp,
-        "route": {
-            "quote": {"inAmountUSD": cost_usd}
-        }
+        "route": {"quote": {"inAmountUSD": cost_usd}},
     }
-
 
 async def sell(address: str, qty_lamports: int) -> dict:
     """

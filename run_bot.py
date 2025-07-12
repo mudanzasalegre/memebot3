@@ -125,29 +125,27 @@ def _compute_trade_amount() -> float:
         return 0.0
     return min(TRADE_AMOUNT_SOL_CFG, usable)
 
-
-# ╭──────────────── BUY PIPELINE (IA + reglas) ─────────────────╮
+# ╭──────────────── BUY PIPELINE ─────────────────╮
 async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
     global _wallet_sol_balance
     addr = token["address"]
-    # 0) sanea + observabilidad
+
+    # 0) sanea + tracing
     token = sanitize_token_data(token)
     warn_if_nulls(token, context=addr[:4])
     log.debug("▶ Eval %s", token.get("symbol", addr[:4]))
 
-    # 1) señales externas / skips rápidos
-    if token.get("discovered_via") == "pumpfun" and not token.get("liquidity_usd") and not token.get("volume_24h_usd"):
-        agregar_si_nuevo(addr)
-        log.debug("   ↻ pospuesto (esperando liquidez/vol)")
+    # 1) skips rápidos
+    if token.get("discovered_via") == "pumpfun" and not token["liquidity_usd"]:
+        requeue(addr)
+        log.debug("↻ PumpFun sin liq todavía")
         return
-    if token.get("creator") and token.get("creator") in BANNED_CREATORS:
-        log.warning("🚫 Creador %s en lista negra, omitiendo %s", token["creator"], addr[:4])
+    if token.get("creator") in BANNED_CREATORS:
+        log.warning("🚫 Creator baneado %s", addr[:4])
         eliminar_par(addr)
         return
 
-    # 2) señales de riesgo / momentum
-    token["rug_score"]   = await rugcheck.check_token(addr)
-    token["cluster_bad"] = await clusters.suspicious_cluster(addr)
+    # 2) señales baratas
     token["social_ok"]   = await socials.has_socials(addr)
     token["trend"]       = await trend.trend_signal(addr)
     token["insider_sig"] = await insider.insider_alert(addr)
@@ -158,79 +156,69 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
         token["is_incomplete"] = 1
         store_append(build_feature_vector(token), 0)
         requeue(addr)
-        log.debug("   ↻ requeue (liq/vol = 0)")
         return
     token["is_incomplete"] = 0
 
     # 4) filtros duros
     if not filters.basic_filters(token):
-        vec = build_feature_vector(token)
-        store_append(vec, 0)
+        store_append(build_feature_vector(token), 0)
         eliminar_par(addr)
         return
 
-    # 5) IA
-    vec   = build_feature_vector(token)
-    proba = should_buy(vec)
+    # 5) señales caras
+    token["rug_score"]   = await rugcheck.check_token(addr)
+    token["cluster_bad"] = await clusters.suspicious_cluster(addr)
+    token["score_total"] = filters.total_score(token)
+
+    # 6) IA
+    vec, proba = build_feature_vector(token), should_buy(token)
     ia_ok = proba >= AI_TH
     store_append(vec, int(ia_ok))
     if not ia_ok:
-        log.info("DESCARTADO IA %.2f %% — %s", proba * 100, addr[:4])
+        log.info("DESCARTADO IA %.2f %% — %s", proba*100, addr[:4])
         eliminar_par(addr)
         return
 
-    # 6) chequeo balance y tamaño de compra
-    amount_sol = _compute_trade_amount()
-    if DRY_RUN:
-        amount_sol = TRADE_AMOUNT_SOL_CFG          # demo usa el fijo
+    # 7) balance
+    amount_sol = TRADE_AMOUNT_SOL_CFG if DRY_RUN else _compute_trade_amount()
     if amount_sol < MIN_SOL_BALANCE:
-        log.info("💸 Sin balance suficiente (%.3f SOL libres)", _wallet_sol_balance)
+        log.info("💸 Sin balance suficiente")
         eliminar_par(addr)
         return
 
-    # 7) guarda Token en BD (idempotente)
-    try:
-        valid_cols = {c.key for c in inspect(Token).mapper.column_attrs}
-        await session.merge(Token(**{k: v for k, v in token.items() if k in valid_cols}))
-        await session.commit()
-    except SQLAlchemyError as e:
-        await session.rollback()
-        log.warning("DB merge Token: %s", e)
+    # 8) guarda token (idempotente)
+    valid_cols = {c.key for c in inspect(Token).mapper.column_attrs}
+    await session.merge(Token(**{k: v for k, v in token.items() if k in valid_cols}))
+    await session.commit()
 
-    # 8) INTENTAR COMPRA
+    # 9) BUY
     try:
         buy_resp = await buyer.buy(addr, amount_sol)
-    except Exception as e:                       # noqa: BLE001
+    except Exception as e:
         log.warning("buy() error %s → %s", addr[:4], e)
         eliminar_par(addr)
         return
 
-    qty       = buy_resp.get("qty_lamports", 0)
-    price_usd = buy_resp.get("route", {}).get("quote", {}).get("inAmountUSD", 0.0)
+    qty_lp   = buy_resp.get("qty_lamports", 0)
+    quote_usd = (buy_resp.get("route", {})
+                           .get("quote", {})
+                           .get("inAmountUSD"))
+    # prioridad: quote → token.price_usd (si ya vino) → 0
+    price_usd = quote_usd or token.get("price_usd") or 0.0
 
-    # Actualiza balance estimado (aprox.)
     if not DRY_RUN:
-        _wallet_sol_balance -= amount_sol
-        _wallet_sol_balance = max(_wallet_sol_balance, 0.0)
+        _wallet_sol_balance = max(_wallet_sol_balance - amount_sol, 0.0)
 
-    # 9) inserta Position
+    # 10) posición
     pos = Position(
-        address=addr,
-        symbol=token.get("symbol"),
-        qty=qty,
-        buy_price_usd=price_usd or 0.0,
-        opened_at=utc_now(),
-        highest_pnl_pct=0.0,
+        address=addr, symbol=token.get("symbol"),
+        qty=qty_lp, buy_price_usd=price_usd,
+        opened_at=utc_now(), highest_pnl_pct=0.0,
     )
-    try:
-        session.add(pos)
-        await session.commit()
-    except SQLAlchemyError as e:
-        await session.rollback()
-        log.warning("DB add Position: %s", e)
+    session.add(pos); await session.commit()
 
-    log.warning("✔ COMPRADO %.4s  (IA %.1f %%)  %.3f SOL",
-                token.get("symbol", "?"), proba * 100, amount_sol)
+    log.warning("✔ COMPRADO %.4s (IA %.1f%%) %.3f SOL",
+                token.get("symbol", "?"), proba*100, amount_sol)
     eliminar_par(addr)
 
 # ╭──────────────── EXIT STRATEGY ───────────────────────────────╮
@@ -288,7 +276,9 @@ async def _check_positions(session: SessionLocal) -> None:
 
 # ╭──────────────── RETRAIN LOOP ────────────────────────────────╮
 async def retrain_loop() -> None:
-    log.info("Retrain‑loop activo (domingo %s UTC)", CFG.RETRAIN_HOUR)
+    import calendar
+    wd = calendar.day_name[CFG.RETRAIN_DAY]      # Monday…Sunday
+    log.info("Retrain‑loop activo (%s %s UTC)", wd, CFG.RETRAIN_HOUR)
     while True:
         now = utc_now()
         if now.weekday() == CFG.RETRAIN_DAY and now.hour == CFG.RETRAIN_HOUR and now.minute < 10:

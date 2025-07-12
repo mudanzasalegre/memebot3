@@ -2,9 +2,9 @@
 Scraper ultra-ligero de DexScreener que lista los *mint-addresses*
 más recientes en Solana.
 
-* **NOVEDAD**: si no hay información temporal devuelve edad = 0.0
-  (para que el par siga su curso hasta el filtro definitivo).
-* Sólo se filtra la antigüedad aquí; resto de filtros en analytics.filters.
+* Devuelve edad = 0.0 si no hay timestamp (deja que el filtro final decida).
+* Filtra sólo por antigüedad aquí; el resto de reglas están en analytics.filters.
+* NUEVO → CFG.MAX_CANDIDATES : recorta la lista para no procesar más de N tokens.
 """
 from __future__ import annotations
 
@@ -13,11 +13,11 @@ import datetime as dt
 import logging
 from typing import List
 
-from utils.time import utc_now
-
 import aiohttp
 
-from config import DEX_API_BASE, MAX_AGE_DAYS     # alias retro-compat
+from utils.time import utc_now
+from config import DEX_API_BASE, MAX_AGE_DAYS        # alias retro-compat
+from config.config import CFG                        # ← incluye MAX_CANDIDATES
 
 log = logging.getLogger("descubridor")
 log.setLevel(logging.DEBUG)
@@ -41,7 +41,7 @@ async def _json(s: aiohttp.ClientSession, url: str):
                 return None
             r.raise_for_status()
             return await r.json()
-    except Exception:               # noqa: BLE001
+    except Exception:           # noqa: BLE001
         return None
 
 
@@ -57,9 +57,7 @@ def _items(raw) -> list:
 
 
 def _calc_age_days(tok: dict) -> float:
-    """
-    ① listedAt • ② createdAt/pairCreatedAt • ③ age/ageDays • ④ fallback 0.0
-    """
+    """Calcula edad en días a partir de varios posibles campos timestamp."""
     ts_any = (
         tok.get("listedAt")
         or tok.get("createdAt")
@@ -68,18 +66,18 @@ def _calc_age_days(tok: dict) -> float:
     if ts_any is not None:
         try:
             ts = float(ts_any)
-            if ts > 1e12:           # epoch ms → s
+            if ts > 1e12:       # epoch ms → s
                 ts /= 1000.0
             created = dt.datetime.utcfromtimestamp(ts)
             return (utc_now() - created).total_seconds() / 86400
-        except Exception:           # noqa: BLE001
+        except Exception:       # noqa: BLE001
             pass
 
-    # ¿el endpoint ya calculó la edad?
+    # Si el endpoint ya trae la edad:
     for fld in ("ageDays", "age"):
         try:
             return float(tok.get(fld))
-        except Exception:           # noqa: BLE001
+        except Exception:       # noqa: BLE001
             continue
 
     # Sin dato → asumimos 0 d para no filtrar aquí
@@ -88,7 +86,7 @@ def _calc_age_days(tok: dict) -> float:
 
 # ───────────────────────── API pública ─────────────────────────
 async def fetch_candidate_pairs() -> List[str]:
-    """Devuelve mint-addresses con edad ≤ MAX_AGE_DAYS."""
+    """Devuelve mint-addresses con edad ≤ MAX_AGE_DAYS (y ≤ MAX_CANDIDATES)."""
     async with aiohttp.ClientSession() as s:
         raw = None
         for u in URLS:
@@ -116,9 +114,14 @@ async def fetch_candidate_pairs() -> List[str]:
         if age <= MAX_AGE_DAYS:
             out.append(addr)
 
+        # NUEVO: recorta si se alcanzó el tope
+        if CFG.MAX_CANDIDATES and len(out) >= CFG.MAX_CANDIDATES:
+            break
+
+    # elimina duplicados preservando orden
+    out = list(dict.fromkeys(out))
     log.info("Descubridor: %s candidatos", len(out))
-    # dict.fromkeys() elimina duplicados preservando orden
-    return list(dict.fromkeys(out))
+    return out
 
 
 # ——— CLI rápido ———

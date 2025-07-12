@@ -62,6 +62,9 @@ python -m run_bot --dry-run --log
 ```
 > **Tip:** set `LOG_LEVEL=DEBUG` in `.env` to see every filter decision.
 
+# installing analysis dependencies (optional)
+pip install -U pandas pyarrow matplotlib seaborn scikit-learn jupyter notebook
+
 ---
 
 ## Environment variables
