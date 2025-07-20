@@ -1,11 +1,17 @@
-"""memebot3/run_bot.py
-⏯️  Orquestador principal del sniper MemeBot 3 (reglas + IA + gestión de saldo).
-Incluye:
-• Chequeo periódico de balance SOL (utils.solana_rpc.get_sol_balance)
-• Reserva mínima de gas (CFG.GAS_RESERVE_SOL)
-• Cálculo dinámico del tamaño de cada compra
-• Manejo de errores de saldo insuficiente
+# memebot3/run_bot.py
 """
+⏯️  Orquestador principal del sniper MemeBot 3
+──────────────────────────────────────────────
+Cambios 2025-07-20 / 21
+• DRY-RUN compra siempre 0.01 SOL
+• Fix TZ en _should_exit()
+• Cierre de emergencia cuando no hay PNL
+• Embudo de métricas utils.logger.log_funnel()  (cada 60 s)
+• Filtro duro tolerante (basic_filters → None ⇒ requeue 60 s)
+• Runner interno labeler.win_labeler → task cada hora
+• 🆕 async_init_db() se llama **una sola vez** en _runner()
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -19,308 +25,335 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.inspection import inspect
 
-# ─── módulos internos ───────────────────────────────────────────
+# ───────── módulos propios ──────────────────────────────────
 from config.config import CFG, BANNED_CREATORS
 from config import exits
 from db.database import SessionLocal, async_init_db
 from db.models import Position, Token, RevivedToken
-from fetcher import dexscreener, helius_cluster as clusters, pumpfun, rugcheck, socials
+from fetcher import (dexscreener, helius_cluster as clusters, pumpfun,
+                     rugcheck, socials)
 from analytics import filters, insider, trend
 from analytics.ai_predict import should_buy, reload_model
 from features.builder import build_feature_vector, COLUMNS as FEAT_COLS
 from features.store import append as store_append, update_pnl as store_update_pnl
 from ml.retrain import retrain_if_better
 from utils.descubridor_pares import fetch_candidate_pairs
-from utils.lista_pares import (
-    agregar_si_nuevo,
-    eliminar_par,
-    obtener_pares,
-    requeue,
-    stats as queue_stats,
-    retries_left,
-)
+from utils.lista_pares import (agregar_si_nuevo, eliminar_par, obtener_pares,
+                               requeue, stats as queue_stats)
 from utils.data_utils import sanitize_token_data, is_incomplete
-from utils.logger import enable_file_logging, warn_if_nulls
-from utils.solana_rpc import get_sol_balance           # ★
+from utils.logger import enable_file_logging, warn_if_nulls, log_funnel
+from utils.solana_rpc import get_sol_balance
 from utils.time import utc_now
+from labeler.win_labeler import label_positions
 
-# ─── CLI / flags ────────────────────────────────────────────────
-parser = argparse.ArgumentParser(description="MemeBot 3 – sniper Solana")
-parser.add_argument("--dry-run", action="store_true",
-                    help="Paper‑trading: no envía órdenes on‑chain")
-parser.add_argument("--log", action="store_true",
-                    help="Escribe logs en /logs con rotación horaria")
+# ╭──────────── CLI / flags ─────────────────────────╮
+parser = argparse.ArgumentParser(description="MemeBot 3 – sniper Solana")
+parser.add_argument("--dry-run", action="store_true", help="Paper-trading")
+parser.add_argument("--log", action="store_true", help="Gira logs en /logs")
 args = parser.parse_args()
 DRY_RUN = args.dry_run or CFG.DRY_RUN
 
-# ─── logging global ─────────────────────────────────────────────
+# ╭──────────── logging root ────────────────────────╮
 logging.basicConfig(
     level=CFG.LOG_LEVEL,
-    format="%(asctime)s  %(levelname)-8s %(name)s: %(message)s",
+    format="%(asctime)s  %(levelname)-7s %(name)s: %(message)s",
     datefmt="%H:%M:%S",
     force=True,
 )
 log = logging.getLogger("run_bot")
 
-archived_tokens: dict[str, dict] = {}
-
-# ⇢ buyer / seller según modo
+# ───────── trader segun modo ───────────────────────
 if DRY_RUN:
-    from trader import papertrading as buyer   # noqa: E402
-    from trader import papertrading as seller  # noqa: E402
-    log.info("🔖 DRY‑RUN ACTIVADO → usando trader.papertrading")
+    from trader import papertrading as buyer, papertrading as seller  # noqa: E402
+    log.info("🔖 DRY-RUN ACTIVADO – trader.papertrading")
 else:
-    from trader import buyer    # noqa: E402
-    from trader import seller   # noqa: E402
+    from trader import buyer, seller                                 # noqa: E402
 
-# logging a fichero opcional
+# file-logging opcional
 if args.log:
     run_id = enable_file_logging()
-    log.info("📂 File‑logging activo (run_id %s)", run_id)
+    log.info("📂 File-logging activo (run_id %s)", run_id)
 
-# ─── info de esquema ────────────────────────────────────────────
-log.info("Schema Parquet cols=%s  •  DB=%s", len(FEAT_COLS), CFG.SQLITE_DB)
+# ───────── constantes de CFG ───────────────────────
+DISCOVERY_INTERVAL = CFG.DISCOVERY_INTERVAL
+SLEEP_SECONDS = CFG.SLEEP_SECONDS
+VALIDATION_BATCH_SIZE = CFG.VALIDATION_BATCH_SIZE
+TRADE_AMOUNT_SOL_CFG = CFG.TRADE_AMOUNT_SOL
+GAS_RESERVE_SOL = CFG.GAS_RESERVE_SOL
+MIN_SOL_BALANCE = CFG.MIN_SOL_BALANCE
+WALLET_POLL_INTERVAL = 30
 
-# ─── parámetros derivados ───────────────────────────────────────
-DISCOVERY_INTERVAL    = CFG.__dict__.get("DISCOVERY_INTERVAL", 45)
-SLEEP_SECONDS         = CFG.__dict__.get("SLEEP_SECONDS", 3)
-VALIDATION_BATCH_SIZE = CFG.__dict__.get("VALIDATION_BATCH_SIZE", 30)
-TRADE_AMOUNT_SOL_CFG  = CFG.TRADE_AMOUNT_SOL        # tamaño fijo deseado
-
-# Gestión de balance / gas
-GAS_RESERVE_SOL       = CFG.GAS_RESERVE_SOL
-MIN_SOL_BALANCE       = CFG.MIN_SOL_BALANCE
-WALLET_POLL_INTERVAL  = CFG.__dict__.get("WALLET_POLL_INTERVAL", 30)
-
-# Estrategia de salidas
-TP_PCT        = exits.TAKE_PROFIT_PCT
-SL_PCT        = exits.STOP_LOSS_PCT
-TRAILING_PCT  = exits.TRAILING_PCT
+TP_PCT = exits.TAKE_PROFIT_PCT
+SL_PCT = exits.STOP_LOSS_PCT
+TRAILING_PCT = exits.TRAILING_PCT
 MAX_HOLDING_H = exits.MAX_HOLDING_H
-AI_TH         = CFG.AI_THRESHOLD
+AI_TH = CFG.AI_THRESHOLD
 
-# ─── estado de wallet ───────────────────────────────────────────
+# ───────── estado runtime ─────────────────────────
 _wallet_sol_balance: float = 0.0
 _last_wallet_check: float = 0.0
 
+_stats = {
+    "raw_discovered": 0,
+    "incomplete": 0,
+    "filtered_out": 0,
+    "ai_pass": 0,
+    "bought": 0,
+    "sold": 0,
+}
+_last_stats_print = time.monotonic()
 
-# ╭──────────────── helpers de balance ─────────────────╮
+archived_tokens: dict[str, dict] = {}
+
+# ╭──────────── helpers balance ───────────────────╮
 async def _refresh_balance(monotonic_now: float) -> None:
-    """Actualiza _wallet_sol_balance si ha pasado el intervalo."""
     global _wallet_sol_balance, _last_wallet_check
     if monotonic_now - _last_wallet_check < WALLET_POLL_INTERVAL:
         return
     try:
         _wallet_sol_balance = await get_sol_balance()
         _last_wallet_check = monotonic_now
-        log.debug("💰 Balance wallet = %.3f SOL", _wallet_sol_balance)
-    except Exception as e:        # noqa: BLE001
+        log.debug("💰 Wallet = %.3f SOL", _wallet_sol_balance)
+    except Exception as e:  # noqa: BLE001
         log.warning("get_sol_balance → %s", e)
 
 
 def _compute_trade_amount() -> float:
-    """Calcula cuánto SOL gastar en la siguiente compra, respetando reserva."""
+    """Dry-run siempre 0.01 SOL; en real respeta reserva de gas."""
+    if DRY_RUN:
+        return 0.01
     usable = max(0.0, _wallet_sol_balance - GAS_RESERVE_SOL)
     if usable < MIN_SOL_BALANCE:
         return 0.0
     return min(TRADE_AMOUNT_SOL_CFG, usable)
 
-# ╭──────────────── BUY PIPELINE ─────────────────╮
-async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
+# ╭──────────── labeler background ────────────────╮
+async def _periodic_labeler() -> None:
+    while True:
+        try:
+            await label_positions()
+        except Exception as e:
+            log.error("label_positions → %s", e)
+        await asyncio.sleep(3600)
+
+# ╭──────────── BUY PIPELINE ──────────────────────╮
+async def _evaluate_and_buy(token: dict, session) -> None:
     global _wallet_sol_balance
     addr = token["address"]
+    _stats["raw_discovered"] += 1
 
-    # 0) sanea + tracing
+    # — sanitize + warning si liq/vol nulos
     token = sanitize_token_data(token)
     warn_if_nulls(token, context=addr[:4])
-    log.debug("▶ Eval %s", token.get("symbol", addr[:4]))
 
-    # 1) skips rápidos
-    if token.get("discovered_via") == "pumpfun" and not token["liquidity_usd"]:
-        requeue(addr)
-        log.debug("↻ PumpFun sin liq todavía")
-        return
+    # — descartes rápidos
     if token.get("creator") in BANNED_CREATORS:
-        log.warning("🚫 Creator baneado %s", addr[:4])
         eliminar_par(addr)
         return
+    if token.get("discovered_via") == "pumpfun" and not token["liquidity_usd"]:
+        requeue(addr)
+        return
 
-    # 2) señales baratas
-    token["social_ok"]   = await socials.has_socials(addr)
-    token["trend"]       = await trend.trend_signal(addr)
+    # — señales baratas
+    token["social_ok"] = await socials.has_socials(addr)
+    token["trend"] = await trend.trend_signal(addr)
     token["insider_sig"] = await insider.insider_alert(addr)
     token["score_total"] = filters.total_score(token)
 
-    # 3) incompleto → requeue
+    # — incompleto
     if is_incomplete(token):
+        _stats["incomplete"] += 1
         token["is_incomplete"] = 1
         store_append(build_feature_vector(token), 0)
         requeue(addr)
         return
     token["is_incomplete"] = 0
 
-    # 4) filtros duros
-    if not filters.basic_filters(token):
+    # — filtro duro tolerante
+    res = filters.basic_filters(token)
+    if res is None:  # liquidez aún 0 → delay
+        requeue(addr)
+        return
+    if res is False:
+        _stats["filtered_out"] += 1
         store_append(build_feature_vector(token), 0)
         eliminar_par(addr)
         return
 
-    # 5) señales caras
-    token["rug_score"]   = await rugcheck.check_token(addr)
+    # — señales caras
+    token["rug_score"] = await rugcheck.check_token(addr)
     token["cluster_bad"] = await clusters.suspicious_cluster(addr)
     token["score_total"] = filters.total_score(token)
 
-    # 6) IA
+    # — IA
     vec, proba = build_feature_vector(token), should_buy(token)
-    ia_ok = proba >= AI_TH
-    store_append(vec, int(ia_ok))
-    if not ia_ok:
-        log.info("DESCARTADO IA %.2f %% — %s", proba*100, addr[:4])
+    if proba < AI_TH:
+        _stats["filtered_out"] += 1
+        store_append(vec, 0)
         eliminar_par(addr)
         return
+    _stats["ai_pass"] += 1
+    store_append(vec, 1)
 
-    # 7) balance
-    amount_sol = TRADE_AMOUNT_SOL_CFG if DRY_RUN else _compute_trade_amount()
+    # — balance
+    amount_sol = _compute_trade_amount()
     if amount_sol < MIN_SOL_BALANCE:
-        log.info("💸 Sin balance suficiente")
         eliminar_par(addr)
         return
 
-    # 8) guarda token (idempotente)
+    # — guardar/merge Token
     valid_cols = {c.key for c in inspect(Token).mapper.column_attrs}
     await session.merge(Token(**{k: v for k, v in token.items() if k in valid_cols}))
     await session.commit()
 
-    # 9) BUY
+    # — BUY (try / except)
     try:
         buy_resp = await buyer.buy(addr, amount_sol)
-    except Exception as e:
-        log.warning("buy() error %s → %s", addr[:4], e)
+    except Exception:
         eliminar_par(addr)
         return
 
-    qty_lp   = buy_resp.get("qty_lamports", 0)
-    quote_usd = (buy_resp.get("route", {})
-                           .get("quote", {})
-                           .get("inAmountUSD"))
-    # prioridad: quote → token.price_usd (si ya vino) → 0
-    price_usd = quote_usd or token.get("price_usd") or 0.0
+    qty_lp = buy_resp.get("qty_lamports", 0)
+    price_usd = (
+        buy_resp.get("route", {}).get("quote", {}).get("inAmountUSD")
+        or token.get("price_usd")
+        or 0.0
+    )
 
     if not DRY_RUN:
         _wallet_sol_balance = max(_wallet_sol_balance - amount_sol, 0.0)
 
-    # 10) posición
     pos = Position(
-        address=addr, symbol=token.get("symbol"),
-        qty=qty_lp, buy_price_usd=price_usd,
-        opened_at=utc_now(), highest_pnl_pct=0.0,
+        address=addr,
+        symbol=token.get("symbol"),
+        qty=qty_lp,
+        buy_price_usd=price_usd,
+        opened_at=utc_now(),
+        highest_pnl_pct=0.0,
     )
-    session.add(pos); await session.commit()
+    session.add(pos)
+    await session.commit()
 
-    log.warning("✔ COMPRADO %.4s (IA %.1f%%) %.3f SOL",
-                token.get("symbol", "?"), proba*100, amount_sol)
+    _stats["bought"] += 1
     eliminar_par(addr)
 
-# ╭──────────────── EXIT STRATEGY ───────────────────────────────╮
-async def _load_open_positions(session: SessionLocal) -> Sequence[Position]:
+# ╭──────────── EXIT STRATEGY ──────────────────────╮
+async def _load_open_positions(session) -> Sequence[Position]:
     stmt = select(Position).where(Position.closed.is_(False))
     return (await session.execute(stmt)).scalars().all()
 
+
 async def _should_exit(pos: Position, price: float, now: dt.datetime) -> bool:
-    if not pos.buy_price_usd:
-        return False
-    pnl = (price - pos.buy_price_usd) / pos.buy_price_usd * 100
-    if pnl > pos.highest_pnl_pct:
-        pos.highest_pnl_pct = pnl
+    opened = pos.opened_at
+    if opened.tzinfo is None:
+        opened = opened.replace(tzinfo=dt.timezone.utc)
+
+    pnl = None
+    if pos.buy_price_usd:
+        pnl = (price - pos.buy_price_usd) / pos.buy_price_usd * 100
+        if pnl > pos.highest_pnl_pct:
+            pos.highest_pnl_pct = pnl
+
     return (
-        pnl <= pos.highest_pnl_pct - TRAILING_PCT or
-        pnl >= TP_PCT or
-        pnl <= -SL_PCT or
-        (now - pos.opened_at).total_seconds() / 3600 >= MAX_HOLDING_H
+        pnl is None
+        or pnl <= pos.highest_pnl_pct - TRAILING_PCT
+        or pnl >= TP_PCT
+        or pnl <= -SL_PCT
+        or (now - opened).total_seconds() / 3600 >= MAX_HOLDING_H
     )
 
-async def _check_positions(session: SessionLocal) -> None:
+
+async def _check_positions(session) -> None:
     global _wallet_sol_balance
     for pos in await _load_open_positions(session):
         pair = await dexscreener.get_pair(pos.address)
         if not pair or not pair.get("price_usd"):
             continue
+
         now = utc_now()
         if not await _should_exit(pos, pair["price_usd"], now):
             continue
-        sell_resp = await seller.sell(pos.address, pos.qty)
-        pos.closed          = True
-        pos.closed_at       = now
-        pos.close_price_usd = pair["price_usd"]
-        pos.exit_tx_sig     = sell_resp.get("signature")
 
-        pnl_pct = (pos.close_price_usd - pos.buy_price_usd) / pos.buy_price_usd * 100
-        store_update_pnl(pos.address, pnl_pct)
+        sell_resp = await seller.sell(pos.address, pos.qty)
+        pos.closed = True
+        pos.closed_at = now
+        pos.close_price_usd = pair.get("price_usd")
+        pos.exit_tx_sig = sell_resp.get("signature")
+
+        pnl_pct = (
+            None
+            if pos.close_price_usd is None or pos.buy_price_usd is None
+            else (pos.close_price_usd - pos.buy_price_usd) / pos.buy_price_usd * 100
+        )
+        store_update_pnl(pos.address, pnl_pct if pnl_pct is not None else -100.0)
+        _stats["sold"] += 1
+
         try:
             await session.commit()
-        except SQLAlchemyError as e:
+        except SQLAlchemyError:
             await session.rollback()
-            log.warning("DB update Position: %s", e)
 
-        # Añade los SOL liberados al balance estimado (simplificación)
         if not DRY_RUN:
             try:
-                proceeds_sol = pos.qty / 1e9
-                _wallet_sol_balance += proceeds_sol
+                _wallet_sol_balance += pos.qty / 1e9
             except Exception:
                 pass
 
-        log.warning("💸 VENDIDO %.4s  pnl=%.1f%%  sig=%s",
-                    pos.symbol or pos.address[:4], pnl_pct,
-                    (pos.exit_tx_sig or '—')[:6])
-
-# ╭──────────────── RETRAIN LOOP ────────────────────────────────╮
+# ╭──────────── retrain loop ──────────────────────╮
 async def retrain_loop() -> None:
     import calendar
-    wd = calendar.day_name[CFG.RETRAIN_DAY]      # Monday…Sunday
-    log.info("Retrain‑loop activo (%s %s UTC)", wd, CFG.RETRAIN_HOUR)
+
+    wd = calendar.day_name[CFG.RETRAIN_DAY]
+    log.info("Retrain-loop activo (%s %s UTC)", wd, CFG.RETRAIN_HOUR)
     while True:
         now = utc_now()
-        if now.weekday() == CFG.RETRAIN_DAY and now.hour == CFG.RETRAIN_HOUR and now.minute < 10:
+        if (
+            now.weekday() == CFG.RETRAIN_DAY
+            and now.hour == CFG.RETRAIN_HOUR
+            and now.minute < 10
+        ):
             try:
                 if retrain_if_better():
                     reload_model()
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 log.error("Retrain error: %s", e)
             await asyncio.sleep(3600)
         await asyncio.sleep(300)
 
-# ╭──────────────── MAIN LOOP ───────────────────────────────────╮
+# ╭──────────── MAIN LOOP ─────────────────────────╮
 async def main_loop() -> None:
-    await async_init_db()
-    session = SessionLocal()
+    session = SessionLocal()  # BD ya inicializada en _runner
 
     last_discovery = 0.0
     log.info(
-        "Bot listo  (discover=%ss, lote=%s, pausa=%ss, DRY_RUN=%s, AI_TH=%.2f)",
-        DISCOVERY_INTERVAL, VALIDATION_BATCH_SIZE, SLEEP_SECONDS, DRY_RUN, AI_TH,
+        "Ready (discover=%ss, batch=%s, sleep=%ss, DRY_RUN=%s, AI_TH=%.2f)",
+        DISCOVERY_INTERVAL,
+        VALIDATION_BATCH_SIZE,
+        SLEEP_SECONDS,
+        DRY_RUN,
+        AI_TH,
     )
 
-    global _wallet_sol_balance
+    global _wallet_sol_balance, _last_stats_print
     _wallet_sol_balance = await get_sol_balance()
-    log.info("Balance inicial: %.3f SOL", _wallet_sol_balance)
+    log.info("Balance inicial: %.3f SOL", _wallet_sol_balance)
 
     while True:
-        mono_now = time.monotonic()
-        await _refresh_balance(mono_now)
+        now_mono = time.monotonic()
+        await _refresh_balance(now_mono)
 
-        # 1) descubrimiento de pares nuevos
-        if mono_now - last_discovery >= DISCOVERY_INTERVAL:
+        # 1) descubrimiento de nuevos pares
+        if now_mono - last_discovery >= DISCOVERY_INTERVAL:
             for addr in await fetch_candidate_pairs():
                 agregar_si_nuevo(addr)
-            last_discovery = mono_now
+            last_discovery = now_mono
 
         # 2) stream Pump Fun
         for tok in await pumpfun.get_latest_pumpfun():
             try:
                 await _evaluate_and_buy(tok, session)
-            except Exception as e:  # noqa: BLE001
-                log.error("Eval PumpFun %s → %s", tok.get('address', '???')[:4], e)
+            except Exception as e:
+                log.error("Eval PumpFun %s → %s", tok.get("address", "???")[:4], e)
 
         # 3) validación de la cola
         for addr in obtener_pares()[:VALIDATION_BATCH_SIZE]:
@@ -329,15 +362,6 @@ async def main_loop() -> None:
                 if tok:
                     await _evaluate_and_buy(tok, session)
                 else:
-                    if retries_left(addr) == 1:
-                        archived_tokens[addr] = {
-                            "discovered_at": utc_now().replace(tzinfo=dt.timezone.utc),
-                            "last_checked": utc_now().replace(tzinfo=dt.timezone.utc),
-                            "initial_holders": 0,
-                            "initial_liq": 0.0,
-                            "initial_vol": 0.0,
-                        }
-                        log.info("🕓 %s archivado para reevaluar más tarde (no listado todavía)", addr[:4])
                     requeue(addr)
             except Exception as e:
                 log.error("get_pair %s → %s", addr[:6], e)
@@ -345,61 +369,26 @@ async def main_loop() -> None:
         # 4) posiciones abiertas
         try:
             await _check_positions(session)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.error("Check positions → %s", e)
 
-        # 5) Reevaluación de tokens archivados  (igual que antes) …
-        #    — código idéntico al original —                        #
-        now_utc = utc_now().replace(tzinfo=dt.timezone.utc)
-        for addr, info in list(archived_tokens.items()):
-            age_min = (now_utc - info["discovered_at"]).total_seconds() / 60.0
-            if age_min < 60:
-                interval = 180
-            elif age_min < 180:
-                interval = 300
-            else:
-                interval = 1800
-            if (now_utc - info["last_checked"]).total_seconds() < interval:
-                continue
-            tok = await dexscreener.get_pair(addr)
-            info["last_checked"] = now_utc
-            if not tok:
-                continue
-            liq = tok.get("liquidity_usd", 0.0)
-            vol24 = tok.get("volume_24h_usd", 0.0)
-            pc5 = 0.0
-            try:
-                pc5 = tok.get("priceChange", {}).get("m5", 0.0) or tok.get("price_change_5m", 0.0)
-            except Exception:
-                pc5 = 0.0
-            pc5_val = float(pc5) if pc5 else 0.0
-            if pc5_val < 2:
-                pc5_val *= 100.0
-            if liq >= CFG.REVIVAL_LIQ_USD and vol24 >= CFG.REVIVAL_VOL1H_USD and pc5_val >= CFG.REVIVAL_PC_5M:
-                new_holders = tok.get("holders", 0)
-                buyers_delta = new_holders - info.get("initial_holders", 0)
-                log.warning("⚡ %s revivido: liq=%.0f$, vol24h=%.0f$ (+%d nuevos holders) – re‑evaluando", tok.get("symbol", addr[:4]), liq, vol24, buyers_delta if buyers_delta >= 0 else 0)
-                try:
-                    session.add(RevivedToken(token_address=addr, first_listed=tok.get("created_at") or info["discovered_at"], revived_at=now_utc, liq_revived=liq, vol_revived=vol24, buyers_delta=buyers_delta if buyers_delta >= 0 else 0))
-                    await session.commit()
-                except SQLAlchemyError as e:
-                    await session.rollback()
-                    log.warning("DB insert RevivedToken: %s", e)
-                archived_tokens.pop(addr, None)
-                try:
-                    await _evaluate_and_buy(tok, session)
-                except Exception as e:
-                    log.error("Eval revival %s → %s", addr[:4], e)
-
-        # 6) métricas de observabilidad
-        pend, requeued = queue_stats()
-        log.debug("Pendientes=%d  Requeued=%d", pend, requeued)
+        # 5) métricas embudo
+        if time.monotonic() - _last_stats_print >= 60:
+            log_funnel(_stats)
+            _last_stats_print = time.monotonic()
 
         await asyncio.sleep(SLEEP_SECONDS)
 
-# ╭────────────────── ENTRY POINT ───────────────────────────────╮
+# ╭──────────── entry point ───────────────────────╮
 async def _runner() -> None:
-    await asyncio.gather(main_loop(), retrain_loop())
+    # crea tablas (WAL) una sola vez
+    await async_init_db()
+
+    await asyncio.gather(
+        main_loop(),
+        retrain_loop(),
+        _periodic_labeler(),
+    )
 
 if __name__ == "__main__":
     try:

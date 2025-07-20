@@ -5,14 +5,15 @@ Convierte el dict-token en un vector listo para el modelo LightGBM
 y añade un flag `is_incomplete` (0/1) cuando faltan métricas clave.
 """
 from __future__ import annotations
-
 import datetime as dt
 from typing import Any, Dict
 
+import numpy as np
 import pandas as pd
 
 from utils.data_utils import sanitize_token_data
 from utils.time import utc_now
+
 
 # ─────────────────────────── columnas ────────────────────────────
 COLUMNS: list[str] = [
@@ -41,17 +42,13 @@ COLUMNS: list[str] = [
     # señales internas
     "score_total",
     "trend",
-    # —— NUEVO flag de completitud ——  (no se usa en el modelo)
+    # flag de completitud
     "is_incomplete",
 ]
 
-_BOOL_COLS = {
-    "cluster_bad",
-    "mint_auth_renounced",
-    "social_ok",
-}
+_BOOL_COLS = {"cluster_bad", "mint_auth_renounced", "social_ok"}
+_CRITICAL  = ("liquidity_usd", "volume_24h_usd")   # para el flag
 
-_CRITICAL = ("liquidity_usd", "volume_24h_usd")   # para el flag
 
 # ────────────────────────── builder ─────────────────────────────
 def build_feature_vector(tok: Dict[str, Any]) -> pd.Series:
@@ -66,10 +63,10 @@ def build_feature_vector(tok: Dict[str, Any]) -> pd.Series:
     """
     tok = sanitize_token_data(tok)
 
-    now = utc_now()
-    age_min = (now.replace(tzinfo=dt.timezone.utc) - tok["created_at"]).total_seconds() / 60.0
+    now = utc_now()  # aware
+    age_min = (now - tok["created_at"].replace(tzinfo=dt.timezone.utc)).total_seconds() / 60.0
 
-    # base obligatoria
+    # meta obligatoria
     values: Dict[str, Any] = {
         "address":        tok["address"],
         "timestamp":      now,
@@ -79,21 +76,21 @@ def build_feature_vector(tok: Dict[str, Any]) -> pd.Series:
 
     # resto de campos
     for col in COLUMNS:
-        if col in values:
+        if col in values or col == "is_incomplete":
             continue
-        if col == "is_incomplete":               # se calcula al final
-            continue
-        val = tok.get(col, 0)
+
+        val = tok.get(col, None)
+
+        # normalizaciones
         if col in _BOOL_COLS:
             val = int(bool(val))
-        if val is None:
-            val = 0
+        elif val is None:
+            val = np.nan  # usar NaN, NO 0
         values[col] = val
 
     # —— flag is_incomplete ——————————————————————————————
     values["is_incomplete"] = int(
-        any(values.get(k, 0) == 0 for k in _CRITICAL)
+        any(pd.isna(values[k]) or values[k] == 0 for k in _CRITICAL)
     )
 
-    # Devuelve en el orden estricto de COLUMNS
     return pd.Series([values[c] for c in COLUMNS], index=COLUMNS)

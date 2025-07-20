@@ -1,9 +1,11 @@
+# memebot3/utils/logger.py
 """
 utils.logger
 ~~~~~~~~~~~~
-* Rotación horaria con run-id incremental
-* Filtro anti-spam que suprime repeticiones idénticas ≤ 30 s
-* Helper warn_if_nulls()
+• Rotación horaria con run-id incremental
+• Filtro anti-spam que suprime repeticiones idénticas ≤ 30 s
+• Helper warn_if_nulls()
+• NEW 2025-07-20 : `log_funnel(stats)` → imprime el embudo del bot
 """
 from __future__ import annotations
 
@@ -12,7 +14,7 @@ import logging
 import pathlib
 import re
 import time
-from typing import Any, List, Mapping
+from typing import Any, Mapping
 
 from config.config import CFG
 
@@ -79,16 +81,41 @@ class HourlySplitFileHandler(logging.Handler):
         finally:
             super().close()
 
+
 # ——————————————————— observabilidad ——————————————————
 _CRITICAL_NUMERIC = {"liquidity_usd", "volume_24h_usd"}
 
 def warn_if_nulls(data: Mapping[str, Any], *, context: str = "") -> None:
-    missing = [k for k in _CRITICAL_NUMERIC if not data.get(k)]
+    """
+    Log-warning si algún campo crítico (liq/vol) está nulo / 0 / NaN.
+    """
+    missing = [
+        k for k in _CRITICAL_NUMERIC
+        if not data.get(k) or (hasattr(data.get(k), "size") and data.get(k) != data.get(k))
+    ]
     if missing:
         logging.getLogger("data").warning(
             "Campos críticos nulos %s — %s",
-            ",".join(missing), context,
+            ",".join(missing),
+            context,
         )
+
+# ——————————————————— nuevo helper funnel —————————————————
+def log_funnel(stats: Mapping[str, int]) -> None:
+    """
+    Imprime un resumen compacto del embudo de eventos del bot.
+
+    Parameters
+    ----------
+    stats : dict
+        Debe incluir las claves:
+        raw_discovered · incomplete · filtered_out · ai_pass · bought · sold
+    """
+    tpl = (
+        "Funnel | discovered={raw_discovered}  incomplete={incomplete}  "
+        "filtered={filtered_out}  ai_pass={ai_pass}  bought={bought}  sold={sold}"
+    )
+    logging.getLogger("funnel").info(tpl.format(**stats))
 
 # ——————————————————— init público ——————————————————
 def enable_file_logging() -> int:
@@ -106,4 +133,4 @@ def enable_file_logging() -> int:
     return run_id
 
 
-__all__ = ["enable_file_logging", "warn_if_nulls"]
+__all__ = ["enable_file_logging", "warn_if_nulls", "log_funnel"]

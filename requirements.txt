@@ -9,7 +9,9 @@ python-dotenv>=1.0
 
 # ─── Datos / indicadores ─────────────────────────────────────
 pandas>=2.2              # usa PyArrow como backend por defecto
-numpy>=2.0
+numpy<2.3          # para SHAP/Numba
+numba<0.60
+shap==0.45.0       # explicabilidad
 pyarrow>=16.0            # lectura/escritura Parquet
 ta>=0.11                 # EMA/RSI puro-python
 pytz>=2024.1
