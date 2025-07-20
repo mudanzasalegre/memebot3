@@ -3,10 +3,13 @@ utils.data_utils
 ~~~~~~~~~~~~~~~~
 • Normaliza el dict-token a claves canónicas y tipos simples.
 • is_incomplete() marca tokens sin liquidez o volumen relevante.
-• NEW 2025-07-20 :
-  – Campos críticos → np.nan cuando faltan (NO 0).
-  – fill_provisional_liq_vol(): forward-fill liq/vol en un DataFrame
-    y marca como “completo” al tener valores > 0.
+
+Cambios 2025-07-20 / 22
+───────────────────────
+✔  Campos críticos → np.nan cuando faltan (NO 0).
+✔  fill_provisional_liq_vol(): forward-fill liq/vol en un DataFrame.
+✔  **NEW** 22-Jul-2025   – Asegura que los enteros NOT-NULL de la BD nunca
+   lleguen como NaN (holders, txns_last_5m) → se sustituyen por 0.
 """
 from __future__ import annotations
 
@@ -42,6 +45,9 @@ _NUMERIC_ALIASES: dict[str, str] = {
 }
 
 _MANDATORY_FLOATS = {"liquidity_usd", "volume_24h_usd"}
+# Campos INT que en la BD son NOT NULL ⇒ jamás se guardan como NaN/None
+_INT_NOT_NULL = ("holders", "txns_last_5m")
+
 _TREND_STR_TO_INT = {
     "up": 1, "uptrend": 1, "bull": 1, "bullish": 1,
     "down": -1, "downtrend": -1, "bear": -1, "bearish": -1,
@@ -63,8 +69,8 @@ def _extract_from_dict(d: dict, ctx: str) -> float | None:
 
 def _to_float(value: Any, ctx: str = "") -> float | None:
     """
-    Convierte un valor a float.
-    • Devuelve **np.nan** si no es convertible (antes 0.0).
+    Convierte *value* a float.
+    • Devuelve **np.nan** si no es convertible (antes devolvía 0.0).
     """
     if value is None:
         return np.nan
@@ -105,9 +111,7 @@ def is_incomplete(tok: Dict[str, Any]) -> bool:
 def fill_provisional_liq_vol(df: pd.DataFrame) -> pd.DataFrame:
     """
     Para un DataFrame de un mismo token ordenado por timestamp:
-    • forward-fill `liquidity_usd` y `volume_24h_usd`
-      (ej.: filas iniciales con NaN se rellenan cuando llegue el dato).
-    • Devuelve el df modificado (copy).
+    • forward-fill `liquidity_usd` y `volume_24h_usd` (filas iniciales con NaN).
     """
     df = df.copy().sort_values("timestamp")
     for col in ("liquidity_usd", "volume_24h_usd"):
@@ -118,14 +122,14 @@ def fill_provisional_liq_vol(df: pd.DataFrame) -> pd.DataFrame:
 # ───────── función principal ────────────────
 def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
     """
-    • Alias → nombres canónicos.
-    • Castea numéricos vía _to_float (→ float o np.nan).
-    • Añade claves faltantes con np.nan.
+    • Alias → nombres canónicos.  
+    • Castea numéricos vía _to_float (→ float o np.nan).  
+    • Asegura tipos simples y valores válidos para la BD.
     """
-    clean: Dict[str, Any] = token  # mutación in-place
+    clean: Dict[str, Any] = token        # mutación in-place
     ctx = clean.get("symbol") or clean.get("address", "")[:4]
 
-    # 0) si falta created_at → ahora-10 s
+    # 0) si falta created_at → ahora-10 s (evita age negativa)
     if not clean.get("created_at"):
         clean["created_at"] = utc_now() - dt.timedelta(seconds=10)
 
@@ -151,7 +155,18 @@ def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
     if clean.get("age_minutes") is None:
         clean["age_minutes"] = 0.0
 
-    # 6) marca de tiempo de la descarga
+    # 6) ints NOT-NULL nunca deben ser NaN/None
+    for fld in _INT_NOT_NULL:
+        val = clean.get(fld)
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            clean[fld] = 0      # default
+        else:
+            try:
+                clean[fld] = int(val)
+            except Exception:
+                clean[fld] = 0
+
+    # 7) marca de tiempo de la descarga
     clean.setdefault("fetched_at", utc_now())
 
     return clean

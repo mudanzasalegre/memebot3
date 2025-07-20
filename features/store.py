@@ -1,7 +1,16 @@
-# memebot3/features/store.py
 """
 Persiste cada vector de features en un Parquet mensual
 (features_YYYYMM.parquet) con esquema **fijo**.
+
+🆕 2025-07-21
+─────────────
+• Se mantiene un contador in-memory (`_ROW_COUNT`) que se incrementa
+  en cada `append()`.  
+• Cada 100 filas escritas se imprime en el log:
+
+        [features] Features acumuladas: <TOTAL>
+
+  Así puedes seguir el tamaño del dataset sin abrir el Parquet.
 """
 from __future__ import annotations
 
@@ -18,7 +27,7 @@ import pyarrow.parquet as pq
 from config.config import CFG
 from features.builder import COLUMNS as _FEAT_COLS
 
-log = logging.getLogger("feature-store")
+log = logging.getLogger("features")
 
 # ───────────────────────── paths ───────────────────────────────
 DATA_DIR: Path = CFG.FEATURES_DIR
@@ -79,6 +88,9 @@ def _enforce_schema(table: pa.Table) -> pa.Table:
     table = table.select(_PARQUET_COLS)
     return table.cast(_SCHEMA, safe=False)
 
+# ─────────── contador in-memory ───────────────────────────────
+_ROW_COUNT = 0          # se incrementa en cada append()
+
 # ───────────────────── low-level IO ────────────────────────────
 def _write(table: pa.Table, path: Path) -> None:
     table = _enforce_schema(table)
@@ -87,7 +99,7 @@ def _write(table: pa.Table, path: Path) -> None:
         existing = _enforce_schema(pq.read_table(path))
         table = pa.concat_tables(
             [existing, table],
-            promote_options="default",   # ← sin FutureWarning desde pyarrow 20
+            promote_options="default",   # sin FutureWarning desde pyarrow 20
         )
 
     pq.write_table(
@@ -99,7 +111,11 @@ def _write(table: pa.Table, path: Path) -> None:
 
 # ───────────────────── API pública ─────────────────────────────
 def append(vec: Mapping[str, float | int], label: int) -> None:
-    """Añade una fila al Parquet mensual."""
+    """
+    Añade una fila al Parquet mensual y muestra el total cada 100 filas.
+    """
+    global _ROW_COUNT
+
     if isinstance(vec, pd.Series):
         vec = vec.to_dict()
 
@@ -111,6 +127,9 @@ def append(vec: Mapping[str, float | int], label: int) -> None:
 
     try:
         _write(pa_table, _file_for_now())
+        _ROW_COUNT += 1
+        if _ROW_COUNT % 100 == 0:
+            log.info("Features acumuladas: %s", _ROW_COUNT)
     except Exception as exc:           # noqa: BLE001
         log.error("Parquet append error → %s", exc)
 
