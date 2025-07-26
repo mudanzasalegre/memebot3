@@ -1,3 +1,4 @@
+# memebot3/features/store.py
 """
 Persiste cada vector de features en un Parquet mensual
 (features_YYYYMM.parquet) con esquema **fijo**.
@@ -5,12 +6,15 @@ Persiste cada vector de features en un Parquet mensual
 🆕 2025-07-21
 ─────────────
 • Se mantiene un contador in-memory (`_ROW_COUNT`) que se incrementa
-  en cada `append()`.  
+  en cada `append()`.
 • Cada 100 filas escritas se imprime en el log:
 
         [features] Features acumuladas: <TOTAL>
 
-  Así puedes seguir el tamaño del dataset sin abrir el Parquet.
+🆕 2025-07-26
+─────────────
+• Añadida la columna **market_cap_usd** al esquema fijo para reflejar
+  la estrategia de micro-caps (5 k – 20 k USD).
 """
 from __future__ import annotations
 
@@ -36,38 +40,41 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 _PARQUET_COLS = _FEAT_COLS + ["label", "ts"]
 
 # —— esquema fijo ——————————————————————————————
-_COL_TYPES = OrderedDict([
-    # meta
-    ("address",             pa.string()),
-    ("timestamp",           pa.timestamp("us")),
-    ("discovered_via",      pa.string()),
-    # liquidez / actividad
-    ("age_minutes",         pa.float32()),
-    ("liquidity_usd",       pa.float32()),
-    ("volume_24h_usd",      pa.float32()),
-    ("txns_last_5m",        pa.int32()),
-    ("holders",             pa.int32()),
-    # riesgo
-    ("rug_score",           pa.int32()),
-    ("cluster_bad",         pa.int8()),
-    ("mint_auth_renounced", pa.int8()),
-    # momentum
-    ("price_pct_1m",        pa.float32()),
-    ("price_pct_5m",        pa.float32()),
-    ("volume_pct_5m",       pa.float32()),
-    # social
-    ("social_ok",           pa.int8()),
-    ("twitter_followers",   pa.int32()),
-    ("discord_members",     pa.int32()),
-    # señales internas
-    ("score_total",         pa.int32()),
-    ("trend",               pa.int8()),
-    # flag
-    ("is_incomplete",       pa.int8()),
-    # label + ts
-    ("label",               pa.int8()),
-    ("ts",                  pa.timestamp("us")),
-])
+_COL_TYPES = OrderedDict(
+    [
+        # meta
+        ("address", pa.string()),
+        ("timestamp", pa.timestamp("us")),
+        ("discovered_via", pa.string()),
+        # liquidez / actividad
+        ("age_minutes", pa.float32()),
+        ("liquidity_usd", pa.float32()),
+        ("volume_24h_usd", pa.float32()),
+        ("market_cap_usd", pa.float32()),  # ← NUEVO
+        ("txns_last_5m", pa.int32()),
+        ("holders", pa.int32()),
+        # riesgo
+        ("rug_score", pa.int32()),
+        ("cluster_bad", pa.int8()),
+        ("mint_auth_renounced", pa.int8()),
+        # momentum
+        ("price_pct_1m", pa.float32()),
+        ("price_pct_5m", pa.float32()),
+        ("volume_pct_5m", pa.float32()),
+        # social
+        ("social_ok", pa.int8()),
+        ("twitter_followers", pa.int32()),
+        ("discord_members", pa.int32()),
+        # señales internas
+        ("score_total", pa.int32()),
+        ("trend", pa.int8()),
+        # flag
+        ("is_incomplete", pa.int8()),
+        # label + ts
+        ("label", pa.int8()),
+        ("ts", pa.timestamp("us")),
+    ]
+)
 
 _SCHEMA = pa.schema([(c, _COL_TYPES[c]) for c in _PARQUET_COLS])
 
@@ -88,10 +95,11 @@ def _enforce_schema(table: pa.Table) -> pa.Table:
     table = table.select(_PARQUET_COLS)
     return table.cast(_SCHEMA, safe=False)
 
-# ─────────── contador in-memory ───────────────────────────────
-_ROW_COUNT = 0          # se incrementa en cada append()
 
-# ───────────────────── low-level IO ────────────────────────────
+# ─────────── contador in-memory ───────────────────────────────
+_ROW_COUNT = 0  # se incrementa en cada append()
+
+# ───────────────────── low-level IO ───────────────────────────
 def _write(table: pa.Table, path: Path) -> None:
     table = _enforce_schema(table)
 
@@ -99,7 +107,7 @@ def _write(table: pa.Table, path: Path) -> None:
         existing = _enforce_schema(pq.read_table(path))
         table = pa.concat_tables(
             [existing, table],
-            promote_options="default",   # sin FutureWarning desde pyarrow 20
+            promote_options="default",  # sin FutureWarning desde pyarrow 20
         )
 
     pq.write_table(
@@ -108,6 +116,7 @@ def _write(table: pa.Table, path: Path) -> None:
         compression="snappy",
         use_deprecated_int96_timestamps=False,
     )
+
 
 # ───────────────────── API pública ─────────────────────────────
 def append(vec: Mapping[str, float | int], label: int) -> None:
@@ -130,7 +139,7 @@ def append(vec: Mapping[str, float | int], label: int) -> None:
         _ROW_COUNT += 1
         if _ROW_COUNT % 100 == 0:
             log.info("Features acumuladas: %s", _ROW_COUNT)
-    except Exception as exc:           # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         log.error("Parquet append error → %s", exc)
 
 
@@ -142,19 +151,19 @@ def update_pnl(address: str, pnl_pct: float) -> None:
 
     try:
         table = pq.read_table(path)
-        idxs = [i for i, v in enumerate(table.column("address"))
-                if v.as_py() == address]
+        idxs = [
+            i for i, v in enumerate(table.column("address")) if v.as_py() == address
+        ]
         if not idxs:
             return
         last = idxs[-1]
 
         if "pnl_pct" not in table.schema.names:
-            table = table.append_column(
-                "pnl_pct", pa.array([None] * table.num_rows)
-            )
+            table = table.append_column("pnl_pct", pa.array([None] * table.num_rows))
 
-        pnl_vals = [table.column("pnl_pct")[i].as_py()
-                    for i in range(table.num_rows)]
+        pnl_vals = [
+            table.column("pnl_pct")[i].as_py() for i in range(table.num_rows)
+        ]
         pnl_vals[last] = float(pnl_pct)
 
         new_table = table.set_column(
@@ -163,5 +172,5 @@ def update_pnl(address: str, pnl_pct: float) -> None:
             pa.array(pnl_vals),
         )
         pq.write_table(new_table, path, compression="snappy")
-    except Exception as exc:           # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         log.error("update_pnl error → %s", exc)

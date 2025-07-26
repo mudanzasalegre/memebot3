@@ -2,14 +2,17 @@
 """
 Filtro de pares basado en reglas básicas (no-IA).
 
-Cambios 2025-07-20
-──────────────────
-• El chequeo de liquidez/volumen se pospone hasta que el token
-  lleve ≥ 300 s en la red.
-• Si `liquidity_usd` == 0 / NaN y el token tiene < 60 s ⇒
-  se devuelve **None**  → el caller debe re-encolar y reintentar
-  tras 60 s (lista_pares.requeue).
-• Usa los parámetros actuales de `config.config`.
+Cambios
+───────
+2025-07-20
+• El chequeo de liquidez/volumen se pospone hasta ≥ 300 s de vida.
+• Si `liquidity_usd` == 0/NaN y age < 60 s se devuelve **None**
+  para que el caller re-encole.
+
+2025-07-26
+• Se incorpora **market_cap_usd** al filtro duro:
+  - Se aceptan únicamente tokens con mcap entre
+    MIN_MARKET_CAP_USD y MAX_MARKET_CAP_USD (tras la ventana de gracia).
 """
 from __future__ import annotations
 
@@ -22,8 +25,10 @@ import numpy as np
 from config.config import (
     MAX_24H_VOLUME,
     MAX_AGE_DAYS,
+    MAX_MARKET_CAP_USD,
     MIN_HOLDERS,
     MIN_LIQUIDITY_USD,
+    MIN_MARKET_CAP_USD,
     MIN_VOL_USD_24H,
     MIN_SCORE_TOTAL,
 )
@@ -34,13 +39,13 @@ log = logging.getLogger("filters")
 # ─────────────────────────── FILTRO DURO ────────────────────────────
 def basic_filters(token: Dict) -> Optional[bool]:
     """
-    True  → pasa el filtro duro  
-    False → descartado definitivamente  
-    None  → “delay”: aún muy pronto, re-encolar y reintentar más tarde
+    True   → pasa el filtro duro  
+    False  → descartado definitivamente  
+    None   → “delay”: re-encolar y reintentar más tarde
     """
     sym = token.get("symbol", token["address"][:4])
 
-    # 1) antigüedad
+    # 1) antigüedad -----------------------------------------------------------------
     created = token.get("created_at")
     if not created:
         log.debug("✗ %s sin created_at", sym)
@@ -52,18 +57,22 @@ def basic_filters(token: Dict) -> Optional[bool]:
         log.debug("✗ %s age %.1f d > %s", sym, age_days, MAX_AGE_DAYS)
         return False
 
-    # 2) liquidez / volumen
-    liq = token.get("liquidity_usd")
+    # 2) liquidez • volumen • market-cap --------------------------------------------
+    liq   = token.get("liquidity_usd")
     vol24 = token.get("volume_24h_usd")
+    mcap  = token.get("market_cap_usd")
 
-    # 2.a  — ventana de gracia 0-5 min —
+    # 2.a —ventana de gracia 0-5 min—
     if age_sec < 300:
-        # si liquidez o volumen aún NaN/0 → dejar pasar (sin check)
+        # se pospone el chequeo estricto
         pass
     else:
-        if (liq is None or math.isnan(liq) or liq < MIN_LIQUIDITY_USD):
+        # ------- Liquidez -------
+        if liq is None or math.isnan(liq) or liq < MIN_LIQUIDITY_USD:
             log.debug("✗ %s liq %.0f < %s (tras 5 min)", sym, liq or 0, MIN_LIQUIDITY_USD)
             return False
+
+        # ------- Volumen 24 h -------
         if (
             vol24 is None
             or math.isnan(vol24)
@@ -73,12 +82,21 @@ def basic_filters(token: Dict) -> Optional[bool]:
             log.debug("✗ %s vol24h %.0f fuera rango (tras 5 min)", sym, vol24 or 0)
             return False
 
-    # 2.b  — tokens muy recientes con liq==0 → delay —
+        # ------- Market-cap -------
+        if (
+            mcap is not None
+            and not math.isnan(mcap)
+            and (mcap < MIN_MARKET_CAP_USD or mcap > MAX_MARKET_CAP_USD)
+        ):
+            log.debug("✗ %s mcap %.0f fuera rango [%s-%s]", sym, mcap, MIN_MARKET_CAP_USD, MAX_MARKET_CAP_USD)
+            return False
+
+    # 2.b —tokens muy recientes con liq==0 → delay—
     if age_sec < 60 and (liq is None or math.isnan(liq) or liq == 0):
         log.debug("⏳ %s liq 0/NaN con age<60 s → requeue", sym)
         return None
 
-    # 3) holders  ── parche: permitimos holders==0 si ya hubo swaps
+    # 3) holders --------------------------------------------------------------------
     holders = token.get("holders", 0) or 0
     if holders == 0:
         swaps_5m = token.get("txns_last_5m", 0) or 0
@@ -89,7 +107,7 @@ def basic_filters(token: Dict) -> Optional[bool]:
         log.debug("✗ %s holders %s < %s", sym, holders, MIN_HOLDERS)
         return False
 
-    # 4) early sell-off (dump 70 % ventas en primeros 10 min)
+    # 4) early sell-off --------------------------------------------------------------
     if age_sec < 600:
         sells = token.get("txns_last_5m_sells") or 0
         buys  = token.get("txns_last_5m") or 0
@@ -100,7 +118,7 @@ def basic_filters(token: Dict) -> Optional[bool]:
                 or 0
             )
             pc5_val = float(pc5) if pc5 else 0.0
-            if pc5_val < 2:      # DexScreener a veces da 0.01 ⇒ %
+            if pc5_val < 2:  # DexScreener a veces da 0.01 ⇒ %
                 pc5_val *= 100.0
             if -5 < pc5_val < 5:
                 log.debug("✗ %s >70%% ventas iniciales (precio estable)", sym)
@@ -125,5 +143,5 @@ def total_score(tok: dict) -> int:
 
 # ───────────────────── helper predicciones IA ───────────────────────
 def ai_pred_to_filter(pred: float) -> bool:
-    """Convertimos probabilidad del modelo a filtro booleano via corte de score."""
+    """Convierte probabilidad del modelo a filtro booleano via corte de score."""
     return pred >= MIN_SCORE_TOTAL / 100

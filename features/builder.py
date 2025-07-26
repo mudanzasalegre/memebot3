@@ -1,3 +1,4 @@
+# memebot3/features/builder.py
 """
 features.builder
 ~~~~~~~~~~~~~~~~
@@ -5,6 +6,7 @@ Convierte el dict-token en un vector listo para el modelo LightGBM
 y añade un flag `is_incomplete` (0/1) cuando faltan métricas clave.
 """
 from __future__ import annotations
+
 import datetime as dt
 from typing import Any, Dict
 
@@ -14,8 +16,7 @@ import pandas as pd
 from utils.data_utils import sanitize_token_data
 from utils.time import utc_now
 
-
-# ─────────────────────────── columnas ────────────────────────────
+# ───────────────────────────── columnas ──────────────────────────────
 COLUMNS: list[str] = [
     # meta
     "address",
@@ -25,6 +26,7 @@ COLUMNS: list[str] = [
     "age_minutes",
     "liquidity_usd",
     "volume_24h_usd",
+    "market_cap_usd",          # ← NUEVO
     "txns_last_5m",
     "holders",
     # riesgo
@@ -47,10 +49,9 @@ COLUMNS: list[str] = [
 ]
 
 _BOOL_COLS = {"cluster_bad", "mint_auth_renounced", "social_ok"}
-_CRITICAL  = ("liquidity_usd", "volume_24h_usd")   # para el flag
+_CRITICAL = ("liquidity_usd", "volume_24h_usd")  # para el flag
 
-
-# ────────────────────────── builder ─────────────────────────────
+# ───────────────────────────── builder ───────────────────────────────
 def build_feature_vector(tok: Dict[str, Any]) -> pd.Series:
     """
     Parameters
@@ -64,14 +65,16 @@ def build_feature_vector(tok: Dict[str, Any]) -> pd.Series:
     tok = sanitize_token_data(tok)
 
     now = utc_now()  # aware
-    age_min = (now - tok["created_at"].replace(tzinfo=dt.timezone.utc)).total_seconds() / 60.0
+    age_min = (
+        now - tok["created_at"].replace(tzinfo=dt.timezone.utc)
+    ).total_seconds() / 60.0
 
     # meta obligatoria
     values: Dict[str, Any] = {
-        "address":        tok["address"],
-        "timestamp":      now,
+        "address": tok["address"],
+        "timestamp": now,
         "discovered_via": tok.get("discovered_via", "dex"),
-        "age_minutes":    age_min,
+        "age_minutes": age_min,
     }
 
     # resto de campos

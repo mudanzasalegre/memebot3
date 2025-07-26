@@ -2,55 +2,85 @@
 """
 ⏯️  Orquestador principal del sniper MemeBot 3
 ──────────────────────────────────────────────
-Cambios 2025-07-20 / 21
+Cambios 2025-07-21 / 26
 • DRY-RUN compra siempre 0.01 SOL
 • Fix TZ en _should_exit()
 • Cierre de emergencia cuando no hay PNL
-• Embudo de métricas utils.logger.log_funnel()  (cada 60 s)
-• Filtro duro tolerante (basic_filters → None ⇒ requeue 60 s)
-• Runner interno labeler.win_labeler → task cada hora
-• 🆕 async_init_db() se llama **una sola vez** en _runner()
+• Embudo métricas vía utils.logger.log_funnel()  (cada 60 s)
+• Filtro duro tolerante  (None ⇒ requeue 60 s)
+• Labeler interno cada hora
+• Deduplicación de posiciones
+• Log de cola pending/requeued/cooldown
+• Market-cap min/max desde .env
+• ⭐  liq/vol/mcap = NaN  ⇒ rama “incomplete”
 """
 
 from __future__ import annotations
 
+# ——— stdlib ————————————————————————————————————————
 import argparse
 import asyncio
 import datetime as dt
 import logging
+import math
 import time
 from typing import Sequence
 
+# Reduce ruido de drivers SQL cuando LOG_LEVEL=DEBUG
+logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+
+# ——— SQLAlchemy async ——————————————————————————————
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.inspection import inspect
 
-# ───────── módulos propios ──────────────────────────────────
-from config.config import CFG, BANNED_CREATORS
+# ——— Config / constantes ——————————————————————————
+from config.config import (
+    CFG,
+    BANNED_CREATORS,
+    MIN_MARKET_CAP_USD,
+    MAX_MARKET_CAP_USD,
+)
 from config import exits
+
+# ——— Base de datos ——————————————————————————————
 from db.database import SessionLocal, async_init_db
-from db.models import Position, Token, RevivedToken
-from fetcher import (dexscreener, helius_cluster as clusters, pumpfun,
-                     rugcheck, socials)
+from db.models import Position, Token, RevivedToken  # RevivedToken: futuras features
+
+# ——— Fetchers / analytics —————————————————————————
+from fetcher import dexscreener, helius_cluster as clusters, pumpfun, rugcheck, socials
 from analytics import filters, insider, trend
 from analytics.ai_predict import should_buy, reload_model
-from features.builder import build_feature_vector, COLUMNS as FEAT_COLS
+
+# ——— Features / ML ——————————————————————————————
+from features.builder import build_feature_vector
 from features.store import append as store_append, update_pnl as store_update_pnl
 from ml.retrain import retrain_if_better
+
+# ——— Utils (descubridor y cola) ————————————————————
 from utils.descubridor_pares import fetch_candidate_pairs
-from utils.lista_pares import (agregar_si_nuevo, eliminar_par, obtener_pares,
-                               requeue, stats as queue_stats)
+from utils import lista_pares                    # prefijo:  lista_pares.retries_left(...)
+from utils.lista_pares import (                  # sin prefijo: agregar_si_nuevo(...)
+    agregar_si_nuevo,
+    eliminar_par,
+    obtener_pares,
+    requeue,
+    stats as queue_stats,
+)
+
+# ——— Otras utilidades ————————————————————————————
 from utils.data_utils import sanitize_token_data, is_incomplete
 from utils.logger import enable_file_logging, warn_if_nulls, log_funnel
 from utils.solana_rpc import get_sol_balance
 from utils.time import utc_now
-from labeler.win_labeler import label_positions
+from labeler.win_labeler import label_positions  # noqa: E402
 
 # ╭──────────── CLI / flags ─────────────────────────╮
 parser = argparse.ArgumentParser(description="MemeBot 3 – sniper Solana")
 parser.add_argument("--dry-run", action="store_true", help="Paper-trading")
-parser.add_argument("--log", action="store_true", help="Gira logs en /logs")
-args = parser.parse_args()
+parser.add_argument("--log",     action="store_true", help="Gira logs en /logs")
+args    = parser.parse_args()
 DRY_RUN = args.dry_run or CFG.DRY_RUN
 
 # ╭──────────── logging root ────────────────────────╮
@@ -62,12 +92,13 @@ logging.basicConfig(
 )
 log = logging.getLogger("run_bot")
 
-# ───────── trader segun modo ───────────────────────
+# ───────── trader según modo ───────────────────────
 if DRY_RUN:
-    from trader import papertrading as buyer, papertrading as seller  # noqa: E402
+    from trader import papertrading as buyer   # noqa: E402
+    from trader import papertrading as seller  # noqa: E402
     log.info("🔖 DRY-RUN ACTIVADO – trader.papertrading")
 else:
-    from trader import buyer, seller                                 # noqa: E402
+    from trader import buyer, seller           # noqa: E402
 
 # file-logging opcional
 if args.log:
@@ -75,35 +106,34 @@ if args.log:
     log.info("📂 File-logging activo (run_id %s)", run_id)
 
 # ───────── constantes de CFG ───────────────────────
-DISCOVERY_INTERVAL = CFG.DISCOVERY_INTERVAL
-SLEEP_SECONDS = CFG.SLEEP_SECONDS
+DISCOVERY_INTERVAL    = CFG.DISCOVERY_INTERVAL
+SLEEP_SECONDS         = CFG.SLEEP_SECONDS
 VALIDATION_BATCH_SIZE = CFG.VALIDATION_BATCH_SIZE
-TRADE_AMOUNT_SOL_CFG = CFG.TRADE_AMOUNT_SOL
-GAS_RESERVE_SOL = CFG.GAS_RESERVE_SOL
-MIN_SOL_BALANCE = CFG.MIN_SOL_BALANCE
-WALLET_POLL_INTERVAL = 30
+TRADE_AMOUNT_SOL_CFG  = CFG.TRADE_AMOUNT_SOL
+GAS_RESERVE_SOL       = CFG.GAS_RESERVE_SOL
+MIN_SOL_BALANCE       = CFG.MIN_SOL_BALANCE
+WALLET_POLL_INTERVAL  = 30
 
-TP_PCT = exits.TAKE_PROFIT_PCT
-SL_PCT = exits.STOP_LOSS_PCT
-TRAILING_PCT = exits.TRAILING_PCT
+TP_PCT        = exits.TAKE_PROFIT_PCT
+SL_PCT        = exits.STOP_LOSS_PCT
+TRAILING_PCT  = exits.TRAILING_PCT
 MAX_HOLDING_H = exits.MAX_HOLDING_H
-AI_TH = CFG.AI_THRESHOLD
+AI_TH         = CFG.AI_THRESHOLD
 
 # ───────── estado runtime ─────────────────────────
 _wallet_sol_balance: float = 0.0
-_last_wallet_check: float = 0.0
+_last_wallet_check: float  = 0.0
 
 _stats = {
     "raw_discovered": 0,
-    "incomplete": 0,
-    "filtered_out": 0,
-    "ai_pass": 0,
-    "bought": 0,
-    "sold": 0,
+    "incomplete":     0,
+    "filtered_out":   0,
+    "ai_pass":        0,
+    "bought":         0,
+    "sold":           0,
 }
 _last_stats_print = time.monotonic()
 
-archived_tokens: dict[str, dict] = {}
 
 # ╭──────────── helpers balance ───────────────────╮
 async def _refresh_balance(monotonic_now: float) -> None:
@@ -112,9 +142,9 @@ async def _refresh_balance(monotonic_now: float) -> None:
         return
     try:
         _wallet_sol_balance = await get_sol_balance()
-        _last_wallet_check = monotonic_now
+        _last_wallet_check  = monotonic_now
         log.debug("💰 Wallet = %.3f SOL", _wallet_sol_balance)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:                       # noqa: BLE001
         log.warning("get_sol_balance → %s", e)
 
 
@@ -137,30 +167,34 @@ async def _periodic_labeler() -> None:
         await asyncio.sleep(3600)
 
 # ╭──────────── BUY PIPELINE ──────────────────────╮
-async def _evaluate_and_buy(token: dict, session) -> None:
+async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
+    """Evalúa un token y ejecuta compra si procede."""
     global _wallet_sol_balance
+
     addr = token["address"]
     _stats["raw_discovered"] += 1
 
-    # — sanitize + warning si liq/vol nulos
+    # — sanitize + warning campos críticos nulos —
     token = sanitize_token_data(token)
     warn_if_nulls(token, context=addr[:4])
 
-    # — descartes rápidos
+    # — deduplicación: posición abierta →
+    exists = await session.scalar(
+        select(Position).where(Position.address == addr, Position.closed.is_(False))
+    )
+    if exists:
+        eliminar_par(addr)
+        return
+
+    # — descartes rápidos —
     if token.get("creator") in BANNED_CREATORS:
         eliminar_par(addr)
         return
-    if token.get("discovered_via") == "pumpfun" and not token["liquidity_usd"]:
+    if token.get("discovered_via") == "pumpfun" and not token.get("liquidity_usd"):
         requeue(addr)
         return
 
-    # — señales baratas
-    token["social_ok"] = await socials.has_socials(addr)
-    token["trend"] = await trend.trend_signal(addr)
-    token["insider_sig"] = await insider.insider_alert(addr)
-    token["score_total"] = filters.total_score(token)
-
-    # — incompleto
+    # — incompleto (liq / vol 0 o NaN) —
     if is_incomplete(token):
         _stats["incomplete"] += 1
         token["is_incomplete"] = 1
@@ -168,10 +202,28 @@ async def _evaluate_and_buy(token: dict, session) -> None:
         requeue(addr)
         return
     token["is_incomplete"] = 0
+    
+    # ────────────────────────────────
+    # Si el mint venía de un re-enqueue y
+    # ahora ya trae métricas completas → log
+    if lista_pares.retries_left(addr) < lista_pares.MAX_RETRIES:
+        log.debug(
+            "✔ %s completado · liq=%.0f vol24h=%.0f mcap=%.0f",
+            addr[:4],
+            token["liquidity_usd"],
+            token["volume_24h_usd"],
+            token["market_cap_usd"],
+        )
 
-    # — filtro duro tolerante
+    # — señales baratas —
+    token["social_ok"]   = await socials.has_socials(addr)
+    token["trend"]       = await trend.trend_signal(addr)
+    token["insider_sig"] = await insider.insider_alert(addr)
+    token["score_total"] = filters.total_score(token)
+
+    # — filtro duro tolerante —
     res = filters.basic_filters(token)
-    if res is None:  # liquidez aún 0 → delay
+    if res is None:                 # ventana de gracia → re-encolar
         requeue(addr)
         return
     if res is False:
@@ -180,12 +232,24 @@ async def _evaluate_and_buy(token: dict, session) -> None:
         eliminar_par(addr)
         return
 
-    # — señales caras
-    token["rug_score"] = await rugcheck.check_token(addr)
+    # — market-cap fuera de rango —
+    mcap = token.get("market_cap_usd")
+    if (
+        mcap is not None
+        and not math.isnan(mcap)
+        and (mcap < MIN_MARKET_CAP_USD or mcap > MAX_MARKET_CAP_USD)
+    ):
+        _stats["filtered_out"] += 1
+        store_append(build_feature_vector(token), 0)
+        eliminar_par(addr)
+        return
+
+    # — señales caras —
+    token["rug_score"]   = await rugcheck.check_token(addr)
     token["cluster_bad"] = await clusters.suspicious_cluster(addr)
     token["score_total"] = filters.total_score(token)
 
-    # — IA
+    # — IA —
     vec, proba = build_feature_vector(token), should_buy(token)
     if proba < AI_TH:
         _stats["filtered_out"] += 1
@@ -195,25 +259,25 @@ async def _evaluate_and_buy(token: dict, session) -> None:
     _stats["ai_pass"] += 1
     store_append(vec, 1)
 
-    # — balance
+    # — balance —
     amount_sol = _compute_trade_amount()
     if amount_sol < MIN_SOL_BALANCE:
         eliminar_par(addr)
         return
 
-    # — guardar/merge Token
+    # — persistir Token —
     valid_cols = {c.key for c in inspect(Token).mapper.column_attrs}
     await session.merge(Token(**{k: v for k, v in token.items() if k in valid_cols}))
     await session.commit()
 
-    # — BUY (try / except)
+    # — BUY —
     try:
         buy_resp = await buyer.buy(addr, amount_sol)
     except Exception:
         eliminar_par(addr)
         return
 
-    qty_lp = buy_resp.get("qty_lamports", 0)
+    qty_lp    = buy_resp.get("qty_lamports", 0)
     price_usd = (
         buy_resp.get("route", {}).get("quote", {}).get("inAmountUSD")
         or token.get("price_usd")
@@ -238,9 +302,9 @@ async def _evaluate_and_buy(token: dict, session) -> None:
     eliminar_par(addr)
 
 # ╭──────────── EXIT STRATEGY ──────────────────────╮
-async def _load_open_positions(session) -> Sequence[Position]:
+async def _load_open_positions(ses: SessionLocal) -> Sequence[Position]:
     stmt = select(Position).where(Position.closed.is_(False))
-    return (await session.execute(stmt)).scalars().all()
+    return (await ses.execute(stmt)).scalars().all()
 
 
 async def _should_exit(pos: Position, price: float, now: dt.datetime) -> bool:
@@ -263,7 +327,7 @@ async def _should_exit(pos: Position, price: float, now: dt.datetime) -> bool:
     )
 
 
-async def _check_positions(session) -> None:
+async def _check_positions(session: SessionLocal) -> None:
     global _wallet_sol_balance
     for pos in await _load_open_positions(session):
         pair = await dexscreener.get_pair(pos.address)
@@ -275,10 +339,10 @@ async def _check_positions(session) -> None:
             continue
 
         sell_resp = await seller.sell(pos.address, pos.qty)
-        pos.closed = True
-        pos.closed_at = now
+        pos.closed          = True
+        pos.closed_at       = now
         pos.close_price_usd = pair.get("price_usd")
-        pos.exit_tx_sig = sell_resp.get("signature")
+        pos.exit_tx_sig     = sell_resp.get("signature")
 
         pnl_pct = (
             None
@@ -322,7 +386,7 @@ async def retrain_loop() -> None:
 
 # ╭──────────── MAIN LOOP ─────────────────────────╮
 async def main_loop() -> None:
-    session = SessionLocal()  # BD ya inicializada en _runner
+    session = SessionLocal()
 
     last_discovery = 0.0
     log.info(
@@ -342,7 +406,7 @@ async def main_loop() -> None:
         now_mono = time.monotonic()
         await _refresh_balance(now_mono)
 
-        # 1) descubrimiento de nuevos pares
+        # 1) descubrimiento nuevos pares
         if now_mono - last_discovery >= DISCOVERY_INTERVAL:
             for addr in await fetch_candidate_pairs():
                 agregar_si_nuevo(addr)
@@ -355,7 +419,7 @@ async def main_loop() -> None:
             except Exception as e:
                 log.error("Eval PumpFun %s → %s", tok.get("address", "???")[:4], e)
 
-        # 3) validación de la cola
+        # 3) validación cola
         for addr in obtener_pares()[:VALIDATION_BATCH_SIZE]:
             try:
                 tok = await dexscreener.get_pair(addr)
@@ -372,17 +436,18 @@ async def main_loop() -> None:
         except Exception as e:
             log.error("Check positions → %s", e)
 
-        # 5) métricas embudo
+        # 5) métricas embudo + cola
         if time.monotonic() - _last_stats_print >= 60:
             log_funnel(_stats)
+            pend, req, cool = queue_stats()
+            log.info("Queue %d pending (%d requeued, %d cooldown)", pend, req, cool)
             _last_stats_print = time.monotonic()
 
         await asyncio.sleep(SLEEP_SECONDS)
 
 # ╭──────────── entry point ───────────────────────╮
 async def _runner() -> None:
-    # crea tablas (WAL) una sola vez
-    await async_init_db()
+    await async_init_db()  # crea/esquema SQLite (WAL)
 
     await asyncio.gather(
         main_loop(),

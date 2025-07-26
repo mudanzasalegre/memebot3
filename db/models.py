@@ -23,7 +23,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
 
-
 # ───────────────────────── Token ─────────────────────────
 class Token(Base):
     __tablename__ = "tokens"
@@ -39,9 +38,10 @@ class Token(Base):
         default=lambda: _dt.datetime.now(_dt.timezone.utc),
     )
 
-    liquidity_usd:  Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
-    volume_24h_usd: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
-    holders:        Mapped[int]   = mapped_column(Integer, default=0)
+    liquidity_usd:   Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+    volume_24h_usd:  Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+    market_cap_usd:  Mapped[float] = mapped_column(Float, default=0.0, server_default="0")  # ← NUEVO
+    holders:         Mapped[int]   = mapped_column(Integer, default=0)
 
     # —— señales ——
     rug_score:    Mapped[int]   = mapped_column(Integer, default=0)
@@ -52,7 +52,7 @@ class Token(Base):
     score_total:  Mapped[int]   = mapped_column(Integer, default=0)
 
     # —— metadatos descubrimiento ——
-    discovered_via: Mapped[Optional[str]]        = mapped_column(String(16))
+    discovered_via: Mapped[Optional[str]]          = mapped_column(String(16))
     discovered_at:  Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True))
 
     # —— relaciones ——
@@ -60,8 +60,10 @@ class Token(Base):
     revived:   Mapped["RevivedToken"]   = relationship(back_populates="token", uselist=False)
 
     def __repr__(self) -> str:  # pragma: no cover
-        return f"<Token {self.symbol or self.address[:4]} vol24h={self.volume_24h_usd:.0f}>"
-
+        return (
+            f"<Token {self.symbol or self.address[:4]} "
+            f"mcap={self.market_cap_usd:.0f} vol24h={self.volume_24h_usd:.0f}>"
+        )
 
 # ───────────────────────── Position ───────────────────────
 class Position(Base):
@@ -70,20 +72,20 @@ class Position(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     address: Mapped[str] = mapped_column(String, ForeignKey("tokens.address"))
     symbol:  Mapped[Optional[str]] = mapped_column(String(16))
-    qty:     Mapped[int] = mapped_column(Integer)           # lamports
+    qty:     Mapped[int] = mapped_column(Integer)  # lamports
 
-    buy_price_usd:  Mapped[float] = mapped_column(Float)
-    opened_at:      Mapped[_dt.datetime] = mapped_column(
+    buy_price_usd: Mapped[float] = mapped_column(Float)
+    opened_at: Mapped[_dt.datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: _dt.datetime.now(_dt.timezone.utc),
     )
 
-    closed:         Mapped[bool]           = mapped_column(Boolean, default=False)
-    closed_at:      Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True))
-    close_price_usd: Mapped[Optional[float]] = mapped_column(Float)
-    exit_tx_sig:     Mapped[Optional[str]]   = mapped_column(String(32))
+    closed:          Mapped[bool]              = mapped_column(Boolean, default=False)
+    closed_at:       Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True))
+    close_price_usd: Mapped[Optional[float]]   = mapped_column(Float)
+    exit_tx_sig:     Mapped[Optional[str]]     = mapped_column(String(32))
 
-    # —— nuevo: resultado (‘win’ / ‘fail’ / ‘fail_timeout’) ——
+    # —— resultado (‘win’ / ‘fail’ / ‘fail_timeout’) ——
     outcome: Mapped[Optional[str]] = mapped_column(String(12), nullable=True)
 
     # —— relaciones ——

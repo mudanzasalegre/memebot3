@@ -81,6 +81,10 @@ class _Config:
     MIN_HOLDERS:        int   = _num_env("MIN_HOLDERS",        int,   10)
     MIN_LIQUIDITY_USD:  float = _num_env("MIN_LIQUIDITY_USD",  float, 5_000)
     MIN_VOL_USD_24H:    float = _num_env("MIN_VOL_USD_24H",    float, 10_000)
+
+    MIN_MARKET_CAP_USD: float = _num_env("MIN_MARKET_CAP_USD", float, 5_000)   # ★ nuevo
+    MAX_MARKET_CAP_USD: float = _num_env("MAX_MARKET_CAP_USD", float, 20_000)  # ★ nuevo
+
     MAX_24H_VOLUME:     float = _num_env("MAX_24H_VOLUME",     float, 1_500_000)
     MIN_SCORE_TOTAL:    int   = _num_env("MIN_SCORE_TOTAL",    int,   50)
 
@@ -99,6 +103,7 @@ class _Config:
     DISCOVERY_INTERVAL:    int = _num_env("DISCOVERY_INTERVAL",    int, 45)
     VALIDATION_BATCH_SIZE: int = _num_env("VALIDATION_BATCH_SIZE", int, 30)
     MAX_CANDIDATES:        int = _num_env("MAX_CANDIDATES",        int, 0)
+    MAX_QUEUE_SIZE:        int = _num_env("MAX_QUEUE_SIZE",        int, 1000)   # ★ nuevo
 
     # ------- estrategia avanzada -----------------------------------
     BUY_FROM_CURVE:     bool  = os.getenv("BUY_FROM_CURVE", "0") == "1"
@@ -137,8 +142,14 @@ MAX_AGE_DAYS       = CFG.MAX_AGE_DAYS
 MIN_HOLDERS        = CFG.MIN_HOLDERS
 MIN_LIQUIDITY_USD  = CFG.MIN_LIQUIDITY_USD
 MIN_VOL_USD_24H    = CFG.MIN_VOL_USD_24H
+
+MIN_MARKET_CAP_USD = CFG.MIN_MARKET_CAP_USD   # ★ alias nuevo
+MAX_MARKET_CAP_USD = CFG.MAX_MARKET_CAP_USD   # ★ alias nuevo
+
 MAX_24H_VOLUME     = CFG.MAX_24H_VOLUME
 MIN_SCORE_TOTAL    = CFG.MIN_SCORE_TOTAL
+
+MAX_QUEUE_SIZE     = CFG.MAX_QUEUE_SIZE       # ★ alias nuevo
 
 TRADE_AMOUNT_SOL   = CFG.TRADE_AMOUNT_SOL
 GAS_RESERVE_SOL    = CFG.GAS_RESERVE_SOL

@@ -3,14 +3,19 @@
 Pump Fun feed mediante Bitquery GraphQL v2 (polling HTTP).
 
 Devuelve una lista de dicts **sanitizados** con la misma estructura que
-los pares de DexScreener, de modo que _evaluate_and_buy() funciona igual.
+los pares de DexScreener, de modo que `_evaluate_and_buy()` funciona igual.
+
+Cambios 2025-07-26
+──────────────────
+• Se incluye la métrica `market_cap_usd` (dummy 0.0) para alinear el
+  esquema con DexScreener y los nuevos filtros por capitalización.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 import aiohttp
 
@@ -23,7 +28,7 @@ log = logging.getLogger("pumpfun")
 
 # ──────────────────────── Config ────────────────────────
 BITQUERY_URL = "https://streaming.bitquery.io/eap"          # endpoint v2 (EAP)
-PROGRAM_ID   = PUMPFUN_PROGRAM or "insert_pumfun_program_id_here"
+PROGRAM_ID   = PUMPFUN_PROGRAM or "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 LIMIT        = 10        # nº de tokens a traer
 CACHE_TTL    = 20        # seg. entre llamadas (rate-limit)
 
@@ -80,11 +85,9 @@ async def _fetch_latest() -> List[Dict[str, Any]]:
             data = await r.json()
 
     # ─── Manejo seguro de la respuesta ──────────────────
-    # 1) Si Bitquery devuelve "errors":[…], regístralo.
     if err := data.get("errors"):
         log.warning("[PumpFun] GraphQL errors: %s", err)
 
-    # 2) Protegemos la navegación usando dicts vacíos por defecto.
     result  = data.get("data") or {}
     solana  = result.get("Solana", {})
     updates = solana.get("TokenSupplyUpdates", []) or []
@@ -95,10 +98,10 @@ async def _fetch_latest() -> List[Dict[str, Any]]:
 
     for u in updates:
         try:
-            cur   = u["TokenSupplyUpdate"]["Currency"]
-            mint  = cur["MintAddress"]
+            cur    = u["TokenSupplyUpdate"]["Currency"]
+            mint   = cur["MintAddress"]
             ts_iso = u["Block"]["Time"].rstrip("Z")
-            ts    = dt.datetime.fromisoformat(ts_iso).replace(tzinfo=dt.timezone.utc)
+            ts     = dt.datetime.fromisoformat(ts_iso).replace(tzinfo=dt.timezone.utc)
         except (KeyError, ValueError) as e:
             log.debug("[PumpFun] salto update mal formado: %s", e)
             continue
@@ -108,10 +111,13 @@ async def _fetch_latest() -> List[Dict[str, Any]]:
             "symbol":         cur["Symbol"][:16],
             "name":           cur["Name"],
             "created_at":     ts,
-            # métricas dummy → las rellenará DexScreener
+
+            # ─── métricas dummy (las rellenará DexScreener) ───
             "liquidity_usd":  0.0,
             "volume_24h_usd": 0.0,
+            "market_cap_usd": 0.0,   # NEW – coherencia con esquema
             "holders":        0,
+
             # meta
             "discovered_via": "pumpfun",
             "age_minutes":    (now - ts).total_seconds() / 60.0,
@@ -127,9 +133,9 @@ async def get_latest_pumpfun() -> List[Dict[str, Any]]:
     """
     Devuelve lista de tokens recientes del launchpad Pump.fun (si hay).
     """
-    # caching (reduce GraphQL calls)
     if (res := cache_get("pumpfun:latest")) is not None:
         return res
+
     updates = await _fetch_latest()
     cache_set("pumpfun:latest", updates, ttl=CACHE_TTL)
     return updates

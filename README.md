@@ -24,18 +24,17 @@
 * A Solana RPC endpoint
 * Bitquery / Helius / RugCheck API keys
 
-
 ## What it does
 `memebot3` watches the Solana memecoin jungle and:
 
 | Stage            | Action |
 |------------------|--------|
 | **Discovery**    | Streams **Pump.fun** mints + latest 500 pairs from **DexScreener** |
-| **Hard filters** | Liquidity, 24 h volume, holders, anti‑dump, black‑listed creators |
+| **Hard filters** | Liquidity, 24 h volume, *market‑cap*, holders, anti‑dump, black‑listed creators |
 | **Soft score**   | Adds RugCheck, dev‑cluster heuristics, socials, insider alerts |
 | **ML (optional)**| Gradient‑Boost probability a trade is profitable in 30 min |
 | **Trade**        | Buys via Jupiter / Papermode, manages TP/SL + trailing exits |
-| **Retrain loop** | Every Sunday 04 UTC retrains if new model & AUC ↑ |
+| **Retrain loop** | Every Sunday 04 UTC retrains if new model & AUC ↑ |
 
 All writes are idempotent: metrics land in a **Parquet feature‑store** + a tiny **SQLite** DB for positions & tokens.
 
@@ -62,23 +61,29 @@ python -m run_bot --dry-run --log
 ```
 > **Tip:** set `LOG_LEVEL=DEBUG` in `.env` to see every filter decision.
 
-# installing analysis dependencies (optional)
+Optional analysis setup:
+```bash
 pip install -U pandas pyarrow matplotlib seaborn scikit-learn jupyter notebook
+```
 
 ---
 
-## Environment variables
+## Environment variables (excerpt)
 
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `TRADE_AMOUNT_SOL` | `0.1` | Real SOL size per buy (`0` = paper) |
 | `MIN_LIQUIDITY_USD` | `10_000` | Hard filter liquidity *(raise if too noisy)* |
 | `MIN_VOL_USD_24H` | `15_000` | Hard filter 24 h volume |
+| `MIN_MARKET_CAP_USD` | `5_000` | **NEW** hard‑filter lower bound for market‑cap |
+| `MAX_MARKET_CAP_USD` | `20_000` | **NEW** upper bound |
+| `MAX_QUEUE_SIZE` | `1_000` | **NEW** cap for validation queue |
 | `MIN_HOLDERS` | `10` | Min holders unless there are swaps |
 | `BITQUERY_TOKEN` | — | Blank = free endpoint (low rate) |
 | `RUGCHECK_API_KEY` | — | Rug risk API |
 | `HELIUS_API_KEY` | — | Dev‑cluster & dev‑sells |
-| … | … | see `.env.sample` |
+
+See `.env.sample` for the full list.
 
 ---
 
@@ -121,7 +126,7 @@ ML proba ≥ `AI_TH` ? —— no → discard
 ```
 
 ### Feature‑store
-* `data/features/features_YYYYMM.parquet` (append‑only, ~20 cols)  
+* `data/features/features_YYYYMM.parquet` (append‑only, ~21 cols)  
 * Input for retraining & calibration scripts in `ml/`
 
 ---
@@ -137,7 +142,7 @@ python -m ml.retrain --from data/features --model-out ml/model.pkl
 ---
 
 ## Roadmap
-- [ ] Curve‑buy support (rank ≤ 40)  
+- [ ] Curve‑buy support (rank ≤ 40)  
 - [ ] Live dashboard (FastAPI + React)  
 - [ ] Ensemble models (LightGBM + CatBoost)  
 - [ ] Webhook alerts (Discord / Telegram)  
@@ -145,7 +150,7 @@ python -m ml.retrain --from data/features --model-out ml/model.pkl
 ---
 
 ## Contributing
-PRs welcome 🚀 — open an issue or ping **@mudanzasalegre**
+PRs welcome 🚀 — open an issue or ping **@mudanzasalegre**
 
 ```bash
 pre-commit install     # black + ruff
@@ -155,4 +160,4 @@ pytest -q              # unit tests
 ---
 
 ## License
-MIT © 2025 [mudanzasalegre](https://github.com/mudanzasalegre)
+MIT © 2025 [mudanzasalegre](https://github.com/mudanzasalegre)
