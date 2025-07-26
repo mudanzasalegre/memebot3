@@ -59,17 +59,40 @@ def _ema(series: List[float], length: int) -> float:
 
 
 async def _fetch_closes(address: str) -> List[float]:
-    """Devuelve hasta 200 cierres de velas 5 m. Lanza Trend404Retry si 404."""
+    """Devuelve hasta 200 cierres de velas 5 m.
+
+    Si el endpoint de velas responde 404 pero se encuentra el par,
+    devuelve ``[]`` para forzar el *fallback* en lugar de propagar
+    :class:`Trend404Retry`.
+    """
     url = f"{DEX_API_BASE.rstrip('/')}/chart/solana/{address}?interval=5m&limit=200"
     backoff = _BACKOFF
+    pair_addr = None
+    tried_pair = False
 
     for attempt in range(1, _MAX_TRIES + 1):
         try:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=_TIMEOUT)
             ) as sess, sess.get(url) as resp:
-
+                
                 if resp.status == 404:
+                    if not tried_pair:
+                        from fetcher import dexscreener  # import local
+
+                        pair = await dexscreener.get_pair(address)
+                        pair_addr = pair.get("address") if pair else None
+                        if pair_addr and pair_addr != address:
+                            url = f"{DEX_API_BASE.rstrip('/')}/chart/solana/{pair_addr}?interval=5m&limit=200"
+                            tried_pair = True
+                            continue
+                    if pair_addr:
+                        log.debug(
+                            "[trend] %s chart pair %s sin velas",
+                            address[:4],
+                            pair_addr[:4],
+                        )
+                        return []
                     raise Trend404Retry("DexScreener 404 – sin velas todavía")
 
                 if resp.status != 200:
@@ -85,8 +108,9 @@ async def _fetch_closes(address: str) -> List[float]:
             log.debug("[trend] %s 404 – delego requeue", address[:4])
             raise
         except Exception as exc:
-            log.debug("[trend] %s intento %s/%s → %s",
-                      address[:4], attempt, _MAX_TRIES, exc)
+            log.debug(
+                "[trend] %s intento %s/%s → %s", address[:4], attempt, _MAX_TRIES, exc
+            )
             if attempt == _MAX_TRIES:
                 raise
             await asyncio.sleep(backoff + random.random() * 0.5)
@@ -109,11 +133,11 @@ async def trend_signal(address: str) -> Literal["up", "down", "flat", "unknown"]
         # Propagar para que el orquestador pueda reencolar
         raise
     except Exception:
-        closes = []                         # fuerza fallback
+        closes = []  # fuerza fallback
 
     if len(closes) >= EMA_SLOW:
-        fast = _ema(closes[-EMA_FAST * 3:], EMA_FAST)
-        slow = _ema(closes[-EMA_SLOW * 3:], EMA_SLOW)
+        fast = _ema(closes[-EMA_FAST * 3 :], EMA_FAST)
+        slow = _ema(closes[-EMA_SLOW * 3 :], EMA_SLOW)
 
         if fast > slow * 1.02:
             sig = "up"
@@ -127,13 +151,12 @@ async def trend_signal(address: str) -> Literal["up", "down", "flat", "unknown"]
 
     # 2) —— fallback ±15 % en 5 m ————————————————
     from fetcher import dexscreener  # import local p/ evitar ciclo
+    
     pair = await dexscreener.get_pair(address)
     pct5 = 0.0
     if pair:
         pct5 = float(
-            pair.get("price_pct_5m")
-            or pair.get("priceChange", {}).get("m5")
-            or 0
+           pair.get("price_pct_5m") or pair.get("priceChange", {}).get("m5") or 0
         )
 
     if pct5 >= 15:
@@ -150,6 +173,7 @@ async def trend_signal(address: str) -> Literal["up", "down", "flat", "unknown"]
 # ————————— CLI de prueba rápida ——————————
 if __name__ == "__main__":  # pragma: no cover
     import sys
+    
     test_addr = (
         sys.argv[1]
         if len(sys.argv) > 1
