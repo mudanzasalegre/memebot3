@@ -50,12 +50,16 @@ from db.models import Position, Token, RevivedToken  # RevivedToken: futuras fea
 
 # ——— Fetchers / analytics —————————————————————————
 from fetcher import dexscreener, helius_cluster as clusters, pumpfun, rugcheck, socials
-from analytics import filters, insider, trend
+from analytics import filters, insider, trend, requeue_policy
 from analytics.ai_predict import should_buy, reload_model
 
 # ——— Features / ML ——————————————————————————————
 from features.builder import build_feature_vector
-from features.store import append as store_append, update_pnl as store_update_pnl
+from features.store import (
+    append as store_append,
+    update_pnl as store_update_pnl,
+    export_csv as store_export_csv,
+)
 from ml.retrain import retrain_if_better
 
 # ——— Utils (descubridor y cola) ————————————————————
@@ -131,8 +135,11 @@ _stats = {
     "ai_pass":        0,
     "bought":         0,
     "sold":           0,
+    "requeues":       0,
+    "requeue_success":0,
 }
 _last_stats_print = time.monotonic()
+_last_csv_export = time.monotonic()
 
 
 # ╭──────────── helpers balance ───────────────────╮
@@ -191,7 +198,8 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
         eliminar_par(addr)
         return
     if token.get("discovered_via") == "pumpfun" and not token.get("liquidity_usd"):
-        requeue(addr)
+        requeue(addr, reason="no_liq")
+        _stats["requeues"] += 1
         return
 
     # — incompleto (liq / vol 0 o NaN) —
@@ -199,7 +207,14 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
         _stats["incomplete"] += 1
         token["is_incomplete"] = 1
         store_append(build_feature_vector(token), 0)
-        requeue(addr)
+        meta = lista_pares.meta(addr) or {}
+        attempts = int(meta.get("attempts", 0))
+        backoff = [60, 180, 420][min(attempts, 2)]
+        if attempts >= 3:
+            eliminar_par(addr)
+        else:
+            requeue(addr, reason="incomplete", backoff=backoff)
+            _stats["requeues"] += 1
         return
     token["is_incomplete"] = 0
     
@@ -223,25 +238,19 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
 
     # — filtro duro tolerante —
     res = filters.basic_filters(token)
-    if res is None:                 # ventana de gracia → re-encolar
-        requeue(addr)
-        return
-    if res is False:
-        _stats["filtered_out"] += 1
-        store_append(build_feature_vector(token), 0)
-        eliminar_par(addr)
-        return
-
-    # — market-cap fuera de rango —
-    mcap = token.get("market_cap_usd")
-    if (
-        mcap is not None
-        and not math.isnan(mcap)
-        and (mcap < MIN_MARKET_CAP_USD or mcap > MAX_MARKET_CAP_USD)
-    ):
-        _stats["filtered_out"] += 1
-        store_append(build_feature_vector(token), 0)
-        eliminar_par(addr)
+    if res is not True:
+        meta = lista_pares.meta(addr) or {}
+        attempts = int(meta.get("attempts", 0))
+        keep, delay, reason = requeue_policy.decide(
+            token, attempts, meta.get("first_seen", time.time())
+        )
+        if keep:
+            requeue(addr, reason=reason, backoff=delay)
+            _stats["requeues"] += 1
+        else:
+            _stats["filtered_out"] += 1
+            store_append(build_feature_vector(token), 0)
+            eliminar_par(addr)
         return
 
     # — señales caras —
@@ -298,6 +307,8 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
     session.add(pos)
     await session.commit()
 
+    if (lista_pares.meta(addr) or {}).get("attempts", 0) > 0:
+        _stats["requeue_success"] += 1
     _stats["bought"] += 1
     eliminar_par(addr)
 
@@ -398,7 +409,7 @@ async def main_loop() -> None:
         AI_TH,
     )
 
-    global _wallet_sol_balance, _last_stats_print
+    global _wallet_sol_balance, _last_stats_print, _last_csv_export
     _wallet_sol_balance = await get_sol_balance()
     log.info("Balance inicial: %.3f SOL", _wallet_sol_balance)
 
@@ -426,7 +437,8 @@ async def main_loop() -> None:
                 if tok:
                     await _evaluate_and_buy(tok, session)
                 else:
-                    requeue(addr)
+                    requeue(addr, reason="dex_nil")
+                    _stats["requeues"] += 1
             except Exception as e:
                 log.error("get_pair %s → %s", addr[:6], e)
 
@@ -437,11 +449,30 @@ async def main_loop() -> None:
             log.error("Check positions → %s", e)
 
         # 5) métricas embudo + cola
-        if time.monotonic() - _last_stats_print >= 60:
+        now_mono = time.monotonic()
+        if now_mono - _last_stats_print >= 60:
             log_funnel(_stats)
             pend, req, cool = queue_stats()
-            log.info("Queue %d pending (%d requeued, %d cooldown)", pend, req, cool)
-            _last_stats_print = time.monotonic()
+            log.info(
+                "Queue %d pending (%d requeued, %d cooldown) requeues=%d succ=%d",
+                pend,
+                req,
+                cool,
+                _stats["requeues"],
+                _stats["requeue_success"],
+            )
+            if _stats["raw_discovered"] and (
+                _stats["incomplete"] / _stats["raw_discovered"] > 0.5
+            ):
+                log.warning(
+                    "⚠️  Ratio incomplete alto: %.1f%%",
+                    _stats["incomplete"] / _stats["raw_discovered"] * 100,
+                )
+            _last_stats_print = now_mono
+
+        if now_mono - _last_csv_export >= 3600:
+            store_export_csv()
+            _last_csv_export = now_mono
 
         await asyncio.sleep(SLEEP_SECONDS)
 

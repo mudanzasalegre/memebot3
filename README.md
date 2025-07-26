@@ -77,7 +77,7 @@ pip install -U pandas pyarrow matplotlib seaborn scikit-learn jupyter notebook
 | `MIN_VOL_USD_24H` | `15_000` | Hard filter 24 h volume |
 | `MIN_MARKET_CAP_USD` | `5_000` | **NEW** hard‑filter lower bound for market‑cap |
 | `MAX_MARKET_CAP_USD` | `20_000` | **NEW** upper bound |
-| `MAX_QUEUE_SIZE` | `1_000` | **NEW** cap for validation queue |
+| `MAX_QUEUE_SIZE` | `300` | cap for validation queue |
 | `MIN_HOLDERS` | `10` | Min holders unless there are swaps |
 | `BITQUERY_TOKEN` | — | Blank = free endpoint (low rate) |
 | `RUGCHECK_API_KEY` | — | Rug risk API |

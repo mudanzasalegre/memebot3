@@ -174,3 +174,16 @@ def update_pnl(address: str, pnl_pct: float) -> None:
         pq.write_table(new_table, path, compression="snappy")
     except Exception as exc:  # noqa: BLE001
         log.error("update_pnl error → %s", exc)
+
+def export_csv() -> None:
+    """Vuelca el Parquet actual a CSV para inspección offline."""
+    path = _file_for_now()
+    if not path.exists():
+        return
+    csv_path = path.with_suffix(".csv")
+    try:
+        table = pq.read_table(path)
+        df = table.to_pandas()
+        df.to_csv(csv_path, index=False)
+    except Exception as exc:  # noqa: BLE001
+        log.error("export_csv error → %s", exc)

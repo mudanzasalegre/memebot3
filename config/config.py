@@ -103,7 +103,7 @@ class _Config:
     DISCOVERY_INTERVAL:    int = _num_env("DISCOVERY_INTERVAL",    int, 45)
     VALIDATION_BATCH_SIZE: int = _num_env("VALIDATION_BATCH_SIZE", int, 30)
     MAX_CANDIDATES:        int = _num_env("MAX_CANDIDATES",        int, 0)
-    MAX_QUEUE_SIZE:        int = _num_env("MAX_QUEUE_SIZE",        int, 1000)   # ★ nuevo
+    MAX_QUEUE_SIZE:        int = _num_env("MAX_QUEUE_SIZE",        int, 300)   # ★ nuevo
 
     # ------- estrategia avanzada -----------------------------------
     BUY_FROM_CURVE:     bool  = os.getenv("BUY_FROM_CURVE", "0") == "1"

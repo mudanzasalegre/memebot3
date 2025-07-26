@@ -8,7 +8,7 @@ from importlib import import_module
 from types import ModuleType
 from typing import Dict
 
-_modules = ("filters", "trend", "insider")
+_modules = ("filters", "trend", "insider", "requeue_policy")
 
 globals_: Dict[str, ModuleType] = globals()
 for _m in _modules:

@@ -3,11 +3,12 @@
 Mantiene la **cola de pares pendientes** con re-intentos controlados y
 una caché en disco de los mints ya procesados.
 
-Cambios 2025-07-25
+Cambios 2025-07-26
 ──────────────────
-• Límite duro de tamaño de cola con `MAX_QUEUE_SIZE`
-• Métricas `stats()` inalteradas, pero `run_bot` ahora las registra cada 60 s
-• Log cuando la cola se llena
+• Límite duro de tamaño de cola con `MAX_QUEUE_SIZE` (def. 300)
+• `requeue()` acepta motivo y back-off variable; registra intentos
+• Puede descartar el elemento más antiguo cuando la cola está llena
+• `stats()` sigue exponiendo métricas para el dashboard
 """
 from __future__ import annotations
 
@@ -15,11 +16,11 @@ import logging
 import os
 import pathlib
 import time
-from typing import Dict
+from typing import Dict, Optional
 
 # ─── configuración ────────────────────────────────────────────
 MAX_RETRIES        = int(os.getenv("INCOMPLETE_RETRIES", "3"))
-MAX_QUEUE_SIZE     = int(os.getenv("MAX_QUEUE_SIZE",    "1000"))  # ← NUEVO
+MAX_QUEUE_SIZE     = int(os.getenv("MAX_QUEUE_SIZE",    "300"))  # ← NUEVO
 BACKOFF_SEC        = 120          # espera tras cada fallo
 MAX_INCOMPLETE_SEC = 600          # 10 min → descartar
 
@@ -30,7 +31,7 @@ CACHE_FILE = BASE_DIR / "pares_procesados.txt"
 log = logging.getLogger("lista_pares")
 
 # ─── estructuras internas ─────────────────────────────────────
-_pair_watch: Dict[str, Dict[str, float | int]] = {}
+_pair_watch: Dict[str, Dict[str, float | int | str]] = {}
 _processed:  set[str] = set()
 
 # ─── helpers caché disco ──────────────────────────────────────
@@ -58,14 +59,20 @@ def agregar_si_nuevo(addr: str, retries: int | None = None) -> None:
         return
 
     if len(_pair_watch) >= MAX_QUEUE_SIZE:
-        log.debug("[lista_pares] Cola llena (%s)", MAX_QUEUE_SIZE)
-        return
+        # descarta el elemento más antiguo con menos reintentos pendientes
+        old = sorted(
+            _pair_watch.items(),
+            key=lambda it: (it[1]["retries"], it[1]["first_seen"]),
+        )[0][0]
+        log.debug("[lista_pares] Cola llena → drop %s", old[:6])
+        eliminar_par(old)
 
     now = time.time()
     _pair_watch[addr] = {
         "retries": retries or MAX_RETRIES,
         "first_seen": now,
         "next_try": now,  # inmediato
+        "attempts": 0,
     }
 
 def obtener_pares() -> list[str]:
@@ -75,17 +82,19 @@ def obtener_pares() -> list[str]:
     now = time.time()
     return [a for a, meta in _pair_watch.items() if meta["next_try"] <= now]
 
-def requeue(addr: str) -> None:
+def requeue(addr: str, *, reason: str = "", backoff: int | None = None) -> None:
     """
-    Reduce el contador y programa el siguiente intento tras BACKOFF_SEC.
-    Si se agota el contador o supera MAX_INCOMPLETE_SEC → elimina.
+    Reduce el contador y programa el siguiente intento.
+    Guarda el motivo y aumenta el nº de intentos.
     """
     meta = _pair_watch.get(addr)
     if not meta:
         return
 
     meta["retries"] -= 1
-    meta["next_try"] = time.time() + BACKOFF_SEC
+    meta["attempts"] = int(meta.get("attempts", 0)) + 1
+    meta["reason"] = reason or meta.get("reason", "")
+    meta["next_try"] = time.time() + (backoff or BACKOFF_SEC)
 
     # sin retries
     if meta["retries"] <= 0:
@@ -110,6 +119,10 @@ def eliminar_par(addr: str) -> None:
 def retries_left(addr: str) -> int:
     meta = _pair_watch.get(addr)
     return int(meta["retries"]) if meta else 0
+
+def meta(addr: str) -> Optional[Dict[str, float | int | str]]:
+    """Devuelve el diccionario interno asociado a *addr* (o None)."""
+    return _pair_watch.get(addr)
 
 # ─── métricas para logs ───────────────────────────────────────
 def stats() -> tuple[int, int, int]:
