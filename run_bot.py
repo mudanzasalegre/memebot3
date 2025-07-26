@@ -207,9 +207,9 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
         _stats["incomplete"] += 1
         token["is_incomplete"] = 1
         store_append(build_feature_vector(token), 0)
-        meta = lista_pares.meta(addr) or {}
-        attempts = int(meta.get("attempts", 0))
-        backoff = [60, 180, 420][min(attempts, 2)]
+        meta      = lista_pares.meta(addr) or {}
+        attempts  = int(meta.get("attempts", 0))
+        backoff   = [60, 180, 420][min(attempts, 2)]
         if attempts >= 3:
             eliminar_par(addr)
         else:
@@ -217,10 +217,9 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
             _stats["requeues"] += 1
         return
     token["is_incomplete"] = 0
-    
+
     # ────────────────────────────────
-    # Si el mint venía de un re-enqueue y
-    # ahora ya trae métricas completas → log
+    # Si venía re-enqueue y ahora ya está completo → log
     if lista_pares.retries_left(addr) < lista_pares.MAX_RETRIES:
         log.debug(
             "✔ %s completado · liq=%.0f vol24h=%.0f mcap=%.0f",
@@ -231,16 +230,29 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
         )
 
     # — señales baratas —
-    token["social_ok"]   = await socials.has_socials(addr)
-    token["trend"]       = await trend.trend_signal(addr)
+    token["social_ok"] = await socials.has_socials(addr)
+
+    # ★———————— TREND con re-enqueue 404 ————————★
+    try:
+        token["trend"] = await trend.trend_signal(addr)
+    except trend.Trend404Retry as exc:
+        # back-off exponencial 15 → 30 → 60 min según intentos previos
+        meta     = lista_pares.meta(addr) or {}
+        attempts = int(meta.get("attempts", 0))
+        delay    = [900, 1800, 3600][min(attempts, 2)]  # s
+        requeue(addr, reason="trend404", backoff=delay)
+        _stats["requeues"] += 1
+        log.debug("↩️  %s re-enqueue trend404 (%ss)", addr[:4], delay)
+        return
+
     token["insider_sig"] = await insider.insider_alert(addr)
     token["score_total"] = filters.total_score(token)
 
     # — filtro duro tolerante —
     res = filters.basic_filters(token)
     if res is not True:
-        meta = lista_pares.meta(addr) or {}
-        attempts = int(meta.get("attempts", 0))
+        meta      = lista_pares.meta(addr) or {}
+        attempts  = int(meta.get("attempts", 0))
         keep, delay, reason = requeue_policy.decide(
             token, attempts, meta.get("first_seen", time.time())
         )

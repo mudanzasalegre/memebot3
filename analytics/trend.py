@@ -1,18 +1,21 @@
 """
 analytics.trend
 ~~~~~~~~~~~~~~~
-Señal de tendencia para MemeBot 3.
+Señal de tendencia para MemeBot 3.
 
-1️⃣  Intenta calcularla con dos EMAs (7 × 5 m y 21 × 5 m) sobre las velas de
+1️⃣  Intenta calcularla con dos EMAs (7 × 5 m y 21 × 5 m) sobre las velas de
     DexScreener ⇒ «up / down / flat».
 2️⃣  Si no hay velas suficientes (token muy nuevo) **o** ocurre un error de
     red, hace *fallback* a la heurística rápida:
 
-        • +15 % en 5 m ⇒ "up"
-        • –15 % en 5 m ⇒ "down"
+        • +15 % en 5 m ⇒ "up"
+        • –15 % en 5 m ⇒ "down"
         • en medio      ⇒ "flat"
 
-Cache in-memory para no machacar la API.
+Cache in‑memory para no machacar la API.
+
+*Mod 26‑Jul‑2025*: se añade la excepción `Trend404Retry` para delegar el manejo
+                   de 404 (sin velas) al `requeue_policy`.
 """
 
 from __future__ import annotations
@@ -30,15 +33,20 @@ from utils.simple_cache import cache_get, cache_set
 log = logging.getLogger("trend")
 
 # —————————————————— Parámetros ——————————————————
-EMA_FAST = 7           # 7 velas = 35 min
-EMA_SLOW = 21          # 21 velas = 105 min
+EMA_FAST = 7           # 7 velas = 35 min
+EMA_SLOW = 21          # 21 velas = 105 min
 _MAX_TRIES = 3
-_BACKOFF = 1.0         # s inicial back-off
+_BACKOFF = 1.0         # s inicial back‑off
 _TIMEOUT = 10          # s HTTP
-_CACHE_TTL_OK = 90     # 1 ½ min si todo OK
-_CACHE_TTL_ERR = 300   # 5 min en error/404
+_CACHE_TTL_OK  = 90    # 1 ½ min si todo OK
+_CACHE_TTL_ERR = 300   # 5 min en error/404
+
+# —————————————————— Nueva excepción ————————————
+class Trend404Retry(Exception):
+    """El endpoint /chart no tiene velas aún → reintentar más tarde."""
 
 # —————————————————— Helpers ————————————————————
+
 def _ema(series: List[float], length: int) -> float:
     """EMA sencilla, sin pandas."""
     if not series:
@@ -51,10 +59,7 @@ def _ema(series: List[float], length: int) -> float:
 
 
 async def _fetch_closes(address: str) -> List[float]:
-    """
-    Devuelve hasta 200 cierres de velas 5 m.
-    Lanza FileNotFoundError si DexScreener responde 404.
-    """
+    """Devuelve hasta 200 cierres de velas 5 m. Lanza Trend404Retry si 404."""
     url = f"{DEX_API_BASE.rstrip('/')}/chart/solana/{address}?interval=5m&limit=200"
     backoff = _BACKOFF
 
@@ -65,7 +70,7 @@ async def _fetch_closes(address: str) -> List[float]:
             ) as sess, sess.get(url) as resp:
 
                 if resp.status == 404:
-                    raise FileNotFoundError("DexScreener 404 (sin velas)")
+                    raise Trend404Retry("DexScreener 404 – sin velas todavía")
 
                 if resp.status != 200:
                     raise RuntimeError(f"HTTP {resp.status}")
@@ -76,8 +81,8 @@ async def _fetch_closes(address: str) -> List[float]:
                     return closes
                 raise RuntimeError("respuesta vacía")
 
-        except FileNotFoundError:
-            log.debug("[trend] %s 404 – no reintento", address[:4])
+        except Trend404Retry:
+            log.debug("[trend] %s 404 – delego requeue", address[:4])
             raise
         except Exception as exc:
             log.debug("[trend] %s intento %s/%s → %s",
@@ -92,21 +97,17 @@ async def _fetch_closes(address: str) -> List[float]:
 
 # —————————————————— API pública ——————————————————
 async def trend_signal(address: str) -> Literal["up", "down", "flat", "unknown"]:
-    """
-    Señal jerárquica:
-
-    •   «up»   si EMA-7 >  EMA-21 × 1.02  (o pct_5m ≥ 15 %)
-    •   «down» si EMA-7 <  EMA-21 × 0.98  (o pct_5m ≤ -15 %)
-    •   «flat» en otro caso
-    •   «unknown» sólo si ni velas ni pair disponibles
-    """
+    """Calcula la señal o propaga Trend404Retry si no hay velas."""
     ck = f"trend:{address}"
     if (hit := cache_get(ck)) is not None:
         return hit
 
-    # 1) —— intento con velas de 5 m ————————————————————
+    # 1) —— intento con velas de 5 m ————————————————————
     try:
         closes = await _fetch_closes(address)
+    except Trend404Retry:
+        # Propagar para que el orquestador pueda reencolar
+        raise
     except Exception:
         closes = []                         # fuerza fallback
 
@@ -124,7 +125,7 @@ async def trend_signal(address: str) -> Literal["up", "down", "flat", "unknown"]
         cache_set(ck, sig, ttl=_CACHE_TTL_OK)
         return sig
 
-    # 2) —— fallback rápido ±15 % en 5 m ————————————————
+    # 2) —— fallback ±15 % en 5 m ————————————————
     from fetcher import dexscreener  # import local p/ evitar ciclo
     pair = await dexscreener.get_pair(address)
     pct5 = 0.0
@@ -145,7 +146,6 @@ async def trend_signal(address: str) -> Literal["up", "down", "flat", "unknown"]
     ttl = _CACHE_TTL_OK if pair else _CACHE_TTL_ERR
     cache_set(ck, sig, ttl=ttl)
     return sig
-
 
 # ————————— CLI de prueba rápida ——————————
 if __name__ == "__main__":  # pragma: no cover
