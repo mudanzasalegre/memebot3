@@ -225,7 +225,7 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
     warn_if_nulls(token, context=addr[:4])
     _log_token(token, addr)              # ← helper DEBUG
 
-    # — deduplicación: posición abierta →
+    # — deduplicación: posición abierta —
     exists = await session.scalar(
         select(Position).where(Position.address == addr, Position.closed.is_(False))
     )
@@ -242,7 +242,7 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
         _stats["requeues"] += 1
         return
 
-    # — incompleto ▸ **solo sin liquidez** ————————————————
+    # — incompleto ▸ **solo sin liquidez** —
     if token.get("liquidity_usd") in (None, 0) or (
         isinstance(token.get("liquidity_usd"), float)
         and math.isnan(token["liquidity_usd"])
@@ -251,22 +251,20 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
         token["is_incomplete"] = 1
         store_append(build_feature_vector(token), 0)
 
-        meta      = lista_pares.meta(addr) or {}
-        attempts  = int(meta.get("attempts", 0))
-        backoff   = [60, 180, 420][min(attempts, 2)]
-        reason    = "no_liq"
+        meta     = lista_pares.meta(addr) or {}
+        attempts = int(meta.get("attempts", 0))
+        backoff  = [60, 180, 420][min(attempts, 2)]
 
         log.info(
-            "↩️  Reencolando %s (%s, intento %s)",
+            "↩️  Reencolando %s (no_liq, intento %s)",
             token.get("symbol") or addr[:4],
-            reason,
             attempts + 1,
         )
 
         if attempts >= 3:
             eliminar_par(addr)
         else:
-            requeue(addr, reason=reason, backoff=backoff)
+            requeue(addr, reason="no_liq", backoff=backoff)
             _stats["requeues"] += 1
         return
 
@@ -274,7 +272,6 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
     token = apply_default_values(token)
     token["is_incomplete"] = 0
 
-    # ────────────────────────────────
     # Si venía re-enqueue y ahora ya está completo → log
     if lista_pares.retries_left(addr) < lista_pares.MAX_RETRIES:
         log.debug(
@@ -288,27 +285,24 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
     # — señales baratas —
     token["social_ok"] = await socials.has_socials(addr)
 
-    # ★———————— TREND con re-enqueue 404 ————————★
+    # ★—— TREND tolerante (sin requeue por 404) —★
     try:
         token["trend"], token["trend_fallback_used"] = await trend.trend_signal(addr)
-    except trend.Trend404Retry as exc:
-        # back-off exponencial 15 → 30 → 60 min según intentos previos
-        meta     = lista_pares.meta(addr) or {}
-        attempts = int(meta.get("attempts", 0))
-        delay    = [900, 1800, 3600][min(attempts, 2)]  # s
-        requeue(addr, reason="trend404", backoff=delay)
-        _stats["requeues"] += 1
-        log.debug("↩️  %s re-enqueue trend404 (%ss)", addr[:4], delay)
-        return
+    except trend.Trend404Retry:
+        # No hay datos de tendencia aún → seguimos con trend neutro
+        log.debug("⚠️  %s sin datos de tendencia – continúa sin trend", addr[:4])
+        token["trend"] = 0.0
+        token["trend_fallback_used"] = True
 
+    # — resto de señales —
     token["insider_sig"] = await insider.insider_alert(addr)
     token["score_total"] = filters.total_score(token)
 
     # — filtro duro tolerante —
     res = filters.basic_filters(token)
     if res is not True:
-        meta      = lista_pares.meta(addr) or {}
-        attempts  = int(meta.get("attempts", 0))
+        meta     = lista_pares.meta(addr) or {}
+        attempts = int(meta.get("attempts", 0))
         keep, delay, reason = requeue_policy.decide(
             token, attempts, meta.get("first_seen", time.time())
         )
@@ -321,18 +315,20 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
             eliminar_par(addr)
         return
 
-    # — señales caras —
+    # — señales “caras” —
     token["rug_score"]   = await rugcheck.check_token(addr)
     token["cluster_bad"] = await clusters.suspicious_cluster(addr)
     token["score_total"] = filters.total_score(token)
 
     # — IA —
-    vec, proba = build_feature_vector(token), should_buy(token)
+    vec   = build_feature_vector(token)
+    proba = should_buy(vec)
     if proba < AI_TH:
         _stats["filtered_out"] += 1
         store_append(vec, 0)
         eliminar_par(addr)
         return
+
     _stats["ai_pass"] += 1
     store_append(vec, 1)
 
