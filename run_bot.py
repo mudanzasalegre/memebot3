@@ -2,7 +2,8 @@
 """
 ⏯️  Orquestador principal del sniper MemeBot 3
 ──────────────────────────────────────────────
-Cambios 2025-07-21 / 26
+Cambios 2025-07-27
+• FIX logger: _log_token ya no lanza TypeError cuando age/liquidity/etc = None/NaN
 • DRY-RUN compra siempre 0.01 SOL
 • Fix TZ en _should_exit()
 • Cierre de emergencia cuando no hay PNL
@@ -25,6 +26,28 @@ import logging
 import math
 import time
 from typing import Sequence
+
+# --- PATCH logger helper ---------------------------
+def _fmt(v, pattern="{:.1f}"):
+    """
+    Formatea *v* de forma segura:
+      • None o NaN  → "?"
+      • numérico    → pattern.format(v)
+      • cualquier otro tipo → str(v)
+    """
+    if v is None:
+        return "?"
+    if isinstance(v, float):
+        try:
+            if math.isnan(v):
+                return "?"
+        except Exception:
+            pass
+    try:
+        return pattern.format(v)
+    except Exception:
+        return str(v)
+# ---------------------------------------------------
 
 # Reduce ruido de drivers SQL cuando LOG_LEVEL=DEBUG
 logging.getLogger("aiosqlite").setLevel(logging.WARNING)
@@ -74,7 +97,10 @@ from utils.lista_pares import (                  # sin prefijo: agregar_si_nuevo
 )
 
 # ——— Otras utilidades ————————————————————————————
-from utils.data_utils import sanitize_token_data, is_incomplete
+from utils.data_utils import (
+    sanitize_token_data,
+    apply_default_values,
+)
 from utils.logger import enable_file_logging, warn_if_nulls, log_funnel
 from utils.solana_rpc import get_sol_balance
 from utils.time import utc_now
@@ -141,7 +167,6 @@ _stats = {
 _last_stats_print = time.monotonic()
 _last_csv_export = time.monotonic()
 
-
 # ╭──────────── helpers balance ───────────────────╮
 async def _refresh_balance(monotonic_now: float) -> None:
     global _wallet_sol_balance, _last_wallet_check
@@ -174,6 +199,20 @@ async def _periodic_labeler() -> None:
         await asyncio.sleep(3600)
 
 # ╭──────────── BUY PIPELINE ──────────────────────╮
+def _log_token(tok: dict, addr: str) -> None:
+    """Helper DEBUG que nunca revienta aunque haya NaN/None."""
+    if not log.isEnabledFor(logging.DEBUG):
+        return
+    log.debug(
+        "⛳ Nuevo %s | liq=%s vol24h=%s mcap=%s age=%s",
+        tok.get("symbol") or addr[:4],
+        _fmt(tok.get("liquidity_usd"), "{:.0f}"),
+        _fmt(tok.get("volume_24h_usd"), "{:.0f}"),
+        _fmt(tok.get("market_cap_usd"), "{:.0f}"),
+        _fmt(tok.get("age_min"), "{:.1f}m"),
+    )
+
+# ──────────────────────────────────────────────────
 async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
     """Evalúa un token y ejecuta compra si procede."""
     global _wallet_sol_balance
@@ -184,6 +223,7 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
     # — sanitize + warning campos críticos nulos —
     token = sanitize_token_data(token)
     warn_if_nulls(token, context=addr[:4])
+    _log_token(token, addr)              # ← helper DEBUG
 
     # — deduplicación: posición abierta →
     exists = await session.scalar(
@@ -202,20 +242,36 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
         _stats["requeues"] += 1
         return
 
-    # — incompleto (liq / vol 0 o NaN) —
-    if is_incomplete(token):
+    # — incompleto ▸ **solo sin liquidez** ————————————————
+    if token.get("liquidity_usd") in (None, 0) or (
+        isinstance(token.get("liquidity_usd"), float)
+        and math.isnan(token["liquidity_usd"])
+    ):
         _stats["incomplete"] += 1
         token["is_incomplete"] = 1
         store_append(build_feature_vector(token), 0)
+
         meta      = lista_pares.meta(addr) or {}
         attempts  = int(meta.get("attempts", 0))
         backoff   = [60, 180, 420][min(attempts, 2)]
+        reason    = "no_liq"
+
+        log.info(
+            "↩️  Reencolando %s (%s, intento %s)",
+            token.get("symbol") or addr[:4],
+            reason,
+            attempts + 1,
+        )
+
         if attempts >= 3:
             eliminar_par(addr)
         else:
-            requeue(addr, reason="incomplete", backoff=backoff)
+            requeue(addr, reason=reason, backoff=backoff)
             _stats["requeues"] += 1
         return
+
+    # completar métricas opcionales con defaults
+    token = apply_default_values(token)
     token["is_incomplete"] = 0
 
     # ────────────────────────────────
@@ -234,7 +290,7 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
 
     # ★———————— TREND con re-enqueue 404 ————————★
     try:
-        token["trend"] = await trend.trend_signal(addr)
+        token["trend"], token["trend_fallback_used"] = await trend.trend_signal(addr)
     except trend.Trend404Retry as exc:
         # back-off exponencial 15 → 30 → 60 min según intentos previos
         meta     = lista_pares.meta(addr) or {}

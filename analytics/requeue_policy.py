@@ -12,15 +12,26 @@ from config.config import (
     MIN_VOL_USD_24H,
 )
 
-# Tabla de reglas de requeue/descartar
-# Devuelve (should_requeue, backoff_sec, reason)
+# —————————————————— Tabla de reglas globales ——————————————————
+# Cada tupla:   (reason, {"max_attempts": int, "delay": segundos})
+# Añadimos “other” para evitar bucles infinitos ─ Mod 26-Jul-2025
+RULES = [
+    ("other",      {"max_attempts": 4, "delay": 180}),  # ← NUEVA
+    ("age",        {"max_attempts": 0, "delay":   0}),
+    ("mcap_high",  {"max_attempts": 0, "delay":   0}),
+    ("mcap_low",   {"max_attempts": 2, "delay": 120}),
+    ("vol_low",    {"max_attempts": 3, "delay": 120}),
+    ("liq_low",    {"max_attempts": 2, "delay": 120}),
+]
 
+# —————————————————— API principal ————————————————————————
+# Devuelve (should_requeue, backoff_sec, reason)
 def decide(token: dict, attempts: int, first_seen: float) -> Tuple[bool, int, str]:
     age_min = float(token.get("age_minutes", 0))
     age_days = age_min / 1440.0
-    liq = token.get("liquidity_usd")
-    vol = token.get("volume_24h_usd")
-    mcap = token.get("market_cap_usd")
+    liq     = token.get("liquidity_usd")
+    vol     = token.get("volume_24h_usd")
+    mcap    = token.get("market_cap_usd")
 
     if age_days > MAX_AGE_DAYS:
         return False, 0, "age"
@@ -43,4 +54,6 @@ def decide(token: dict, attempts: int, first_seen: float) -> Tuple[bool, int, st
             return False, 0, "liq_low"
         return True, 120, "liq_low"
 
-    return True, 120, "other"
+    # Si ningún filtro anterior aplica → “other”
+    # Con la nueva regla: máximo 4 reintentos, 180 s cada uno
+    return True, 180, "other"

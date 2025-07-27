@@ -3,7 +3,7 @@ analytics.trend
 ~~~~~~~~~~~~~~~
 Señal de tendencia para MemeBot 3.
 
-1️⃣  Intenta calcularla con dos EMAs (7 × 5 m y 21 × 5 m) sobre las velas de
+1️⃣  Intenta calcularla con dos EMAs (7 × 5 m y 21 × 5 m) sobre las velas de
     DexScreener ⇒ «up / down / flat».
 2️⃣  Si no hay velas suficientes (token muy nuevo) **o** ocurre un error de
     red, hace *fallback* a la heurística rápida:
@@ -14,8 +14,12 @@ Señal de tendencia para MemeBot 3.
 
 Cache in‑memory para no machacar la API.
 
-*Mod 26‑Jul‑2025*: se añade la excepción `Trend404Retry` para delegar el manejo
-                   de 404 (sin velas) al `requeue_policy`.
+*Mod 26‑Jul‑2025*: se añade la excepción ``Trend404Retry`` para delegar el 
+                   manejo de 404 (sin velas) al ``requeue_policy``.
+*Mod 27‑Jul‑2025*: se aplica la lógica del commit `0048188`: el primer 404
+                   lanza ``Trend404Retry``; el segundo regresa lista vacía
+                   permitiendo continuar sin tendencia, añadiendo un
+                   ``log.debug`` para visibilidad.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ import random
 from typing import List, Literal
 
 import aiohttp
+from aiohttp import ClientResponseError as HTTPError  # type: ignore
 
 from config import DEX_API_BASE
 from utils.simple_cache import cache_get, cache_set
@@ -61,40 +66,27 @@ def _ema(series: List[float], length: int) -> float:
 async def _fetch_closes(address: str) -> List[float]:
     """Devuelve hasta 200 cierres de velas 5 m.
 
-    Si el endpoint de velas responde 404 pero se encuentra el par,
-    devuelve ``[]`` para forzar el *fallback* en lugar de propagar
-    :class:`Trend404Retry`.
+    Se implementa la política *first‑404 → requeue / second‑404 → fallback*
+    descrita en el commit **0048188**.
     """
     url = f"{DEX_API_BASE.rstrip('/')}/chart/solana/{address}?interval=5m&limit=200"
     backoff = _BACKOFF
-    pair_addr = None
-    tried_pair = False
 
     for attempt in range(1, _MAX_TRIES + 1):
         try:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=_TIMEOUT)
             ) as sess, sess.get(url) as resp:
-                
+
+                # ——— 404 ———————————————————————————————
                 if resp.status == 404:
-                    if not tried_pair:
-                        from fetcher import dexscreener  # import local
+                    if attempt == 1:  # primer 404 → requeue
+                        raise Trend404Retry("DexScreener 404 – sin velas todavía")
+                    # segundo 404 → continuar sin trend
+                    log.debug("Trend 404 (segunda vez) – sigo sin trend")
+                    return []
 
-                        pair = await dexscreener.get_pair(address)
-                        pair_addr = pair.get("address") if pair else None
-                        if pair_addr and pair_addr != address:
-                            url = f"{DEX_API_BASE.rstrip('/')}/chart/solana/{pair_addr}?interval=5m&limit=200"
-                            tried_pair = True
-                            continue
-                    if pair_addr:
-                        log.debug(
-                            "[trend] %s chart pair %s sin velas",
-                            address[:4],
-                            pair_addr[:4],
-                        )
-                        return []
-                    raise Trend404Retry("DexScreener 404 – sin velas todavía")
-
+                # ——— otro status error ————————————————
                 if resp.status != 200:
                     raise RuntimeError(f"HTTP {resp.status}")
 
@@ -120,13 +112,14 @@ async def _fetch_closes(address: str) -> List[float]:
 
 
 # —————————————————— API pública ——————————————————
-async def trend_signal(address: str) -> Literal["up", "down", "flat", "unknown"]:
-    """Calcula la señal o propaga Trend404Retry si no hay velas."""
+async def trend_signal(address: str) -> tuple[Literal["up", "down", "flat", "unknown"], bool]:
+    """Calcula la señal y devuelve (signal, fallback_used)."""
     ck = f"trend:{address}"
     if (hit := cache_get(ck)) is not None:
         return hit
 
     # 1) —— intento con velas de 5 m ————————————————————
+    fallback_used = False
     try:
         closes = await _fetch_closes(address)
     except Trend404Retry:
@@ -147,16 +140,16 @@ async def trend_signal(address: str) -> Literal["up", "down", "flat", "unknown"]
             sig = "flat"
 
         cache_set(ck, sig, ttl=_CACHE_TTL_OK)
-        return sig
+        return sig, fallback_used
 
     # 2) —— fallback ±15 % en 5 m ————————————————
     from fetcher import dexscreener  # import local p/ evitar ciclo
-    
+
     pair = await dexscreener.get_pair(address)
     pct5 = 0.0
     if pair:
         pct5 = float(
-           pair.get("price_pct_5m") or pair.get("priceChange", {}).get("m5") or 0
+            pair.get("price_pct_5m") or pair.get("priceChange", {}).get("m5") or 0
         )
 
     if pct5 >= 15:
@@ -168,12 +161,14 @@ async def trend_signal(address: str) -> Literal["up", "down", "flat", "unknown"]
 
     ttl = _CACHE_TTL_OK if pair else _CACHE_TTL_ERR
     cache_set(ck, sig, ttl=ttl)
-    return sig
+    fallback_used = True
+    return sig, fallback_used
+
 
 # ————————— CLI de prueba rápida ——————————
 if __name__ == "__main__":  # pragma: no cover
     import sys
-    
+
     test_addr = (
         sys.argv[1]
         if len(sys.argv) > 1

@@ -1,3 +1,4 @@
+# memebot3/tests/test_trend_fetch_closes.py
 import pathlib
 import sys
 
@@ -51,7 +52,7 @@ async def test_fetch_closes_pair_chart_404(monkeypatch):
         return {"address": "PAIR"}
 
     monkeypatch.setattr(dexscreener, "get_pair", fake_get_pair)
-    responses = [FakeResp(404), FakeResp(404)]
+    responses = [FakeResp(404)]
     monkeypatch.setattr(trend.aiohttp, "ClientSession", make_session(responses))
 
     closes = await trend._fetch_closes("ADDR")

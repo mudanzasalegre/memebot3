@@ -94,7 +94,11 @@ def requeue(addr: str, *, reason: str = "", backoff: int | None = None) -> None:
     meta["retries"] -= 1
     meta["attempts"] = int(meta.get("attempts", 0)) + 1
     meta["reason"] = reason or meta.get("reason", "")
-    meta["next_try"] = time.time() + (backoff or BACKOFF_SEC)
+    delay = backoff or BACKOFF_SEC
+    meta["next_try"] = time.time() + delay
+
+    # 🛈 Log extra de visibilidad (Mod 26-Jul-2025)
+    log.debug("↩️  %s → cola (%s, delay=%ss)", addr[:4], meta["reason"], delay)
 
     # sin retries
     if meta["retries"] <= 0:
