@@ -354,11 +354,16 @@ async def _load_open_positions(ses: SessionLocal) -> Sequence[Position]:
     return (await ses.execute(stmt)).scalars().all()
 
 
-async def _should_exit(pos: Position, price: float, now: dt.datetime) -> bool:
+async def _should_exit(pos: Position, price: float | None, now: dt.datetime) -> bool:
     opened = pos.opened_at
     if opened.tzinfo is None:
         opened = opened.replace(tzinfo=dt.timezone.utc)
 
+    # ① Si no hay precio actual, cerrar por tiempo
+    if price is None:
+        return (now - opened).total_seconds() / 3600 >= MAX_HOLDING_H
+
+    # ② Si hay precio, calcula PnL y evalúa todas las condiciones
     pnl = None
     if pos.buy_price_usd:
         pnl = (price - pos.buy_price_usd) / pos.buy_price_usd * 100
@@ -373,24 +378,27 @@ async def _should_exit(pos: Position, price: float, now: dt.datetime) -> bool:
         or (now - opened).total_seconds() / 3600 >= MAX_HOLDING_H
     )
 
-
 async def _check_positions(session: SessionLocal) -> None:
     global _wallet_sol_balance
     for pos in await _load_open_positions(session):
-        pair = await dexscreener.get_pair(pos.address)
-        if not pair or not pair.get("price_usd"):
-            continue
-
         now = utc_now()
-        if not await _should_exit(pos, pair["price_usd"], now):
+
+        # ① Intentamos obtener precio actual
+        pair = await dexscreener.get_pair(pos.address)
+        price = pair.get("price_usd") if pair else None
+
+        # ② Evaluamos si hay que cerrar la posición
+        if not await _should_exit(pos, price, now):
             continue
 
+        # ③ Simulamos venta (papertrading) o real
         sell_resp = await seller.sell(pos.address, pos.qty)
-        pos.closed          = True
-        pos.closed_at       = now
-        pos.close_price_usd = pair.get("price_usd")
-        pos.exit_tx_sig     = sell_resp.get("signature")
+        pos.closed = True
+        pos.closed_at = now
+        pos.close_price_usd = price or pos.buy_price_usd or 0.0
+        pos.exit_tx_sig = sell_resp.get("signature")
 
+        # ④ Calculamos PnL
         pnl_pct = (
             None
             if pos.close_price_usd is None or pos.buy_price_usd is None
@@ -404,6 +412,7 @@ async def _check_positions(session: SessionLocal) -> None:
         except SQLAlchemyError:
             await session.rollback()
 
+        # ⑤ Recuperamos saldo si no es dry-run
         if not DRY_RUN:
             try:
                 _wallet_sol_balance += pos.qty / 1e9
