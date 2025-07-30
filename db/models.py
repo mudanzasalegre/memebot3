@@ -40,7 +40,7 @@ class Token(Base):
 
     liquidity_usd:   Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
     volume_24h_usd:  Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
-    market_cap_usd:  Mapped[float] = mapped_column(Float, default=0.0, server_default="0")  # ← NUEVO
+    market_cap_usd:  Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # ← modificado
     holders:         Mapped[int]   = mapped_column(Integer, default=0)
 
     # —— señales ——
@@ -62,7 +62,7 @@ class Token(Base):
     def __repr__(self) -> str:  # pragma: no cover
         return (
             f"<Token {self.symbol or self.address[:4]} "
-            f"mcap={self.market_cap_usd:.0f} vol24h={self.volume_24h_usd:.0f}>"
+            f"mcap={self.market_cap_usd or 0:.0f} vol24h={self.volume_24h_usd:.0f}>"
         )
 
 # ───────────────────────── Position ───────────────────────

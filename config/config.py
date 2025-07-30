@@ -87,6 +87,8 @@ class _Config:
 
     MAX_24H_VOLUME:     float = _num_env("MAX_24H_VOLUME",     float, 1_500_000)
     MIN_SCORE_TOTAL:    int   = _num_env("MIN_SCORE_TOTAL",    int,   50)
+    MAX_ACTIVE_POSITIONS: int = _num_env("MAX_ACTIVE_POSITIONS", int, 25)
+
 
     # ------- riesgo / exits ----------------------------------------
     TAKE_PROFIT_PCT: float = _num_env("TAKE_PROFIT_PCT", float, 35)
@@ -148,6 +150,8 @@ MAX_MARKET_CAP_USD = CFG.MAX_MARKET_CAP_USD   # ★ alias nuevo
 
 MAX_24H_VOLUME     = CFG.MAX_24H_VOLUME
 MIN_SCORE_TOTAL    = CFG.MIN_SCORE_TOTAL
+
+MAX_ACTIVE_POSITIONS = CFG.MAX_ACTIVE_POSITIONS
 
 MAX_QUEUE_SIZE     = CFG.MAX_QUEUE_SIZE       # ★ alias nuevo
 

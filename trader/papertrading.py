@@ -1,6 +1,5 @@
+# trader/papertrading.py
 """
-trader.papertrading
-────────────────────
 Motor de *paper-trading* (órdenes fantasma) usado cuando el bot se lanza
 con el flag `--dry-run` o `CFG.DRY_RUN=1`.
 
@@ -30,12 +29,10 @@ _DATA_PATH = pathlib.Path(CFG.PROJECT_ROOT if hasattr(CFG, "PROJECT_ROOT") else 
             / "data" / "paper_portfolio.json"
 _DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-# Carga porfolio previo (si existe)
 try:
     _PORTFOLIO: Dict[str, Any] = json.loads(_DATA_PATH.read_text())
 except Exception:       # noqa: BLE001
     _PORTFOLIO = {}
-
 
 def _save() -> None:
     try:
@@ -43,22 +40,22 @@ def _save() -> None:
     except Exception as exc:     # noqa: BLE001
         log.warning("No se pudo guardar porfolio paper-trading: %s", exc)
 
-
-# ───────────────────────── helpers público ──────────────────────
+# ───────────────────────── lógica de compra ─────────────────────
 async def buy(address: str, amount_sol: float) -> dict:
-    # intentar precio de DexScreener; si falla usa estimación fija
     pair = await dexscreener.get_pair(address)
     price_usd = float(pair.get("price_usd") or 0.0) if pair else 0.0
 
     SOL_USD = 160.0
     cost_usd = amount_sol * SOL_USD
-    qty_lp   = int(amount_sol * 1e9)
+    qty_lp = int(amount_sol * 1e9)
 
     _PORTFOLIO[address] = {
         "qty_lamports": qty_lp,
-        "buy_price_usd": price_usd or cost_usd / qty_lp * 1e9,  # fallback
+        "buy_price_usd": price_usd or cost_usd / qty_lp * 1e9,
+        "peak_price": price_usd,
         "amount_sol": amount_sol,
         "opened_at": utc_now().isoformat(),
+        "closed": False,
     }
     _save()
 
@@ -68,24 +65,22 @@ async def buy(address: str, amount_sol: float) -> dict:
         "route": {"quote": {"inAmountUSD": cost_usd}},
     }
 
+# ───────────────────────── lógica de salida ─────────────────────
 async def sell(address: str, qty_lamports: int) -> dict:
-    """
-    Simula la venta.  Calcula PnL % y elimina la posición.
-    Devuelve dict con `signature` ficticia.
-    """
     entry = _PORTFOLIO.get(address)
-    if not entry:
-        raise RuntimeError(f"No hay posición paper para {address[:4]}")
+    if not entry or entry.get("closed"):
+        raise RuntimeError(f"No hay posición activa para {address[:4]}")
 
     pair = await dexscreener.get_pair(address)
     price_now = float(pair["price_usd"]) if pair else 0.0
 
     pnl_pct = ((price_now - entry["buy_price_usd"])
                / entry["buy_price_usd"] * 100) if entry["buy_price_usd"] else 0.0
-    entry["closed_at"]  = utc_now().isoformat()
+
+    entry["closed_at"] = utc_now().isoformat()
     entry["close_price_usd"] = price_now
-    entry["pnl_pct"]    = pnl_pct
-    entry["closed"]     = True
+    entry["pnl_pct"] = pnl_pct
+    entry["closed"] = True
     _save()
 
     sig = f"SIM-{int(time.time()*1e3)}"
@@ -93,3 +88,46 @@ async def sell(address: str, qty_lamports: int) -> dict:
              address[:4], pnl_pct, sig)
 
     return {"signature": sig}
+
+# ───────────────────────── condiciones de salida ────────────────
+async def check_exit_conditions(address: str) -> bool:
+    entry = _PORTFOLIO.get(address)
+    if not entry or entry.get("closed"):
+        return False
+
+    pair = await dexscreener.get_pair(address)
+    price = float(pair["price_usd"]) if pair else 0.0
+    buy_price = entry.get("buy_price_usd") or 0.0
+    peak_price = entry.get("peak_price") or price
+
+    # actualizar peak
+    if price > peak_price:
+        entry["peak_price"] = price
+        peak_price = price
+        _save()
+
+    # condiciones
+    pnl = (price - buy_price) / buy_price * 100 if buy_price else 0.0
+    trailing = peak_price - (peak_price * CFG.TRAILING_PCT / 100.0)
+    timeout = False
+    try:
+        opened_at = dt.datetime.fromisoformat(entry["opened_at"])
+        if opened_at.tzinfo is None:
+            opened_at = opened_at.replace(tzinfo=dt.timezone.utc)
+        timeout = (utc_now() - opened_at).total_seconds() > CFG.MAX_HOLDING_H * 3600
+    except Exception:
+        timeout = False
+
+    # evaluaciones
+    if price <= 0:
+        return False
+    if pnl >= CFG.TAKE_PROFIT_PCT:
+        return True
+    if pnl <= -CFG.STOP_LOSS_PCT:
+        return True
+    if price <= trailing:
+        return True
+    if timeout:
+        return True
+
+    return False

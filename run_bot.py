@@ -27,14 +27,8 @@ import math
 import time
 from typing import Sequence
 
-# --- PATCH logger helper ---------------------------
+# ——— Logger formatter seguro ———————————————————
 def _fmt(v, pattern="{:.1f}"):
-    """
-    Formatea *v* de forma segura:
-      • None o NaN  → "?"
-      • numérico    → pattern.format(v)
-      • cualquier otro tipo → str(v)
-    """
     if v is None:
         return "?"
     if isinstance(v, float):
@@ -47,9 +41,8 @@ def _fmt(v, pattern="{:.1f}"):
         return pattern.format(v)
     except Exception:
         return str(v)
-# ---------------------------------------------------
 
-# Reduce ruido de drivers SQL cuando LOG_LEVEL=DEBUG
+# Reduce ruido
 logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
@@ -58,7 +51,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.inspection import inspect
 
-# ——— Config / constantes ——————————————————————————
+# ——— Configuración y salidas ——————————————————
 from config.config import (
     CFG,
     BANNED_CREATORS,
@@ -67,53 +60,38 @@ from config.config import (
 )
 from config import exits
 
-# ——— Base de datos ——————————————————————————————
+# ——— DB y modelos ——————————————————————————————
 from db.database import SessionLocal, async_init_db
-from db.models import Position, Token, RevivedToken  # RevivedToken: futuras features
+from db.models import Position, Token
 
-# ——— Fetchers / analytics —————————————————————————
+# ——— Análisis y señales ——————————————————————
 from fetcher import dexscreener, helius_cluster as clusters, pumpfun, rugcheck, socials
 from analytics import filters, insider, trend, requeue_policy
 from analytics.ai_predict import should_buy, reload_model
 
-# ——— Features / ML ——————————————————————————————
+# ——— Features / ML —————————————————————————————
 from features.builder import build_feature_vector
-from features.store import (
-    append as store_append,
-    update_pnl as store_update_pnl,
-    export_csv as store_export_csv,
-)
+from features.store import append as store_append, update_pnl as store_update_pnl, export_csv as store_export_csv
 from ml.retrain import retrain_if_better
 
-# ——— Utils (descubridor y cola) ————————————————————
+# ——— Utils / Gestión pares ——————————————————————
 from utils.descubridor_pares import fetch_candidate_pairs
-from utils import lista_pares                    # prefijo:  lista_pares.retries_left(...)
-from utils.lista_pares import (                  # sin prefijo: agregar_si_nuevo(...)
-    agregar_si_nuevo,
-    eliminar_par,
-    obtener_pares,
-    requeue,
-    stats as queue_stats,
-)
-
-# ——— Otras utilidades ————————————————————————————
-from utils.data_utils import (
-    sanitize_token_data,
-    apply_default_values,
-)
+from utils import lista_pares
+from utils.lista_pares import agregar_si_nuevo, eliminar_par, obtener_pares, requeue, stats as queue_stats
+from utils.data_utils import sanitize_token_data, apply_default_values
 from utils.logger import enable_file_logging, warn_if_nulls, log_funnel
 from utils.solana_rpc import get_sol_balance
 from utils.time import utc_now
-from labeler.win_labeler import label_positions  # noqa: E402
+from labeler.win_labeler import label_positions
 
-# ╭──────────── CLI / flags ─────────────────────────╮
+# ╭──────────── CLI ─────────────────────────╮
 parser = argparse.ArgumentParser(description="MemeBot 3 – sniper Solana")
 parser.add_argument("--dry-run", action="store_true", help="Paper-trading")
 parser.add_argument("--log",     action="store_true", help="Gira logs en /logs")
 args    = parser.parse_args()
 DRY_RUN = args.dry_run or CFG.DRY_RUN
 
-# ╭──────────── logging root ────────────────────────╮
+# ╭──────────── Logging y módulos trader ─────╮
 logging.basicConfig(
     level=CFG.LOG_LEVEL,
     format="%(asctime)s  %(levelname)-7s %(name)s: %(message)s",
@@ -122,66 +100,61 @@ logging.basicConfig(
 )
 log = logging.getLogger("run_bot")
 
-# ───────── trader según modo ───────────────────────
 if DRY_RUN:
-    from trader import papertrading as buyer   # noqa: E402
-    from trader import papertrading as seller  # noqa: E402
+    from trader import papertrading as buyer
+    from trader import papertrading as seller
     log.info("🔖 DRY-RUN ACTIVADO – trader.papertrading")
 else:
-    from trader import buyer, seller           # noqa: E402
+    from trader import buyer, seller
 
-# file-logging opcional
 if args.log:
     run_id = enable_file_logging()
     log.info("📂 File-logging activo (run_id %s)", run_id)
 
-# ───────── constantes de CFG ───────────────────────
-DISCOVERY_INTERVAL    = CFG.DISCOVERY_INTERVAL
-SLEEP_SECONDS         = CFG.SLEEP_SECONDS
+# ╭──────────── Constantes CFG ───────────────╮
+DISCOVERY_INTERVAL = CFG.DISCOVERY_INTERVAL
+SLEEP_SECONDS = CFG.SLEEP_SECONDS
 VALIDATION_BATCH_SIZE = CFG.VALIDATION_BATCH_SIZE
-TRADE_AMOUNT_SOL_CFG  = CFG.TRADE_AMOUNT_SOL
-GAS_RESERVE_SOL       = CFG.GAS_RESERVE_SOL
-MIN_SOL_BALANCE       = CFG.MIN_SOL_BALANCE
-WALLET_POLL_INTERVAL  = 30
+TRADE_AMOUNT_SOL_CFG = CFG.TRADE_AMOUNT_SOL
+GAS_RESERVE_SOL = CFG.GAS_RESERVE_SOL
+MIN_SOL_BALANCE = CFG.MIN_SOL_BALANCE
+WALLET_POLL_INTERVAL = 30
 
-TP_PCT        = exits.TAKE_PROFIT_PCT
-SL_PCT        = exits.STOP_LOSS_PCT
-TRAILING_PCT  = exits.TRAILING_PCT
+TP_PCT = exits.TAKE_PROFIT_PCT
+SL_PCT = exits.STOP_LOSS_PCT
+TRAILING_PCT = exits.TRAILING_PCT
 MAX_HOLDING_H = exits.MAX_HOLDING_H
-AI_TH         = CFG.AI_THRESHOLD
+AI_TH = CFG.AI_THRESHOLD
 
-# ───────── estado runtime ─────────────────────────
-_wallet_sol_balance: float = 0.0
-_last_wallet_check: float  = 0.0
+_wallet_sol_balance = 0.0
+_last_wallet_check = 0.0
 
 _stats = {
     "raw_discovered": 0,
-    "incomplete":     0,
-    "filtered_out":   0,
-    "ai_pass":        0,
-    "bought":         0,
-    "sold":           0,
-    "requeues":       0,
-    "requeue_success":0,
+    "incomplete": 0,
+    "filtered_out": 0,
+    "ai_pass": 0,
+    "bought": 0,
+    "sold": 0,
+    "requeues": 0,
+    "requeue_success": 0,
 }
 _last_stats_print = time.monotonic()
 _last_csv_export = time.monotonic()
 
-# ╭──────────── helpers balance ───────────────────╮
-async def _refresh_balance(monotonic_now: float) -> None:
+# ╭──────────── Balance wallet ───────────────╮
+async def _refresh_balance(now_mono: float) -> None:
     global _wallet_sol_balance, _last_wallet_check
-    if monotonic_now - _last_wallet_check < WALLET_POLL_INTERVAL:
+    if now_mono - _last_wallet_check < WALLET_POLL_INTERVAL:
         return
     try:
         _wallet_sol_balance = await get_sol_balance()
-        _last_wallet_check  = monotonic_now
+        _last_wallet_check = now_mono
         log.debug("💰 Wallet = %.3f SOL", _wallet_sol_balance)
-    except Exception as e:                       # noqa: BLE001
+    except Exception as e:
         log.warning("get_sol_balance → %s", e)
 
-
 def _compute_trade_amount() -> float:
-    """Dry-run siempre 0.01 SOL; en real respeta reserva de gas."""
     if DRY_RUN:
         return 0.01
     usable = max(0.0, _wallet_sol_balance - GAS_RESERVE_SOL)
@@ -189,7 +162,7 @@ def _compute_trade_amount() -> float:
         return 0.0
     return min(TRADE_AMOUNT_SOL_CFG, usable)
 
-# ╭──────────── labeler background ────────────────╮
+# ╭──────────── Labeler ──────────────────────╮
 async def _periodic_labeler() -> None:
     while True:
         try:
@@ -198,9 +171,8 @@ async def _periodic_labeler() -> None:
             log.error("label_positions → %s", e)
         await asyncio.sleep(3600)
 
-# ╭──────────── BUY PIPELINE ──────────────────────╮
+# ╭──────────── Evaluación compra ─────────────╮
 def _log_token(tok: dict, addr: str) -> None:
-    """Helper DEBUG que nunca revienta aunque haya NaN/None."""
     if not log.isEnabledFor(logging.DEBUG):
         return
     log.debug(
@@ -438,10 +410,9 @@ async def _check_positions(session: SessionLocal) -> None:
             except Exception:
                 pass
 
-# ╭──────────── retrain loop ──────────────────────╮
+# ╭──────────── Loop de entrenamiento ─────────╮
 async def retrain_loop() -> None:
     import calendar
-
     wd = calendar.day_name[CFG.RETRAIN_DAY]
     log.info("Retrain-loop activo (%s %s UTC)", wd, CFG.RETRAIN_HOUR)
     while True:
@@ -459,19 +430,12 @@ async def retrain_loop() -> None:
             await asyncio.sleep(3600)
         await asyncio.sleep(300)
 
-# ╭──────────── MAIN LOOP ─────────────────────────╮
+# ╭──────────── MAIN LOOP ─────────────────────╮
 async def main_loop() -> None:
     session = SessionLocal()
-
     last_discovery = 0.0
-    log.info(
-        "Ready (discover=%ss, batch=%s, sleep=%ss, DRY_RUN=%s, AI_TH=%.2f)",
-        DISCOVERY_INTERVAL,
-        VALIDATION_BATCH_SIZE,
-        SLEEP_SECONDS,
-        DRY_RUN,
-        AI_TH,
-    )
+    log.info("Ready (discover=%ss, batch=%s, sleep=%ss, DRY_RUN=%s, AI_TH=%.2f)",
+             DISCOVERY_INTERVAL, VALIDATION_BATCH_SIZE, SLEEP_SECONDS, DRY_RUN, AI_TH)
 
     global _wallet_sol_balance, _last_stats_print, _last_csv_export
     _wallet_sol_balance = await get_sol_balance()
@@ -540,10 +504,9 @@ async def main_loop() -> None:
 
         await asyncio.sleep(SLEEP_SECONDS)
 
-# ╭──────────── entry point ───────────────────────╮
+# ╭──────────── Entrypoint ─────────────────────╮
 async def _runner() -> None:
-    await async_init_db()  # crea/esquema SQLite (WAL)
-
+    await async_init_db()
     await asyncio.gather(
         main_loop(),
         retrain_loop(),
