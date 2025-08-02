@@ -57,6 +57,7 @@ class _Config:
     GAS_RESERVE_SOL: float = _num_env("GAS_RESERVE_SOL", float, 0.05)
     MIN_BUY_SOL: float = _num_env("MIN_BUY_SOL", float, 0.01)
     MIN_SOL_BALANCE: float = _num_env("MIN_SOL_BALANCE", float, 0.01)  # legacy
+    DEXS_TTL_NIL: int = _num_env("DEXS_TTL_NIL", int, 300)
 
     # ------- IA / ML -----------------------------------------------
     AI_THRESHOLD: float = _num_env("AI_THRESHOLD", float, 0.1)
@@ -161,6 +162,7 @@ class _Config:
 # instancia global inmutable
 CFG = _Config()
 
+DEXS_TTL_NIL = CFG.DEXS_TTL_NIL
 
 # ─────────────── aliases retro-compatibilidad ────────────────
 DEX_API_BASE = CFG.DEXSCREENER_API

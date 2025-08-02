@@ -14,6 +14,7 @@ Cambios
 """
 from __future__ import annotations
 
+import os
 import asyncio
 import datetime as dt
 import logging
@@ -32,7 +33,7 @@ log = logging.getLogger("dexscreener")
 DEX = DEX_API_BASE.rstrip("/")
 
 _MAX_TRIES, _BACKOFF_START = 3, 1
-_CACHE_TTL_OK, _CACHE_TTL_NIL = 120, 3600
+_CACHE_TTL_OK, _CACHE_TTL_NIL = 120, int(os.getenv("DEXS_TTL_NIL", 300))
 _SENTINEL_NIL = object()
 
 # ───────────────────────── helpers HTTP ──────────────────────────

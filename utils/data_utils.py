@@ -1,23 +1,18 @@
 # memebot3/utils/data_utils.py
 """
-utils.data_utils
-~~~~~~~~~~~~~~~~
-• Normaliza el dict-token a claves canónicas y tipos simples.
-• is_incomplete() marca tokens sin liquidez o volumen relevante.
+Normaliza el dict-token a claves canónicas y tipos simples.
 
 Cambios 2025-08-02
 ──────────────────
-✔  Se añaden alias procedentes de GeckoTerminal:
-   • liq_usd  → liquidity_usd
-   • volume_usd → volume_24h_usd
-   • mcap     → market_cap_usd
-✔  El resto del flujo (age_min, casts, etc.) no se toca.
+• Alias GeckoTerminal → canónicos.
+• Se garantiza que los campos críticos (liq, vol, mcap) NUNCA queden NaN/None.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import logging
+import math
 from typing import Any, Dict
 
 import numpy as np
@@ -33,7 +28,7 @@ _NUMERIC_ALIASES: dict[str, str] = {
     "liquidity":       "liquidity_usd",
     "liquidityUsd":    "liquidity_usd",
     "liquidity_usd":   "liquidity_usd",
-    "liq_usd":         "liquidity_usd",      # ← GeckoTerminal
+    "liq_usd":         "liquidity_usd",      # GeckoTerminal
     # volumen 24 h
     "vol24h":          "volume_24h_usd",
     "vol24h_usd":      "volume_24h_usd",
@@ -41,19 +36,20 @@ _NUMERIC_ALIASES: dict[str, str] = {
     "volume":          "volume_24h_usd",
     "volume_24h":      "volume_24h_usd",
     "volume_24h_usd":  "volume_24h_usd",
-    "volume_usd":      "volume_24h_usd",     # ← GeckoTerminal
+    "volume_usd":      "volume_24h_usd",     # GeckoTerminal
     # market-cap
     "market_cap":      "market_cap_usd",
     "market_cap_usd":  "market_cap_usd",
-    "mcap":            "market_cap_usd",     # ← GeckoTerminal
+    "mcap":            "market_cap_usd",     # GeckoTerminal
     # otros
     "holders":         "holders",
     "age_minutes":     "age_minutes",
-    "age_min":         "age_minutes",        # alias nuevo
+    "age_min":         "age_minutes",
 }
 
-_MANDATORY_FLOATS = {"liquidity_usd", "volume_24h_usd"}
-# Campos INT que en la BD son NOT NULL ⇒ jamás se guardan como NaN/None
+# Campos FLOAT NOT NULL en la base de datos
+_MANDATORY_FLOATS = {"liquidity_usd", "volume_24h_usd", "market_cap_usd"}
+# Campos INT NOT NULL en la base de datos
 _INT_NOT_NULL = ("holders", "txns_last_5m")
 
 _TREND_STR_TO_INT = {
@@ -62,7 +58,6 @@ _TREND_STR_TO_INT = {
     "flat": 0, "sideways": 0, "neutral": 0, "unknown": 0,
 }
 _PREF_KEYS = ("usd", "h24", "24h", "quote", "base", "value")
-
 
 # ───────── helpers numéricos ─────────────────
 def _extract_from_dict(d: dict, ctx: str) -> float | None:
@@ -75,12 +70,7 @@ def _extract_from_dict(d: dict, ctx: str) -> float | None:
             return num
     return None
 
-
 def _to_float(value: Any, ctx: str = "") -> float | None:
-    """
-    Convierte *value* a float.
-    • Devuelve **np.nan** si no es convertible.
-    """
     if value is None:
         return np.nan
     if isinstance(value, dict):
@@ -94,7 +84,6 @@ def _to_float(value: Any, ctx: str = "") -> float | None:
                   ctx, value, type(value).__name__)
         return np.nan
 
-
 def _normalize_trend(v: Any) -> int:
     if isinstance(v, (int, float)):
         return int(max(min(v, 1), -1))
@@ -102,62 +91,46 @@ def _normalize_trend(v: Any) -> int:
         return _TREND_STR_TO_INT.get(v.lower().strip(), 0)
     return 0
 
-
 def _minutes_since(ts: dt.datetime | None) -> float:
-    """Devuelve minutos transcurridos desde *ts* o np.nan si ts es None."""
     if not ts:
         return np.nan
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=dt.timezone.utc)
     return (utc_now() - ts).total_seconds() / 60.0
 
-
 # ───────── validación externa ───────────────
 def is_incomplete(tok: Dict[str, Any]) -> bool:
-    """True si faltan métricas **críticas** (liq, vol, holders)."""
-    liq = tok.get("liquidity_usd")
-    vol = tok.get("volume_24h_usd")
-    holders = tok.get("holders")
-
-    missing_liq = liq is None or (isinstance(liq, float) and np.isnan(liq)) or liq == 0
-    missing_vol = vol is None or (isinstance(vol, float) and np.isnan(vol)) or vol == 0
-    missing_hol = holders is None or (isinstance(holders, float) and np.isnan(holders)) or holders == 0
-
-    return missing_liq or missing_vol or missing_hol
-
+    """True si faltan métricas críticas (liq, vol, holders)."""
+    liq, vol, holders = tok.get("liquidity_usd"), tok.get("volume_24h_usd"), tok.get("holders")
+    missing = lambda x: x in (None, 0) or (isinstance(x, float) and math.isnan(x))
+    return missing(liq) or missing(vol) or missing(holders)
 
 # ───────── forward-fill retroactivo ─────────
 def fill_provisional_liq_vol(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Para un DataFrame de un mismo token ordenado por timestamp:
-    • forward-fill `liquidity_usd` y `volume_24h_usd`.
-    """
     df = df.copy().sort_values("timestamp")
     for col in ("liquidity_usd", "volume_24h_usd"):
         df[col] = df[col].fillna(method="ffill")
     return df
 
-
 # ───────── función principal ────────────────
 def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
     """
-    • Alias → nombres canónicos.  
-    • Castea numéricos vía _to_float (→ float o np.nan).  
-    • Asegura tipos simples y valores válidos para la BD.
+    • Aplica alias → claves canónicas.  
+    • Convierte numéricos a float; NaN en campos NOT NULL → 0.0.  
+    • Normaliza booleanos, trend, edad y marcas temporales.
     """
-    clean: Dict[str, Any] = token        # mutación in-place
-    ctx = clean.get("symbol") or clean.get("address", "")[:4]
+    clean = token                      # mutación in-place
+    ctx   = clean.get("symbol") or clean.get("address", "")[:4]
 
-    # 0) created_at inexistente → ahora-10 s (evita age negativa futura)
-    if not clean.get("created_at"):
-        clean["created_at"] = utc_now() - dt.timedelta(seconds=10)
+    # 0) created_at faltante → ahora-10 s
+    clean.setdefault("created_at", utc_now() - dt.timedelta(seconds=10))
 
     # 1) alias → canónico + cast numérico
     for raw, canon in list(_NUMERIC_ALIASES.items()):
         if raw in clean:
             clean[canon] = _to_float(clean.pop(raw), ctx)
 
-    # 2) campos críticos garantizados (np.nan por defecto)
+    # 2) placeholders para FLOAT NOT NULL
     for fld in _MANDATORY_FLOATS:
         clean.setdefault(fld, np.nan)
 
@@ -166,47 +139,50 @@ def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
         if b in clean:
             clean[b] = int(bool(clean[b]))
 
-    # 4) trend
+    # 4) trend a -1 / 0 / 1
     if "trend" in clean:
         clean["trend"] = _normalize_trend(clean["trend"])
 
-    # 5) edad en minutos ————
+    # 5) edad en minutos
     age_val = _minutes_since(clean.get("created_at"))
-    clean["age_minutes"] = age_val
-    clean["age_min"]     = age_val
+    clean["age_minutes"] = clean["age_min"] = age_val
 
-    # 6) ints NOT-NULL nunca deben ser NaN/None
+    # 6) FLOAT NOT NULL: NaN/None → 0.0
+    for fld in _MANDATORY_FLOATS:
+        val = clean.get(fld)
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            clean[fld] = 0.0
+
+    # 7) INT NOT NULL: NaN/None → 0
     for fld in _INT_NOT_NULL:
         val = clean.get(fld)
-        if val is None or (isinstance(val, float) and np.isnan(val)):
-            clean[fld] = 0      # default
-        else:
-            try:
-                clean[fld] = int(val)
-            except Exception:
-                clean[fld] = 0
+        try:
+            clean[fld] = 0 if val in (None, np.nan) else int(val)
+        except Exception:              # valores raros
+            clean[fld] = 0
 
-    # 7) marca de tiempo de la descarga
+    # 8) marca de tiempo descarga
     clean.setdefault("fetched_at", utc_now())
-
     return clean
-
 
 # ───────── valores por defecto opcionales ───
 DEFAULTS = {
-    "rug_score": 0.5,
-    "twitter_followers": 0,
-    "discord_members": 0,
-    "insider_sig": False,
+    "liquidity_usd"  : 0.0,
+    "volume_24h_usd" : 0.0,
+    "market_cap_usd" : 0.0,
+    "holders"        : 0,
+    "rug_score"      : 0,
+    "cluster_bad"    : 0,
+    "social_ok"      : 0,
+    "trend"          : 0.0,
+    "insider_sig"    : 0,
+    "score_total"    : 0,
 }
 
-
 def apply_default_values(tok: Dict[str, Any]) -> Dict[str, Any]:
-    """Rellena métricas opcionales ausentes con valores por defecto."""
     for k, v in DEFAULTS.items():
         tok.setdefault(k, v)
     return tok
-
 
 __all__ = [
     "sanitize_token_data",

@@ -12,8 +12,6 @@ Novedades importantes
        • monitorización de posiciones
 2.  La lógica de re-queues distingue «incomplete» rápidos
     (``INCOMPLETE_RETRIES``) de «hard requeues» (``MAX_RETRIES``).
-3.  Todo lo demás (descubrimiento → filtros → IA → buy → exit) permanece
-    intacto.
 """
 
 from __future__ import annotations
@@ -181,7 +179,7 @@ def _compute_trade_amount() -> float:
         return 0.0
     return min(TRADE_AMOUNT_SOL_CFG, usable)
 
-# ╭─────────────────────── Labeler periódico ─────────────────────────────────╮
+# ╭─────────────────────── Labeler periódico ────────────────────────────────╮
 async def _periodic_labeler() -> None:
     while True:
         try:
@@ -205,149 +203,119 @@ def _log_token(tok: dict, addr: str) -> None:
 
 # ╭─────────────────────── Evaluar y comprar ─────────────────────────────────╮
 async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
-    """Evalúa un token y compra si pasa filtros + IA."""
+    """Evalúa un token y, si pasa los filtros + IA, lanza la compra."""
     global _wallet_sol_balance
 
     addr = token["address"]
     _stats["raw_discovered"] += 1
 
-    # — limpieza básica + aviso campos nulos —
+    # 0) — limpieza básica + log preliminar —
     token = sanitize_token_data(token)
     warn_if_nulls(token, context=addr[:4])
     _log_token(token, addr)
 
-    # — deduplicación: ya en posición abierta —
-    exists = await ses.scalar(
-        select(Position).where(Position.address == addr, Position.closed.is_(False))
-    )
-    if exists:
+    # 1) — duplicado: ya hay posición abierta —
+    if await ses.scalar(select(Position).where(Position.address == addr,
+                                               Position.closed.is_(False))):
         eliminar_par(addr)
         return
 
-    # — filtros de exclusión simples —
+    # 2) — filtros inmediatos —
     if token.get("creator") in BANNED_CREATORS:
         eliminar_par(addr)
         return
     if token.get("discovered_via") == "pumpfun" and not token.get("liquidity_usd"):
-        requeue(addr, reason="no_liq")
-        _stats["requeues"] += 1
-        return
+        requeue(addr, reason="no_liq"); _stats["requeues"] += 1; return
 
-    # — incomplete (sin liquidez) —
+    # 3) — incomplete (sin liquidez) —
     if not token.get("liquidity_usd"):
         _stats["incomplete"] += 1
         token["is_incomplete"] = 1
         store_append(build_feature_vector(token), 0)
 
-        meta      = lista_pares.meta(addr) or {}
-        attempts  = int(meta.get("attempts", 0))
-        backoff   = [60, 180, 420][min(attempts, 2)]
-        log.info("↩️  Re-queue %s (no_liq, intento %s)", token.get("symbol") or addr[:4], attempts + 1)
+        attempts = int((meta := lista_pares.meta(addr) or {}).get("attempts", 0))
+        backoff  = [60, 180, 420][min(attempts, 2)]
+        log.info("↩️  Re-queue %s (no_liq, intento %s)", token.get("symbol") or addr[:4], attempts+1)
 
         if attempts >= INCOMPLETE_RETRIES:
             eliminar_par(addr)
         else:
-            requeue(addr, reason="no_liq", backoff=backoff)
-            _stats["requeues"] += 1
+            requeue(addr, reason="no_liq", backoff=backoff); _stats["requeues"] += 1
         return
 
-    # — completar métricas opcionales —
+    # 4) — rellenar defaults y métricas opcionales —
     token = apply_default_values(token)
     token["is_incomplete"] = 0
 
-    # Si venía re-queue y ahora está completo → info
-    if (meta := lista_pares.meta(addr)) and meta.get("attempts", 0) > 0:
-        log.debug(
-            "✔ %s completado · liq=%.0f vol24h=%.0f mcap=%.0f",
-            addr[:4],
-            token["liquidity_usd"],
-            token["volume_24h_usd"],
-            token["market_cap_usd"],
-        )
-
-    # — señales baratas —
+    # 5) — señales baratas (social, trend, insider…) —
     token["social_ok"] = await socials.has_socials(addr)
-
-    # Tendencia tolerante (permite fallback 404)
     try:
         token["trend"], token["trend_fallback_used"] = await trend.trend_signal(addr)
     except trend.Trend404Retry:
         log.debug("⚠️  %s sin datos trend – continúa", addr[:4])
-        token["trend"] = 0.0
-        token["trend_fallback_used"] = True
+        token["trend"] = 0.0; token["trend_fallback_used"] = True
 
-    # — más señales —
     token["insider_sig"] = await insider.insider_alert(addr)
     token["score_total"] = filters.total_score(token)
 
-    # — filtro duro —
-    if (res := filters.basic_filters(token)) is not True:
-        meta      = lista_pares.meta(addr) or {}
-        attempts  = int(meta.get("attempts", 0))
-        keep, delay, reason = requeue_policy.decide(token, attempts, meta.get("first_seen", time.time()))
+    # 6) — filtro duro —
+    if filters.basic_filters(token) is not True:
+        attempts = int((meta := lista_pares.meta(addr) or {}).get("attempts", 0))
+        keep, delay, reason = requeue_policy.decide(token, attempts,
+                                                    meta.get("first_seen", time.time()))
         if keep:
-            requeue(addr, reason=reason, backoff=delay)
-            _stats["requeues"] += 1
+            requeue(addr, reason=reason, backoff=delay); _stats["requeues"] += 1
         else:
-            _stats["filtered_out"] += 1
-            store_append(build_feature_vector(token), 0)
+            _stats["filtered_out"] += 1; store_append(build_feature_vector(token), 0)
             eliminar_par(addr)
         return
 
-    # — señales “caras” —
-    token["rug_score"]    = await rugcheck.check_token(addr)
-    token["cluster_bad"]  = await clusters.suspicious_cluster(addr)
-    token["score_total"]  = filters.total_score(token)
+    # 7) — señales caras —
+    token["rug_score"]   = await rugcheck.check_token(addr)
+    token["cluster_bad"] = await clusters.suspicious_cluster(addr)
+    token["score_total"] = filters.total_score(token)
 
-    # — IA —
-    vec   = build_feature_vector(token)
-    proba = should_buy(vec)
+    # 8) — IA —
+    vec, proba = build_feature_vector(token), should_buy(build_feature_vector(token))
     if proba < AI_TH:
-        _stats["filtered_out"] += 1
-        store_append(vec, 0)
-        eliminar_par(addr)
-        return
+        _stats["filtered_out"] += 1; store_append(vec, 0); eliminar_par(addr); return
+    _stats["ai_pass"] += 1; store_append(vec, 1)
 
-    _stats["ai_pass"] += 1
-    store_append(vec, 1)
-
-    # — balance —
+    # 9) — cálculo de importe —
     amount_sol = _compute_trade_amount()
     if amount_sol < MIN_SOL_BALANCE:
-        eliminar_par(addr)
-        return
+        eliminar_par(addr); return
 
-    # — persistir Token (campos válidos) —
-    valid_cols = {c.key for c in inspect(Token).mapper.column_attrs}
-    await ses.merge(Token(**{k: v for k, v in token.items() if k in valid_cols}))
-    await ses.commit()
-
-    # — BUY —
+    # 10) — persistir TOKEN (con NaN→0.0 saneados) —
     try:
-        buy_resp = await buyer.buy(addr, amount_sol)
-    except Exception:  # noqa: BLE001
-        eliminar_par(addr)
-        return
+        valid_cols = {c.key for c in inspect(Token).mapper.column_attrs}
+        await ses.merge(Token(**{k: v for k, v in token.items() if k in valid_cols}))
+        await ses.commit()
+    except SQLAlchemyError as exc:
+        await ses.rollback()
+        log.error("DB insert token %s → %s", addr[:4], exc)
+        eliminar_par(addr); return
 
-    qty_lp    = buy_resp.get("qty_lamports", 0)
-    price_usd = (
-        buy_resp.get("route", {}).get("quote", {}).get("inAmountUSD")
-        or token.get("price_usd")
-        or 0.0
-    )
+    # 11) — BUY —
+    try:
+        if DRY_RUN:
+            buy_resp = await buyer.buy(addr, amount_sol,
+                                       price_hint=token.get("price_usd"))
+        else:
+            buy_resp = await buyer.buy(addr, amount_sol)
+    except Exception as exc:
+        log.error("buyer.buy %s → %s", addr[:4], exc, exc_info=True)
+        eliminar_par(addr); return
+
+    qty_lp   = buy_resp.get("qty_lamports", 0)
+    price_usd = buy_resp.get("buy_price_usd") or token.get("price_usd") or 0.0
 
     if not DRY_RUN:
         _wallet_sol_balance = max(_wallet_sol_balance - amount_sol, 0.0)
 
-    pos = Position(
-        address=addr,
-        symbol=token.get("symbol"),
-        qty=qty_lp,
-        buy_price_usd=price_usd,
-        opened_at=utc_now(),
-        highest_pnl_pct=0.0,
-    )
-    ses.add(pos)
+    ses.add(Position(address=addr, symbol=token.get("symbol"),
+                     qty=qty_lp, buy_price_usd=price_usd,
+                     opened_at=utc_now(), highest_pnl_pct=0.0))
     await ses.commit()
 
     if (meta := lista_pares.meta(addr)) and meta.get("attempts", 0) > 0:
@@ -361,7 +329,11 @@ async def _load_open_positions(ses: SessionLocal) -> Sequence[Position]:
     return (await ses.execute(stmt)).scalars().all()
 
 async def _should_exit(pos: Position, price: float | None, now: dt.datetime) -> bool:
-    opened = pos.opened_at.replace(tzinfo=dt.timezone.utc) if pos.opened_at.tzinfo is None else pos.opened_at
+    opened = (
+        pos.opened_at.replace(tzinfo=dt.timezone.utc)
+        if pos.opened_at.tzinfo is None
+        else pos.opened_at
+    )
 
     # ① sin precio → timeout
     if price is None:
@@ -389,9 +361,15 @@ async def _check_positions(ses: SessionLocal) -> None:
     for pos in await _load_open_positions(ses):
         now   = utc_now()
 
-        # Precio on-chain (DexScreener) + fallback GeckoTerminal si requeue
-        pair  = await price_service.get_price(pos.address, use_gt=True)
-        price = pair.get("price_usd") if pair else None
+        # ────────────── CAMBIO PRINCIPAL ──────────────
+        price = None
+        if hasattr(seller, "get_current_price"):
+            try:
+                price = await seller.get_current_price(pos.address)
+            except Exception:
+                price = None
+        if price is None:
+            price = await price_service.get_price_usd(pos.address)  # respaldo
 
         if not await _should_exit(pos, price, now):
             continue
@@ -525,7 +503,7 @@ async def main_loop() -> None:
 
         await asyncio.sleep(SLEEP_SECONDS)
 
-# ╭─────────────────────── Entrypoint ────────────────────────────────────────╮
+# ╭─────────────────────── Entrypoint ───────────────────────────────────────╮
 async def _runner() -> None:
     await async_init_db()
     await asyncio.gather(
