@@ -2,23 +2,23 @@
 """
 ⏯️  Orquestador principal del sniper MemeBot 3
 ──────────────────────────────────────────────
-Cambios 2025-07-27
-• FIX logger: _log_token ya no lanza TypeError cuando age/liquidity/etc = None/NaN
-• DRY-RUN compra siempre 0.01 SOL
-• Fix TZ en _should_exit()
-• Cierre de emergencia cuando no hay PNL
-• Embudo métricas vía utils.logger.log_funnel()  (cada 60 s)
-• Filtro duro tolerante  (None ⇒ requeue 60 s)
-• Labeler interno cada hora
-• Deduplicación de posiciones
-• Log de cola pending/requeued/cooldown
-• Market-cap min/max desde .env
-• ⭐  liq/vol/mcap = NaN  ⇒ rama “incomplete”
+Última revisión · 2025-08-02
+
+Novedades importantes
+─────────────────────
+1.  Se integra ``utils.price_service.get_price()`` con *fallback*
+    GeckoTerminal (GT) —solo se llama a GT en:
+       • pares re-encolados (cuando no hubo liquidez/DEX)
+       • monitorización de posiciones
+2.  La lógica de re-queues distingue «incomplete» rápidos
+    (``INCOMPLETE_RETRIES``) de «hard requeues» (``MAX_RETRIES``).
+3.  Todo lo demás (descubrimiento → filtros → IA → buy → exit) permanece
+    intacto.
 """
 
 from __future__ import annotations
 
-# ——— stdlib ————————————————————————————————————————
+# ───────── stdlib ────────────────────────────────────────────────────────────
 import argparse
 import asyncio
 import datetime as dt
@@ -27,71 +27,85 @@ import math
 import time
 from typing import Sequence
 
-# ——— Logger formatter seguro ———————————————————
-def _fmt(v, pattern="{:.1f}"):
-    if v is None:
+# ----------------------------------------------------------------------------
+# Helper de formato “seguro” para logs debug
+# ----------------------------------------------------------------------------
+def _fmt(val, pattern: str = "{:.1f}") -> str:
+    """Convierte números a str de forma robusta (None/NaN → '?')."""
+    if val is None:
         return "?"
-    if isinstance(v, float):
-        try:
-            if math.isnan(v):
-                return "?"
-        except Exception:
-            pass
+    if isinstance(val, float) and math.isnan(val):
+        return "?"
     try:
-        return pattern.format(v)
-    except Exception:
-        return str(v)
+        return pattern.format(val)
+    except Exception:  # noqa: BLE001
+        return str(val)
 
-# Reduce ruido
+# Reduce ruido de librerías verbosas
 logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
-# ——— SQLAlchemy async ——————————————————————————————
+# ───────── SQLAlchemy (async) ────────────────────────────────────────────────
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.inspection import inspect
 
-# ——— Configuración y salidas ——————————————————
-from config.config import (
+# ───────── Config & exits ───────────────────────────────────────────────────
+from config.config import (  # noqa: E402 – after stdlib
     CFG,
     BANNED_CREATORS,
-    MIN_MARKET_CAP_USD,
-    MAX_MARKET_CAP_USD,
+    INCOMPLETE_RETRIES,
 )
-from config import exits
+from config import exits  # take-profit / stop-loss
 
-# ——— DB y modelos ——————————————————————————————
-from db.database import SessionLocal, async_init_db
-from db.models import Position, Token
+MIN_MARKET_CAP_USD = CFG.MIN_MARKET_CAP_USD
+MAX_MARKET_CAP_USD = CFG.MAX_MARKET_CAP_USD
 
-# ——— Análisis y señales ——————————————————————
-from fetcher import dexscreener, helius_cluster as clusters, pumpfun, rugcheck, socials
-from analytics import filters, insider, trend, requeue_policy
-from analytics.ai_predict import should_buy, reload_model
+# ───────── DB & modelos ─────────────────────────────────────────────────────
+from db.database import SessionLocal, async_init_db  # noqa: E402
+from db.models import Position, Token  # noqa: E402
 
-# ——— Features / ML —————————————————————————————
-from features.builder import build_feature_vector
-from features.store import append as store_append, update_pnl as store_update_pnl, export_csv as store_export_csv
-from ml.retrain import retrain_if_better
+# ───────── Fetchers / analytics ─────────────────────────────────────────────
+from fetcher import dexscreener, helius_cluster as clusters, pumpfun, rugcheck, socials  # noqa: E402
+from analytics import filters, insider, trend, requeue_policy  # noqa: E402
+from analytics.ai_predict import should_buy, reload_model  # noqa: E402
 
-# ——— Utils / Gestión pares ——————————————————————
-from utils.descubridor_pares import fetch_candidate_pairs
-from utils import lista_pares
-from utils.lista_pares import agregar_si_nuevo, eliminar_par, obtener_pares, requeue, stats as queue_stats
-from utils.data_utils import sanitize_token_data, apply_default_values
-from utils.logger import enable_file_logging, warn_if_nulls, log_funnel
-from utils.solana_rpc import get_sol_balance
-from utils.time import utc_now
-from labeler.win_labeler import label_positions
+# ───────── Características + ML store ───────────────────────────────────────
+from features.builder import build_feature_vector  # noqa: E402
+from features.store import (  # noqa: E402
+    append as store_append,
+    update_pnl as store_update_pnl,
+    export_csv as store_export_csv,
+)
+from ml.retrain import retrain_if_better  # noqa: E402
 
-# ╭──────────── CLI ─────────────────────────╮
+# ───────── Utils (queue, precio, etc.) ───────────────────────────────────────
+from utils.descubridor_pares import fetch_candidate_pairs  # noqa: E402
+from utils import lista_pares, price_service  # ★ precio con fallback GT  # noqa: E402
+from utils.lista_pares import (  # noqa: E402
+    agregar_si_nuevo,
+    eliminar_par,
+    obtener_pares,
+    requeue,
+    stats as queue_stats,
+)
+from utils.data_utils import sanitize_token_data, apply_default_values  # noqa: E402
+from utils.logger import enable_file_logging, warn_if_nulls, log_funnel  # noqa: E402
+from utils.solana_rpc import get_sol_balance  # noqa: E402
+from utils.time import utc_now  # noqa: E402
+
+# Etiquetado de posiciones ganadoras
+from labeler.win_labeler import label_positions  # noqa: E402
+
+# ╭─────────────────────── CLI ───────────────────────────────────────────────╮
 parser = argparse.ArgumentParser(description="MemeBot 3 – sniper Solana")
-parser.add_argument("--dry-run", action="store_true", help="Paper-trading")
-parser.add_argument("--log",     action="store_true", help="Gira logs en /logs")
-args    = parser.parse_args()
+parser.add_argument("--dry-run", action="store_true", help="Paper-trading (sin swaps reales)")
+parser.add_argument("--log",     action="store_true", help="Girar logs detallados en /logs")
+args = parser.parse_args()
+
 DRY_RUN = args.dry_run or CFG.DRY_RUN
 
-# ╭──────────── Logging y módulos trader ─────╮
+# ╭─────────────────────── Logging básico ────────────────────────────────────╮
 logging.basicConfig(
     level=CFG.LOG_LEVEL,
     format="%(asctime)s  %(levelname)-7s %(name)s: %(message)s",
@@ -101,60 +115,65 @@ logging.basicConfig(
 log = logging.getLogger("run_bot")
 
 if DRY_RUN:
-    from trader import papertrading as buyer
-    from trader import papertrading as seller
+    from trader import papertrading as buyer  # type: ignore
+    from trader import papertrading as seller  # type: ignore
     log.info("🔖 DRY-RUN ACTIVADO – trader.papertrading")
-else:
-    from trader import buyer, seller
+else:  # modo real
+    from trader import buyer  # type: ignore
+    from trader import seller  # type: ignore
 
 if args.log:
     run_id = enable_file_logging()
     log.info("📂 File-logging activo (run_id %s)", run_id)
 
-# ╭──────────── Constantes CFG ───────────────╮
-DISCOVERY_INTERVAL = CFG.DISCOVERY_INTERVAL
-SLEEP_SECONDS = CFG.SLEEP_SECONDS
-VALIDATION_BATCH_SIZE = CFG.VALIDATION_BATCH_SIZE
-TRADE_AMOUNT_SOL_CFG = CFG.TRADE_AMOUNT_SOL
-GAS_RESERVE_SOL = CFG.GAS_RESERVE_SOL
-MIN_SOL_BALANCE = CFG.MIN_SOL_BALANCE
-WALLET_POLL_INTERVAL = 30
+# ╭─────────────────────── Constantes de configuración ───────────────────────╮
+DISCOVERY_INTERVAL     = CFG.DISCOVERY_INTERVAL
+SLEEP_SECONDS          = CFG.SLEEP_SECONDS
+VALIDATION_BATCH_SIZE  = CFG.VALIDATION_BATCH_SIZE
+TRADE_AMOUNT_SOL_CFG   = CFG.TRADE_AMOUNT_SOL
+GAS_RESERVE_SOL        = CFG.GAS_RESERVE_SOL
+MIN_SOL_BALANCE        = CFG.MIN_SOL_BALANCE
+WALLET_POLL_INTERVAL   = 30
 
-TP_PCT = exits.TAKE_PROFIT_PCT
-SL_PCT = exits.STOP_LOSS_PCT
-TRAILING_PCT = exits.TRAILING_PCT
+TP_PCT        = exits.TAKE_PROFIT_PCT
+SL_PCT        = exits.STOP_LOSS_PCT
+TRAILING_PCT  = exits.TRAILING_PCT
 MAX_HOLDING_H = exits.MAX_HOLDING_H
-AI_TH = CFG.AI_THRESHOLD
+AI_TH         = CFG.AI_THRESHOLD
 
-_wallet_sol_balance = 0.0
-_last_wallet_check = 0.0
+# ╭─────────────────────── Estado global ─────────────────────────────────────╮
+_wallet_sol_balance: float = 0.0
+_last_wallet_check   : float = 0.0
 
 _stats = {
     "raw_discovered": 0,
-    "incomplete": 0,
-    "filtered_out": 0,
-    "ai_pass": 0,
-    "bought": 0,
-    "sold": 0,
-    "requeues": 0,
+    "incomplete":     0,
+    "filtered_out":   0,
+    "ai_pass":        0,
+    "bought":         0,
+    "sold":           0,
+    "requeues":       0,
     "requeue_success": 0,
 }
-_last_stats_print = time.monotonic()
-_last_csv_export = time.monotonic()
+_last_stats_print: float = time.monotonic()
+_last_csv_export : float = time.monotonic()
 
-# ╭──────────── Balance wallet ───────────────╮
+# ╭─────────────────────── Helpers de balance ────────────────────────────────╮
 async def _refresh_balance(now_mono: float) -> None:
+    """Actualiza el balance de la wallet cada ``WALLET_POLL_INTERVAL`` seg."""
     global _wallet_sol_balance, _last_wallet_check
+
     if now_mono - _last_wallet_check < WALLET_POLL_INTERVAL:
         return
     try:
         _wallet_sol_balance = await get_sol_balance()
-        _last_wallet_check = now_mono
+        _last_wallet_check  = now_mono
         log.debug("💰 Wallet = %.3f SOL", _wallet_sol_balance)
-    except Exception as e:
-        log.warning("get_sol_balance → %s", e)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("get_sol_balance → %s", exc)
 
 def _compute_trade_amount() -> float:
+    """Cuánto SOL usar en la próxima compra."""
     if DRY_RUN:
         return 0.01
     usable = max(0.0, _wallet_sol_balance - GAS_RESERVE_SOL)
@@ -162,16 +181,16 @@ def _compute_trade_amount() -> float:
         return 0.0
     return min(TRADE_AMOUNT_SOL_CFG, usable)
 
-# ╭──────────── Labeler ──────────────────────╮
+# ╭─────────────────────── Labeler periódico ─────────────────────────────────╮
 async def _periodic_labeler() -> None:
     while True:
         try:
             await label_positions()
-        except Exception as e:
-            log.error("label_positions → %s", e)
+        except Exception as exc:
+            log.error("label_positions → %s", exc)
         await asyncio.sleep(3600)
 
-# ╭──────────── Evaluación compra ─────────────╮
+# ╭─────────────────────── Logging de nuevos tokens ──────────────────────────╮
 def _log_token(tok: dict, addr: str) -> None:
     if not log.isEnabledFor(logging.DEBUG):
         return
@@ -184,28 +203,28 @@ def _log_token(tok: dict, addr: str) -> None:
         _fmt(tok.get("age_min"), "{:.1f}m"),
     )
 
-# ──────────────────────────────────────────────────
-async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
-    """Evalúa un token y ejecuta compra si procede."""
+# ╭─────────────────────── Evaluar y comprar ─────────────────────────────────╮
+async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
+    """Evalúa un token y compra si pasa filtros + IA."""
     global _wallet_sol_balance
 
     addr = token["address"]
     _stats["raw_discovered"] += 1
 
-    # — sanitize + warning campos críticos nulos —
+    # — limpieza básica + aviso campos nulos —
     token = sanitize_token_data(token)
     warn_if_nulls(token, context=addr[:4])
-    _log_token(token, addr)              # ← helper DEBUG
+    _log_token(token, addr)
 
-    # — deduplicación: posición abierta —
-    exists = await session.scalar(
+    # — deduplicación: ya en posición abierta —
+    exists = await ses.scalar(
         select(Position).where(Position.address == addr, Position.closed.is_(False))
     )
     if exists:
         eliminar_par(addr)
         return
 
-    # — descartes rápidos —
+    # — filtros de exclusión simples —
     if token.get("creator") in BANNED_CREATORS:
         eliminar_par(addr)
         return
@@ -214,38 +233,30 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
         _stats["requeues"] += 1
         return
 
-    # — incompleto ▸ **solo sin liquidez** —
-    if token.get("liquidity_usd") in (None, 0) or (
-        isinstance(token.get("liquidity_usd"), float)
-        and math.isnan(token["liquidity_usd"])
-    ):
+    # — incomplete (sin liquidez) —
+    if not token.get("liquidity_usd"):
         _stats["incomplete"] += 1
         token["is_incomplete"] = 1
         store_append(build_feature_vector(token), 0)
 
-        meta     = lista_pares.meta(addr) or {}
-        attempts = int(meta.get("attempts", 0))
-        backoff  = [60, 180, 420][min(attempts, 2)]
+        meta      = lista_pares.meta(addr) or {}
+        attempts  = int(meta.get("attempts", 0))
+        backoff   = [60, 180, 420][min(attempts, 2)]
+        log.info("↩️  Re-queue %s (no_liq, intento %s)", token.get("symbol") or addr[:4], attempts + 1)
 
-        log.info(
-            "↩️  Reencolando %s (no_liq, intento %s)",
-            token.get("symbol") or addr[:4],
-            attempts + 1,
-        )
-
-        if attempts >= 3:
+        if attempts >= INCOMPLETE_RETRIES:
             eliminar_par(addr)
         else:
             requeue(addr, reason="no_liq", backoff=backoff)
             _stats["requeues"] += 1
         return
 
-    # completar métricas opcionales con defaults
+    # — completar métricas opcionales —
     token = apply_default_values(token)
     token["is_incomplete"] = 0
 
-    # Si venía re-enqueue y ahora ya está completo → log
-    if lista_pares.retries_left(addr) < lista_pares.MAX_RETRIES:
+    # Si venía re-queue y ahora está completo → info
+    if (meta := lista_pares.meta(addr)) and meta.get("attempts", 0) > 0:
         log.debug(
             "✔ %s completado · liq=%.0f vol24h=%.0f mcap=%.0f",
             addr[:4],
@@ -257,27 +268,23 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
     # — señales baratas —
     token["social_ok"] = await socials.has_socials(addr)
 
-    # ★—— TREND tolerante (sin requeue por 404) —★
+    # Tendencia tolerante (permite fallback 404)
     try:
         token["trend"], token["trend_fallback_used"] = await trend.trend_signal(addr)
     except trend.Trend404Retry:
-        # No hay datos de tendencia aún → seguimos con trend neutro
-        log.debug("⚠️  %s sin datos de tendencia – continúa sin trend", addr[:4])
+        log.debug("⚠️  %s sin datos trend – continúa", addr[:4])
         token["trend"] = 0.0
         token["trend_fallback_used"] = True
 
-    # — resto de señales —
+    # — más señales —
     token["insider_sig"] = await insider.insider_alert(addr)
     token["score_total"] = filters.total_score(token)
 
-    # — filtro duro tolerante —
-    res = filters.basic_filters(token)
-    if res is not True:
-        meta     = lista_pares.meta(addr) or {}
-        attempts = int(meta.get("attempts", 0))
-        keep, delay, reason = requeue_policy.decide(
-            token, attempts, meta.get("first_seen", time.time())
-        )
+    # — filtro duro —
+    if (res := filters.basic_filters(token)) is not True:
+        meta      = lista_pares.meta(addr) or {}
+        attempts  = int(meta.get("attempts", 0))
+        keep, delay, reason = requeue_policy.decide(token, attempts, meta.get("first_seen", time.time()))
         if keep:
             requeue(addr, reason=reason, backoff=delay)
             _stats["requeues"] += 1
@@ -288,9 +295,9 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
         return
 
     # — señales “caras” —
-    token["rug_score"]   = await rugcheck.check_token(addr)
-    token["cluster_bad"] = await clusters.suspicious_cluster(addr)
-    token["score_total"] = filters.total_score(token)
+    token["rug_score"]    = await rugcheck.check_token(addr)
+    token["cluster_bad"]  = await clusters.suspicious_cluster(addr)
+    token["score_total"]  = filters.total_score(token)
 
     # — IA —
     vec   = build_feature_vector(token)
@@ -310,15 +317,15 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
         eliminar_par(addr)
         return
 
-    # — persistir Token —
+    # — persistir Token (campos válidos) —
     valid_cols = {c.key for c in inspect(Token).mapper.column_attrs}
-    await session.merge(Token(**{k: v for k, v in token.items() if k in valid_cols}))
-    await session.commit()
+    await ses.merge(Token(**{k: v for k, v in token.items() if k in valid_cols}))
+    await ses.commit()
 
     # — BUY —
     try:
         buy_resp = await buyer.buy(addr, amount_sol)
-    except Exception:
+    except Exception:  # noqa: BLE001
         eliminar_par(addr)
         return
 
@@ -340,31 +347,28 @@ async def _evaluate_and_buy(token: dict, session: SessionLocal) -> None:
         opened_at=utc_now(),
         highest_pnl_pct=0.0,
     )
-    session.add(pos)
-    await session.commit()
+    ses.add(pos)
+    await ses.commit()
 
-    if (lista_pares.meta(addr) or {}).get("attempts", 0) > 0:
+    if (meta := lista_pares.meta(addr)) and meta.get("attempts", 0) > 0:
         _stats["requeue_success"] += 1
     _stats["bought"] += 1
     eliminar_par(addr)
 
-# ╭──────────── EXIT STRATEGY ──────────────────────╮
+# ╭─────────────────────── Exit strategy ──────────────────────────────────────╮
 async def _load_open_positions(ses: SessionLocal) -> Sequence[Position]:
     stmt = select(Position).where(Position.closed.is_(False))
     return (await ses.execute(stmt)).scalars().all()
 
-
 async def _should_exit(pos: Position, price: float | None, now: dt.datetime) -> bool:
-    opened = pos.opened_at
-    if opened.tzinfo is None:
-        opened = opened.replace(tzinfo=dt.timezone.utc)
+    opened = pos.opened_at.replace(tzinfo=dt.timezone.utc) if pos.opened_at.tzinfo is None else pos.opened_at
 
-    # ① Si no hay precio actual, cerrar por tiempo
+    # ① sin precio → timeout
     if price is None:
         return (now - opened).total_seconds() / 3600 >= MAX_HOLDING_H
 
-    # ② Si hay precio, calcula PnL y evalúa todas las condiciones
-    pnl = None
+    # ② con precio → reglas TP/SL/Trailing
+    pnl   = None
     if pos.buy_price_usd:
         pnl = (price - pos.buy_price_usd) / pos.buy_price_usd * 100
         if pnl > pos.highest_pnl_pct:
@@ -378,27 +382,28 @@ async def _should_exit(pos: Position, price: float | None, now: dt.datetime) -> 
         or (now - opened).total_seconds() / 3600 >= MAX_HOLDING_H
     )
 
-async def _check_positions(session: SessionLocal) -> None:
+async def _check_positions(ses: SessionLocal) -> None:
+    """Revisa posiciones abiertas y ejecuta ventas cuando corresponde."""
     global _wallet_sol_balance
-    for pos in await _load_open_positions(session):
-        now = utc_now()
 
-        # ① Intentamos obtener precio actual
-        pair = await dexscreener.get_pair(pos.address)
+    for pos in await _load_open_positions(ses):
+        now   = utc_now()
+
+        # Precio on-chain (DexScreener) + fallback GeckoTerminal si requeue
+        pair  = await price_service.get_price(pos.address, use_gt=True)
         price = pair.get("price_usd") if pair else None
 
-        # ② Evaluamos si hay que cerrar la posición
         if not await _should_exit(pos, price, now):
             continue
 
-        # ③ Simulamos venta (papertrading) o real
+        # — SELL —
         sell_resp = await seller.sell(pos.address, pos.qty)
-        pos.closed = True
-        pos.closed_at = now
+        pos.closed          = True
+        pos.closed_at       = now
         pos.close_price_usd = price or pos.buy_price_usd or 0.0
-        pos.exit_tx_sig = sell_resp.get("signature")
+        pos.exit_tx_sig     = sell_resp.get("signature")
 
-        # ④ Calculamos PnL
+        # — PnL → store —
         pnl_pct = (
             None
             if pos.close_price_usd is None or pos.buy_price_usd is None
@@ -408,43 +413,52 @@ async def _check_positions(session: SessionLocal) -> None:
         _stats["sold"] += 1
 
         try:
-            await session.commit()
+            await ses.commit()
         except SQLAlchemyError:
-            await session.rollback()
+            await ses.rollback()
 
-        # ⑤ Recuperamos saldo si no es dry-run
+        # devolver SOL al balance (real-mode)
         if not DRY_RUN:
             try:
                 _wallet_sol_balance += pos.qty / 1e9
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
-# ╭──────────── Loop de entrenamiento ─────────╮
+# ╭─────────────────────── Loop de entrenamiento ─────────────────────────────╮
 async def retrain_loop() -> None:
     import calendar
-    wd = calendar.day_name[CFG.RETRAIN_DAY]
-    log.info("Retrain-loop activo (%s %s UTC)", wd, CFG.RETRAIN_HOUR)
+
+    weekday = calendar.day_name[CFG.RETRAIN_DAY]
+    log.info("Retrain-loop activo (%s %s UTC)", weekday, CFG.RETRAIN_HOUR)
+
     while True:
         now = utc_now()
         if (
             now.weekday() == CFG.RETRAIN_DAY
-            and now.hour == CFG.RETRAIN_HOUR
+            and now.hour   == CFG.RETRAIN_HOUR
             and now.minute < 10
         ):
             try:
                 if retrain_if_better():
                     reload_model()
-            except Exception as e:
-                log.error("Retrain error: %s", e)
+            except Exception as exc:
+                log.error("Retrain error: %s", exc)
             await asyncio.sleep(3600)
         await asyncio.sleep(300)
 
-# ╭──────────── MAIN LOOP ─────────────────────╮
+# ╭─────────────────────── Main loop ─────────────────────────────────────────╮
 async def main_loop() -> None:
-    session = SessionLocal()
-    last_discovery = 0.0
-    log.info("Ready (discover=%ss, batch=%s, sleep=%ss, DRY_RUN=%s, AI_TH=%.2f)",
-             DISCOVERY_INTERVAL, VALIDATION_BATCH_SIZE, SLEEP_SECONDS, DRY_RUN, AI_TH)
+    ses             = SessionLocal()
+    last_discovery  = 0.0
+
+    log.info(
+        "Ready (discover=%ss, batch=%s, sleep=%ss, DRY_RUN=%s, AI_TH=%.2f)",
+        DISCOVERY_INTERVAL,
+        VALIDATION_BATCH_SIZE,
+        SLEEP_SECONDS,
+        DRY_RUN,
+        AI_TH,
+    )
 
     global _wallet_sol_balance, _last_stats_print, _last_csv_export
     _wallet_sol_balance = await get_sol_balance()
@@ -454,49 +468,46 @@ async def main_loop() -> None:
         now_mono = time.monotonic()
         await _refresh_balance(now_mono)
 
-        # 1) descubrimiento nuevos pares
+        # 1) Descubrimiento DexScreener
         if now_mono - last_discovery >= DISCOVERY_INTERVAL:
             for addr in await fetch_candidate_pairs():
                 agregar_si_nuevo(addr)
             last_discovery = now_mono
 
-        # 2) stream Pump Fun
+        # 2) Stream Pump Fun
         for tok in await pumpfun.get_latest_pumpfun():
             try:
-                await _evaluate_and_buy(tok, session)
-            except Exception as e:
-                log.error("Eval PumpFun %s → %s", tok.get("address", "???")[:4], e)
+                await _evaluate_and_buy(tok, ses)
+            except Exception as exc:
+                log.error("Eval PumpFun %s → %s", tok.get("address", "???")[:4], exc)
 
-        # 3) validación cola
+        # 3) Validación cola
         for addr in obtener_pares()[:VALIDATION_BATCH_SIZE]:
             try:
-                tok = await dexscreener.get_pair(addr)
+                meta    = lista_pares.meta(addr) or {}
+                use_gt  = meta.get("attempts", 0) > 0
+                tok     = await price_service.get_price(addr, use_gt=use_gt)
                 if tok:
-                    await _evaluate_and_buy(tok, session)
+                    await _evaluate_and_buy(tok, ses)
                 else:
                     requeue(addr, reason="dex_nil")
                     _stats["requeues"] += 1
-            except Exception as e:
-                log.error("get_pair %s → %s", addr[:6], e)
+            except Exception as exc:
+                log.error("get_price %s → %s", addr[:6], exc)
 
-        # 4) posiciones abiertas
+        # 4) Posiciones abiertas
         try:
-            await _check_positions(session)
-        except Exception as e:
-            log.error("Check positions → %s", e)
+            await _check_positions(ses)
+        except Exception as exc:
+            log.error("Check positions → %s", exc)
 
-        # 5) métricas embudo + cola
-        now_mono = time.monotonic()
-        if now_mono - _last_stats_print >= 60:
+        # 5) Métricas embudo + estado cola
+        if (now_mono := time.monotonic()) - _last_stats_print >= 60:
             log_funnel(_stats)
             pend, req, cool = queue_stats()
             log.info(
                 "Queue %d pending (%d requeued, %d cooldown) requeues=%d succ=%d",
-                pend,
-                req,
-                cool,
-                _stats["requeues"],
-                _stats["requeue_success"],
+                pend, req, cool, _stats["requeues"], _stats["requeue_success"],
             )
             if _stats["raw_discovered"] and (
                 _stats["incomplete"] / _stats["raw_discovered"] > 0.5
@@ -507,13 +518,14 @@ async def main_loop() -> None:
                 )
             _last_stats_print = now_mono
 
+        # 6) Export CSV cada hora
         if now_mono - _last_csv_export >= 3600:
             store_export_csv()
             _last_csv_export = now_mono
 
         await asyncio.sleep(SLEEP_SECONDS)
 
-# ╭──────────── Entrypoint ─────────────────────╮
+# ╭─────────────────────── Entrypoint ────────────────────────────────────────╮
 async def _runner() -> None:
     await async_init_db()
     await asyncio.gather(

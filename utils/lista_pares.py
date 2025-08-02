@@ -1,15 +1,19 @@
-# memebot3/utils/lista_pares.py
+# utils/lista_pares.py
 """
-Mantiene la **cola de pares pendientes** con re-intentos controlados y
-una caché en disco de los mints ya procesados.
+Cola de pares pendientes con **dos** niveles de re-intento:
 
-Cambios 2025-07-26
+1.  *INCOMPLETE_RETRIES* (rápidos, en run_bot – NO se gestionan aquí).
+2.  *MAX_RETRIES* (re-queues) ‒ cada vez que el par vuelve a la cola,
+    este contador se reduce; al llegar a 0 se descarta para siempre.
+
+Este módulo solo controla el segundo nivel.
+
+Cambios 2025-08-02
 ──────────────────
-• Límite duro de tamaño de cola con `MAX_QUEUE_SIZE` (def. 300)
-• `requeue()` acepta motivo y back-off variable; registra intentos
-• Puede descartar el elemento más antiguo cuando la cola está llena
-• `stats()` sigue exponiendo métricas para el dashboard
+• Lee los nuevos envs `INCOMPLETE_RETRIES` y `MAX_RETRIES`.
+• Mantiene `attempts` para que run_bot decida si activará GeckoTerminal.
 """
+
 from __future__ import annotations
 
 import logging
@@ -19,14 +23,15 @@ import time
 from typing import Dict, Optional
 
 # ─── configuración ────────────────────────────────────────────
-MAX_RETRIES        = int(os.getenv("INCOMPLETE_RETRIES", "3"))
-MAX_QUEUE_SIZE     = int(os.getenv("MAX_QUEUE_SIZE",    "300"))  # ← NUEVO
-BACKOFF_SEC        = 120          # espera tras cada fallo
-MAX_INCOMPLETE_SEC = 600          # 10 min → descartar
+INCOMPLETE_RETRIES = int(os.getenv("INCOMPLETE_RETRIES", "3"))  # ← nivel rápido (referencia)
+MAX_RETRIES        = int(os.getenv("MAX_RETRIES", "5"))         # ← re-queues permitidos
+MAX_QUEUE_SIZE     = int(os.getenv("MAX_QUEUE_SIZE", "300"))
+BACKOFF_SEC        = 120          # espera tras cada fallo (s)
+MAX_INCOMPLETE_SEC = 600          # 10 min sin datos → drop
 
-BASE_DIR = pathlib.Path(__file__).resolve().parent.parent / "data"
-BASE_DIR.mkdir(exist_ok=True)
+BASE_DIR   = pathlib.Path(__file__).resolve().parent.parent / "data"
 CACHE_FILE = BASE_DIR / "pares_procesados.txt"
+BASE_DIR.mkdir(exist_ok=True)
 
 log = logging.getLogger("lista_pares")
 
@@ -47,74 +52,69 @@ def _persist(addr: str) -> None:
     try:
         with CACHE_FILE.open("a") as f:
             f.write(addr + "\n")
-    except Exception as e:  # noqa: BLE001
-        log.warning("[lista_pares] No se pudo escribir cache: %s", e)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[lista_pares] No se pudo escribir cache: %s", exc)
 
 # ─── API pública ───────────────────────────────────────────────
 def agregar_si_nuevo(addr: str, retries: int | None = None) -> None:
     """
-    Mete *addr* en la cola si nunca lo vimos y hay espacio disponible.
+    Mete *addr* en la cola si nunca se procesó y hay espacio.
     """
     if addr in _processed or addr in _pair_watch:
         return
 
+    # cola llena → descarta más antiguo
     if len(_pair_watch) >= MAX_QUEUE_SIZE:
-        # descarta el elemento más antiguo con menos reintentos pendientes
-        old = sorted(
+        old = min(
             _pair_watch.items(),
             key=lambda it: (it[1]["retries"], it[1]["first_seen"]),
-        )[0][0]
+        )[0]
         log.debug("[lista_pares] Cola llena → drop %s", old[:6])
         eliminar_par(old)
 
     now = time.time()
     _pair_watch[addr] = {
-        "retries": retries or MAX_RETRIES,
+        "retries": retries if retries is not None else MAX_RETRIES,
         "first_seen": now,
-        "next_try": now,  # inmediato
-        "attempts": 0,
+        "next_try": now,      # inmediato
+        "attempts": 0,        # veces re-encolado
+        "reason": "",
     }
 
 def obtener_pares() -> list[str]:
-    """
-    Devuelve los pares listos para procesar **ahora** (sin cooldown).
-    """
+    """Devuelve los pares listos para procesar (sin cooldown)."""
     now = time.time()
     return [a for a, meta in _pair_watch.items() if meta["next_try"] <= now]
 
 def requeue(addr: str, *, reason: str = "", backoff: int | None = None) -> None:
     """
-    Reduce el contador y programa el siguiente intento.
-    Guarda el motivo y aumenta el nº de intentos.
+    Re-encola *addr* aplicando back-off y reduciendo `retries`.
     """
     meta = _pair_watch.get(addr)
     if not meta:
         return
 
-    meta["retries"] -= 1
-    meta["attempts"] = int(meta.get("attempts", 0)) + 1
-    meta["reason"] = reason or meta.get("reason", "")
-    delay = backoff or BACKOFF_SEC
-    meta["next_try"] = time.time() + delay
+    meta["retries"]  -= 1
+    meta["attempts"]  = int(meta.get("attempts", 0)) + 1
+    meta["reason"]    = reason or meta.get("reason", "")
+    delay             = backoff or BACKOFF_SEC
+    meta["next_try"]  = time.time() + delay
 
-    # 🛈 Log extra de visibilidad (Mod 26-Jul-2025)
-    log.debug("↩️  %s → cola (%s, delay=%ss)", addr[:4], meta["reason"], delay)
+    log.debug("↩️  %s re-queue (%s, delay=%ss)", addr[:4], meta["reason"], delay)
 
-    # sin retries
+    # sin re-queues restantes
     if meta["retries"] <= 0:
-        log.debug("[lista_pares] Agota reintentos %s", addr[:6])
+        log.debug("[lista_pares] Agota re-queues %s", addr[:6])
         eliminar_par(addr)
         return
 
-    # timeout incompleto
+    # timeout de incompleto
     if time.time() - meta["first_seen"] > MAX_INCOMPLETE_SEC:
         log.debug("[lista_pares] Timeout incompleto %s", addr[:6])
         eliminar_par(addr)
 
 def eliminar_par(addr: str) -> None:
-    """
-    Saca el mint de la cola y lo añade a la caché “procesados”.
-    """
+    """Saca el mint de la cola y lo marca como procesado definitivamente."""
     _pair_watch.pop(addr, None)
     if addr not in _processed:
         _processed.add(addr)
@@ -125,7 +125,7 @@ def retries_left(addr: str) -> int:
     return int(meta["retries"]) if meta else 0
 
 def meta(addr: str) -> Optional[Dict[str, float | int | str]]:
-    """Devuelve el diccionario interno asociado a *addr* (o None)."""
+    """Devuelve el dict interno asociado a *addr* (o None)."""
     return _pair_watch.get(addr)
 
 # ─── métricas para logs ───────────────────────────────────────
@@ -134,13 +134,13 @@ def stats() -> tuple[int, int, int]:
     Returns
     -------
     pendientes_totales : int
-        Elementos aún en cola (incluyendo los en cooldown)
+        Elementos aún en cola (incluyendo cooldown).
     requeued : int
-        Elementos que ya sufrieron ≥1 re-intento
+        Elementos que ya sufrieron ≥1 re-queue.
     cooldown : int
-        Elementos actualmente en espera (next_try > now)
+        Elementos actualmente en espera (next_try > now).
     """
     now = time.time()
-    requeued = sum(1 for m in _pair_watch.values() if m["retries"] < MAX_RETRIES)
+    requeued = sum(1 for m in _pair_watch.values() if m["attempts"] > 0)
     cooldown = sum(1 for m in _pair_watch.values() if m["next_try"] > now)
     return len(_pair_watch), requeued, cooldown
