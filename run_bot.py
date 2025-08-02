@@ -132,6 +132,7 @@ TRADE_AMOUNT_SOL_CFG   = CFG.TRADE_AMOUNT_SOL
 GAS_RESERVE_SOL        = CFG.GAS_RESERVE_SOL
 MIN_SOL_BALANCE        = CFG.MIN_SOL_BALANCE
 MIN_BUY_SOL            = CFG.MIN_BUY_SOL        # ← nueva línea ⭐
+MIN_AGE_MIN            = CFG.MIN_AGE_MIN
 WALLET_POLL_INTERVAL   = 30
 
 TP_PCT        = exits.TAKE_PROFIT_PCT
@@ -242,20 +243,28 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     if token.get("discovered_via") == "pumpfun" and not token.get("liquidity_usd"):
         requeue(addr, reason="no_liq"); _stats["requeues"] += 1; return
 
-    # 3) — incomplete (sin liquidez) —
+    # 3) — incomplete (sin liquidez) ---------------------------------
     if not token.get("liquidity_usd"):
-        _stats["incomplete"] += 1
+        # ⇢ solo contamos “incomplete” si el pool ya ha cumplido la edad mínima
+        if token.get("age_min", 0.0) >= MIN_AGE_MIN:
+            _stats["incomplete"] += 1
+
         token["is_incomplete"] = 1
         store_append(build_feature_vector(token), 0)
 
         attempts = int((meta := lista_pares.meta(addr) or {}).get("attempts", 0))
         backoff  = [60, 180, 420][min(attempts, 2)]
-        log.info("↩️  Re-queue %s (no_liq, intento %s)", token.get("symbol") or addr[:4], attempts+1)
+        log.info(
+            "↩️  Re-queue %s (no_liq, intento %s)",
+            token.get("symbol") or addr[:4],
+            attempts + 1,
+        )
 
         if attempts >= INCOMPLETE_RETRIES:
             eliminar_par(addr)
         else:
-            requeue(addr, reason="no_liq", backoff=backoff); _stats["requeues"] += 1
+            requeue(addr, reason="no_liq", backoff=backoff)
+            _stats["requeues"] += 1
         return
 
     # 4) — rellenar defaults y métricas opcionales —
@@ -268,7 +277,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         token["trend"], token["trend_fallback_used"] = await trend.trend_signal(addr)
     except trend.Trend404Retry:
         log.debug("⚠️  %s sin datos trend – continúa", addr[:4])
-        token["trend"] = 0.0; token["trend_fallback_used"] = True
+        token["trend"] = 0.0
+        token["trend_fallback_used"] = True
 
     token["insider_sig"] = await insider.insider_alert(addr)
     token["score_total"] = filters.total_score(token)
@@ -279,9 +289,11 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         keep, delay, reason = requeue_policy.decide(token, attempts,
                                                     meta.get("first_seen", time.time()))
         if keep:
-            requeue(addr, reason=reason, backoff=delay); _stats["requeues"] += 1
+            requeue(addr, reason=reason, backoff=delay)
+            _stats["requeues"] += 1
         else:
-            _stats["filtered_out"] += 1; store_append(build_feature_vector(token), 0)
+            _stats["filtered_out"] += 1
+            store_append(build_feature_vector(token), 0)
             eliminar_par(addr)
         return
 
@@ -293,13 +305,18 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     # 8) — IA —
     vec, proba = build_feature_vector(token), should_buy(build_feature_vector(token))
     if proba < AI_TH:
-        _stats["filtered_out"] += 1; store_append(vec, 0); eliminar_par(addr); return
-    _stats["ai_pass"] += 1; store_append(vec, 1)
+        _stats["filtered_out"] += 1
+        store_append(vec, 0)
+        eliminar_par(addr)
+        return
+    _stats["ai_pass"] += 1
+    store_append(vec, 1)
 
     # 9) — cálculo de importe —
     amount_sol = _compute_trade_amount()
     if amount_sol < MIN_SOL_BALANCE:
-        eliminar_par(addr); return
+        eliminar_par(addr)
+        return
 
     # 10) — persistir TOKEN (con NaN→0.0 saneados) —
     try:
@@ -309,7 +326,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     except SQLAlchemyError as exc:
         await ses.rollback()
         log.error("DB insert token %s → %s", addr[:4], exc)
-        eliminar_par(addr); return
+        eliminar_par(addr)
+        return
 
     # 11) — BUY —
     try:
@@ -320,7 +338,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             buy_resp = await buyer.buy(addr, amount_sol)
     except Exception as exc:
         log.error("buyer.buy %s → %s", addr[:4], exc, exc_info=True)
-        eliminar_par(addr); return
+        eliminar_par(addr)
+        return
 
     qty_lp   = buy_resp.get("qty_lamports", 0)
     price_usd = buy_resp.get("buy_price_usd") or token.get("price_usd") or 0.0
@@ -328,9 +347,16 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     if not DRY_RUN:
         _wallet_sol_balance = max(_wallet_sol_balance - amount_sol, 0.0)
 
-    ses.add(Position(address=addr, symbol=token.get("symbol"),
-                     qty=qty_lp, buy_price_usd=price_usd,
-                     opened_at=utc_now(), highest_pnl_pct=0.0))
+    ses.add(
+        Position(
+            address=addr,
+            symbol=token.get("symbol"),
+            qty=qty_lp,
+            buy_price_usd=price_usd,
+            opened_at=utc_now(),
+            highest_pnl_pct=0.0,
+        )
+    )
     await ses.commit()
 
     if (meta := lista_pares.meta(addr)) and meta.get("attempts", 0) > 0:
