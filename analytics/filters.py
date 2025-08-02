@@ -4,16 +4,13 @@ Filtro de pares basado en reglas básicas (no-IA).
 
 Cambios
 ───────
-2025-07-20
-• El chequeo de liquidez/volumen se pospone hasta ≥ 300 s de vida.
-• Si `liquidity_usd` == 0/NaN y age < 60 s se devuelve **None**
-  para que el caller re-encole.
-
-2025-07-26
-• Se incorpora **market_cap_usd** al filtro duro:
-  - Se aceptan únicamente tokens con mcap entre
-    MIN_MARKET_CAP_USD y MAX_MARKET_CAP_USD (tras la ventana de gracia).
+2025-08-03
+• Nuevo corte «too-young»: si el token tiene < CFG.MIN_AGE_MIN minutos
+  se devuelve **None** → el caller lo re-encola y se vuelve a validar
+  más tarde.
+2025-07-26 …
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,6 +23,7 @@ from config.config import (
     MAX_24H_VOLUME,
     MAX_AGE_DAYS,
     MAX_MARKET_CAP_USD,
+    MIN_AGE_MIN,            # ←★★
     MIN_HOLDERS,
     MIN_LIQUIDITY_USD,
     MIN_MARKET_CAP_USD,
@@ -45,7 +43,13 @@ def basic_filters(token: Dict) -> Optional[bool]:
     """
     sym = token.get("symbol", token["address"][:4])
 
-    # 1) antigüedad -----------------------------------------------------------------
+    # 0) edad mínima ----------------------------------------------------------------
+    age_min = token.get("age_min") or token.get("age_minutes")  # ya lo calcula sanitize
+    if age_min is not None and not math.isnan(age_min) and age_min < MIN_AGE_MIN:
+        log.debug("⏳ %s age %.1fm < %.1f → too_young", sym, age_min, MIN_AGE_MIN)
+        return None                     # re-queue, todavía muy pronto
+
+    # 1) antigüedad absoluta ---------------------------------------------------------
     created = token.get("created_at")
     if not created:
         log.debug("✗ %s sin created_at", sym)
@@ -64,15 +68,12 @@ def basic_filters(token: Dict) -> Optional[bool]:
 
     # 2.a —ventana de gracia 0-5 min—
     if age_sec < 300:
-        # se pospone el chequeo estricto
-        pass
+        pass  # se pospone el chequeo estricto
     else:
-        # ------- Liquidez -------
         if liq is None or math.isnan(liq) or liq < MIN_LIQUIDITY_USD:
             log.debug("✗ %s liq %.0f < %s (tras 5 min)", sym, liq or 0, MIN_LIQUIDITY_USD)
             return False
 
-        # ------- Volumen 24 h -------
         if (
             vol24 is None
             or math.isnan(vol24)
@@ -82,13 +83,13 @@ def basic_filters(token: Dict) -> Optional[bool]:
             log.debug("✗ %s vol24h %.0f fuera rango (tras 5 min)", sym, vol24 or 0)
             return False
 
-        # ------- Market-cap -------
         if (
             mcap is not None
             and not math.isnan(mcap)
             and (mcap < MIN_MARKET_CAP_USD or mcap > MAX_MARKET_CAP_USD)
         ):
-            log.debug("✗ %s mcap %.0f fuera rango [%s-%s]", sym, mcap, MIN_MARKET_CAP_USD, MAX_MARKET_CAP_USD)
+            log.debug("✗ %s mcap %.0f fuera rango [%s-%s]", sym, mcap,
+                      MIN_MARKET_CAP_USD, MAX_MARKET_CAP_USD)
             return False
 
     # 2.b —tokens muy recientes con liq==0 → delay—
@@ -110,7 +111,7 @@ def basic_filters(token: Dict) -> Optional[bool]:
     # 4) early sell-off --------------------------------------------------------------
     if age_sec < 600:
         sells = token.get("txns_last_5m_sells") or 0
-        buys  = token.get("txns_last_5m") or 0
+        buys  = token.get("txns_last_5m")       or 0
         if (sells + buys) and sells / (sells + buys) > 0.7:
             pc5 = (
                 token.get("priceChange", {}).get("m5")
@@ -118,7 +119,7 @@ def basic_filters(token: Dict) -> Optional[bool]:
                 or 0
             )
             pc5_val = float(pc5) if pc5 else 0.0
-            if pc5_val < 2:  # DexScreener a veces da 0.01 ⇒ %
+            if pc5_val < 2:
                 pc5_val *= 100.0
             if -5 < pc5_val < 5:
                 log.debug("✗ %s >70%% ventas iniciales (precio estable)", sym)
@@ -143,5 +144,5 @@ def total_score(tok: dict) -> int:
 
 # ───────────────────── helper predicciones IA ───────────────────────
 def ai_pred_to_filter(pred: float) -> bool:
-    """Convierte probabilidad del modelo a filtro booleano via corte de score."""
+    """Convierte probabilidad del modelo a corte booleano."""
     return pred >= MIN_SCORE_TOTAL / 100

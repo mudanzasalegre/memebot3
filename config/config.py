@@ -99,6 +99,7 @@ class _Config:
 
     # ------- filtros ------------------------------------------------
     MAX_AGE_DAYS: float = _num_env("MAX_AGE_DAYS", float, 2)
+    MIN_AGE_MIN: float = _num_env("MIN_AGE_MIN", float, 2.0)   # ⬅️  NUEVO
     MIN_HOLDERS: int = _num_env("MIN_HOLDERS", int, 10)
     MIN_LIQUIDITY_USD: float = _num_env("MIN_LIQUIDITY_USD", float, 5_000)
     MIN_VOL_USD_24H: float = _num_env("MIN_VOL_USD_24H", float, 10_000)
@@ -176,6 +177,7 @@ RUGCHECK_API_BASE = CFG.RUGCHECK_API_BASE
 RUGCHECK_API_KEY = CFG.RUGCHECK_API_KEY
 
 MAX_AGE_DAYS = CFG.MAX_AGE_DAYS
+MIN_AGE_MIN = CFG.MIN_AGE_MIN
 MIN_HOLDERS = CFG.MIN_HOLDERS
 MIN_LIQUIDITY_USD = CFG.MIN_LIQUIDITY_USD
 MIN_VOL_USD_24H = CFG.MIN_VOL_USD_24H
