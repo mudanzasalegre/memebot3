@@ -5,12 +5,13 @@ utils.data_utils
 • Normaliza el dict-token a claves canónicas y tipos simples.
 • is_incomplete() marca tokens sin liquidez o volumen relevante.
 
-Cambios 2025-07-27
+Cambios 2025-08-02
 ──────────────────
-✔  age_minutes y age_min siempre numéricos:
-   • Si existe created_at → minutos transcurridos
-   • Si no, np.nan (no None)
-✔  Nuevo helper _minutes_since() y alias "age_min".
+✔  Se añaden alias procedentes de GeckoTerminal:
+   • liq_usd  → liquidity_usd
+   • volume_usd → volume_24h_usd
+   • mcap     → market_cap_usd
+✔  El resto del flujo (age_min, casts, etc.) no se toca.
 """
 
 from __future__ import annotations
@@ -29,22 +30,26 @@ log = logging.getLogger(__name__)
 # ───────── alias brutos → canónicos ──────────
 _NUMERIC_ALIASES: dict[str, str] = {
     # liquidez
-    "liquidity":      "liquidity_usd",
-    "liquidityUsd":   "liquidity_usd",
-    "liquidity_usd":  "liquidity_usd",
+    "liquidity":       "liquidity_usd",
+    "liquidityUsd":    "liquidity_usd",
+    "liquidity_usd":   "liquidity_usd",
+    "liq_usd":         "liquidity_usd",      # ← GeckoTerminal
     # volumen 24 h
-    "vol24h":         "volume_24h_usd",
-    "vol24h_usd":     "volume_24h_usd",
-    "volume24h":      "volume_24h_usd",
-    "volume":         "volume_24h_usd",
-    "volume_24h":     "volume_24h_usd",
-    "volume_24h_usd": "volume_24h_usd",
+    "vol24h":          "volume_24h_usd",
+    "vol24h_usd":      "volume_24h_usd",
+    "volume24h":       "volume_24h_usd",
+    "volume":          "volume_24h_usd",
+    "volume_24h":      "volume_24h_usd",
+    "volume_24h_usd":  "volume_24h_usd",
+    "volume_usd":      "volume_24h_usd",     # ← GeckoTerminal
+    # market-cap
+    "market_cap":      "market_cap_usd",
+    "market_cap_usd":  "market_cap_usd",
+    "mcap":            "market_cap_usd",     # ← GeckoTerminal
     # otros
-    "holders":        "holders",
-    "age_minutes":    "age_minutes",
-    "age_min":        "age_minutes",         # alias nuevo
-    "market_cap":     "market_cap_usd",
-    "market_cap_usd": "market_cap_usd",
+    "holders":         "holders",
+    "age_minutes":     "age_minutes",
+    "age_min":         "age_minutes",        # alias nuevo
 }
 
 _MANDATORY_FLOATS = {"liquidity_usd", "volume_24h_usd"}
@@ -166,7 +171,6 @@ def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
         clean["trend"] = _normalize_trend(clean["trend"])
 
     # 5) edad en minutos ————
-    #    • age_minutes y age_min apuntan al MISMO valor
     age_val = _minutes_since(clean.get("created_at"))
     clean["age_minutes"] = age_val
     clean["age_min"]     = age_val
@@ -188,6 +192,7 @@ def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
     return clean
 
 
+# ───────── valores por defecto opcionales ───
 DEFAULTS = {
     "rug_score": 0.5,
     "twitter_followers": 0,

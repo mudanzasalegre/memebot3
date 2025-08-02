@@ -1,27 +1,28 @@
-# fetcher/geckoterminal.py
+# memebot3/fetcher/geckoterminal.py
 """
-Wrapper para la API pública de GeckoTerminal (CoinGecko DEX).
+Wrapper para la API pública de **GeckoTerminal** (CoinGecko DEX).
 
-• **Se usa solo como *fallback*** cuando DexScreener no trae liquidez
-  o precio y `USE_GECKO_TERMINAL=true` en el .env.
+• Solo actúa como *fallback* cuando DexScreener no trae liquidez, precio, etc.
+  y la variable de entorno `USE_GECKO_TERMINAL=true`.
 
-• Expone dos helpers:
+• Dos helpers:
       get_token_data(network, address)                # síncrono  (requests)
       get_token_data_async(network, address, session) # asíncrono (aiohttp)
 
-Ambos devuelven un dict normalizado:
+Ambos devuelven un dict **normalizado** con las mismas claves que produce
+DexScreener (`sanitize_token_data` las reconoce al instante):
 
     {
-        "price_usd": float | None,
-        "liq_usd":   int   | None,
-        "vol24h":    int   | None,
-        "mcap":      int   | None,
+        "price_usd":         float | None,
+        "liquidity_usd":     float | None,
+        "volume_24h_usd":    float | None,
+        "market_cap_usd":    float | None,
     }
 
 Rate-limit
 ──────────
-Se reutiliza el bucket **global** de `utils.rate_limiter.GECKO_LIMITER`
-(~30 req/min por defecto) – así no duplicamos lógica.
+Se reutiliza el bucket global `utils.rate_limiter.GECKO_LIMITER`
+(~30 requests/min por defecto), así evitamos duplicar lógica.
 """
 
 from __future__ import annotations
@@ -33,59 +34,47 @@ import time
 from typing import Optional, TypedDict, cast
 
 import requests
-from utils.rate_limiter import GECKO_LIMITER         # ← único limitador
-from config.config import GECKO_API_URL               # URL base configurable
+from config.config import GECKO_API_URL
+from utils.rate_limiter import GECKO_LIMITER
 
 try:
     import aiohttp  # noqa: WPS433 – lib externa opcional
-except ImportError:                                  # pragma: no cover
+except ImportError:                                   # pragma: no cover
     aiohttp = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
-# --------------------------------------------------------------------------- #
-#  Flags de entorno
-# --------------------------------------------------------------------------- #
+# ────────────────────────── flags y constantes ──────────────────────────
 USE_GECKO_TERMINAL = os.getenv("USE_GECKO_TERMINAL", "true").lower() == "true"
 _BASE_URL = GECKO_API_URL.rstrip("/")
 
-# --------------------------------------------------------------------------- #
-#  Tipos
-# --------------------------------------------------------------------------- #
+# ─────────────────────────────── tipos ──────────────────────────────────
 class GTData(TypedDict, total=False):
     price_usd: float | None
-    liq_usd:   int   | None
-    vol24h:    int   | None
-    mcap:      int   | None
+    liquidity_usd: float | None
+    volume_24h_usd: float | None
+    market_cap_usd: float | None
 
 
-# --------------------------------------------------------------------------- #
-#  Helper: adquisición sincrónica de token del RateLimiter
-# --------------------------------------------------------------------------- #
+# ─────────────────────── helpers de rate-limit (sync) ───────────────────
 def _acquire_sync() -> None:
-    """
-    Bloquea hasta que haya token disponible en ``GECKO_LIMITER``.
-
-    Implementa la misma política que ``RateLimiter.acquire`` pero de
-    forma sincrónica (se usa en el helper bloqueante).
-    """
+    """Bloquea hasta que haya token disponible en el *limiter* global."""
     while True:
         now = time.monotonic()
-        # rellenado periódico
-        if now - GECKO_LIMITER._last_reset >= GECKO_LIMITER.interval:  # noqa: SLF001
-            GECKO_LIMITER._tokens = GECKO_LIMITER.max_calls            # noqa: SLF001
-            GECKO_LIMITER._last_reset = now                            # noqa: SLF001
 
-        if GECKO_LIMITER._tokens > 0:                                  # noqa: SLF001
-            GECKO_LIMITER._tokens -= 1                                 # noqa: SLF001
+        # rellenado periódico
+        if now - GECKO_LIMITER._last_reset >= GECKO_LIMITER.interval:      # noqa: SLF001
+            GECKO_LIMITER._tokens = GECKO_LIMITER.max_calls                # noqa: SLF001
+            GECKO_LIMITER._last_reset = now                                # noqa: SLF001
+
+        if GECKO_LIMITER._tokens > 0:                                      # noqa: SLF001
+            GECKO_LIMITER._tokens -= 1                                     # noqa: SLF001
             return
 
-        time.sleep(GECKO_LIMITER._time_until_reset() + 0.01)           # noqa: SLF001
+        time.sleep(GECKO_LIMITER._time_until_reset() + 0.01)               # noqa: SLF001
 
 
-# --------------------------------------------------------------------------- #
-#  Funciones públicas (sync / async)
-# --------------------------------------------------------------------------- #
+# ────────────────────────── API pública (sync) ──────────────────────────
 def get_token_data(
     network: str,
     address: str,
@@ -93,13 +82,13 @@ def get_token_data(
     timeout: int = 5,
 ) -> Optional[GTData]:
     """
-    Llamada *síncrona* (bloqueante) a GeckoTerminal.
-    Devuelve dict normalizado o ``None`` si error/404.
+    Llamada *síncrona* bloqueante a GeckoTerminal.
+    Devuelve un dict canónico o ``None`` si error/404.
     """
     if not USE_GECKO_TERMINAL:
         return None
 
-    _acquire_sync()                           # ← rate-limit sincrónico
+    _acquire_sync()
 
     url = _build_endpoint(network, address)
     headers = {"Accept": "application/json", "User-Agent": "memebot3/1.0"}
@@ -112,13 +101,14 @@ def get_token_data(
             return None
         resp.raise_for_status()
         attrs = resp.json()["data"]["attributes"]
-    except Exception as exc:                  # noqa: BLE001
-        logger.warning("[GT] Error %s para %s", exc, address[:6])
+    except Exception as exc:                                               # noqa: BLE001
+        logger.warning("[GT] Error %s para %s…", exc, address[:6])
         return None
 
     return _parse_attributes(attrs)
 
 
+# ────────────────────────── API pública (async) ─────────────────────────
 async def get_token_data_async(
     network: str,
     address: str,
@@ -126,19 +116,19 @@ async def get_token_data_async(
     timeout: int = 5,
 ) -> Optional[GTData]:
     """
-    Versión *asíncrona* (aiohttp). Si ``aiohttp`` no está instalado,
-    delega en la llamada síncrona dentro de un *executor*.
+    Versión asíncrona (aiohttp).  
+    Si *aiohttp* no está instalado, delega en la versión síncrona.
     """
     if not USE_GECKO_TERMINAL:
         return None
 
-    if aiohttp is None:                       # pragma: no cover
+    if aiohttp is None:                                                    # pragma: no cover
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None, get_token_data, network, address, None, timeout
         )
 
-    async with GECKO_LIMITER:                 # rate-limit *async*
+    async with GECKO_LIMITER:
         url = _build_endpoint(network, address)
         headers = {"Accept": "application/json", "User-Agent": "memebot3/1.0"}
 
@@ -167,65 +157,63 @@ async def get_token_data_async(
     try:
         attrs = j["data"]["attributes"]
     except KeyError:
-        logger.warning("[GT] JSON sin attributes para %s", address[:6])
+        logger.warning("[GT] JSON sin 'attributes' para %s…", address[:6])
         return None
 
     return _parse_attributes(attrs)
 
 
-# --------------------------------------------------------------------------- #
-#  Helpers internos
-# --------------------------------------------------------------------------- #
+# ────────────────────────── helpers internos ────────────────────────────
 def _build_endpoint(network: str, address: str) -> str:
     """
-    Devuelve la URL correcta según la red:
+    Construye la URL correcta:
 
-    * Para **Solana**: `/networks/solana/pools/{address}`
-    * Para el resto (EVM): `/networks/{network}/tokens/{address}`
+    • **Solana** → `/networks/solana/tokens/{address}`
+      (el *mint* del token se puede consultar directamente).
+
+    • Cadenas EVM → `/networks/{network}/tokens/{address}`
     """
     network = network.lower()
     if network == "solana":
-        return f"{_BASE_URL}/networks/solana/pools/{address}"
+        return f"{_BASE_URL}/networks/solana/tokens/{address}"
     return f"{_BASE_URL}/networks/{network}/tokens/{address}"
 
 
 def _parse_attributes(attrs: dict) -> GTData:
     """
-    Convierte los atributos brutos de la API en el esquema estándar del bot.
-    Maneja tanto la respuesta *pools* (Solana) como *tokens* (EVM).
+    Traduce la respuesta cruda de GeckoTerminal al esquema canónico usado
+    en todo el bot (mismos nombres que produce DexScreener).
     """
 
-    def _to_int(val: str | None) -> Optional[int]:
+    def _to_float(val: str | float | None) -> Optional[float]:
         try:
-            return int(float(val)) if val is not None else None
+            return float(val) if val is not None else None
         except (TypeError, ValueError):
             return None
 
-    # --- campos que cambian entre /pools y /tokens ----------
     price = (
-        attrs.get("base_token_price_usd")
-        or attrs.get("price_usd")
+        attrs.get("base_token_price_usd")     # /pools
+        or attrs.get("price_usd")             # /tokens
         or attrs.get("price_in_usd")
     )
 
-    liq = (
-        attrs.get("reserve_in_usd")
-        or attrs.get("total_reserve_in_usd")
-        or attrs.get("liquidity_in_usd")
+    liquidity = (
+        attrs.get("reserve_in_usd")           # /pools
+        or attrs.get("total_reserve_in_usd")  # histórico
+        or attrs.get("liquidity_in_usd")      # /tokens
     )
 
-    mcap = attrs.get("fdv_usd") or attrs.get("market_cap_usd")
+    mcap = attrs.get("market_cap_usd") or attrs.get("fdv_usd")
 
+    # volumen 24 h puede venir como objeto {"h24": ...}
     vol_node = attrs.get("volume_usd")
-    vol24 = None
-    if isinstance(vol_node, dict):
-        vol24 = vol_node.get("h24")
+    vol24 = vol_node.get("h24") if isinstance(vol_node, dict) else None
 
     return GTData(
-        price_usd=float(price) if price else None,
-        liq_usd=_to_int(liq),
-        vol24h=_to_int(vol24),
-        mcap=_to_int(mcap),
+        price_usd=_to_float(price),
+        liquidity_usd=_to_float(liquidity),
+        volume_24h_usd=_to_float(vol24),
+        market_cap_usd=_to_float(mcap),
     )
 
 
