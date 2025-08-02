@@ -131,6 +131,7 @@ VALIDATION_BATCH_SIZE  = CFG.VALIDATION_BATCH_SIZE
 TRADE_AMOUNT_SOL_CFG   = CFG.TRADE_AMOUNT_SOL
 GAS_RESERVE_SOL        = CFG.GAS_RESERVE_SOL
 MIN_SOL_BALANCE        = CFG.MIN_SOL_BALANCE
+MIN_BUY_SOL            = CFG.MIN_BUY_SOL        # ← nueva línea ⭐
 WALLET_POLL_INTERVAL   = 30
 
 TP_PCT        = exits.TAKE_PROFIT_PCT
@@ -171,13 +172,27 @@ async def _refresh_balance(now_mono: float) -> None:
         log.warning("get_sol_balance → %s", exc)
 
 def _compute_trade_amount() -> float:
-    """Cuánto SOL usar en la próxima compra."""
+    """
+    Cuántos SOL destinar a la próxima compra.
+
+    • En DRY_RUN se ignora el balance: siempre usa TRADE_AMOUNT_SOL.
+    • En modo real se respeta la reserva de gas y se hace un
+      sanity-check para no bajar de MIN_SOL_BALANCE ni de MIN_BUY_SOL.
+    """
+    # — Paper-trading —
     if DRY_RUN:
-        return 0.01
+        return TRADE_AMOUNT_SOL_CFG        # configurable en .env
+
+    # — Real-trading —
     usable = max(0.0, _wallet_sol_balance - GAS_RESERVE_SOL)
-    if usable < MIN_SOL_BALANCE:
+
+    # si al restar la compra quedaríamos por debajo de los umbrales, abortamos
+    if usable < max(MIN_BUY_SOL, MIN_SOL_BALANCE):
         return 0.0
+
+    # gastamos el menor de (importe deseado, saldo disponible)
     return min(TRADE_AMOUNT_SOL_CFG, usable)
+
 
 # ╭─────────────────────── Labeler periódico ────────────────────────────────╮
 async def _periodic_labeler() -> None:
