@@ -8,6 +8,11 @@ Cambios
 • Nuevo corte «too-young»: si el token tiene < CFG.MIN_AGE_MIN minutos
   se devuelve **None** → el caller lo re-encola y se vuelve a validar
   más tarde.
+2025-08-09
+• Ajustes “suaves” para tokens descubiertos vía Pump.fun:
+  - Liquidez mínima reducida (60% del umbral; piso 1000 USD)
+  - Market cap máximo aumentado (×1.5)
+  Se aplican solo cuando token.discovered_via == "pumpfun".
 2025-07-26 …
 """
 
@@ -37,8 +42,8 @@ log = logging.getLogger("filters")
 # ─────────────────────────── FILTRO DURO ────────────────────────────
 def basic_filters(token: Dict) -> Optional[bool]:
     """
-    True   → pasa el filtro duro  
-    False  → descartado definitivamente  
+    True   → pasa el filtro duro
+    False  → descartado definitivamente
     None   → “delay”: re-encolar y reintentar más tarde
     """
     sym = token.get("symbol", token["address"][:4])
@@ -66,12 +71,23 @@ def basic_filters(token: Dict) -> Optional[bool]:
     vol24 = token.get("volume_24h_usd")
     mcap  = token.get("market_cap_usd")
 
+    # — ajustes suaves para Pump.fun —
+    is_pf        = token.get("discovered_via") == "pumpfun"
+    min_liq_th   = MIN_LIQUIDITY_USD if not is_pf else max(1000.0, MIN_LIQUIDITY_USD * 0.6)
+    max_mcap_th  = MAX_MARKET_CAP_USD if not is_pf else MAX_MARKET_CAP_USD * 1.5
+
     # 2.a —ventana de gracia 0-5 min—
     if age_sec < 300:
-        pass  # se pospone el chequeo estricto
+        # Dentro de los 5 min no aplicamos cortes estrictos de liq/vol/mcap.
+        pass
     else:
-        if liq is None or math.isnan(liq) or liq < MIN_LIQUIDITY_USD:
-            log.debug("✗ %s liq %.0f < %s (tras 5 min)", sym, liq or 0, MIN_LIQUIDITY_USD)
+        if liq is None or math.isnan(liq) or liq < min_liq_th:
+            log.debug(
+                "✗ %s liq %.0f < %.0f (umbral %s%s)",
+                sym, liq or 0, min_liq_th,
+                "PF" if is_pf else "STD",
+                ""  # por claridad en el log
+            )
             return False
 
         if (
@@ -83,13 +99,16 @@ def basic_filters(token: Dict) -> Optional[bool]:
             log.debug("✗ %s vol24h %.0f fuera rango (tras 5 min)", sym, vol24 or 0)
             return False
 
+        # mcap: mantenemos el mínimo estándar y relajamos el máximo si es PF
         if (
             mcap is not None
             and not math.isnan(mcap)
-            and (mcap < MIN_MARKET_CAP_USD or mcap > MAX_MARKET_CAP_USD)
+            and (mcap < MIN_MARKET_CAP_USD or mcap > max_mcap_th)
         ):
-            log.debug("✗ %s mcap %.0f fuera rango [%s-%s]", sym, mcap,
-                      MIN_MARKET_CAP_USD, MAX_MARKET_CAP_USD)
+            log.debug(
+                "✗ %s mcap %.0f fuera rango [%s-%.0f]%s",
+                sym, mcap, MIN_MARKET_CAP_USD, max_mcap_th, " (PF)" if is_pf else ""
+            )
             return False
 
     # 2.b —tokens muy recientes con liq==0 → delay—

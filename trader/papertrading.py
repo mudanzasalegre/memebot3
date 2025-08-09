@@ -3,11 +3,11 @@
 Motor de *paper-trading* (órdenes fantasma) cuando el bot se ejecuta con
 `--dry-run` o `CFG.DRY_RUN = 1`.
 
-Mejoras 2025-08-02
+Mejoras 2025-08-09:
 ──────────────────
+• Todas las consultas de precio en buy() y _retry_fill_buy_price() usan
+  use_gt=True para forzar ruta completa: Dex → Birdeye → GT → native×SOL.
 • Precio SOL dinámico vía CoinGecko (utils.sol_price).
-• Obtención del precio USD del token con utils.price_service:
-    DexScreener → GeckoTerminal → price_native×SOL_USD.
 • Si el precio no está disponible al abrir la posición, se agenda
   un reintento asíncrono para rellenar `buy_price_usd` y `peak_price`.
 """
@@ -19,7 +19,7 @@ import json
 import logging
 import pathlib
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from config.config import CFG
 from utils.time import utc_now
@@ -46,6 +46,7 @@ def _save() -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("[papertrading] no se pudo guardar portfolio: %s", exc)
 
+
 # ─── lógica de compra ──────────────────────────────────────────
 async def buy(
     address: str,
@@ -65,8 +66,8 @@ async def buy(
     price_hint : float | None, default None
         Valor precio-unidad USD opcional facilitado por el orquestador.
     """
-    # 1️⃣ Precio USD (mejor-esfuerzo)
-    price_usd = await price_service.get_price_usd(address)
+    # 1️⃣ Precio USD (mejor-esfuerzo, forzando use_gt=True)
+    price_usd = await price_service.get_price_usd(address, use_gt=True)
     if price_usd in (None, 0.0) and price_hint not in (None, 0.0):
         price_usd = float(price_hint)
 
@@ -99,6 +100,7 @@ async def buy(
         "peak_price": float(price_usd or 0.0),
     }
 
+
 # ─── rellenar precio tras la compra ────────────────────────────
 async def _retry_fill_buy_price(
     address: str,
@@ -109,10 +111,9 @@ async def _retry_fill_buy_price(
     """Intenta rellenar `buy_price_usd`/`peak_price` si quedaron a 0."""
     for attempt in range(1, tries + 1):
         await asyncio.sleep(delay)
-        price = await price_service.get_price_usd(address)
+        price = await price_service.get_price_usd(address, use_gt=True)
         if price:
             entry = _PORTFOLIO.get(address)
-            # ★ aceptar 0.0 *o* None
             if entry and entry.get("buy_price_usd") in (0.0, None):
                 entry["buy_price_usd"] = entry["peak_price"] = float(price)
                 _save()
@@ -123,13 +124,16 @@ async def _retry_fill_buy_price(
                 )
             break
 
+
 # ─── lógica de salida ─────────────────────────────────────────
 async def sell(address: str, qty_lamports: int) -> dict:
     entry = _PORTFOLIO.get(address)
     if not entry or entry.get("closed"):
         raise RuntimeError(f"No hay posición activa para {address[:4]}")
 
-    price_now = await price_service.get_price_usd(address) or 0.0
+    pair = await price_service.get_price(address, use_gt=True)
+    price_now = float(pair["price_usd"]) if pair else 0.0
+
     pnl_pct = (
         (price_now - entry["buy_price_usd"]) / entry["buy_price_usd"] * 100
         if entry["buy_price_usd"]
@@ -155,6 +159,7 @@ async def sell(address: str, qty_lamports: int) -> dict:
         sig,
     )
     return {"signature": sig}
+
 
 # ─── evaluación de salida (TP/SL/Trailing/Timeout) ────────────
 async def check_exit_conditions(address: str) -> bool:  # noqa: C901

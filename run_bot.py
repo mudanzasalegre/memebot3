@@ -22,7 +22,10 @@ import asyncio
 import datetime as dt
 import logging
 import math
+import os
+import random
 import time
+from collections import deque
 from typing import Sequence
 
 # ----------------------------------------------------------------------------
@@ -158,6 +161,35 @@ _stats = {
 _last_stats_print: float = time.monotonic()
 _last_csv_export : float = time.monotonic()
 
+# ───────────────────── Cupo/cooldown para Pump.fun quick-price ──────────────
+_PF_PRICE_QUOTA        = int(os.getenv("PUMPFUN_PRICE_QUOTA", "4"))       # intentos/ventana
+_PF_PRICE_QUOTA_WINDOW = int(os.getenv("PUMPFUN_PRICE_QUOTA_WINDOW", "10"))  # seg
+_PF_COOLDOWN_S         = int(os.getenv("PUMPFUN_PRICE_ATTEMPT_COOLDOWN", "25"))
+_pf_attempt_bucket: deque[float] = deque(maxlen=64)   # timestamps monotonic
+_pf_last_attempt: dict[str, float] = {}
+
+def _pf_can_try_now(addr: str) -> bool:
+    """Cuota global y cooldown por token para intentos rápidos de precio (Pump.fun)."""
+    now = time.monotonic()
+
+    # cooldown por token
+    last = _pf_last_attempt.get(addr, 0.0)
+    if now - last < _PF_COOLDOWN_S:
+        return False
+
+    # limpia ventana
+    while _pf_attempt_bucket and (now - _pf_attempt_bucket[0] > _PFF_PRICE_QUOTA_WINDOW if False else now - _pf_attempt_bucket[0] > _PF_PRICE_QUOTA_WINDOW):
+        _pf_attempt_bucket.popleft()
+
+    # cupo global
+    if len(_pf_attempt_bucket) >= _PF_PRICE_QUOTA:
+        return False
+
+    # reserva hueco
+    _pf_attempt_bucket.append(now)
+    _pf_last_attempt[addr] = now
+    return True
+
 # ╭─────────────────────── Helpers de balance ────────────────────────────────╮
 async def _refresh_balance(now_mono: float) -> None:
     """Actualiza el balance de la wallet cada ``WALLET_POLL_INTERVAL`` seg."""
@@ -240,8 +272,20 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     if token.get("creator") in BANNED_CREATORS:
         eliminar_par(addr)
         return
+
+    # ★★★ Pump.fun: intento rápido de precio con cuota/cooldown antes de requeue ★★★
     if token.get("discovered_via") == "pumpfun" and not token.get("liquidity_usd"):
-        requeue(addr, reason="no_liq"); _stats["requeues"] += 1; return
+        if _pf_can_try_now(addr):
+            try:
+                tok2 = await price_service.get_price(addr, use_gt=True)
+                if tok2 and tok2.get("liquidity_usd"):
+                    token.update(tok2)  # ya tenemos liq/vol/mcap/price_usd
+                else:
+                    requeue(addr, reason="no_liq"); _stats["requeues"] += 1; return
+            except Exception:
+                requeue(addr, reason="no_liq"); _stats["requeues"] += 1; return
+        else:
+            requeue(addr, reason="no_liq"); _stats["requeues"] += 1; return
 
     # 3) — incomplete (sin liquidez) ---------------------------------
     if not token.get("liquidity_usd"):
@@ -254,6 +298,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
         attempts = int((meta := lista_pares.meta(addr) or {}).get("attempts", 0))
         backoff  = [60, 180, 420][min(attempts, 2)]
+        # jitter ±20% para evitar estampidas sincronizadas hacia las APIs
+        backoff = int(backoff * random.uniform(0.8, 1.2))
         log.info(
             "↩️  Re-queue %s (no_liq, intento %s)",
             token.get("symbol") or addr[:4],
@@ -460,6 +506,7 @@ async def retrain_loop() -> None:
             try:
                 if retrain_if_better():
                     reload_model()
+                    log.info("🐢 Retrain completo; modelo recargado en memoria")
             except Exception as exc:
                 log.error("Retrain error: %s", exc)
             await asyncio.sleep(3600)

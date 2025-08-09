@@ -4,12 +4,13 @@ Interfaz unificada para:
     • Enviar la orden real de venta (`gmgn.sell`)
     • Evaluar las condiciones de salida (TP / SL / Trailing / Timeout)
     • Obtener el precio actual ABSTRAYÉNDOSE de la fuente concreta:
-        DexScreener → GeckoTerminal → conversión price_native→USD
+        DexScreener → Birdeye → GeckoTerminal → conversión price_native→USD
 
-2025-08-02
+2025-08-09
 ──────────
 • `get_current_price()` ahora llama a
-  `utils.price_service.get_price_usd()` (único punto de verdad).
+  `utils.price_service.get_price_usd(..., use_gt=True)` para forzar ruta
+  completa en modo real, igual que en papertrading.
 • Si esa función devuelve None, se reporta 0.0 (sin precio).
 """
 
@@ -32,17 +33,18 @@ TRAILING_STOP   = float(CFG.TRAILING_PCT or 0) / 100.0
 TIMEOUT_SECONDS = int(CFG.MAX_HOLDING_H or 24) * 3600
 
 
-# ─── Precio actual (Dex → GT → price_native→USD) ──────────────────
+# ─── Precio actual (Dex → Birdeye → GT → price_native→USD) ────────
 async def get_current_price(token_addr: str) -> float:
     """
-    Devuelve el precio USD del token.
+    Devuelve el precio USD del token forzando la ruta completa de
+    fallbacks: DexScreener → Birdeye → GeckoTerminal → native×SOL.
 
-    Orden de resolución:
-        1) DexScreener  (price_usd)
-        2) GeckoTerminal (si Dex falla)
-        3) price_native × SOL_USD  (si ambos sin price_usd)
+    Returns
+    -------
+    float
+        Precio en USD o 0.0 si no se pudo obtener.
     """
-    price = await price_service.get_price_usd(token_addr)
+    price = await price_service.get_price_usd(token_addr, use_gt=True)
     return float(price) if price else 0.0
 
 

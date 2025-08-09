@@ -11,6 +11,12 @@ Cambios
 2025-07-26
 • Se añade extracción de **market_cap_usd** para poder filtrar por rango
   de capitalización y alimentar features/ML.
+
+2025-08-09
+• TTL de “sin datos” adaptable:
+    - Corto (DEXS_TTL_NIL_SHORT) para los primeros 3 fallos.
+    - Largo (DEXS_TTL_NIL_MAX) a partir del 4º fallo consecutivo.
+  Configurable desde `.env`.
 """
 from __future__ import annotations
 
@@ -33,8 +39,13 @@ log = logging.getLogger("dexscreener")
 DEX = DEX_API_BASE.rstrip("/")
 
 _MAX_TRIES, _BACKOFF_START = 3, 1
-_CACHE_TTL_OK, _CACHE_TTL_NIL = 120, int(os.getenv("DEXS_TTL_NIL", 300))
+_CACHE_TTL_OK = 120
+_TTL_NIL_SHORT = int(os.getenv("DEXS_TTL_NIL_SHORT", "90"))
+_TTL_NIL_MAX = int(os.getenv("DEXS_TTL_NIL_MAX", "600"))
 _SENTINEL_NIL = object()
+
+# contador de fallos consecutivos por token
+_fail_count: dict[str, int] = {}
 
 # ───────────────────────── helpers HTTP ──────────────────────────
 async def _fetch_json(url: str, sess: aiohttp.ClientSession) -> Optional[dict]:
@@ -59,7 +70,6 @@ async def _fetch_json(url: str, sess: aiohttp.ClientSession) -> Optional[dict]:
                 backoff *= 2
     return None
 
-
 # ───────────────────────── helpers parsing ───────────────────────
 def _parse_datetime(ts: int | str | None) -> Optional[dt.datetime]:
     if not ts:
@@ -71,14 +81,11 @@ def _parse_datetime(ts: int | str | None) -> Optional[dt.datetime]:
     except Exception:  # pragma: no cover
         return None
 
-
 def _first_list_key(raw: dict) -> Optional[list]:
-    """DexScreener a veces envuelve la respuesta en una key dinámica → busca la lista."""
     for v in raw.values():
         if isinstance(v, list):
             return v
     return None
-
 
 # ───────────────────────── normalización numérica ────────────────
 def _safe_float(val) -> float | None:
@@ -87,26 +94,21 @@ def _safe_float(val) -> float | None:
     except Exception:
         return None
 
-
 def _extract_liquidity_usd(raw: dict, price_usd: float | None) -> float | None:
-    """Devuelve liquidez en USD intentando distintos campos."""
     liq = raw.get("liquidity") or raw.get("liquidityUsd") or {}
     if isinstance(liq, (int, float)):
         return _safe_float(liq)
     if isinstance(liq, dict) and "usd" in liq:
         return _safe_float(liq["usd"])
 
-    # fall-back: locked value
     locked_usd = raw.get("liquidityLockedUsd") or raw.get("liqLockedUsd")
     if locked_usd:
         return _safe_float(locked_usd)
 
-    # fall-back: liq_locked (en tokens) * price_usd
     locked_tokens = raw.get("liqLocked") or raw.get("liquidityLocked")
     if locked_tokens and price_usd:
         return _safe_float(locked_tokens) * price_usd
     return None
-
 
 def _extract_volume_24h(raw: dict) -> float | None:
     vol = (
@@ -117,15 +119,10 @@ def _extract_volume_24h(raw: dict) -> float | None:
     )
     return _safe_float(vol)
 
-
 def _extract_market_cap(raw: dict) -> float | None:
-    """
-    Intenta deducir la capitalización de mercado en USD a partir de los
-    múltiples alias que usa DexScreener / APIs derivadas.
-    """
     cap = (
-        raw.get("marketCap")                # campo estándar en algunos endpoints
-        or raw.get("fdv")                   # fully-diluted valuation
+        raw.get("marketCap")
+        or raw.get("fdv")
         or raw.get("fullyDilutedValuation")
         or raw.get("fullyDilutedMarketCap")
         or raw.get("fdvUsd")
@@ -133,10 +130,8 @@ def _extract_market_cap(raw: dict) -> float | None:
     )
     return _safe_float(cap)
 
-
 # ───────────────────────── normalización main ─────────────────────
 def _norm(raw: dict) -> dict:
-    """Convierte la respuesta bruta en un dict homogéneo apto para `sanitize_token_data`."""
     created = raw.get("listedAt") or raw.get("createdAt") or raw.get("pairCreatedAt")
 
     price_usd = _safe_float(raw.get("priceUsd") or raw.get("price"))
@@ -145,40 +140,24 @@ def _norm(raw: dict) -> dict:
     mcap_usd  = _extract_market_cap(raw)
 
     tok = {
-        # ---- claves base ----
         "address":  raw.get("address") or raw.get("pairAddress") or raw.get("tokenAddress"),
         "symbol":   raw.get("baseToken", {}).get("symbol") or raw.get("symbol"),
         "created_at": _parse_datetime(created),
-
-        # ---- métricas numéricas principales ----
         "price_usd":       price_usd if price_usd is not None else np.nan,
         "liquidity_usd":   liq_usd   if liq_usd   is not None else np.nan,
         "volume_24h_usd":  vol_usd   if vol_usd   is not None else np.nan,
         "market_cap_usd":  mcap_usd  if mcap_usd  is not None else np.nan,
-
-        # txns 5m (puede venir separado buys/sells)
         "txns_last_5m": _safe_float(
             raw.get("txns", {}).get("m5", {}).get("buys")
             or raw.get("txnsLast5m")
         ),
-
         "holders": _safe_float(raw.get("holders")),
-
-        # pasa todo el raw (por si futuras features)
         **raw,
     }
     return sanitize_token_data(tok)
 
-
 # ───────────────────────── API pública ────────────────────────────
 async def get_pair(address: str) -> Optional[Dict]:
-    """
-    Devuelve un dict normalizado con liquidez/volumen/market-cap
-    o **None** si DexScreener aún no tiene datos del par.
-    Se cachea con TTL:
-      • 2 min si ok
-      • 1 h si no hay datos (“NIL”)
-    """
     ck = f"dex:{address}"
     hit = cache_get(ck)
     if hit is not None:
@@ -210,9 +189,15 @@ async def get_pair(address: str) -> Optional[Dict]:
                 res = _norm(lst[0]) if lst else None
 
             if res:
+                _fail_count.pop(address, None)  # reset fallos si hay datos
                 cache_set(ck, res, ttl=_CACHE_TTL_OK)
                 return res
 
-    cache_set(ck, _SENTINEL_NIL, ttl=_CACHE_TTL_NIL)
-    log.debug("[DEX] %s → sin datos", address[:6])
+    # si llega aquí, no hubo datos
+    fails = _fail_count.get(address, 0) + 1
+    _fail_count[address] = fails
+    ttl = _TTL_NIL_MAX if fails >= 4 else _TTL_NIL_SHORT
+
+    cache_set(ck, _SENTINEL_NIL, ttl=ttl)
+    log.debug("[DEX] %s → sin datos (TTL=%ss, fallos=%d)", address[:6], ttl, fails)
     return None
