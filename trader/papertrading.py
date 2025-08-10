@@ -170,23 +170,24 @@ async def sell(address: str, qty_lamports: int) -> dict:
         sig = f"SIM-{int(time.time()*1e3)}"
         return {"signature": sig, "error": "INVALID_ADDRESS"}
 
-    # Precio actual con reintento corto
-    price_now = await _get_price_usd_with_retry(address, retries=1, delay=2.0)
+    # Precio actual en MODO CRÍTICO (ignora cache negativa) + reintento corto
+    price_now = await price_service.get_price_usd(address, use_gt=True, critical=True)
+    if (price_now is None) or (price_now <= 0.0):
+        await asyncio.sleep(2.0)
+        price_now = await price_service.get_price_usd(address, use_gt=True, critical=True)
 
-    # Cierre *seguro*: si no hay precio, usa buy_price como fallback (PnL 0%)
-    if price_now <= 0.0:
+    # Cierre *seguro*: si aún no hay precio, usa buy_price (PnL 0%)
+    if not price_now or price_now <= 0.0:
         bp = float(entry.get("buy_price_usd") or 0.0)
         if bp > 0.0:
             log.warning(
-                "[papertrading] Precio de cierre no disponible para %s…; "
-                "uso buy_price como fallback.",
+                "[papertrading] Precio de cierre no disponible para %s…; uso buy_price como fallback.",
                 address[:4],
             )
             price_now = bp
         else:
             log.error(
-                "[papertrading] Sin precio de compra ni precio actual para %s…; "
-                "close_price_usd=0.0; pnl_pct=0.0",
+                "[papertrading] Sin precio de compra ni precio actual para %s…; close_price_usd=0.0; pnl_pct=0.0",
                 address[:4],
             )
             price_now = 0.0

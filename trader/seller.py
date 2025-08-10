@@ -12,9 +12,9 @@ Interfaz unificada para salidas en modo REAL:
 ──────────
 Cambios clave:
 • Filtro defensivo de direcciones EVM (0x…) para evitar ventas fuera de Solana.
-• get_current_price(): reintenta 1 vez; devuelve float o 0.0 si no hay precio.
-• safe_close_snapshot(): asegura close_price_usd válido (usa buy_price si falta),
-  calcula pnl_pct y fija closed_at/exit_reason para persistir sin distorsiones.
+• get_current_price(): usa critical=True (ignora caché negativa) y reintenta 1 vez.
+• safe_close_snapshot(): usa critical=True, reintento breve y fallback al buy_price
+  para no falsear el PnL.
 """
 
 from __future__ import annotations
@@ -57,24 +57,26 @@ async def get_current_price(token_addr: str) -> float:
     Devuelve el precio USD del token forzando la ruta completa de fallbacks:
     DexScreener → Birdeye → GeckoTerminal → native×SOL.
 
+    Usa critical=True para ignorar caché negativa en cierres.
+
     Retorna:
         float: precio en USD o 0.0 si no se pudo obtener.
     """
     if not _is_solana_address(token_addr):
-        log.error(f"[seller] Dirección no Solana detectada: {token_addr!r}")
+        log.error("[seller] Dirección no Solana detectada: %r", token_addr)
         return 0.0
 
-    # Primer intento
-    price = await price_service.get_price_usd(token_addr, use_gt=True)
+    # Primer intento (modo crítico)
+    price = await price_service.get_price_usd(token_addr, use_gt=True, critical=True)
     if price:
         try:
             return float(price)
-        except Exception:  # conversión defensiva
+        except Exception:
             pass
 
     # Reintento breve (APIs pueden dar null/timeout puntuales)
     await asyncio.sleep(2.0)
-    price = await price_service.get_price_usd(token_addr, use_gt=True)
+    price = await price_service.get_price_usd(token_addr, use_gt=True, critical=True)
     if price:
         try:
             return float(price)
@@ -91,7 +93,7 @@ async def sell(token_addr: str, qty_lamports: int) -> Dict[str, object]:
     o un código especial si qty==0 o si la dirección no es Solana.
     """
     if not _is_solana_address(token_addr):
-        log.error(f"[seller] Venta bloqueada: address no Solana {token_addr!r}")
+        log.error("[seller] Venta bloqueada: address no Solana %r", token_addr)
         return {"signature": "INVALID_ADDRESS", "route": {}, "ok": False}
 
     if qty_lamports <= 0:
@@ -106,7 +108,7 @@ async def sell(token_addr: str, qty_lamports: int) -> Dict[str, object]:
             "ok": True,
         }
     except Exception as e:
-        log.exception(f"[seller] Error vendiendo {token_addr}: {e}")
+        log.exception("[seller] Error vendiendo %s: %s", token_addr, e)
         return {"signature": "ERROR", "route": {}, "ok": False, "error": str(e)}
 
 
@@ -160,7 +162,8 @@ def check_exit_conditions(position: dict, price_now: float) -> Optional[str]:
 async def safe_close_snapshot(position: dict, exit_reason: str) -> dict:
     """
     Construye los campos de cierre con precio de salida *seguro*:
-      - Intenta obtener precio actual; si no hay, usa buy_price (fallback).
+      - Intenta obtener precio actual en modo crítico; si no hay, reintenta 1 vez.
+      - Si sigue faltando precio, usa buy_price como fallback (evita PnL -100% ficticio).
       - Calcula pnl_pct de forma coherente.
       - Sella closed_at y exit_reason.
 
@@ -171,27 +174,29 @@ async def safe_close_snapshot(position: dict, exit_reason: str) -> dict:
     token_addr = position.get("token_address") or position.get("address") or ""
     buy_price  = float(position.get("buy_price_usd", 0.0) or 0.0)
 
-    price_now = await get_current_price(token_addr)
-    if price_now <= 0.0:
-        # Fallback para no distorsionar con -100 % ficticio
+    # Precio en MODO CRÍTICO (ignora caché negativa)
+    price_now = await price_service.get_price_usd(token_addr, use_gt=True, critical=True)
+    if price_now is None or price_now <= 0.0:
+        await asyncio.sleep(2.0)
+        price_now = await price_service.get_price_usd(token_addr, use_gt=True, critical=True)
+
+    # Fallback para no distorsionar con -100 % ficticio
+    if price_now is None or price_now <= 0.0:
         if buy_price > 0.0:
             log.warning(
-                f"[seller] Precio de cierre no disponible para {token_addr}. "
-                f"Se usa buy_price como fallback."
+                "[seller] Precio de cierre no disponible para %s. Se usa buy_price como fallback.",
+                token_addr[:6],
             )
             price_now = buy_price
         else:
             # Último fallback: 0.0 (raro; mantén logs para depurar)
             log.error(
-                f"[seller] Sin precio de compra ni precio actual para {token_addr}. "
-                f"close_price_usd=0.0; pnl_pct=0.0"
+                "[seller] Sin precio de compra ni precio actual para %s. close_price_usd=0.0; pnl_pct=0.0",
+                token_addr[:6],
             )
             price_now = 0.0
 
-    pnl_pct = 0.0
-    if buy_price > 0.0:
-        pnl_pct = ((price_now - buy_price) / buy_price) * 100.0
-
+    pnl_pct = 0.0 if buy_price <= 0 else ((float(price_now) - buy_price) / buy_price) * 100.0
     closed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     return {

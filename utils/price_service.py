@@ -157,28 +157,35 @@ async def _query_sources(address: str, *, use_gt: bool) -> Optional[Dict[str, An
 
 
 # ───────────────────────── API principal ──────────────────────────
-async def get_price(address: str, *, use_gt: bool = False) -> Optional[Dict[str, Any]]:
+async def get_price(address: str, *, use_gt: bool = False, critical: bool = False) -> Optional[Dict[str, Any]]:
     """
     Devuelve un dict con métricas de precio/liquidez o ``None``.
 
-    Parameters
-    ----------
+    Params
+    ------
     address : str
-        Mint address del token (Solana).
-    use_gt : bool, default ``False``
+    use_gt : bool
         Permite llamar a GeckoTerminal como tercer fallback.
+    critical : bool
+        Si True, ignora cache negativa y no la escribe (modo cierre).
     """
     if not _is_solana_address(address):
-        # cache negativo corto para no martillear
-        ck_bad = f"price:{address}:bad"
-        cache_set(ck_bad, False, ttl=_TTL_ERR)
+        # cache negativo corto para no martillear (salvo en crítico)
+        if not critical:
+            cache_set(f"price:{address}:bad", False, ttl=_TTL_ERR)
         logger.debug("[price_service] Address no-Solana bloqueada: %r", address)
         return None
 
     ck = f"price:{address}:{int(use_gt)}"
     hit = cache_get(ck)
     if hit is not None:
-        return None if hit is False else hit  # False ⇒ fallo previo
+        if hit is False:
+            if critical:
+                logger.debug("[price_service] critical=True: ignorando cache negativa para %s", address[:6])
+            else:
+                return None  # respetamos caché negativa en modo normal
+        else:
+            return hit  # caché positiva
 
     # Primer intento de la cadena
     tok = await _query_sources(address, use_gt=use_gt)
@@ -186,7 +193,7 @@ async def get_price(address: str, *, use_gt: bool = False) -> Optional[Dict[str,
         cache_set(ck, tok, ttl=_TTL_OK)
         return tok
 
-    # Reintento corto de toda la cadena (fallos transitorios de APIs)
+    # Reintento corto (fallos transitorios)
     if _RETRY_ON_FAIL > 0:
         try:
             import asyncio
@@ -197,28 +204,26 @@ async def get_price(address: str, *, use_gt: bool = False) -> Optional[Dict[str,
         if tok_retry and not _needs_fallback(tok_retry):
             cache_set(ck, tok_retry, ttl=_TTL_OK)
             return tok_retry
-        # preferimos el mejor de los dos (si el primero tenía algo útil)
         tok = tok_retry or tok
 
-    # Conversión final ya se intentó en _query_sources; si seguimos cojos:
     if tok and not _needs_fallback(tok):
         cache_set(ck, tok, ttl=_TTL_OK)
         return tok
 
-    # Sin datos válidos
-    cache_set(ck, False, ttl=_TTL_ERR)
-    logger.debug("[price_service] Sin datos para %s (fallback agotado)", address[:6])
+    # Sin datos válidos → sólo cache negativa si NO es crítico
+    if not critical:
+        cache_set(ck, False, ttl=_TTL_ERR)
+    logger.debug("[price_service] Sin datos para %s (fallback agotado; critical=%s)", address[:6], critical)
     return None
 
 
 # ─────────────────── Helper simplificado ──────────────────────
-async def get_price_usd(address: str, *, use_gt: bool = True) -> float | None:
+async def get_price_usd(address: str, *, use_gt: bool = True, critical: bool = False) -> float | None:
     """
     Devuelve sólo ``price_usd`` (float) o ``None``.
-    Por defecto permite GT (y Birdeye antes), en el fallback.
+    En crítico ignora cache negativa y no la escribe.
     """
-    tok = await get_price(address, use_gt=use_gt)
+    tok = await get_price(address, use_gt=use_gt, critical=critical)
     return float(tok["price_usd"]) if tok and not _is_missing(tok.get("price_usd")) else None
-
 
 __all__ = ["get_price", "get_price_usd"]
