@@ -3,14 +3,16 @@
 Motor de *paper-trading* (órdenes fantasma) cuando el bot se ejecuta con
 `--dry-run` o `CFG.DRY_RUN = 1`.
 
-Mejoras 2025-08-09:
+Mejoras 2025-08-10:
 ──────────────────
-• Todas las consultas de precio en buy() y _retry_fill_buy_price() usan
-  use_gt=True para forzar ruta completa: Dex → Birdeye → GT → native×SOL.
-• Precio SOL dinámico vía CoinGecko (utils.sol_price).
-• Si el precio no está disponible al abrir la posición, se agenda
-  un reintento asíncrono para rellenar `buy_price_usd` y `peak_price`.
+• Bloquea direcciones no-Solana (0x…).
+• Todas las consultas de precio fuerzan use_gt=True (Dex → Birdeye → GT → native×SOL).
+• Reintento corto al consultar precio.
+• Cierre *seguro*: si no hay precio de salida, usa buy_price como fallback (PnL 0%),
+  evitando cierres con `close_price_usd=0.0` y PnL −100% ficticio.
+• Si no hay precio en `check_exit_conditions`, no se fuerza venta salvo por TIMEOUT.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -47,6 +49,33 @@ def _save() -> None:
         log.warning("[papertrading] no se pudo guardar portfolio: %s", exc)
 
 
+# ───────────────────── utilidades locales ──────────────────────
+def _is_solana_address(addr: str) -> bool:
+    """Filtro defensivo: descarta EVM (0x…) y longitudes extrañas."""
+    if not addr or addr.startswith("0x"):
+        return False
+    return 30 <= len(addr) <= 50  # rango típico base58 de mints SOL
+
+
+async def _get_price_usd_with_retry(address: str, *, retries: int = 1, delay: float = 2.0) -> float:
+    """Precio USD con use_gt=True, reintentando si es necesario."""
+    price = await price_service.get_price_usd(address, use_gt=True)
+    if price:
+        try:
+            return float(price)
+        except Exception:
+            pass
+    for _ in range(retries):
+        await asyncio.sleep(delay)
+        price = await price_service.get_price_usd(address, use_gt=True)
+        if price:
+            try:
+                return float(price)
+            except Exception:
+                return 0.0
+    return 0.0
+
+
 # ─── lógica de compra ──────────────────────────────────────────
 async def buy(
     address: str,
@@ -66,6 +95,10 @@ async def buy(
     price_hint : float | None, default None
         Valor precio-unidad USD opcional facilitado por el orquestador.
     """
+    # 0️⃣ Validación de red
+    if not _is_solana_address(address):
+        raise ValueError(f"[papertrading] Dirección no Solana bloqueada: {address!r}")
+
     # 1️⃣ Precio USD (mejor-esfuerzo, forzando use_gt=True)
     price_usd = await price_service.get_price_usd(address, use_gt=True)
     if price_usd in (None, 0.0) and price_hint not in (None, 0.0):
@@ -84,6 +117,7 @@ async def buy(
         "amount_sol": amount_sol,
         "opened_at": utc_now().isoformat(),
         "closed": False,
+        "token_address": address,
     }
     _save()
 
@@ -91,7 +125,7 @@ async def buy(
     if price_usd in (None, 0.0):
         asyncio.create_task(_retry_fill_buy_price(address))
 
-    log.info("📝 PAPER-BUY %s  %.3f SOL (≈ %.2f USD)", address[:4], amount_sol, cost_usd)
+    log.info("📝 PAPER-BUY %s…  %.3f SOL (≈ %.2f USD)", address[:4], amount_sol, cost_usd)
     return {
         "qty_lamports": qty_lp,
         "signature": f"SIM-{int(time.time()*1e3)}",
@@ -131,20 +165,43 @@ async def sell(address: str, qty_lamports: int) -> dict:
     if not entry or entry.get("closed"):
         raise RuntimeError(f"No hay posición activa para {address[:4]}")
 
-    pair = await price_service.get_price(address, use_gt=True)
-    price_now = float(pair["price_usd"]) if pair else 0.0
+    if not _is_solana_address(address):
+        log.error("[papertrading] Venta bloqueada: address no Solana %r", address)
+        sig = f"SIM-{int(time.time()*1e3)}"
+        return {"signature": sig, "error": "INVALID_ADDRESS"}
+
+    # Precio actual con reintento corto
+    price_now = await _get_price_usd_with_retry(address, retries=1, delay=2.0)
+
+    # Cierre *seguro*: si no hay precio, usa buy_price como fallback (PnL 0%)
+    if price_now <= 0.0:
+        bp = float(entry.get("buy_price_usd") or 0.0)
+        if bp > 0.0:
+            log.warning(
+                "[papertrading] Precio de cierre no disponible para %s…; "
+                "uso buy_price como fallback.",
+                address[:4],
+            )
+            price_now = bp
+        else:
+            log.error(
+                "[papertrading] Sin precio de compra ni precio actual para %s…; "
+                "close_price_usd=0.0; pnl_pct=0.0",
+                address[:4],
+            )
+            price_now = 0.0
 
     pnl_pct = (
-        (price_now - entry["buy_price_usd"]) / entry["buy_price_usd"] * 100
-        if entry["buy_price_usd"]
+        ((price_now - float(entry.get("buy_price_usd") or 0.0)) / float(entry.get("buy_price_usd") or 1.0)) * 100.0
+        if float(entry.get("buy_price_usd") or 0.0) > 0.0
         else 0.0
     )
 
     entry.update(
         {
             "closed_at": utc_now().isoformat(),
-            "close_price_usd": price_now,
-            "pnl_pct": pnl_pct,
+            "close_price_usd": float(price_now),
+            "pnl_pct": float(pnl_pct),
             "closed": True,
         }
     )
@@ -152,7 +209,7 @@ async def sell(address: str, qty_lamports: int) -> dict:
 
     sig = f"SIM-{int(time.time()*1e3)}"
     log.info(
-        "📝 PAPER-SELL %s  close=%.6f USD  PnL=%.2f%%  sig=%s",
+        "📝 PAPER-SELL %s…  close=%.6f USD  PnL=%.2f%%  sig=%s",
         address[:4],
         price_now,
         pnl_pct,
@@ -163,41 +220,47 @@ async def sell(address: str, qty_lamports: int) -> dict:
 
 # ─── evaluación de salida (TP/SL/Trailing/Timeout) ────────────
 async def check_exit_conditions(address: str) -> bool:  # noqa: C901
+    """
+    Devuelve True si **alguna** condición de salida se cumple.
+    Si no hay precio, no fuerza salida por precio; solo se considerará TIMEOUT.
+    """
     entry = _PORTFOLIO.get(address)
     if not entry or entry.get("closed"):
         return False
 
+    # Precio actual (un intento; no cerramos por 'price<=0', ver abajo)
     pair = await price_service.get_price(address, use_gt=True)
-    price = float(pair["price_usd"]) if pair else 0.0
+    price = float(pair["price_usd"]) if pair and "price_usd" in pair else 0.0
 
-    buy_price  = entry.get("buy_price_usd") or 0.0
-    peak_price = entry.get("peak_price") or price
+    buy_price = float(entry.get("buy_price_usd") or 0.0)
+    peak_price = float(entry.get("peak_price") or (price if price > 0 else buy_price))
 
-    if price > peak_price:
+    # Actualiza pico sólo si hay precio válido
+    if price > 0.0 and price > peak_price:
         entry["peak_price"] = peak_price = price
         _save()
 
-    pnl          = (price - buy_price) / buy_price * 100 if buy_price else 0.0
-    trailing_lvl = peak_price * (1 - CFG.TRAILING_PCT / 100.0)
+    # PnL en %
+    pnl = ((price - buy_price) / buy_price * 100.0) if (buy_price > 0.0 and price > 0.0) else 0.0
+    trailing_lvl = peak_price * (1 - float(CFG.TRAILING_PCT or 0.0) / 100.0)
 
-    # timeout
+    # TIMEOUT (siempre aplicable)
     try:
         opened_at = dt.datetime.fromisoformat(entry["opened_at"])
         if opened_at.tzinfo is None:
             opened_at = opened_at.replace(tzinfo=dt.timezone.utc)
-        timeout = (utc_now() - opened_at).total_seconds() > CFG.MAX_HOLDING_H * 3600
+        timeout = (utc_now() - opened_at).total_seconds() > float(CFG.MAX_HOLDING_H or 0.0) * 3600.0
     except Exception:
         timeout = False
 
-    return any(
-        [
-            price <= 0,
-            pnl >= CFG.TAKE_PROFIT_PCT,
-            pnl <= -CFG.STOP_LOSS_PCT,
-            price <= trailing_lvl,
-            timeout,
-        ]
-    )
+    # Condiciones basadas en precio solo si hay precio válido
+    tp_hit = (price > 0.0) and (pnl >= float(CFG.TAKE_PROFIT_PCT or 0.0))
+    sl_hit = (price > 0.0) and (pnl <= -float(CFG.STOP_LOSS_PCT or 0.0))
+    tr_hit = (price > 0.0) and (float(CFG.TRAILING_PCT or 0.0) > 0.0) and (price <= trailing_lvl)
+
+    # Nota: eliminamos el antiguo 'price <= 0' como disparador de salida.
+    return any([tp_hit, sl_hit, tr_hit, timeout])
+
 
 # ─── exportación mínima ────────────────────────────────────────
 __all__ = ["buy", "sell", "check_exit_conditions"]

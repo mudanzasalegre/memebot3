@@ -1,24 +1,28 @@
 # trader/seller.py
 """
-Interfaz unificada para:
+Interfaz unificada para salidas en modo REAL:
     • Enviar la orden real de venta (`gmgn.sell`)
     • Evaluar las condiciones de salida (TP / SL / Trailing / Timeout)
-    • Obtener el precio actual ABSTRAYÉNDOSE de la fuente concreta:
+    • Obtener el precio actual abstrayéndose de la fuente concreta:
         DexScreener → Birdeye → GeckoTerminal → conversión price_native→USD
+    • Generar un snapshot de cierre con PnL coherente incluso si
+      no se pudo obtener el precio (fallback = buy_price)
 
-2025-08-09
+2025-08-10
 ──────────
-• `get_current_price()` ahora llama a
-  `utils.price_service.get_price_usd(..., use_gt=True)` para forzar ruta
-  completa en modo real, igual que en papertrading.
-• Si esa función devuelve None, se reporta 0.0 (sin precio).
+Cambios clave:
+• Filtro defensivo de direcciones EVM (0x…) para evitar ventas fuera de Solana.
+• get_current_price(): reintenta 1 vez; devuelve float o 0.0 si no hay precio.
+• safe_close_snapshot(): asegura close_price_usd válido (usa buy_price si falta),
+  calcula pnl_pct y fija closed_at/exit_reason para persistir sin distorsiones.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict
+from typing import Dict, Optional
 
 from config.config import CFG
 from utils import price_service
@@ -27,62 +31,109 @@ from . import gmgn  # SDK local
 log = logging.getLogger("seller")
 
 # ─── Umbrales de salida (config) ──────────────────────────────────
-TAKE_PROFIT     = float(CFG.TAKE_PROFIT_PCT or 0) / 100.0
-STOP_LOSS       = abs(float(CFG.STOP_LOSS_PCT or 0)) / 100.0
-TRAILING_STOP   = float(CFG.TRAILING_PCT or 0) / 100.0
-TIMEOUT_SECONDS = int(CFG.MAX_HOLDING_H or 24) * 3600
+TAKE_PROFIT_PCT   = float(CFG.TAKE_PROFIT_PCT or 0.0)
+STOP_LOSS_PCT     = float(CFG.STOP_LOSS_PCT or 0.0)
+TRAILING_PCT      = float(CFG.TRAILING_PCT or 0.0)
+MAX_HOLDING_H     = float(CFG.MAX_HOLDING_H or 24)
+
+TAKE_PROFIT       = TAKE_PROFIT_PCT / 100.0
+STOP_LOSS         = abs(STOP_LOSS_PCT) / 100.0
+TRAILING_STOP     = TRAILING_PCT / 100.0
+TIMEOUT_SECONDS   = int(MAX_HOLDING_H * 3600)
+
+
+# ─── Utilidades ───────────────────────────────────────────────────
+def _is_solana_address(addr: str) -> bool:
+    """Check muy simple: descarta EVM (0x…) y longitudes extrañas."""
+    if not addr or addr.startswith("0x"):
+        return False
+    # Direcciones de mint de Solana suelen estar ~32–44 chars base58.
+    return 30 <= len(addr) <= 50
 
 
 # ─── Precio actual (Dex → Birdeye → GT → price_native→USD) ────────
 async def get_current_price(token_addr: str) -> float:
     """
-    Devuelve el precio USD del token forzando la ruta completa de
-    fallbacks: DexScreener → Birdeye → GeckoTerminal → native×SOL.
+    Devuelve el precio USD del token forzando la ruta completa de fallbacks:
+    DexScreener → Birdeye → GeckoTerminal → native×SOL.
 
-    Returns
-    -------
-    float
-        Precio en USD o 0.0 si no se pudo obtener.
+    Retorna:
+        float: precio en USD o 0.0 si no se pudo obtener.
     """
+    if not _is_solana_address(token_addr):
+        log.error(f"[seller] Dirección no Solana detectada: {token_addr!r}")
+        return 0.0
+
+    # Primer intento
     price = await price_service.get_price_usd(token_addr, use_gt=True)
-    return float(price) if price else 0.0
+    if price:
+        try:
+            return float(price)
+        except Exception:  # conversión defensiva
+            pass
+
+    # Reintento breve (APIs pueden dar null/timeout puntuales)
+    await asyncio.sleep(2.0)
+    price = await price_service.get_price_usd(token_addr, use_gt=True)
+    if price:
+        try:
+            return float(price)
+        except Exception:
+            return 0.0
+
+    return 0.0
 
 
 # ─── Venta real ───────────────────────────────────────────────────
 async def sell(token_addr: str, qty_lamports: int) -> Dict[str, object]:
     """
     Ejecuta la orden de venta con gmgn. Devuelve firma y ruta
-    o un código especial si qty==0.
+    o un código especial si qty==0 o si la dirección no es Solana.
     """
+    if not _is_solana_address(token_addr):
+        log.error(f"[seller] Venta bloqueada: address no Solana {token_addr!r}")
+        return {"signature": "INVALID_ADDRESS", "route": {}, "ok": False}
+
     if qty_lamports <= 0:
         log.warning("[seller] Qty=0 — orden ignorada")
-        return {"signature": "NO_QTY", "route": {}}
+        return {"signature": "NO_QTY", "route": {}, "ok": False}
 
-    resp = await gmgn.sell(token_addr, qty_lamports)
-    return {
-        "signature": resp.get("signature"),
-        "route": resp.get("route", {}),
-    }
+    try:
+        resp = await gmgn.sell(token_addr, qty_lamports)
+        return {
+            "signature": resp.get("signature"),
+            "route": resp.get("route", {}),
+            "ok": True,
+        }
+    except Exception as e:
+        log.exception(f"[seller] Error vendiendo {token_addr}: {e}")
+        return {"signature": "ERROR", "route": {}, "ok": False, "error": str(e)}
 
 
 # ─── Evaluación de condiciones de salida ──────────────────────────
-def check_exit_conditions(position: dict, price_now: float) -> str | None:
+def check_exit_conditions(position: dict, price_now: float) -> Optional[str]:
     """
     Devuelve una cadena con el *motivo* de salida o None si la posición
     debe permanecer abierta.
 
     Motivos: "TAKE_PROFIT", "STOP_LOSS", "TRAILING_STOP", "TIMEOUT"
     """
-    buy_price  = position.get("buy_price_usd", 0.0)
+    buy_price  = float(position.get("buy_price_usd", 0.0) or 0.0)
     opened_at  = position.get("opened_at")
-    peak_price = position.get("peak_price", buy_price)
+    peak_price = float(position.get("peak_price", buy_price) or buy_price)
 
     if not buy_price or not opened_at:
         return None  # datos insuficientes
 
     # edad de la posición
-    opened_dt = datetime.fromisoformat(opened_at).replace(tzinfo=timezone.utc)
-    age_sec = (datetime.now(timezone.utc) - opened_dt).total_seconds()
+    try:
+        opened_dt = datetime.fromisoformat(opened_at)
+        if opened_dt.tzinfo is None:
+            opened_dt = opened_dt.replace(tzinfo=timezone.utc)
+        age_sec = (datetime.now(timezone.utc) - opened_dt).total_seconds()
+    except Exception:
+        # Si el timestamp llega malformado, no forzamos cierre por tiempo.
+        age_sec = 0
 
     # rentabilidad actual
     pnl_pct = (price_now - buy_price) / buy_price if buy_price else 0.0
@@ -93,13 +144,59 @@ def check_exit_conditions(position: dict, price_now: float) -> str | None:
         peak_price = price_now
 
     # reglas de salida
-    if pnl_pct >= TAKE_PROFIT:
+    if TAKE_PROFIT > 0 and pnl_pct >= TAKE_PROFIT:
         return "TAKE_PROFIT"
-    if pnl_pct <= -STOP_LOSS:
+    if STOP_LOSS > 0 and pnl_pct <= -STOP_LOSS:
         return "STOP_LOSS"
     if TRAILING_STOP > 0 and price_now <= peak_price * (1 - TRAILING_STOP):
         return "TRAILING_STOP"
-    if age_sec >= TIMEOUT_SECONDS:
+    if TIMEOUT_SECONDS > 0 and age_sec >= TIMEOUT_SECONDS:
         return "TIMEOUT"
 
     return None
+
+
+# ─── Snapshot seguro de cierre ────────────────────────────────────
+async def safe_close_snapshot(position: dict, exit_reason: str) -> dict:
+    """
+    Construye los campos de cierre con precio de salida *seguro*:
+      - Intenta obtener precio actual; si no hay, usa buy_price (fallback).
+      - Calcula pnl_pct de forma coherente.
+      - Sella closed_at y exit_reason.
+
+    Devuelve un dict con:
+      close_price_usd, pnl_pct, closed_at, exit_reason
+    (Listo para ser persistido junto a la posición.)
+    """
+    token_addr = position.get("token_address") or position.get("address") or ""
+    buy_price  = float(position.get("buy_price_usd", 0.0) or 0.0)
+
+    price_now = await get_current_price(token_addr)
+    if price_now <= 0.0:
+        # Fallback para no distorsionar con -100 % ficticio
+        if buy_price > 0.0:
+            log.warning(
+                f"[seller] Precio de cierre no disponible para {token_addr}. "
+                f"Se usa buy_price como fallback."
+            )
+            price_now = buy_price
+        else:
+            # Último fallback: 0.0 (raro; mantén logs para depurar)
+            log.error(
+                f"[seller] Sin precio de compra ni precio actual para {token_addr}. "
+                f"close_price_usd=0.0; pnl_pct=0.0"
+            )
+            price_now = 0.0
+
+    pnl_pct = 0.0
+    if buy_price > 0.0:
+        pnl_pct = ((price_now - buy_price) / buy_price) * 100.0
+
+    closed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    return {
+        "close_price_usd": float(price_now),
+        "pnl_pct": float(pnl_pct),
+        "closed_at": closed_at,
+        "exit_reason": exit_reason,
+    }
