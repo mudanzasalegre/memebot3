@@ -6,6 +6,11 @@ Cambios 2025-08-02
 ──────────────────
 • Alias GeckoTerminal → canónicos.
 • Se garantiza que los campos críticos (liq, vol, mcap) NUNCA queden NaN/None.
+
+Cambios 2025-08-15
+──────────────────
+• Saneo temprano de direcciones: strip sufijo 'pump' y validación ligera de mint SPL.
+  (Afecta a token["address"], token_address/tokenAddress, baseToken.address, poolAddress)
 """
 
 from __future__ import annotations
@@ -19,8 +24,10 @@ import numpy as np
 import pandas as pd
 
 from utils.time import utc_now
+from utils.solana_addr import normalize_mint, is_probably_mint
 
-log = logging.getLogger(__name__)
+# Usamos un logger estable para estos saneos
+log = logging.getLogger("data")
 
 # ───────── alias brutos → canónicos ──────────
 _NUMERIC_ALIASES: dict[str, str] = {
@@ -58,6 +65,63 @@ _TREND_STR_TO_INT = {
     "flat": 0, "sideways": 0, "neutral": 0, "unknown": 0,
 }
 _PREF_KEYS = ("usd", "h24", "24h", "quote", "base", "value")
+
+
+# ───────── saneo de direcciones (mint SPL) ─────────
+def _sanitize_address_inplace(token: dict) -> None:
+    """
+    Normaliza direcciones candidatas a mint SPL en el dict token.
+    - token["address"]
+    - token.get("token_address"), token.get("tokenAddress")
+    - token.get("baseToken", {}).get("address")
+    - token.get("poolAddress")
+    """
+    candidates: list[tuple[str, str, str]] = []
+
+    # Campos planos
+    for key in ("address", "token_address", "tokenAddress", "poolAddress"):
+        val = token.get(key)
+        if isinstance(val, str):
+            candidates.append(("root", key, val))
+
+    # Campos anidados: baseToken.address
+    base = token.get("baseToken")
+    if isinstance(base, dict):
+        baddr = base.get("address")
+        if isinstance(baddr, str):
+            candidates.append(("baseToken", "address", baddr))
+
+    picked = None
+    for scope, key, raw in candidates:
+        cleaned = normalize_mint(raw)
+        if cleaned:
+            if scope == "root":
+                token[key] = cleaned
+            else:  # scope == "baseToken"
+                try:
+                    token["baseToken"]["address"] = cleaned
+                except Exception:
+                    pass
+            if picked is None:
+                picked = cleaned
+
+    # Garantiza que token["address"] refleje el mint válido detectado
+    if picked:
+        if token.get("address") != picked:
+            try:
+                log.debug("[data] address normalizado %r → %r", token.get("address"), picked)
+            except Exception:
+                pass
+            token["address"] = picked
+    else:
+        # Si había address pero no parece mint, anotamos en DEBUG
+        addr = token.get("address")
+        if isinstance(addr, str) and not is_probably_mint(addr):
+            try:
+                log.debug("[data] address no parece mint SPL: %r", addr)
+            except Exception:
+                pass
+
 
 # ───────── helpers numéricos ─────────────────
 def _extract_from_dict(d: dict, ctx: str) -> float | None:
@@ -98,12 +162,14 @@ def _minutes_since(ts: dt.datetime | None) -> float:
         ts = ts.replace(tzinfo=dt.timezone.utc)
     return (utc_now() - ts).total_seconds() / 60.0
 
+
 # ───────── validación externa ───────────────
 def is_incomplete(tok: Dict[str, Any]) -> bool:
     """True si faltan métricas críticas (liq, vol, holders)."""
     liq, vol, holders = tok.get("liquidity_usd"), tok.get("volume_24h_usd"), tok.get("holders")
     missing = lambda x: x in (None, 0) or (isinstance(x, float) and math.isnan(x))
     return missing(liq) or missing(vol) or missing(holders)
+
 
 # ───────── forward-fill retroactivo ─────────
 def fill_provisional_liq_vol(df: pd.DataFrame) -> pd.DataFrame:
@@ -112,15 +178,24 @@ def fill_provisional_liq_vol(df: pd.DataFrame) -> pd.DataFrame:
         df[col] = df[col].fillna(method="ffill")
     return df
 
+
 # ───────── función principal ────────────────
 def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
     """
-    • Aplica alias → claves canónicas.  
-    • Convierte numéricos a float; NaN en campos NOT NULL → 0.0.  
+    • Aplica alias → claves canónicas.
+    • Convierte numéricos a float; NaN en campos NOT NULL → 0.0.
     • Normaliza booleanos, trend, edad y marcas temporales.
+    • **NUEVO**: sanea direcciones candidatas (quita sufijo 'pump' y valida mint).
     """
-    clean = token                      # mutación in-place
+    clean = token  # mutación in-place
     ctx   = clean.get("symbol") or clean.get("address", "")[:4]
+
+    # -1) saneo temprano de mint/poolAddress/baseToken.address
+    try:
+        _sanitize_address_inplace(clean)
+    except Exception:
+        # best-effort, nunca interrumpir flujo por el saneo
+        pass
 
     # 0) created_at faltante → ahora-10 s
     clean.setdefault("created_at", utc_now() - dt.timedelta(seconds=10))
@@ -158,12 +233,13 @@ def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
         val = clean.get(fld)
         try:
             clean[fld] = 0 if val in (None, np.nan) else int(val)
-        except Exception:              # valores raros
+        except Exception:  # valores raros
             clean[fld] = 0
 
     # 8) marca de tiempo descarga
     clean.setdefault("fetched_at", utc_now())
     return clean
+
 
 # ───────── valores por defecto opcionales ───
 DEFAULTS = {
@@ -183,6 +259,7 @@ def apply_default_values(tok: Dict[str, Any]) -> Dict[str, Any]:
     for k, v in DEFAULTS.items():
         tok.setdefault(k, v)
     return tok
+
 
 __all__ = [
     "sanitize_token_data",

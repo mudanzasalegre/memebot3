@@ -70,6 +70,12 @@ class Position(Base):
     __tablename__ = "positions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    # NUEVO: mint SPL explícito (opcional). Mantiene compatibilidad hacia atrás.
+    # Se usa para garantizar que los fetchers de precio (Jupiter Price v3) reciban un mint válido.
+    token_mint: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # Nota: en tu pipeline actual, 'address' ya es el mint SPL. Se conserva por compatibilidad.
     address: Mapped[str] = mapped_column(String, ForeignKey("tokens.address"))
     symbol:  Mapped[Optional[str]] = mapped_column(String(16))
     qty:     Mapped[int] = mapped_column(Integer)  # lamports
@@ -94,7 +100,8 @@ class Position(Base):
     highest_pnl_pct: Mapped[float] = mapped_column(Float, default=0.0)
 
     def __repr__(self) -> str:  # pragma: no cover
-        return f"<Position {self.symbol or self.address[:4]} open={self.opened_at}>"
+        alias = (self.token_mint or self.address or "")[:4]
+        return f"<Position {self.symbol or alias} open={self.opened_at}>"
 
 # ───────────────────────── RevivedToken ────────────────────────
 class RevivedToken(Base):

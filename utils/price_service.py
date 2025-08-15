@@ -7,11 +7,14 @@ Orden de fuentes (2025-08):
 2. Birdeye (si está activado en .env) rellena huecos críticos.
 3. GeckoTerminal (si use_gt=True) para huecos restantes.
 4. Conversión: price_native × SOL_USD si sigue faltando price_usd.
+5. (NUEVO) Jupiter Price v3 (Lite) SOLO en consultas de “solo precio”.
 
 Extras:
 • Reintento corto de toda la cadena ante fallo transitorio.
 • Cacheo de aciertos y fallos (TTL configurable vía .env DEXS_TTL_NIL).
 • Bloqueo de direcciones no Solana (0x…).
+• Modo “solo precio”: en cierres/consultas rápidas aceptamos price_usd
+  aunque falte liquidity_usd (evita caer a fallback del buy_price).
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from __future__ import annotations
 import math
 import os
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from utils.simple_cache import cache_get, cache_set
 from utils.fallback import fill_missing_fields
@@ -29,11 +32,17 @@ from fetcher import dexscreener
 from fetcher.geckoterminal import get_token_data as get_gt_data, USE_GECKO_TERMINAL
 from fetcher import birdeye
 
+# (NUEVO) Jupiter Price v3 (Lite) como fallback final para "solo precio"
+try:
+    from fetcher.jupiter_price import get_usd_price as _jup_get_usd_price  # type: ignore
+except Exception:  # pragma: no cover - en caso de que aún no exista el módulo
+    _jup_get_usd_price = None  # se comprobará en runtime
+
 logger = logging.getLogger("price_service")
 
 # ───────────────────────── configuración / constantes ─────────────────────────
-_TTL_OK   = int(os.getenv("DEXS_TTL_OK", 30))            # s para respuestas válidas
-_TTL_ERR  = int(os.getenv("DEXS_TTL_NIL", "15"))         # s para cachear fallos
+_TTL_OK   = int(os.getenv("DEXS_TTL_OK", "30"))           # s para respuestas válidas
+_TTL_ERR  = int(os.getenv("DEXS_TTL_NIL", "15"))          # s para cachear fallos
 _CHAIN    = "solana"
 
 _MISSING_FIELDS = [
@@ -43,9 +52,15 @@ _MISSING_FIELDS = [
     "volume_24h_usd",
 ]
 
-_USE_BIRDEYE = os.getenv("USE_BIRDEYE", "true").lower() == "true"
-_RETRY_ON_FAIL = int(os.getenv("PRICE_RETRY_ON_FAIL", "1"))  # nº reintentos de la cadena
-_RETRY_DELAY_S = float(os.getenv("PRICE_RETRY_DELAY_S", "2.0"))
+_USE_BIRDEYE    = os.getenv("USE_BIRDEYE", "true").lower() == "true"
+_RETRY_ON_FAIL  = int(os.getenv("PRICE_RETRY_ON_FAIL", "1"))  # nº reintentos de la cadena
+_RETRY_DELAY_S  = float(os.getenv("PRICE_RETRY_DELAY_S", "2.0"))
+
+# (NUEVO) Flag de entorno para activar/desactivar Jupiter como último fallback
+_USE_JUPITER_PRICE = os.getenv("USE_JUPITER_PRICE", "true").lower() == "true"
+
+_REQUIRED_FOR_FULL  : Tuple[str, ...] = ("price_usd", "liquidity_usd")  # validación completa
+_REQUIRED_FOR_PRICE : Tuple[str, ...] = ("price_usd",)                  # solo precio (cierres)
 
 # ─────────────────────────────────── utils ────────────────────────────────────
 def _is_missing(val: Any) -> bool:
@@ -57,11 +72,11 @@ def _is_missing(val: Any) -> bool:
     return val == 0
 
 
-def _needs_fallback(tok: Dict[str, Any] | None) -> bool:
-    """¿Faltan datos críticos tras la última fuente?"""
+def _needs_fields(tok: Dict[str, Any] | None, fields: Tuple[str, ...]) -> bool:
+    """True si faltan *cualesquiera* de los campos pedidos."""
     if not tok:
         return True
-    return any(_is_missing(tok.get(k)) for k in ("price_usd", "liquidity_usd"))
+    return any(_is_missing(tok.get(k)) for k in fields)
 
 
 def _is_solana_address(addr: str) -> bool:
@@ -99,10 +114,11 @@ async def _price_native_to_usd(tok: Dict[str, Any] | None) -> Dict[str, Any] | N
     return tok
 
 
-async def _query_sources(address: str, *, use_gt: bool) -> Optional[Dict[str, Any]]:
+# ───────────────────── pipeline de fuentes (sin caché) ───────────────────────
+async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str, ...]) -> Optional[Dict[str, Any]]:
     """
-    Ejecuta la cadena de fuentes y devuelve `tok` con los campos críticos
-    completados en la medida de lo posible. No cachea (eso se hace arriba).
+    Ejecuta la cadena de fuentes y devuelve `tok` con los campos pedidos
+    en 'fields_needed' completados en la medida de lo posible. No cachea.
     """
     tok: Dict[str, Any] | None = None
 
@@ -113,7 +129,7 @@ async def _query_sources(address: str, *, use_gt: bool) -> Optional[Dict[str, An
         logger.debug("[price_service] DexScreener error: %s", exc)
         tok = None
 
-    if tok and not _needs_fallback(tok):
+    if tok and not _needs_fields(tok, fields_needed):
         logger.debug("[price_service] DexScreener OK para %s…", address[:6])
         return tok
 
@@ -130,7 +146,7 @@ async def _query_sources(address: str, *, use_gt: bool) -> Optional[Dict[str, An
         if be:
             logger.debug("[price_service] Fallback → Birdeye para %s…", address[:6])
             tok = fill_missing_fields(tok or {}, be, _MISSING_FIELDS, treat_zero_as_missing=True)
-            if not _needs_fallback(tok):
+            if not _needs_fields(tok, fields_needed):
                 return tok
 
     # ③ GeckoTerminal (opcional)
@@ -143,21 +159,53 @@ async def _query_sources(address: str, *, use_gt: bool) -> Optional[Dict[str, An
         if gt:
             logger.debug("[price_service] Fallback → GeckoTerminal para %s…", address[:6])
             tok = fill_missing_fields(tok or {}, gt, _MISSING_FIELDS, treat_zero_as_missing=True)
-            if not _needs_fallback(tok):
+            if not _needs_fields(tok, fields_needed):
                 return tok
 
     # ④ Conversión price_native→USD
     tok = await _price_native_to_usd(tok)
-    if tok and not _is_missing(tok.get("price_usd")):
+    if tok and not _needs_fields(tok, fields_needed):
         logger.debug("[price_service] Fallback → native×SOL para %s…", address[:6])
         return tok
 
-    # ⑤ Sin datos
+    # ⑤ (NUEVO) Jupiter Price v3 (Lite) SOLO si pedimos "solo precio"
+    #     - Se intenta ÚNICAMENTE cuando fields_needed == ("price_usd",)
+    #     - No interfiere con el flujo "full" que exige liquidez
+    if (
+        _USE_JUPITER_PRICE
+        and _jup_get_usd_price is not None
+        and tuple(fields_needed) == _REQUIRED_FOR_PRICE
+        and _needs_fields(tok, fields_needed)
+    ):
+        try:
+            jup_price = await _jup_get_usd_price(address)
+        except Exception as exc:
+            logger.debug("[price_service] Jupiter error: %s", exc)
+            jup_price = None
+
+        if jup_price and not _is_missing(jup_price):
+            if not tok:
+                tok = {}
+            try:
+                tok["price_usd"] = float(jup_price)
+            except Exception:
+                tok["price_usd"] = jup_price  # por si viene ya como float/Decimal
+            logger.debug("[price_service] Fallback → Jupiter (price_only) para %s…", address[:6])
+            # Ya cumplimos "solo precio"
+            return tok
+
+    # ⑥ Sin datos suficientes para los campos solicitados
     return tok  # puede ser dict incompleto o None
 
 
 # ───────────────────────── API principal ──────────────────────────
-async def get_price(address: str, *, use_gt: bool = False, critical: bool = False) -> Optional[Dict[str, Any]]:
+async def get_price(
+    address: str,
+    *,
+    use_gt: bool = False,
+    critical: bool = False,
+    price_only: bool = False,
+) -> Optional[Dict[str, Any]]:
     """
     Devuelve un dict con métricas de precio/liquidez o ``None``.
 
@@ -168,6 +216,9 @@ async def get_price(address: str, *, use_gt: bool = False, critical: bool = Fals
         Permite llamar a GeckoTerminal como tercer fallback.
     critical : bool
         Si True, ignora cache negativa y no la escribe (modo cierre).
+    price_only : bool
+        Si True, exige SOLO `price_usd` (cierres/compras rápidas).
+        Si False, exige `price_usd` + `liquidity_usd` (validaciones).
     """
     if not _is_solana_address(address):
         # cache negativo corto para no martillear (salvo en crítico)
@@ -176,7 +227,9 @@ async def get_price(address: str, *, use_gt: bool = False, critical: bool = Fals
         logger.debug("[price_service] Address no-Solana bloqueada: %r", address)
         return None
 
-    ck = f"price:{address}:{int(use_gt)}"
+    fields_needed = _REQUIRED_FOR_PRICE if price_only else _REQUIRED_FOR_FULL
+    ck = f"price:{address}:{int(use_gt)}:{int(price_only)}"
+
     hit = cache_get(ck)
     if hit is not None:
         if hit is False:
@@ -188,8 +241,8 @@ async def get_price(address: str, *, use_gt: bool = False, critical: bool = Fals
             return hit  # caché positiva
 
     # Primer intento de la cadena
-    tok = await _query_sources(address, use_gt=use_gt)
-    if tok and not _needs_fallback(tok):
+    tok = await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed)
+    if tok and not _needs_fields(tok, fields_needed):
         cache_set(ck, tok, ttl=_TTL_OK)
         return tok
 
@@ -200,20 +253,25 @@ async def get_price(address: str, *, use_gt: bool = False, critical: bool = Fals
             await asyncio.sleep(_RETRY_DELAY_S)
         except Exception:
             pass
-        tok_retry = await _query_sources(address, use_gt=use_gt)
-        if tok_retry and not _needs_fallback(tok_retry):
+        tok_retry = await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed)
+        if tok_retry and not _needs_fields(tok_retry, fields_needed):
             cache_set(ck, tok_retry, ttl=_TTL_OK)
             return tok_retry
         tok = tok_retry or tok
 
-    if tok and not _needs_fallback(tok):
+    if tok and not _needs_fields(tok, fields_needed):
         cache_set(ck, tok, ttl=_TTL_OK)
         return tok
 
     # Sin datos válidos → sólo cache negativa si NO es crítico
     if not critical:
         cache_set(ck, False, ttl=_TTL_ERR)
-    logger.debug("[price_service] Sin datos para %s (fallback agotado; critical=%s)", address[:6], critical)
+    logger.debug(
+        "[price_service] Sin datos (%s) para %s (fallback agotado; critical=%s)",
+        "price_only" if price_only else "full",
+        address[:6],
+        critical,
+    )
     return None
 
 
@@ -221,9 +279,11 @@ async def get_price(address: str, *, use_gt: bool = False, critical: bool = Fals
 async def get_price_usd(address: str, *, use_gt: bool = True, critical: bool = False) -> float | None:
     """
     Devuelve sólo ``price_usd`` (float) o ``None``.
-    En crítico ignora cache negativa y no la escribe.
+    En cierres/compras rápidas no exigimos liquidez (price_only=True).
+    En crítico ignoramos caché negativa y no la escribimos.
     """
-    tok = await get_price(address, use_gt=use_gt, critical=critical)
+    tok = await get_price(address, use_gt=use_gt, critical=critical, price_only=True)
     return float(tok["price_usd"]) if tok and not _is_missing(tok.get("price_usd")) else None
+
 
 __all__ = ["get_price", "get_price_usd"]

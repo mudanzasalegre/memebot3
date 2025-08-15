@@ -20,6 +20,11 @@ Mejoras 2025-08-09
       GECKO_TTL_NIL_SHORT (def. 120 s) → 3 primeros fallos consecutivos.
       GECKO_TTL_NIL_MAX   (def. 600 s) → del 4º fallo en adelante.
 • Rate-limit interno extra: 1 req/2 s máx. además del bucket global.
+
+Mejoras 2025-08-15
+──────────────────
+• Normalización de mints antes de llamar a la API (quita sufijo 'pump', valida mint SPL).
+  Evita 404 por direcciones tipo '<mint>pump' y reduce ruido en logs/caché.
 """
 
 from __future__ import annotations
@@ -34,13 +39,14 @@ import requests
 from config.config import GECKO_API_URL
 from utils.rate_limiter import GECKO_LIMITER
 from utils.simple_cache import cache_get, cache_set
+from utils.solana_addr import normalize_mint  # ← saneo de mints SPL
 
 try:
     import aiohttp
 except ImportError:                                   # pragma: no cover
     aiohttp = None  # type: ignore
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("fetcher.geckoterminal")
 
 # ────────────────────────── flags y constantes ──────────────────────────
 USE_GECKO_TERMINAL = os.getenv("USE_GECKO_TERMINAL", "true").lower() == "true"
@@ -125,7 +131,13 @@ def get_token_data(
     if not USE_GECKO_TERMINAL:
         return None
 
-    ck = f"gt:{network}:{address}"
+    # Normaliza el mint (quita 'pump', valida longitud/no-0x)
+    addr = normalize_mint(address)
+    if not addr:
+        logger.warning("[GT] address inválido (no mint SPL): %r", address)
+        return None
+
+    ck = f"gt:{network}:{addr}"
     hit = cache_get(ck)
     if hit is not None:
         return None if hit is _SENTINEL_NIL else hit
@@ -133,7 +145,7 @@ def get_token_data(
     _throttle_internal()
     _acquire_sync()
 
-    url = _build_endpoint(network, address)
+    url = _build_endpoint(network, addr)
     headers = {"Accept": "application/json", "User-Agent": "memebot3/1.0"}
     sess = session or requests
 
@@ -145,7 +157,7 @@ def get_token_data(
         resp.raise_for_status()
         attrs = resp.json()["data"]["attributes"]
     except Exception as exc:
-        logger.warning("[GT] Error %s para %s…", exc, address[:6])
+        logger.warning("[GT] Error %s para %s…", exc, addr[:6])
         _register_fail(ck)
         return None
 
@@ -165,7 +177,13 @@ async def get_token_data_async(
     if not USE_GECKO_TERMINAL:
         return None
 
-    ck = f"gt:{network}:{address}"
+    # Normaliza el mint (quita 'pump', valida longitud/no-0x)
+    addr = normalize_mint(address)
+    if not addr:
+        logger.warning("[GT] address inválido (no mint SPL): %r", address)
+        return None
+
+    ck = f"gt:{network}:{addr}"
     hit = cache_get(ck)
     if hit is not None:
         return None if hit is _SENTINEL_NIL else hit
@@ -179,7 +197,7 @@ async def get_token_data_async(
     _last_call_ts = time.monotonic()
 
     async with GECKO_LIMITER:
-        url = _build_endpoint(network, address)
+        url = _build_endpoint(network, addr)
         headers = {"Accept": "application/json", "User-Agent": "memebot3/1.0"}
 
         async def _fetch(client: "aiohttp.ClientSession") -> Optional[dict]:
@@ -208,7 +226,7 @@ async def get_token_data_async(
     try:
         attrs = j["data"]["attributes"]
     except KeyError:
-        logger.warning("[GT] JSON sin 'attributes' para %s…", address[:6])
+        logger.warning("[GT] JSON sin 'attributes' para %s…", addr[:6])
         _register_fail(ck)
         return None
 

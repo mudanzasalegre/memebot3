@@ -18,6 +18,11 @@ Mejoras 2025-08-09
       BIRDEYE_TTL_NIL_MAX   (def. 300 s) → del 4º fallo en adelante.
 • Contador de fallos por clave endpoint+address.
 • Cacheo en memoria con utils.simple_cache.
+
+Mejoras 2025-08-15
+──────────────────
+• Normalización de mints antes de llamar a la API (quita sufijo 'pump', valida mint SPL).
+  Evita 404 por direcciones tipo '<mint>pump' y reduce ruido en logs.
 """
 
 from __future__ import annotations
@@ -30,6 +35,7 @@ import time
 from typing import Any, Dict, Optional
 
 from utils.simple_cache import cache_get, cache_set
+from utils.solana_addr import normalize_mint
 
 # ───────────────────────── Config / constantes ──────────────────────────
 _API_KEY:   Optional[str] = os.getenv("BIRDEYE_API_KEY")
@@ -125,24 +131,51 @@ async def _fetch(endpoint: str, cache_key: str) -> Dict[str, Any] | None:
 async def get_token_info(address: str) -> Dict[str, Any] | None:
     """
     ``/token/{address}``   – precio, liquidez, mcap, volumen 24h…
+
+    Se normaliza la dirección (quita sufijo 'pump' y valida mint SPL)
+    antes de llamar al endpoint para evitar 404 y spam de reintentos.
     """
-    key = f"be:token:{address}"
-    data = await _fetch(_TOKEN_EP.format(addr=address), key)
+    addr = normalize_mint(address)
+    if not addr:
+        log.warning("[birdeye] address inválido (no mint SPL): %r", address)
+        return None
+
+    key = f"be:token:{addr}"
+    data = await _fetch(_TOKEN_EP.format(addr=addr), key)
     if data:
-        log.debug("Birdeye token %s | priceUsd %.6g  liqUsd %.0f",
-                  address[:4], data.get("priceUsd"), data.get("liquidityUsd"))
+        try:
+            log.debug(
+                "Birdeye token %s | priceUsd %.6g  liqUsd %.0f",
+                addr[:4], data.get("priceUsd"), data.get("liquidityUsd"),
+            )
+        except Exception:
+            pass
     return data
 
 
 async def get_pool_info(address: str) -> Dict[str, Any] | None:
     """
     ``/pool/{address}``    – stats de pool (TVL, volumen, fees, APR…)
+
+    Nota: si tu flujo espera *pool address* real y no mint, puedes retirar la
+    normalización y dejar que data_utils gestione advertencias. Dado tu log actual,
+    incluimos el mismo guardarraíl para evitar llamadas /pool/<mint>pump.
     """
-    key = f"be:pool:{address}"
-    data = await _fetch(_POOL_EP.format(addr=address), key)
+    addr = normalize_mint(address)
+    if not addr:
+        log.warning("[birdeye] pool inválido (no mint SPL): %r", address)
+        return None
+
+    key = f"be:pool:{addr}"
+    data = await _fetch(_POOL_EP.format(addr=addr), key)
     if data:
-        log.debug("Birdeye pool  %s | tvlUsd %.0f  vol24hUsd %.0f",
-                  address[:4], data.get("tvlUsd"), data.get("volume24hUsd"))
+        try:
+            log.debug(
+                "Birdeye pool  %s | tvlUsd %.0f  vol24hUsd %.0f",
+                addr[:4], data.get("tvlUsd"), data.get("volume24hUsd"),
+            )
+        except Exception:
+            pass
     return data
 
 

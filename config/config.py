@@ -5,6 +5,15 @@ Añadidos 2025-08-02
 • GECKO_API_URL          (endpoint base GeckoTerminal)
 • INCOMPLETE_RETRIES     (reintentos rápidos 0-delay en run_bot)
 • MAX_RETRIES            (re-queues permitidos en utils.lista_pares)
+
+Añadidos 2025-08-15
+──────────────────
+• USE_JUPITER_PRICE      (activar fallback Jupiter Price v3 Lite)
+• JUPITER_PRICE_URL      (endpoint base)
+• JUPITER_RPM            (rate-limit sencillo en fetcher/jupiter_price)
+• JUPITER_TTL_NIL_SHORT  (TTL caché negativa corto)
+• JUPITER_TTL_NIL_MAX    (TTL caché negativa máximo)
+• JUPITER_TTL_OK         (TTL caché positiva, opcional)
 """
 
 from __future__ import annotations
@@ -72,7 +81,7 @@ class _Config:
 
     # ------- endpoints ---------------------------------------------
     RPC_URL: str = os.getenv("RPC_URL", "https://api.mainnet-beta.solana.com")
-    DEXSCREENER_API: str = os.getenv("DEXSCREENER_API", "https://api.dexscreener.io")
+    DEXSCREENER_API: str = os.getenv("DEXSCREENER_API", "https://api.dexscreener.com")
 
     # ------- Helius -------------------------------------------------
     HELIUS_API_KEY: str | None = os.getenv("HELIUS_API_KEY")
@@ -96,6 +105,18 @@ class _Config:
     USE_GECKO_TERMINAL: bool = os.getenv("USE_GECKO_TERMINAL", "true").lower() == "true"
     GECKO_API_URL:     str  = os.getenv("GECKO_API_URL", "https://api.geckoterminal.com/api/v2")
     GECKO_SOL_ENDPOINT: str = f"{GECKO_API_URL}/networks/solana/pools"
+
+    # ------- Jupiter Price v3 (Lite) -------------------------------  ★ NUEVO
+    USE_JUPITER_PRICE: bool = os.getenv("USE_JUPITER_PRICE", "true").lower() == "true"
+    JUPITER_PRICE_URL: str = os.getenv(
+        "JUPITER_PRICE_URL",
+        "https://lite-api.jup.ag/price/v3",
+    )
+    JUPITER_RPM: int = _num_env("JUPITER_RPM", int, 60)           # 60 req/min (Lite)
+    JUPITER_TTL_NIL_SHORT: int = _num_env("JUPITER_TTL_NIL_SHORT", int, 120)
+    JUPITER_TTL_NIL_MAX: int = _num_env("JUPITER_TTL_NIL_MAX", int, 600)
+    # Opcional (caché OK). Si no quieres exponerlo, bórralo: fetcher tiene default 120.
+    JUPITER_TTL_OK: int = _num_env("JUPITER_TTL_OK", int, 120)
 
     # ------- filtros ------------------------------------------------
     MAX_AGE_DAYS: float = _num_env("MAX_AGE_DAYS", float, 2)
@@ -169,6 +190,14 @@ DEXS_TTL_NIL = CFG.DEXS_TTL_NIL
 DEX_API_BASE = CFG.DEXSCREENER_API
 USE_GECKO_TERMINAL = CFG.USE_GECKO_TERMINAL
 GECKO_API_URL      = CFG.GECKO_API_URL
+
+# Jupiter Price v3 (Lite) — aliases
+USE_JUPITER_PRICE      = CFG.USE_JUPITER_PRICE
+JUPITER_PRICE_URL      = CFG.JUPITER_PRICE_URL
+JUPITER_RPM            = CFG.JUPITER_RPM
+JUPITER_TTL_NIL_SHORT  = CFG.JUPITER_TTL_NIL_SHORT
+JUPITER_TTL_NIL_MAX    = CFG.JUPITER_TTL_NIL_MAX
+JUPITER_TTL_OK         = CFG.JUPITER_TTL_OK  # opcional
 
 HELIUS_API_BASE = CFG.HELIUS_REST_BASE
 HELIUS_RPC_URL = CFG.HELIUS_RPC_URL

@@ -58,8 +58,8 @@ def _is_solana_address(addr: str) -> bool:
 
 
 async def _get_price_usd_with_retry(address: str, *, retries: int = 1, delay: float = 2.0) -> float:
-    """Precio USD con use_gt=True, reintentando si es necesario."""
-    price = await price_service.get_price_usd(address, use_gt=True)
+    """Precio USD con use_gt=True, reintentando si es necesario (modo crítico)."""
+    price = await price_service.get_price_usd(address, use_gt=True, critical=True)
     if price:
         try:
             return float(price)
@@ -67,7 +67,7 @@ async def _get_price_usd_with_retry(address: str, *, retries: int = 1, delay: fl
             pass
     for _ in range(retries):
         await asyncio.sleep(delay)
-        price = await price_service.get_price_usd(address, use_gt=True)
+        price = await price_service.get_price_usd(address, use_gt=True, critical=True)
         if price:
             try:
                 return float(price)
@@ -229,9 +229,9 @@ async def check_exit_conditions(address: str) -> bool:  # noqa: C901
     if not entry or entry.get("closed"):
         return False
 
-    # Precio actual (un intento; no cerramos por 'price<=0', ver abajo)
-    pair = await price_service.get_price(address, use_gt=True)
-    price = float(pair["price_usd"]) if pair and "price_usd" in pair else 0.0
+    # Precio actual (solo precio; crítico para saltarse caché negativa en cierres)
+    price_val = await price_service.get_price_usd(address, use_gt=True, critical=True)
+    price = float(price_val or 0.0)
 
     buy_price = float(entry.get("buy_price_usd") or 0.0)
     peak_price = float(entry.get("peak_price") or (price if price > 0 else buy_price))
@@ -259,7 +259,7 @@ async def check_exit_conditions(address: str) -> bool:  # noqa: C901
     sl_hit = (price > 0.0) and (pnl <= -float(CFG.STOP_LOSS_PCT or 0.0))
     tr_hit = (price > 0.0) and (float(CFG.TRAILING_PCT or 0.0) > 0.0) and (price <= trailing_lvl)
 
-    # Nota: eliminamos el antiguo 'price <= 0' como disparador de salida.
+    # Nota: no se fuerza salida por 'price<=0'; si no hay precio, solo TIMEOUT.
     return any([tp_hit, sl_hit, tr_hit, timeout])
 
 

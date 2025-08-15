@@ -4,7 +4,7 @@ Agrupa los wrappers de APIs externas y facilita su importación:
 
     from memebot3.fetcher import dexscreener, geckoterminal, pumpfun …
 
-Además expone un alias de conveniencia:
+Además expone alias de conveniencia:
 
     from fetcher import get_gt_data      # ≡ geckoterminal.get_token_data
 """
@@ -21,6 +21,7 @@ _modules = (
     "rugcheck",
     "pumpfun",
     "socials",
+    "jupiter_price",     # ★ NUEVO: Price API v3 (Lite) de Jupiter
 )
 
 globals_: Dict[str, ModuleType] = globals()
