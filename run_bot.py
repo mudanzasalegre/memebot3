@@ -2,7 +2,7 @@
 """
 ⏯️  Orquestador principal del sniper MemeBot 3
 ──────────────────────────────────────────────
-Última revisión · 2025-08-02
+Última revisión · 2025-08-15
 
 Novedades importantes
 ─────────────────────
@@ -12,6 +12,9 @@ Novedades importantes
        • monitorización de posiciones
 2.  La lógica de re-queues distingue «incomplete» rápidos
     (``INCOMPLETE_RETRIES``) de «hard requeues» (``MAX_RETRIES``).
+3.  (2025-08-15) Monitor de posiciones con **batch de precios** vía
+    Jupiter Price v3 (Lite): se consulta el precio de hasta 50 mints
+    por llamada para reducir drásticamente el número de requests.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ import os
 import random
 import time
 from collections import deque
-from typing import Sequence
+from typing import Sequence, Dict, List
 
 # ----------------------------------------------------------------------------
 # Helper de formato “seguro” para logs debug
@@ -56,6 +59,7 @@ from config.config import (  # noqa: E402 – after stdlib
     CFG,
     BANNED_CREATORS,
     INCOMPLETE_RETRIES,
+    USE_JUPITER_PRICE,  # ← NUEVO: flag para activar batch Jupiter
 )
 from config import exits  # take-profit / stop-loss
 
@@ -67,7 +71,14 @@ from db.database import SessionLocal, async_init_db  # noqa: E402
 from db.models import Position, Token  # noqa: E402
 
 # ───────── Fetchers / analytics ─────────────────────────────────────────────
-from fetcher import dexscreener, helius_cluster as clusters, pumpfun, rugcheck, socials  # noqa: E402
+from fetcher import (  # noqa: E402
+    dexscreener,
+    helius_cluster as clusters,
+    pumpfun,
+    rugcheck,
+    socials,
+    jupiter_price,  # ← NUEVO (batch de precios)
+)
 from analytics import filters, insider, trend, requeue_policy  # noqa: E402
 from analytics.ai_predict import should_buy, reload_model  # noqa: E402
 
@@ -378,31 +389,42 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     # 11) — BUY —
     try:
         if DRY_RUN:
-            buy_resp = await buyer.buy(addr, amount_sol,
-                                       price_hint=token.get("price_usd"))
+            buy_resp = await buyer.buy(
+                addr, amount_sol,
+                price_hint=token.get("price_usd"),
+                token_mint=token.get("address") or addr
+            )
         else:
-            buy_resp = await buyer.buy(addr, amount_sol)
+            buy_resp = await buyer.buy(addr, amount_sol, token_mint=addr)
     except Exception as exc:
         log.error("buyer.buy %s → %s", addr[:4], exc, exc_info=True)
         eliminar_par(addr)
         return
 
-    qty_lp   = buy_resp.get("qty_lamports", 0)
+    qty_lp    = buy_resp.get("qty_lamports", 0)
     price_usd = buy_resp.get("buy_price_usd") or token.get("price_usd") or 0.0
+    price_src = buy_resp.get("price_source")
 
     if not DRY_RUN:
         _wallet_sol_balance = max(_wallet_sol_balance - amount_sol, 0.0)
 
-    ses.add(
-        Position(
-            address=addr,
-            symbol=token.get("symbol"),
-            qty=qty_lp,
-            buy_price_usd=price_usd,
-            opened_at=utc_now(),
-            highest_pnl_pct=0.0,
-        )
+    # 12) — crear Position y (si existen) fijar token_mint y price_source_at_buy —
+    pos = Position(
+        address=addr,
+        symbol=token.get("symbol"),
+        qty=qty_lp,
+        buy_price_usd=price_usd,
+        opened_at=utc_now(),
+        highest_pnl_pct=0.0,
     )
+    # Campos opcionales según tu modelo/migración
+    if hasattr(pos, "token_mint"):
+        # preferimos el mint normalizado que ya pasó por sanitize/data_utils
+        pos.token_mint = token.get("address") or addr
+    if hasattr(pos, "price_source_at_buy"):
+        pos.price_source_at_buy = price_src
+
+    ses.add(pos)
     await ses.commit()
 
     if (meta := lista_pares.meta(addr)) and meta.get("attempts", 0) > 0:
@@ -441,42 +463,180 @@ async def _should_exit(pos: Position, price: float | None, now: dt.datetime) -> 
         or (now - opened).total_seconds() / 3600 >= MAX_HOLDING_H
     )
 
+# ───── NUEVO: precarga de precios en batch para posiciones abiertas ──────────
+async def _prefetch_batch_prices(addrs: List[str]) -> Dict[str, float]:
+    """
+    Devuelve un dict address->price_usd usando Jupiter Price v3 (Lite).
+    Si USE_JUPITER_PRICE=False, devuelve {}.
+    Añade validación ligera de 'mint' para avisar si algún ID no parece SPL mint.
+    """
+    if not USE_JUPITER_PRICE or not addrs:
+        return {}
+
+    # Validación ligera de mints (similar a la del fetcher)
+    def _looks_like_mint(s: str) -> bool:
+        return bool(s) and (not s.startswith("0x")) and (30 <= len(s) <= 50)
+
+    try:
+        # Aviso si algún ID no parece mint SPL válido
+        for m in addrs:
+            if not _looks_like_mint(m):
+                log.warning("Monitor: ID no parece mint SPL → %r", m)
+
+        # jupiter_price.get_many_usd_prices ya maneja chunking a 50 internamente.
+        prices = await jupiter_price.get_many_usd_prices(addrs)
+
+        # Log de ayuda para ver cobertura del batch
+        try:
+            log.debug("Jupiter batch: %d/%d precios disponibles", len(prices), len(addrs))
+        except Exception:
+            pass
+
+        return prices
+    except Exception as exc:
+        log.debug("batch jupiter_price → %s", exc)
+        return {}
+
 async def _check_positions(ses: SessionLocal) -> None:
     """Revisa posiciones abiertas y ejecuta ventas cuando corresponde."""
+    import os
+
     global _wallet_sol_balance
 
-    for pos in await _load_open_positions(ses):
-        now   = utc_now()
+    positions = await _load_open_positions(ses)
+    if not positions:
+        return
 
-        # ────────────── CAMBIO PRINCIPAL ──────────────
-        price = None
-        if hasattr(seller, "get_current_price"):
+    # ── límites de sondeo crítico por ciclo ─────────────────────────────
+    try:
+        _CRIT_MAX = max(int(os.getenv("CRIT_PRICE_MAX_PER_CYCLE", "4")), 0)
+    except Exception:
+        _CRIT_MAX = 4
+    try:
+        _CRIT_BOOTSTRAP_MIN = max(int(os.getenv("CRIT_BOOTSTRAP_MIN", "20")), 0)
+    except Exception:
+        _CRIT_BOOTSTRAP_MIN = 20
+
+    def _near_exit_zone(pos: Position, now: _dt.datetime) -> bool:
+        """
+        Heurística ligera:
+        - durante los primeros N minutos tras abrir → sí
+        - si ya registró algún pico de PnL (>0) → trailing podría saltar → sí
+        """
+        opened = pos.opened_at if pos.opened_at.tzinfo else pos.opened_at.replace(tzinfo=_dt.timezone.utc)
+        age_min = (now - opened).total_seconds() / 60.0
+        if age_min <= _CRIT_BOOTSTRAP_MIN:
+            return True
+        try:
+            return (pos.highest_pnl_pct or 0.0) > 0.0
+        except Exception:
+            return False
+
+    # ① Preload batch de precios (una sola llamada para todas las posiciones)
+    addr_list = [
+        (getattr(p, "token_mint", None) or p.address)
+        for p in positions
+        if (getattr(p, "token_mint", None) or p.address)
+    ]
+    batch_prices: Dict[str, float] = await _prefetch_batch_prices(addr_list)
+
+    # Métricas por ciclo
+    total = len(positions)
+    batch_resolved = 0
+    fallback_resolved = 0
+    critical_resolved = 0
+    no_price = 0
+    sells_done = 0
+    crit_used = 0
+
+    for pos in positions:
+        now = utc_now()
+        mint_key = getattr(pos, "token_mint", None) or pos.address
+
+        # ② Precio: batch → unitario → crítico (limitado)
+        price_src = None
+        price = batch_prices.get(mint_key)
+        if price is not None:
+            price_src = "jup_batch"
+            batch_resolved += 1
+        else:
+            # fallback unitario (barato, respeta NIL)
             try:
-                price = await seller.get_current_price(pos.address)
+                price = await price_service.get_price_usd(mint_key)
             except Exception:
                 price = None
-        if price is None:
-            price = await price_service.get_price_usd(pos.address)  # respaldo
+            if price is not None:
+                price_src = "jup_single"
+                fallback_resolved += 1
 
+        # crítico: sólo si sigue None, si la posición lo “merece” y hay cupo
+        if price is None and crit_used < _CRIT_MAX and _near_exit_zone(pos, now):
+            try:
+                price = await price_service.get_price_usd(mint_key, critical=True)
+            except TypeError:
+                # por compat: por si la firma no acepta 'critical'
+                try:
+                    price = await price_service.get_price_usd(mint_key)
+                except Exception:
+                    price = None
+            except Exception:
+                price = None
+            if price is not None:
+                price_src = "jup_critical"
+                critical_resolved += 1
+            crit_used += 1
+
+        if price is None:
+            no_price += 1
+
+        # ③ Evaluar salida con el precio disponible (puede ser None)
         if not await _should_exit(pos, price, now):
+            # si tenemos precio, actualiza el máximo de PnL observado (para trailing)
+            try:
+                if price is not None and pos.buy_price_usd:
+                    pnl_pct = (price - pos.buy_price_usd) / pos.buy_price_usd * 100
+                    if pnl_pct > (pos.highest_pnl_pct or 0.0):
+                        pos.highest_pnl_pct = float(pnl_pct)
+                        await ses.commit()
+            except Exception:
+                try:
+                    await ses.rollback()
+                except Exception:
+                    pass
             continue
 
-        # — SELL —
+        # ④ SELL — la función seller.sell hará su propio cálculo robusto de precio
         sell_resp = await seller.sell(pos.address, pos.qty)
-        pos.closed          = True
-        pos.closed_at       = now
-        pos.close_price_usd = price or pos.buy_price_usd or 0.0
-        pos.exit_tx_sig     = sell_resp.get("signature")
+        pos.closed = True
+        pos.closed_at = now
 
-        # — PnL → store —
+        # ⚠️ CLAVE: si no hay precio, NO lo rellenes con el buy; déjalo None
+        pos.close_price_usd = price if price is not None else None
+        pos.exit_tx_sig = (sell_resp or {}).get("signature")
+
+        # ⑤ PnL → calcula solo si hay ambos precios
         pnl_pct = (
             None
             if pos.close_price_usd is None or pos.buy_price_usd is None
             else (pos.close_price_usd - pos.buy_price_usd) / pos.buy_price_usd * 100
         )
-        store_update_pnl(pos.address, pnl_pct if pnl_pct is not None else -100.0)
         _stats["sold"] += 1
+        sells_done += 1
 
+        # log de fuente para el cierre
+        try:
+            src = price_src or "none"
+            log.debug(
+                "🔎 close price src=%s addr=%s buy=%.6g close=%s pnl=%s",
+                src, (pos.address[:6] if pos.address else "?"),
+                pos.buy_price_usd,
+                f"{pos.close_price_usd:.6g}" if pos.close_price_usd is not None else "None",
+                f"{pnl_pct:.2f}%" if pnl_pct is not None else "None",
+            )
+        except Exception:
+            pass
+
+        # persistencia
         try:
             await ses.commit()
         except SQLAlchemyError:
@@ -488,6 +648,21 @@ async def _check_positions(ses: SessionLocal) -> None:
                 _wallet_sol_balance += pos.qty / 1e9
             except Exception:  # noqa: BLE001
                 pass
+
+    # ⑥ Log de métricas del ciclo
+    try:
+        log.debug(
+            "📊 Monitor: batch %d/%d, fallback %d, crítico %d/%d, sin precio %d, ventas %d",
+            batch_resolved,
+            total,
+            fallback_resolved,
+            critical_resolved,
+            _CRIT_MAX,
+            no_price,
+            sells_done,
+        )
+    except Exception:
+        pass
 
 # ╭─────────────────────── Loop de entrenamiento ─────────────────────────────╮
 async def retrain_loop() -> None:

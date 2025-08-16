@@ -81,6 +81,8 @@ class Position(Base):
     qty:     Mapped[int] = mapped_column(Integer)  # lamports
 
     buy_price_usd: Mapped[float] = mapped_column(Float)
+    price_source_at_buy: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+
     opened_at: Mapped[_dt.datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: _dt.datetime.now(_dt.timezone.utc),
