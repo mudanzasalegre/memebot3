@@ -138,7 +138,7 @@ async def buy(
         asyncio.create_task(_retry_fill_buy_price(mint_key))
 
     log.info(
-        "[papertrading] BUY %s amount_sol=%.3f price_usd=%.8g src=%s",
+        "[papertrading] 💰💰 BUY %s amount_sol=%.3f price_usd=%.8g src=%s",
         mint_key[:6], amount_sol, buy_price_usd, price_src,
     )
     return {

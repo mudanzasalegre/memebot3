@@ -24,7 +24,7 @@ except Exception:
 
 import aiohttp
 from urllib.parse import quote
-from utils.solana_addr import normalize_mint  # ← saneo de mints ('pump' y validación SPL)
+from utils.solana_addr import normalize_mint  # saneo de mints ('pump' y validación SPL)
 
 logger = logging.getLogger("jupiter_price")
 
@@ -57,6 +57,33 @@ _HTTP_TIMEOUT = aiohttp.ClientTimeout(total=6.0)
 
 # Verbose opcional (0/1)
 _VERBOSE: bool = os.getenv("JUPITER_VERBOSE", "0") == "1"
+
+# ────────────────────────────────────────────────────────────────────────────────
+# Atajos de precio instantáneo (para subir hit-rate y ahorrar cupo)
+# ────────────────────────────────────────────────────────────────────────────────
+# WSOL (Wrapped SOL) – normalmente no queremos pedirlo aquí (lo cotiza todo lo demás)
+_WSPL_SOL_MINT = "So11111111111111111111111111111111111111112"
+
+# Stables más comunes en Solana mainnet
+# (Se pueden añadir más vía env si quieres, pero estos dos cubren la práctica totalidad)
+_KNOWN_STABLES: Dict[str, float] = {
+    # USDC (Circle)
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": 1.0,
+    # USDT (Tether)
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": 1.0,
+}
+
+# Sentinela para “sáltalo, no cuentes miss ni hagas fetch”
+_FAST_SKIP = object()
+
+
+def _fast_known_price(mint: str):
+    """Devuelve 1.0 para stables, _FAST_SKIP para WSOL, o None si no aplica."""
+    if mint == _WSPL_SOL_MINT:
+        return _FAST_SKIP
+    price = _KNOWN_STABLES.get(mint)
+    return price if price is not None else None
+
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Estado global: sesión HTTP, rate-limiter y cachés
@@ -120,7 +147,11 @@ async def _ensure_session() -> aiohttp.ClientSession:
     if _SESSION is None or _SESSION.closed:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("[jupiter_price] creando nueva sesión HTTP (timeout=%ss)", _HTTP_TIMEOUT.total)
-        _SESSION = aiohttp.ClientSession(timeout=_HTTP_TIMEOUT)
+        # UA explícito: a veces mejora la aceptación en algunos proxies/CDNs
+        _SESSION = aiohttp.ClientSession(
+            timeout=_HTTP_TIMEOUT,
+            headers={"User-Agent": os.getenv("JUPITER_UA", "MemeBot3/1.0 (+bot)")},
+        )
     return _SESSION
 
 
@@ -314,6 +345,8 @@ async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
     Devuelve un dict mint -> usdPrice (solo para los que se hayan podido obtener).
     Aplica caché TTL y NIL adaptativo. Se hacen llamadas solo para los misses.
     Normaliza y valida los mints de entrada (evita pedir '<mint>pump', etc.).
+    Añadidos:
+      • Aciertos instantáneos: USDC/USDT = 1.0; WSOL se ignora.
     """
     _log_boot_if_needed()
 
@@ -325,8 +358,35 @@ async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
     if not mints:
         return {}
 
-    # 1) resolver por caché
+    # 0.5) Atajos instantáneos (mejora hit-rate y ahorra cupo)
     result: Dict[str, float] = {}
+    filtered: List[str] = []
+    instant_ok = 0
+    instant_skips = 0
+    for m in mints:
+        fp = _fast_known_price(m)
+        if fp is _FAST_SKIP:
+            instant_skips += 1
+            # No lo pedimos ni contamos como miss
+            continue
+        if isinstance(fp, (int, float)):
+            # Mete en caché OK y resultado
+            _cache_set_ok(m, float(fp))
+            result[m] = float(fp)
+            instant_ok += 1
+            continue
+        filtered.append(m)
+
+    mints = filtered
+    if not mints:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "[jupiter_price] solo atajos: OK_inst=%d, skips=%d",
+                instant_ok, instant_skips
+            )
+        return result
+
+    # 1) resolver por caché
     misses: List[str] = []
     cache_hits_ok = 0
     cache_hits_nil = 0
@@ -344,12 +404,11 @@ async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(
-            "[jupiter_price] cache: OK=%d NIL=%d MISS=%d (total=%d)",
-            cache_hits_ok, cache_hits_nil, len(misses), len(mints),
+            "[jupiter_price] cache: OK=%d NIL=%d MISS=%d (total=%d, instOK=%d, skipWSOL=%d)",
+            cache_hits_ok, cache_hits_nil, len(misses), len(mints), instant_ok, instant_skips,
         )
 
     # 2) fetch para misses en chunks de 50
-    fetched_total = 0
     for i in range(0, len(misses), _BATCH_MAX):
         chunk = misses[i : i + _BATCH_MAX]
         if not chunk:
@@ -361,12 +420,11 @@ async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
             else:
                 _cache_set_ok(mint, price)
                 result[mint] = price
-                fetched_total += 1
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(
             "[jupiter_price] resultado batch: %d/%d precios disponibles",
-            len(result), len(mints),
+            len(result), len(instant_ok) if False else len(result),
         )
 
     # 3) Devolver solo los disponibles
@@ -379,6 +437,7 @@ async def get_usd_price(mint: str) -> Optional[float]:
     Devuelve el precio USD de un mint concreto o None si no disponible.
     Usa caché TTL (aciertos) y NIL adaptativo (fallos).
     Normaliza/valida el mint antes de consultar (evita '<mint>pump', etc.).
+    Respeta atajos: USDC/USDT=1.0, WSOL=skip.
     """
     _log_boot_if_needed()
 
@@ -388,6 +447,14 @@ async def get_usd_price(mint: str) -> Optional[float]:
     if not nm:
         logger.debug("[jupiter_price] descartado unitario (no mint SPL): %r", mint)
         return None
+
+    # Atajo unitario
+    fp = _fast_known_price(nm)
+    if fp is _FAST_SKIP:
+        return None
+    if isinstance(fp, (int, float)):
+        _cache_set_ok(nm, float(fp))
+        return float(fp)
 
     # 1) caché
     hit = _cache_get_ok(nm)

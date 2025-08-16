@@ -189,7 +189,7 @@ def _pf_can_try_now(addr: str) -> bool:
         return False
 
     # limpia ventana
-    while _pf_attempt_bucket and (now - _pf_attempt_bucket[0] > _PFF_PRICE_QUOTA_WINDOW if False else now - _pf_attempt_bucket[0] > _PF_PRICE_QUOTA_WINDOW):
+    while _pf_attempt_bucket and (now - _pf_attempt_bucket[0] > _PF_PRICE_QUOTA_WINDOW):
         _pf_attempt_bucket.popleft()
 
     # cupo global
@@ -371,7 +371,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
     # 9) — cálculo de importe —
     amount_sol = _compute_trade_amount()
-    if amount_sol < MIN_SOL_BALANCE:
+    if amount_sol < MIN_BUY_SOL:
         eliminar_par(addr)
         return
 
@@ -517,13 +517,13 @@ async def _check_positions(ses: SessionLocal) -> None:
     except Exception:
         _CRIT_BOOTSTRAP_MIN = 20
 
-    def _near_exit_zone(pos: Position, now: _dt.datetime) -> bool:
+    def _near_exit_zone(pos: Position, now: dt.datetime) -> bool:
         """
         Heurística ligera:
         - durante los primeros N minutos tras abrir → sí
         - si ya registró algún pico de PnL (>0) → trailing podría saltar → sí
         """
-        opened = pos.opened_at if pos.opened_at.tzinfo else pos.opened_at.replace(tzinfo=_dt.timezone.utc)
+        opened = pos.opened_at if pos.opened_at.tzinfo else pos.opened_at.replace(tzinfo=dt.timezone.utc)
         age_min = (now - opened).total_seconds() / 60.0
         if age_min <= _CRIT_BOOTSTRAP_MIN:
             return True
