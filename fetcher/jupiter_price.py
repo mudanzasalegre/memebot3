@@ -212,6 +212,9 @@ def _cache_set_nil(mint: str):
     _nil_backoff[mint] = min(ttl * 2, JUPITER_TTL_NIL_MAX)
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("[jupiter_price] cache NIL set %s (ttl=%ds -> next=%ds)", _fmt_id(mint), ttl, _nil_backoff[mint])
+    # Aviso cuando llegamos al tope de backoff → probablemente no listado aún en Jupiter
+    if _nil_backoff.get(mint) == JUPITER_TTL_NIL_MAX:
+        logger.warning("[jupiter_price] Token %s sin precio tras varios intentos – posiblemente no soportado aún", _fmt_id(mint))
 
 
 def clear_caches():
@@ -299,8 +302,10 @@ async def _fetch_batch(mints: List[str]) -> Dict[str, Optional[float]]:
     out: Dict[str, Optional[float]] = {m: None for m in mints}
     found = 0
     try:
-        # Estructura esperada: {"data": { "<mint>": { "usdPrice": 1.23, ... }, ... }}
-        payload = data.get("data") or {}
+        # Estructuras posibles:
+        #   • {"data": { "<mint>": { "usdPrice": 1.23, ... }, ... }}
+        #   • { "<mint>": { "usdPrice": 1.23, ... }, ... }
+        payload = data.get("data", data)  # ← soporta ambas variantes
         for m in mints:
             entry = payload.get(m)
             if not entry:
@@ -409,6 +414,7 @@ async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
         )
 
     # 2) fetch para misses en chunks de 50
+    fetched_ok = 0
     for i in range(0, len(misses), _BATCH_MAX):
         chunk = misses[i : i + _BATCH_MAX]
         if not chunk:
@@ -420,11 +426,12 @@ async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
             else:
                 _cache_set_ok(mint, price)
                 result[mint] = price
+                fetched_ok += 1
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(
-            "[jupiter_price] resultado batch: %d/%d precios disponibles",
-            len(result), len(instant_ok) if False else len(result),
+            "[jupiter_price] resultado: total_ok=%d (instOK=%d, cacheOK=%d, fetchedOK=%d) | misses_restantes=%d | nil_hits=%d",
+            len(result), instant_ok, cache_hits_ok, fetched_ok, max(0, len(misses) - fetched_ok), cache_hits_nil
         )
 
     # 3) Devolver solo los disponibles

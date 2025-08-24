@@ -10,6 +10,11 @@ Pump.fun (nuevos tokens) vía **PumpPortal** WebSocket (FREE).
 
 Requisitos: aiohttp (ya presente en el proyecto).
 Docs: ver PumpPortal → Data API → Real-time Updates.
+
+Mejoras:
+• Normalización de mint con utils.solana_addr.normalize_mint (quita 'pump', valida SPL).
+• Fechas robustas con utils.time.parse_iso_utc (evita errores `.replace`).
+• Métricas críticas como None (no 0.0) para no “matar” señales tempranas.
 """
 
 from __future__ import annotations
@@ -26,7 +31,8 @@ import aiohttp
 
 from utils.data_utils import sanitize_token_data
 from utils.simple_cache import cache_get, cache_set
-from utils.time import utc_now
+from utils.time import utc_now, parse_iso_utc
+from utils.solana_addr import normalize_mint
 
 log = logging.getLogger("pumpfun")
 
@@ -60,7 +66,7 @@ def _to_dt(ts: Any) -> dt.datetime:
     Convierte distintos formatos de timestamp a UTC.
     Admite:
       - int/float en segundos o milisegundos
-      - ISO8601 str
+      - ISO8601 str → parse_iso_utc
       - si no hay timestamp, usa utc_now()
     """
     if ts is None:
@@ -70,13 +76,12 @@ def _to_dt(ts: Any) -> dt.datetime:
             # Heurística: milisegundos si es muy grande
             if ts > 1e12:
                 return dt.datetime.fromtimestamp(ts / 1000, tz=dt.timezone.utc)
-            if ts > 1e10:  # ns → a ms a veces
+            if ts > 1e10:  # ns → a s (por si acaso)
                 return dt.datetime.fromtimestamp(ts / 1e9, tz=dt.timezone.utc)
             return dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc)
         if isinstance(ts, str):
-            s = ts.rstrip("Z")
-            dtobj = dt.datetime.fromisoformat(s)
-            return dtobj if dtobj.tzinfo else dtobj.replace(tzinfo=dt.timezone.utc)
+            dtobj = parse_iso_utc(ts)
+            return dtobj or utc_now()
     except Exception:
         pass
     return utc_now()
@@ -85,15 +90,18 @@ def _to_dt(ts: Any) -> dt.datetime:
 def _within_window(d: Dict[str, Any]) -> bool:
     """True si el token sigue dentro de la ventana de frescura."""
     try:
-        ts = d["created_at"]
+        ts = d.get("created_at")
         if isinstance(ts, str):
-            ts = dt.datetime.fromisoformat(ts)
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=dt.timezone.utc)
-        age_min = (utc_now() - ts).total_seconds() / 60.0
-        return age_min <= _WINDOW_MIN
+            ts_parsed = parse_iso_utc(ts)
+            ts = ts_parsed or utc_now()
+        if isinstance(ts, dt.datetime):
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=dt.timezone.utc)
+            age_min = (utc_now() - ts).total_seconds() / 60.0
+            return age_min <= _WINDOW_MIN
     except Exception:
         return True
+    return True
 
 
 def _extract_first(d: Dict[str, Any], *keys: str) -> Any:
@@ -121,11 +129,11 @@ def _parse_event(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
       - creator / user       – opcional
     """
     try:
-        mint = _extract_first(msg, "mint", "ca", "address", "token", "tokenAddress")
-        if not mint:
-            # Algunos envíos anidan aún más:
+        mint_raw = _extract_first(msg, "mint", "ca", "address", "token", "tokenAddress")
+        if not mint_raw:
             dat = msg.get("data") or {}
-            mint = _extract_first(dat, "mint", "ca", "address", "token", "tokenAddress")
+            mint_raw = _extract_first(dat, "mint", "ca", "address", "token", "tokenAddress")
+        mint = normalize_mint(mint_raw or "")
         if not mint:
             return None
 
@@ -138,21 +146,24 @@ def _parse_event(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         creator = _extract_first(msg, "creator", "user", "owner", "signer") or ""
 
         now = utc_now()
+        age_minutes = (now - ts).total_seconds() / 60.0
+
         tok = {
             "address": mint,
             "symbol": (symbol or "NEW")[:16],
             "name": name or "",
             "created_at": ts,
 
-            # dummy: se rellenarán después por DexScreener/Birdeye/GeckoTerminal
-            "liquidity_usd": 0.0,
-            "volume_24h_usd": 0.0,
-            "market_cap_usd": 0.0,
-            "holders": 0,
+            # Métricas críticas: None (se rellenarán por DexScreener/Birdeye/GT)
+            "liquidity_usd": None,
+            "volume_24h_usd": None,
+            "market_cap_usd": None,
+            "holders": None,
 
             # meta
             "discovered_via": "pumpfun",
-            "age_minutes": (now - ts).total_seconds() / 60.0,
+            "age_minutes": age_minutes,
+            "age_min": age_minutes,   # alias útil para lectores
             "creator": creator,
         }
         return sanitize_token_data(tok)

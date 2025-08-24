@@ -4,6 +4,16 @@ Filtro de pares basado en reglas básicas (no-IA).
 
 Cambios
 ───────
+2025-08-24
+• Gate horario condicionado a .env:
+  Si TRADING_HOURS y TRADING_HOURS_EXTRA están vacíos → no se filtra por hora.
+  Si alguna está definida → se usa is_in_trading_window() (config).
+
+2025-08-21
+• Gate por ventana horaria: si `is_in_trading_window()` es False, devuelve
+  None (re-encolar) y no deja pasar señales fuera de horario.
+  Usa config.TRADING_WINDOWS (parseado en utils/time.py vía config).
+
 2025-08-10
 • Filtro de RED al inicio: descarta direcciones no-Solana (0x…) y chainId≠solana.
 • Normalización defensiva de símbolo y dirección para logs.
@@ -25,6 +35,8 @@ from __future__ import annotations
 
 import logging
 import math
+import os
+from datetime import timezone
 from typing import Dict, Optional
 
 import numpy as np  # puede usarse en otras fases (mantenemos import)
@@ -40,7 +52,7 @@ from config.config import (
     MIN_VOL_USD_24H,
     MIN_SCORE_TOTAL,
 )
-from utils.time import utc_now
+from utils.time import utc_now, is_in_trading_window, parse_iso_utc
 
 log = logging.getLogger("filters")
 
@@ -94,7 +106,19 @@ def basic_filters(token: Dict) -> Optional[bool]:
     addr = _extract_address(token)
     sym = token.get("symbol") or (addr[:4] if addr else "????")
 
-    # -1) red: sólo Solana -----------------------------------------------------------
+    # -1) gate horario condicionado por .env:
+    #     Si TRADING_HOURS y TRADING_HOURS_EXTRA están vacíos → no filtrar por hora.
+    #     Si alguna está definida → aplicar check con is_in_trading_window().
+    H = (os.getenv("TRADING_HOURS", "") or "").strip()
+    E = (os.getenv("TRADING_HOURS_EXTRA", "") or "").strip()
+    if H or E:
+        # Sólo si hay ventanas definidas en .env
+        if not is_in_trading_window():
+            log.debug("⏸ %s fuera de ventana horaria → requeue", sym)
+            return None
+    # else: sin ventanas → no gate horario
+
+    # 0) red: sólo Solana -----------------------------------------------------------
     if not _is_chain_solana(token):
         log.debug("✗ %s chainId≠solana (descartado)", sym)
         return False
@@ -103,17 +127,21 @@ def basic_filters(token: Dict) -> Optional[bool]:
         log.debug("✗ %s address no-Solana/incorrecta (%r)", sym, addr)
         return False
 
-    # 0) edad mínima ----------------------------------------------------------------
+    # 1) edad mínima ----------------------------------------------------------------
     age_min = token.get("age_min") or token.get("age_minutes")  # ya lo calcula sanitize
     if age_min is not None and not math.isnan(age_min) and age_min < MIN_AGE_MIN:
         log.debug("⏳ %s age %.1fm < %.1f → too_young", sym, age_min, MIN_AGE_MIN)
         return None  # re-queue, todavía muy pronto
 
-    # 1) antigüedad absoluta ---------------------------------------------------------
+    # 2) antigüedad absoluta ---------------------------------------------------------
     created = token.get("created_at")
+    if isinstance(created, str):
+        created = parse_iso_utc(created)
     if not created:
         log.debug("✗ %s sin created_at", sym)
         return False
+    if getattr(created, "tzinfo", None) is None:
+        created = created.replace(tzinfo=timezone.utc)
 
     age_sec = (utc_now() - created).total_seconds()
     age_days = age_sec / 86_400
@@ -121,7 +149,7 @@ def basic_filters(token: Dict) -> Optional[bool]:
         log.debug("✗ %s age %.1f d > %s", sym, age_days, MAX_AGE_DAYS)
         return False
 
-    # 2) liquidez • volumen • market-cap --------------------------------------------
+    # 3) liquidez • volumen • market-cap --------------------------------------------
     liq = token.get("liquidity_usd")
     vol24 = token.get("volume_24h_usd")
     mcap = token.get("market_cap_usd")
@@ -131,7 +159,7 @@ def basic_filters(token: Dict) -> Optional[bool]:
     min_liq_th = MIN_LIQUIDITY_USD if not is_pf else max(1000.0, MIN_LIQUIDITY_USD * 0.6)
     max_mcap_th = MAX_MARKET_CAP_USD if not is_pf else MAX_MARKET_CAP_USD * 1.5
 
-    # 2.a —ventana de gracia 0-5 min—
+    # 3.a —ventana de gracia 0-5 min—
     if age_sec < 300:
         # Dentro de los 5 min no aplicamos cortes estrictos de liq/vol/mcap.
         pass
@@ -165,12 +193,12 @@ def basic_filters(token: Dict) -> Optional[bool]:
             )
             return False
 
-    # 2.b —tokens muy recientes con liq==0 → delay—
+    # 3.b —tokens muy recientes con liq==0 → delay—
     if age_sec < 60 and (liq is None or (isinstance(liq, float) and math.isnan(liq)) or liq == 0):
         log.debug("⏳ %s liq 0/NaN con age<60 s → requeue", sym)
         return None
 
-    # 3) holders --------------------------------------------------------------------
+    # 4) holders --------------------------------------------------------------------
     holders = token.get("holders", 0) or 0
     if holders == 0:
         swaps_5m = token.get("txns_last_5m", 0) or 0
@@ -181,7 +209,7 @@ def basic_filters(token: Dict) -> Optional[bool]:
         log.debug("✗ %s holders %s < %s", sym, holders, MIN_HOLDERS)
         return False
 
-    # 4) early sell-off --------------------------------------------------------------
+    # 5) early sell-off --------------------------------------------------------------
     if age_sec < 600:
         sells = token.get("txns_last_5m_sells") or 0
         buys = token.get("txns_last_5m") or 0

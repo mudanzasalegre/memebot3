@@ -12,6 +12,26 @@ Mejoras 2025-08-10:
 • Cierre *seguro*: si no hay precio de salida, usa buy_price como fallback (PnL 0%),
   evitando cierres con `close_price_usd=0.0` y PnL −100% ficticio.
 • Si no hay precio en `check_exit_conditions`, no se fuerza venta salvo por TIMEOUT.
+
+Mejoras 2025-08-16:
+──────────────────
+• `sell(...)` acepta `token_mint`, `price_hint` y `price_source_hint`.
+• El cierre usa primero el precio/hint del orquestador; si no, Jupiter → crítico → Dex/GT.
+• Se persiste `price_source_close` en el JSON para auditar la fuente de precio del cierre.
+
+Mejoras 2025-08-20:
+──────────────────
+• En compras, respeta la *ventana horaria* (utils.time.is_in_trading_window).
+• Política de entrada alineada con real: si USE_JUPITER_PRICE= true y Jupiter no
+  da precio para el mint, NO se simula compra (devuelve OUT_OF_WINDOW/NO_JUP_PRICE).
+
+Ajustes 2025-08-24:
+───────────────────
+• La *ventana horaria* solo se aplica si existen ventanas definidas en env
+  (TRADING_HOURS / TRADING_HOURS_EXTRA con USE_EXTRA_HOURS=true).
+• Política de entrada alineada con el orquestador: usa `REQUIRE_JUPITER_FOR_BUY`
+  (env) para exigir precio de Jupiter en paper-trades.
+• `sell(...)` devuelve también `price_used_usd` y `price_source_close`.
 """
 
 from __future__ import annotations
@@ -20,18 +40,24 @@ import asyncio
 import datetime as dt
 import json
 import logging
+import os
 import pathlib
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
-from config.config import CFG
-from utils.time import utc_now
+from config.config import CFG, PROJECT_ROOT
+from utils.time import utc_now, is_in_trading_window, seconds_until_next_window
 from utils import price_service
 from fetcher import jupiter_price
 
 log = logging.getLogger("papertrading")
 
 SOL_MINT = "So11111111111111111111111111111111111111112"
+
+# Política de entrada: alinear con run_bot → usar el flag REQUIRE_JUPITER_FOR_BUY
+_REQUIRE_JUP_PRICE: bool = os.getenv("REQUIRE_JUPITER_FOR_BUY", "true").lower() == "true"
+
+# ───────────────────────── helpers de precio ─────────────────────────
 
 async def _resolve_buy_price_usd(
     token_mint: str,
@@ -55,10 +81,62 @@ async def _resolve_buy_price_usd(
     return 0.0, "fallback0"
 
 
+async def _resolve_close_price_usd(
+    token_mint: str,
+    *,
+    price_hint: Optional[float] = None,
+    price_source_hint: Optional[str] = None,
+) -> Tuple[Optional[float], Optional[str]]:
+    """
+    Resuelve precio de cierre con prioridad:
+      1) hint del orquestador (si válido)
+      2) Jupiter unitario
+      3) price_service crítico (puede usar rutas alternativas/Jupiter saltando NIL)
+      4) Dex/GT “full” (par), como último recurso
+    Devuelve (precio | None, fuente | None)
+    """
+    # 1) hint del orquestador
+    if price_hint is not None and price_hint > 0:
+        return float(price_hint), (price_source_hint or "hint")
+
+    # 2) Jupiter unitario
+    try:
+        jp = await jupiter_price.get_usd_price(token_mint)
+        if jp is not None and jp > 0:
+            return float(jp), "jupiter"
+    except Exception:
+        pass
+
+    # 3) price_service crítico (forzando saltarse caches negativas si aplica)
+    try:
+        ps = await price_service.get_price_usd(token_mint, critical=True)
+        if ps is not None and ps > 0:
+            # No sabemos si vino por ruta “single” o “critical”; etiquetamos genérico
+            return float(ps), "jup_critical"
+    except TypeError:
+        # Compatibilidad si la firma no acepta `critical`
+        try:
+            ps = await price_service.get_price_usd(token_mint)
+            if ps is not None and ps > 0:
+                return float(ps), "jup_single"
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # 4) Dex/GT “full”
+    try:
+        tok_full = await price_service.get_price(token_mint, use_gt=True)
+        if tok_full and tok_full.get("price_usd"):
+            return float(tok_full["price_usd"]), "dex_full"
+    except Exception:
+        pass
+
+    return None, None
+
+
 # ───────────────────────── persistencia ─────────────────────────
-_DATA_PATH = (
-    pathlib.Path(getattr(CFG, "PROJECT_ROOT", ".")) / "data" / "paper_portfolio.json"
-)
+_DATA_PATH = pathlib.Path(PROJECT_ROOT) / "data" / "paper_portfolio.json"
 _DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 try:
@@ -81,6 +159,16 @@ def _is_solana_address(addr: str) -> bool:
     if not addr or addr.startswith("0x"):
         return False
     return 30 <= len(addr) <= 50  # rango típico base58 de mints SOL
+
+
+def _pick_key_for_entry(address: str, token_mint: Optional[str]) -> str:
+    """
+    Determina la clave usada en el JSON para esta posición. Preferimos token_mint si existe en cartera,
+    si no, usamos `address`.
+    """
+    if token_mint and token_mint in _PORTFOLIO:
+        return token_mint
+    return address
 
 
 # ─── lógica de compra ──────────────────────────────────────────
@@ -109,9 +197,47 @@ async def buy(
     if not _is_solana_address(address):
         raise ValueError(f"[papertrading] Dirección no Solana bloqueada: {address!r}")
 
+    mint_key = token_mint or address
+
+    # 0.5️⃣ Ventana horaria (SOLO si hay ventanas definidas por env)
+    H = (os.getenv("TRADING_HOURS", "") or "").strip()
+    E = (os.getenv("TRADING_HOURS_EXTRA", "") or "").strip()
+    USE_EXTRA = os.getenv("USE_EXTRA_HOURS", "false").lower() == "true"
+    if H or (USE_EXTRA and E):
+        if not is_in_trading_window():
+            delay = max(60, seconds_until_next_window())
+            log.warning("[papertrading] Fuera de ventana horaria; no simulo compra. Próxima en %ss", delay)
+            return {
+                "qty_lamports": 0,
+                "signature": "OUT_OF_WINDOW",
+                "route": {},
+                "buy_price_usd": 0.0,
+                "peak_price": 0.0,
+                "price_source": "fallback0",
+            }
+
+    # 0.6️⃣ Política Jupiter (alineada con orquestador)
+    if _REQUIRE_JUP_PRICE:
+        try:
+            jp = await jupiter_price.get_usd_price(mint_key)
+        except Exception:
+            jp = None
+        if jp is None or jp <= 0:
+            log.warning(
+                "[papertrading] Jupiter NO devuelve precio para %s → NO simulo compra (policy).",
+                mint_key[:6],
+            )
+            return {
+                "qty_lamports": 0,
+                "signature": "NO_JUP_PRICE",
+                "route": {},
+                "buy_price_usd": 0.0,
+                "peak_price": 0.0,
+                "price_source": "fallback0",
+            }
+
     # 1️⃣ Resolver precio de compra con trazabilidad
     tokens_received = None  # en paper no sabemos la cantidad exacta recibida
-    mint_key = token_mint or address
     buy_price_usd, price_src = await _resolve_buy_price_usd(
         token_mint=mint_key,
         amount_sol=amount_sol,
@@ -120,7 +246,7 @@ async def buy(
     )
 
     # 2️⃣ Alta de la posición en el JSON
-    qty_lp = int(amount_sol * 1e9)  # simulamos lamports de token
+    qty_lp = int(amount_sol * 1e9)  # simulamos "lamports" como cantidad de token de salida
     _PORTFOLIO[mint_key] = {
         "qty_lamports": qty_lp,
         "buy_price_usd": float(buy_price_usd),
@@ -129,7 +255,7 @@ async def buy(
         "opened_at": utc_now().isoformat(),
         "closed": False,
         "token_address": mint_key,
-        "price_source": price_src,  # trazabilidad
+        "price_source": price_src,  # trazabilidad compra
     }
     _save()
 
@@ -176,42 +302,60 @@ async def _retry_fill_buy_price(
 
 
 # ─── lógica de salida ─────────────────────────────────────────
-async def sell(address: str, qty_lamports: int) -> dict:
-    entry = _PORTFOLIO.get(address)
+async def sell(
+    address: str,
+    qty_lamports: int,
+    *,
+    token_mint: str | None = None,
+    price_hint: float | None = None,
+    price_source_hint: str | None = None,
+) -> dict:
+    """
+    Cierra una posición simulada.
+    - Si llega `price_hint`, se usa como prioridad (proviene del monitor del orquestador).
+    - Si no, se intenta Jupiter → crítico → Dex/GT.
+    - Se persiste `price_source_close` con la fuente utilizada para el cierre.
+    """
+    key = _pick_key_for_entry(address, token_mint)
+    entry = _PORTFOLIO.get(key)
     if not entry or entry.get("closed"):
         raise RuntimeError(f"No hay posición activa para {address[:4]}")
 
-    if not _is_solana_address(address):
-        log.error("[papertrading] Venta bloqueada: address no Solana %r", address)
+    if not _is_solana_address(key):
+        log.error("[papertrading] Venta bloqueada: address no Solana %r", key)
         sig = f"SIM-{int(time.time()*1e3)}"
         return {"signature": sig, "error": "INVALID_ADDRESS"}
 
-    # Precio actual en MODO CRÍTICO (ignora cache negativa) + reintento corto
-    price_now = await price_service.get_price_usd(address, use_gt=True, critical=True)
-    if (price_now is None) or (price_now <= 0.0):
-        await asyncio.sleep(2.0)
-        price_now = await price_service.get_price_usd(address, use_gt=True, critical=True)
+    # 1) Resolver precio de cierre (prioriza hint)
+    price_now, price_src = await _resolve_close_price_usd(
+        token_mint=key,
+        price_hint=price_hint,
+        price_source_hint=price_source_hint,
+    )
 
-    # Cierre *seguro*: si aún no hay precio, usa buy_price (PnL 0%)
-    if not price_now or price_now <= 0.0:
+    # 2) Cierre *seguro*: si aún no hay precio, usa buy_price (PnL 0%)
+    if price_now is None or price_now <= 0.0:
         bp = float(entry.get("buy_price_usd") or 0.0)
         if bp > 0.0:
             log.warning(
                 "[papertrading] Precio de cierre no disponible para %s…; uso buy_price como fallback.",
-                address[:4],
+                key[:4],
             )
             price_now = bp
+            price_src = price_src or "fallback_buy"
         else:
             log.error(
                 "[papertrading] Sin precio de compra ni precio actual para %s…; close_price_usd=0.0; pnl_pct=0.0",
-                address[:4],
+                key[:4],
             )
             price_now = 0.0
+            price_src = price_src or "none"
 
+    # 3) Calcular PnL SOLO si hay buy_price > 0
+    buy_price = float(entry.get("buy_price_usd") or 0.0)
     pnl_pct = (
-        ((price_now - float(entry.get("buy_price_usd") or 0.0)) / float(entry.get("buy_price_usd") or 1.0)) * 100.0
-        if float(entry.get("buy_price_usd") or 0.0) > 0.0
-        else 0.0
+        ((float(price_now) - buy_price) / buy_price * 100.0)
+        if buy_price > 0.0 else 0.0
     )
 
     entry.update(
@@ -220,19 +364,25 @@ async def sell(address: str, qty_lamports: int) -> dict:
             "close_price_usd": float(price_now),
             "pnl_pct": float(pnl_pct),
             "closed": True,
+            "price_source_close": price_src,  # trazabilidad del cierre
         }
     )
     _save()
 
     sig = f"SIM-{int(time.time()*1e3)}"
     log.info(
-        "📝 PAPER-SELL %s…  close=%.6f USD  PnL=%.2f%%  sig=%s",
-        address[:4],
+        "📝 PAPER-SELL %s…  close=%.6f USD  PnL=%.2f%%  src=%s  sig=%s",
+        key[:4],
         price_now,
         pnl_pct,
+        price_src,
         sig,
     )
-    return {"signature": sig}
+    return {
+        "signature": sig,
+        "price_used_usd": float(price_now),
+        "price_source_close": price_src,
+    }
 
 
 # ─── evaluación de salida (TP/SL/Trailing/Timeout) ────────────

@@ -35,7 +35,7 @@ from fetcher import birdeye
 # (NUEVO) Jupiter Price v3 (Lite) como fallback final para "solo precio"
 try:
     from fetcher.jupiter_price import get_usd_price as _jup_get_usd_price  # type: ignore
-except Exception:  # pragma: no cover - en caso de que aún no exista el módulo
+except Exception:  # pragma: no cover
     _jup_get_usd_price = None  # se comprobará en runtime
 
 logger = logging.getLogger("price_service")
@@ -62,7 +62,54 @@ _USE_JUPITER_PRICE = os.getenv("USE_JUPITER_PRICE", "true").lower() == "true"
 _REQUIRED_FOR_FULL  : Tuple[str, ...] = ("price_usd", "liquidity_usd")  # validación completa
 _REQUIRED_FOR_PRICE : Tuple[str, ...] = ("price_usd",)                  # solo precio (cierres)
 
+
 # ─────────────────────────────────── utils ────────────────────────────────────
+def _f(x):
+    """Convierte a float o devuelve None si no es convertible."""
+    try:
+        return float(x)
+    except Exception:
+        return None
+
+
+def _coerce_tick_numbers(tick: dict | None) -> dict:
+    """
+    Convierte a float los campos típicos y aplana anidados si el adapter
+    devolvió estructuras como {"liquidity":{"usd":...}} o strings.
+    """
+    if not isinstance(tick, dict):
+        return {}
+
+    t = dict(tick)
+
+    # Precio USD (varía entre adapters)
+    t["price_usd"] = _f(t.get("price_usd") or t.get("priceUsd"))
+
+    # Liquidez USD
+    liq = t.get("liquidity_usd")
+    if liq is None:
+        liq = (t.get("liquidity") or {}).get("usd")
+    t["liquidity_usd"] = _f(liq)
+
+    # Volumen 24h USD
+    vol = t.get("volume_24h_usd")
+    if vol is None:
+        vol = (t.get("volume") or {}).get("h24")
+    t["volume_24h_usd"] = _f(vol)
+
+    # Market cap / FDV
+    t["market_cap_usd"] = _f(t.get("market_cap_usd") or t.get("fdv") or t.get("mcap"))
+
+    # Precio nativo: evitar dict/list
+    pn = t.get("price_native")
+    if isinstance(pn, (dict, list, tuple)):
+        t["price_native"] = None
+    else:
+        t["price_native"] = _f(pn)
+
+    return t
+
+
 def _is_missing(val: Any) -> bool:
     """True si val es None, NaN o 0."""
     if val is None:
@@ -91,7 +138,7 @@ def _is_solana_address(addr: str) -> bool:
 
 
 async def _price_native_to_usd(tok: Dict[str, Any] | None) -> Dict[str, Any] | None:
-    """Convierte ``price_native``→``price_usd`` si procede."""
+    """Convierte ``price_native``→``price_usd`` si procede y es seguro."""
     if not tok or not _is_missing(tok.get("price_usd")):
         return tok
 
@@ -102,16 +149,24 @@ async def _price_native_to_usd(tok: Dict[str, Any] | None) -> Dict[str, Any] | N
     sol_usd = await get_sol_usd()
     if sol_usd:
         try:
-            tok["price_usd"] = float(price_native) * float(sol_usd)
+            pn = float(price_native)
+            su = float(sol_usd)
+            tok["price_usd"] = pn * su
             logger.debug(
                 "[price_service] price_native %.6g × SOL_USD %.3f → price_usd %.6g",
-                price_native,
-                sol_usd,
-                tok["price_usd"],
+                pn, su, tok["price_usd"],
             )
         except Exception:
-            pass
+            # Si algo raro viene en price_native, lo anulamos para evitar dict*float
+            tok["price_native"] = None
     return tok
+
+
+def _normalize_after_merge(tok: Dict[str, Any] | None) -> Dict[str, Any] | None:
+    """Aplica coerción tras combinar fuentes (post fill_missing_fields)."""
+    if tok is None:
+        return None
+    return _coerce_tick_numbers(tok)
 
 
 # ───────────────────── pipeline de fuentes (sin caché) ───────────────────────
@@ -124,7 +179,8 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
 
     # ① DexScreener
     try:
-        tok = await dexscreener.get_pair(address)
+        ds = await dexscreener.get_pair(address)
+        tok = _coerce_tick_numbers(ds)
     except Exception as exc:
         logger.debug("[price_service] DexScreener error: %s", exc)
         tok = None
@@ -140,37 +196,41 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
             be = await birdeye.get_token_info(address)
             if not be:
                 be = await birdeye.get_pool_info(address)
+            be = _coerce_tick_numbers(be)
         except Exception as exc:
             logger.debug("[price_service] Birdeye error: %s", exc)
             be = None
+
         if be:
             logger.debug("[price_service] Fallback → Birdeye para %s…", address[:6])
-            tok = fill_missing_fields(tok or {}, be, _MISSING_FIELDS, treat_zero_as_missing=True)
-            if not _needs_fields(tok, fields_needed):
+            merged = fill_missing_fields(tok or {}, be, _MISSING_FIELDS, treat_zero_as_missing=True)
+            tok = _normalize_after_merge(merged)
+            if tok and not _needs_fields(tok, fields_needed):
                 return tok
 
     # ③ GeckoTerminal (opcional)
     if use_gt and USE_GECKO_TERMINAL:
         try:
             gt = get_gt_data(_CHAIN, address)
+            gt = _coerce_tick_numbers(gt)
         except Exception as exc:
             logger.debug("[price_service] GeckoTerminal error: %s", exc)
             gt = None
+
         if gt:
             logger.debug("[price_service] Fallback → GeckoTerminal para %s…", address[:6])
-            tok = fill_missing_fields(tok or {}, gt, _MISSING_FIELDS, treat_zero_as_missing=True)
-            if not _needs_fields(tok, fields_needed):
+            merged = fill_missing_fields(tok or {}, gt, _MISSING_FIELDS, treat_zero_as_missing=True)
+            tok = _normalize_after_merge(merged)
+            if tok and not _needs_fields(tok, fields_needed):
                 return tok
 
-    # ④ Conversión price_native→USD
-    tok = await _price_native_to_usd(tok)
+    # ④ Conversión price_native→USD (segura)
+    tok = _normalize_after_merge(await _price_native_to_usd(tok))
     if tok and not _needs_fields(tok, fields_needed):
         logger.debug("[price_service] Fallback → native×SOL para %s…", address[:6])
         return tok
 
-    # ⑤ (NUEVO) Jupiter Price v3 (Lite) SOLO si pedimos "solo precio"
-    #     - Se intenta ÚNICAMENTE cuando fields_needed == ("price_usd",)
-    #     - No interfiere con el flujo "full" que exige liquidez
+    # ⑤ Jupiter Price v3 (Lite) SOLO si pedimos "solo precio"
     if (
         _USE_JUPITER_PRICE
         and _jup_get_usd_price is not None
@@ -190,8 +250,8 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
                 tok["price_usd"] = float(jup_price)
             except Exception:
                 tok["price_usd"] = jup_price  # por si viene ya como float/Decimal
+            tok = _coerce_tick_numbers(tok)
             logger.debug("[price_service] Fallback → Jupiter (price_only) para %s…", address[:6])
-            # Ya cumplimos "solo precio"
             return tok
 
     # ⑥ Sin datos suficientes para los campos solicitados
@@ -238,7 +298,8 @@ async def get_price(
             else:
                 return None  # respetamos caché negativa en modo normal
         else:
-            return hit  # caché positiva
+            # reforzamos tipos por si vino de disco
+            return _coerce_tick_numbers(hit)
 
     # Primer intento de la cadena
     tok = await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed)

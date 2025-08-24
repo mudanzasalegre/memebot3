@@ -2,19 +2,30 @@
 """
 ⏯️  Orquestador principal del sniper MemeBot 3
 ──────────────────────────────────────────────
-Última revisión · 2025-08-15
+Última revisión · 2025-08-23
 
 Novedades importantes
 ─────────────────────
-1.  Se integra ``utils.price_service.get_price()`` con *fallback*
-    GeckoTerminal (GT) —solo se llama a GT en:
-       • pares re-encolados (cuando no hubo liquidez/DEX)
-       • monitorización de posiciones
-2.  La lógica de re-queues distingue «incomplete» rápidos
-    (``INCOMPLETE_RETRIES``) de «hard requeues» (``MAX_RETRIES``).
-3.  (2025-08-15) Monitor de posiciones con **batch de precios** vía
-    Jupiter Price v3 (Lite): se consulta el precio de hasta 50 mints
-    por llamada para reducir drásticamente el número de requests.
+1) Ventanas horarias de trading (env):
+     TRADING_HOURS=13-16
+     TRADING_HOURS_EXTRA=11,18,22
+     USE_EXTRA_HOURS=false
+   Fuera de ventana → requeue con backoff hasta la siguiente.
+
+2) Compra sólo con precio de Jupiter (solo precio):
+     REQUIRE_JUPITER_FOR_BUY=true
+   Si Jupiter no devuelve precio → no se compra.
+
+3) Gestión de riesgo (monitor):
+   • Early-drop kill: KILL_EARLY_DROP_PCT (def. 45) dentro de
+     KILL_EARLY_WINDOW_S (def. 90 s) desde la apertura.
+   • Liquidity crush opcional: si dispones de liq_at_buy_usd en la Position
+     y el tick trae liquidity_usd, cierra si cae por debajo de
+     KILL_LIQ_FRACTION (def. 0.70). Si no hay datos, se omite.
+
+4) Umbral IA dinámico:
+   Si existe data/metrics/recommended_threshold.json o el .meta.json del
+   modelo trae ai_threshold_recommended, se aplica al arrancar.
 """
 
 from __future__ import annotations
@@ -23,13 +34,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime as dt
+import json
 import logging
 import math
 import os
 import random
 import time
 from collections import deque
-from typing import Sequence, Dict, List
+from typing import Sequence, Dict, List, Tuple, Optional
 
 # ----------------------------------------------------------------------------
 # Helper de formato “seguro” para logs debug
@@ -59,7 +71,7 @@ from config.config import (  # noqa: E402 – after stdlib
     CFG,
     BANNED_CREATORS,
     INCOMPLETE_RETRIES,
-    USE_JUPITER_PRICE,  # ← NUEVO: flag para activar batch Jupiter
+    USE_JUPITER_PRICE,  # batch Jupiter
 )
 from config import exits  # take-profit / stop-loss
 
@@ -77,7 +89,7 @@ from fetcher import (  # noqa: E402
     pumpfun,
     rugcheck,
     socials,
-    jupiter_price,  # ← NUEVO (batch de precios)
+    jupiter_price,  # batch de precios
 )
 from analytics import filters, insider, trend, requeue_policy  # noqa: E402
 from analytics.ai_predict import should_buy, reload_model  # noqa: E402
@@ -93,7 +105,7 @@ from ml.retrain import retrain_if_better  # noqa: E402
 
 # ───────── Utils (queue, precio, etc.) ───────────────────────────────────────
 from utils.descubridor_pares import fetch_candidate_pairs  # noqa: E402
-from utils import lista_pares, price_service  # ★ precio con fallback GT  # noqa: E402
+from utils import lista_pares, price_service  # precio con fallbacks  # noqa: E402
 from utils.lista_pares import (  # noqa: E402
     agregar_si_nuevo,
     eliminar_par,
@@ -104,10 +116,92 @@ from utils.lista_pares import (  # noqa: E402
 from utils.data_utils import sanitize_token_data, apply_default_values  # noqa: E402
 from utils.logger import enable_file_logging, warn_if_nulls, log_funnel  # noqa: E402
 from utils.solana_rpc import get_sol_balance  # noqa: E402
-from utils.time import utc_now  # noqa: E402
+from utils.time import utc_now, parse_iso_utc  # noqa: E402
 
 # Etiquetado de posiciones ganadoras
 from labeler.win_labeler import label_positions  # noqa: E402
+
+# ╭─────────────────────── helpers: ventanas horarias ────────────────────────╮
+def _parse_hours(spec: str) -> List[Tuple[int, int]]:
+    """
+    Convierte expresiones tipo "13-16,22,7" a rangos [(13,16),(22,22),(7,7)].
+    Soporta rangos cruzando medianoche: "22-2" → [(22,23),(0,2)].
+    """
+    windows: List[Tuple[int, int]] = []
+    if not spec:
+        return windows
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            a, b = part.split("-", 1)
+            a, b = int(a), int(b)
+            if 0 <= a <= 23 and 0 <= b <= 23:
+                if a <= b:
+                    windows.append((a, b))
+                else:
+                    windows.append((a, 23))
+                    windows.append((0, b))
+        else:
+            try:
+                h = int(part)
+                if 0 <= h <= 23:
+                    windows.append((h, h))
+            except Exception:
+                continue
+    # normaliza y ordena
+    return sorted(windows)
+
+def _in_windows(now_local: dt.datetime, windows: List[Tuple[int, int]]) -> bool:
+    if not windows:
+        return True
+    h = now_local.hour
+    for a, b in windows:
+        if a <= h <= b:
+            return True
+    return False
+
+def _secs_to_next_window(now_local: dt.datetime, windows: List[Tuple[int, int]]) -> int:
+    if not windows:
+        return 0
+    h, m, s = now_local.hour, now_local.minute, now_local.second
+    # si ya estamos dentro, siguiente es el inicio del siguiente rango (día actual o siguiente)
+    if _in_windows(now_local, windows):
+        # encontrar el final del rango actual y sumar hasta el inicio del rango siguiente
+        # simplificación: esperamos 15 min para reintentar dentro de la ventana activa
+        return 15 * 60
+    # buscar el próximo inicio ≥ ahora
+    candidates: List[int] = []
+    for a, b in windows:
+        if a >= h:
+            # segundos hasta las a:00 de hoy
+            delta = (a - h) * 3600 - m * 60 - s
+            candidates.append(delta if delta >= 0 else 0)
+        else:
+            # hasta mañana a:00
+            delta = (24 - h + a) * 3600 - m * 60 - s
+            candidates.append(delta)
+    return min(candidates) if candidates else 3600
+
+_TRADING_HOURS       = _parse_hours(os.getenv("TRADING_HOURS", ""))
+_TRADING_HOURS_EXTRA = _parse_hours(os.getenv("TRADING_HOURS_EXTRA", ""))
+_USE_EXTRA_HOURS     = os.getenv("USE_EXTRA_HOURS", "false").lower() == "true"
+_REQUIRE_JUP_FOR_BUY = os.getenv("REQUIRE_JUPITER_FOR_BUY", "true").lower() == "true"
+
+def _in_trading_window(now_local: Optional[dt.datetime] = None) -> bool:
+    now_local = now_local or dt.datetime.now()
+    windows = list(_TRADING_HOURS)
+    if _USE_EXTRA_HOURS:
+        windows += list(_TRADING_HOURS_EXTRA)
+    return _in_windows(now_local, windows)
+
+def _delay_until_window(now_local: Optional[dt.datetime] = None) -> int:
+    now_local = now_local or dt.datetime.now()
+    windows = list(_TRADING_HOURS)
+    if _USE_EXTRA_HOURS:
+        windows += list(_TRADING_HOURS_EXTRA)
+    return _secs_to_next_window(now_local, windows)
 
 # ╭─────────────────────── CLI ───────────────────────────────────────────────╮
 parser = argparse.ArgumentParser(description="MemeBot 3 – sniper Solana")
@@ -145,7 +239,7 @@ VALIDATION_BATCH_SIZE  = CFG.VALIDATION_BATCH_SIZE
 TRADE_AMOUNT_SOL_CFG   = CFG.TRADE_AMOUNT_SOL
 GAS_RESERVE_SOL        = CFG.GAS_RESERVE_SOL
 MIN_SOL_BALANCE        = CFG.MIN_SOL_BALANCE
-MIN_BUY_SOL            = CFG.MIN_BUY_SOL        # ← nueva línea ⭐
+MIN_BUY_SOL            = CFG.MIN_BUY_SOL
 MIN_AGE_MIN            = CFG.MIN_AGE_MIN
 WALLET_POLL_INTERVAL   = 30
 
@@ -153,7 +247,49 @@ TP_PCT        = exits.TAKE_PROFIT_PCT
 SL_PCT        = exits.STOP_LOSS_PCT
 TRAILING_PCT  = exits.TRAILING_PCT
 MAX_HOLDING_H = exits.MAX_HOLDING_H
-AI_TH         = CFG.AI_THRESHOLD
+AI_TH         = CFG.AI_THRESHOLD  # se puede sobre-escribir por tuner
+
+# Kill-switches (riesgo) — valores por defecto razonables
+_EARLY_DROP_PCT   = float(os.getenv("KILL_EARLY_DROP_PCT", "45"))
+_EARLY_WINDOW_S   = int(os.getenv("KILL_EARLY_WINDOW_S", "90"))
+_LIQ_CRUSH_FRAC   = float(os.getenv("KILL_LIQ_FRACTION", "0.70"))  # requiere liq_at_buy_usd + liq tick
+
+# ╭─────────────────────── Carga de AI_THRESHOLD recomendado ─────────────────╮
+def _load_ai_threshold_override() -> Optional[float]:
+    """
+    Intenta leer:
+      1) data/metrics/recommended_threshold.json → {"picked": 0.34, ...}
+      2) modelo.meta.json → {"ai_threshold_recommended": 0.34, ...}
+    """
+    # 1) recommended_threshold.json junto a FEATURES_DIR/../metrics
+    try:
+        metrics_dir = CFG.FEATURES_DIR.parent / "metrics"
+        thr_path = metrics_dir / "recommended_threshold.json"
+        if thr_path.exists():
+            data = json.loads(thr_path.read_text())
+            val = data.get("picked")
+            if isinstance(val, (int, float)):
+                return float(val)
+    except Exception:
+        pass
+
+    # 2) meta del modelo
+    try:
+        meta_path = CFG.MODEL_PATH.with_suffix(".meta.json")
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text())
+            val = meta.get("ai_threshold_recommended")
+            if isinstance(val, (int, float)):
+                return float(val)
+    except Exception:
+        pass
+    return None
+
+_thr_override = _load_ai_threshold_override()
+if _thr_override is not None:
+    old = AI_TH
+    AI_TH = float(_thr_override)
+    log.info("🎯 AI_THRESHOLD override: %.3f (antes=%.3f)", AI_TH, old)
 
 # ╭─────────────────────── Estado global ─────────────────────────────────────╮
 _wallet_sol_balance: float = 0.0
@@ -225,7 +361,7 @@ def _compute_trade_amount() -> float:
     """
     # — Paper-trading —
     if DRY_RUN:
-        return TRADE_AMOUNT_SOL_CFG        # configurable en .env
+        return TRADE_AMOUNT_SOL_CFG
 
     # — Real-trading —
     usable = max(0.0, _wallet_sol_balance - GAS_RESERVE_SOL)
@@ -260,7 +396,9 @@ def _log_token(tok: dict, addr: str) -> None:
         _fmt(tok.get("age_min"), "{:.1f}m"),
     )
 
-# ╭─────────────────────── Evaluar y comprar ─────────────────────────────────╮
+# ────────────────────────────────────────────────────────────────────────────
+# run_bot.py  — _evaluate_and_buy  (sin cambios de lógica, pero afinado)
+# ────────────────────────────────────────────────────────────────────────────
 async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     """Evalúa un token y, si pasa los filtros + IA, lanza la compra."""
     global _wallet_sol_balance
@@ -268,23 +406,31 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     addr = token["address"]
     _stats["raw_discovered"] += 1
 
-    # 0) — limpieza básica + log preliminar —
+    # 0) — ventana horaria —
+    if _TRADING_HOURS or (_USE_EXTRA_HOURS and _TRADING_HOURS_EXTRA):
+        if not _in_trading_window():
+            delay = max(30, _delay_until_window())
+            requeue(addr, reason="off_hours", backoff=delay)
+            _stats["requeues"] += 1
+            return
+
+    # 1) — limpieza básica + log preliminar —
     token = sanitize_token_data(token)
     warn_if_nulls(token, context=addr[:4])
     _log_token(token, addr)
 
-    # 1) — duplicado: ya hay posición abierta —
+    # 2) — duplicado: ya hay posición abierta —
     if await ses.scalar(select(Position).where(Position.address == addr,
                                                Position.closed.is_(False))):
         eliminar_par(addr)
         return
 
-    # 2) — filtros inmediatos —
+    # 3) — filtros inmediatos —
     if token.get("creator") in BANNED_CREATORS:
         eliminar_par(addr)
         return
 
-    # ★★★ Pump.fun: intento rápido de precio con cuota/cooldown antes de requeue ★★★
+    # ★ Pump.fun: intento rápido de precio con cuota/cooldown antes de requeue
     if token.get("discovered_via") == "pumpfun" and not token.get("liquidity_usd"):
         if _pf_can_try_now(addr):
             try:
@@ -298,7 +444,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         else:
             requeue(addr, reason="no_liq"); _stats["requeues"] += 1; return
 
-    # 3) — incomplete (sin liquidez) ---------------------------------
+    # 4) — incomplete (sin liquidez) ---------------------------------
     if not token.get("liquidity_usd"):
         # ⇢ solo contamos “incomplete” si el pool ya ha cumplido la edad mínima
         if token.get("age_min", 0.0) >= MIN_AGE_MIN:
@@ -309,13 +455,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
         attempts = int((meta := lista_pares.meta(addr) or {}).get("attempts", 0))
         backoff  = [60, 180, 420][min(attempts, 2)]
-        # jitter ±20% para evitar estampidas sincronizadas hacia las APIs
-        backoff = int(backoff * random.uniform(0.8, 1.2))
-        log.info(
-            "↩️  Re-queue %s (no_liq, intento %s)",
-            token.get("symbol") or addr[:4],
-            attempts + 1,
-        )
+        backoff  = int(backoff * random.uniform(0.8, 1.2))  # jitter ±20%
+        log.info("↩️  Re-queue %s (no_liq, intento %s)",
+                 token.get("symbol") or addr[:4], attempts + 1)
 
         if attempts >= INCOMPLETE_RETRIES:
             eliminar_par(addr)
@@ -324,11 +466,11 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             _stats["requeues"] += 1
         return
 
-    # 4) — rellenar defaults y métricas opcionales —
+    # 5) — rellenar defaults y métricas opcionales —
     token = apply_default_values(token)
     token["is_incomplete"] = 0
 
-    # 5) — señales baratas (social, trend, insider…) —
+    # 6) — señales baratas (social, trend, insider…) —
     token["social_ok"] = await socials.has_socials(addr)
     try:
         token["trend"], token["trend_fallback_used"] = await trend.trend_signal(addr)
@@ -340,7 +482,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["insider_sig"] = await insider.insider_alert(addr)
     token["score_total"] = filters.total_score(token)
 
-    # 6) — filtro duro —
+    # 7) — filtro duro —
     if filters.basic_filters(token) is not True:
         attempts = int((meta := lista_pares.meta(addr) or {}).get("attempts", 0))
         keep, delay, reason = requeue_policy.decide(token, attempts,
@@ -354,13 +496,14 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             eliminar_par(addr)
         return
 
-    # 7) — señales caras —
+    # 8) — señales caras —
     token["rug_score"]   = await rugcheck.check_token(addr)
     token["cluster_bad"] = await clusters.suspicious_cluster(addr)
     token["score_total"] = filters.total_score(token)
 
-    # 8) — IA —
-    vec, proba = build_feature_vector(token), should_buy(build_feature_vector(token))
+    # 9) — IA —
+    vec = build_feature_vector(token)
+    proba = should_buy(vec)
     if proba < AI_TH:
         _stats["filtered_out"] += 1
         store_append(vec, 0)
@@ -369,13 +512,13 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     _stats["ai_pass"] += 1
     store_append(vec, 1)
 
-    # 9) — cálculo de importe —
+    # 10) — importe —
     amount_sol = _compute_trade_amount()
     if amount_sol < MIN_BUY_SOL:
         eliminar_par(addr)
         return
 
-    # 10) — persistir TOKEN (con NaN→0.0 saneados) —
+    # 11) — Persistir TOKEN (NaN→0.0 saneados) —
     try:
         valid_cols = {c.key for c in inspect(Token).mapper.column_attrs}
         await ses.merge(Token(**{k: v for k, v in token.items() if k in valid_cols}))
@@ -386,7 +529,20 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         eliminar_par(addr)
         return
 
-    # 11) — BUY —
+    # 12) — “Exigir Jupiter” para comprar (solo precio) —
+    if _REQUIRE_JUP_FOR_BUY:
+        try:
+            jtok = await price_service.get_price(addr, price_only=True)  # usa flag interno para bloquear
+        except TypeError:
+            jtok = None
+        except Exception:
+            jtok = None
+        if not jtok or jtok.get("price_source") != "jupiter":
+            log.info("🛑 BUY bloqueado (sin Jupiter price) %s", addr[:6])
+            eliminar_par(addr)
+            return
+
+    # 13) — BUY —
     try:
         if DRY_RUN:
             buy_resp = await buyer.buy(
@@ -408,7 +564,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     if not DRY_RUN:
         _wallet_sol_balance = max(_wallet_sol_balance - amount_sol, 0.0)
 
-    # 12) — crear Position y (si existen) fijar token_mint y price_source_at_buy —
+    # 14) — crear Position (incluye *buy_* métricas y fuente de compra) —
     pos = Position(
         address=addr,
         symbol=token.get("symbol"),
@@ -416,13 +572,21 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         buy_price_usd=price_usd,
         opened_at=utc_now(),
         highest_pnl_pct=0.0,
+        buy_liquidity_usd=token.get("liquidity_usd"),
+        buy_market_cap_usd=token.get("market_cap_usd"),
+        buy_volume_24h_usd=token.get("volume_24h_usd"),
     )
-    # Campos opcionales según tu modelo/migración
     if hasattr(pos, "token_mint"):
-        # preferimos el mint normalizado que ya pasó por sanitize/data_utils
         pos.token_mint = token.get("address") or addr
     if hasattr(pos, "price_source_at_buy"):
         pos.price_source_at_buy = price_src
+
+    # Compat opcional (si existiera el alias en tu modelo)
+    if hasattr(pos, "liq_at_buy_usd"):
+        try:
+            setattr(pos, "liq_at_buy_usd", float(token.get("liquidity_usd") or 0.0))
+        except Exception:
+            setattr(pos, "liq_at_buy_usd", None)
 
     ses.add(pos)
     await ses.commit()
@@ -437,7 +601,23 @@ async def _load_open_positions(ses: SessionLocal) -> Sequence[Position]:
     stmt = select(Position).where(Position.closed.is_(False))
     return (await ses.execute(stmt)).scalars().all()
 
-async def _should_exit(pos: Position, price: float | None, now: dt.datetime) -> bool:
+# ────────────────────────────────────────────────────────────────────────────
+# run_bot.py  — _should_exit  (usa buy_liquidity_usd en vez de liq_at_buy_usd)
+# ────────────────────────────────────────────────────────────────────────────
+async def _should_exit(
+    pos: Position,
+    price: Optional[float],
+    now: dt.datetime,
+    *,
+    liq_now: Optional[float] = None,
+) -> bool:
+    """
+    Devuelve True si debe cerrar:
+      • Sin precio → TIMEOUT
+      • Con precio → TP / SL / Trailing
+      • Early-drop (dentro de _EARLY_WINDOW_S y caída ≥ _EARLY_DROP_PCT)
+      • Liquidity crush (opcional; requiere buy_liquidity_usd y liq_now)
+    """
     opened = (
         pos.opened_at.replace(tzinfo=dt.timezone.utc)
         if pos.opened_at.tzinfo is None
@@ -448,10 +628,30 @@ async def _should_exit(pos: Position, price: float | None, now: dt.datetime) -> 
     if price is None:
         return (now - opened).total_seconds() / 3600 >= MAX_HOLDING_H
 
-    # ② con precio → reglas TP/SL/Trailing
-    pnl   = None
+    # ② early-drop dentro de ventana temprana
+    if pos.buy_price_usd and _EARLY_DROP_PCT > 0 and _EARLY_WINDOW_S > 0:
+        age_s = (now - opened).total_seconds()
+        if age_s <= _EARLY_WINDOW_S:
+            try:
+                drop_pct = (pos.buy_price_usd - float(price)) / pos.buy_price_usd * 100.0
+                if drop_pct >= _EARLY_DROP_PCT:
+                    return True
+            except Exception:
+                pass
+
+    # ③ liquidity crush (si hay datos suficientes)
+    try:
+        entry_liq = getattr(pos, "buy_liquidity_usd", None)
+        if entry_liq and liq_now and _LIQ_CRUSH_FRAC > 0:
+            if float(liq_now) <= float(entry_liq) * float(_LIQ_CRUSH_FRAC):
+                return True
+    except Exception:
+        pass
+
+    # ④ TP/SL/Trailing
+    pnl = None
     if pos.buy_price_usd:
-        pnl = (price - pos.buy_price_usd) / pos.buy_price_usd * 100
+        pnl = (price - pos.buy_price_usd) / pos.buy_price_usd * 100.0
         if pnl > pos.highest_pnl_pct:
             pos.highest_pnl_pct = pnl
 
@@ -463,40 +663,30 @@ async def _should_exit(pos: Position, price: float | None, now: dt.datetime) -> 
         or (now - opened).total_seconds() / 3600 >= MAX_HOLDING_H
     )
 
-# ───── NUEVO: precarga de precios en batch para posiciones abiertas ──────────
+# ───── precarga de precios en batch para posiciones abiertas ────────────────
 async def _prefetch_batch_prices(addrs: List[str]) -> Dict[str, float]:
     """
     Devuelve un dict address->price_usd usando Jupiter Price v3 (Lite).
     Si USE_JUPITER_PRICE=False, devuelve {}.
-    Añade validación ligera de 'mint' para avisar si algún ID no parece SPL mint.
     """
     if not USE_JUPITER_PRICE or not addrs:
         return {}
 
-    # Validación ligera de mints (similar a la del fetcher)
     def _looks_like_mint(s: str) -> bool:
         return bool(s) and (not s.startswith("0x")) and (30 <= len(s) <= 50)
 
     try:
-        # Aviso si algún ID no parece mint SPL válido
         for m in addrs:
             if not _looks_like_mint(m):
                 log.warning("Monitor: ID no parece mint SPL → %r", m)
-
-        # jupiter_price.get_many_usd_prices ya maneja chunking a 50 internamente.
         prices = await jupiter_price.get_many_usd_prices(addrs)
-
-        # Log de ayuda para ver cobertura del batch
-        try:
-            log.debug("Jupiter batch: %d/%d precios disponibles", len(prices), len(addrs))
-        except Exception:
-            pass
-
+        log.debug("Jupiter batch: %d/%d precios disponibles", len(prices), len(addrs))
         return prices
     except Exception as exc:
         log.debug("batch jupiter_price → %s", exc)
         return {}
-
+    
+# run_bot.py  — _check_positions  (implementada con "liquidity crush" proactivo)
 async def _check_positions(ses: SessionLocal) -> None:
     """Revisa posiciones abiertas y ejecuta ventas cuando corresponde."""
     import os
@@ -517,22 +707,45 @@ async def _check_positions(ses: SessionLocal) -> None:
     except Exception:
         _CRIT_BOOTSTRAP_MIN = 20
 
+    # Umbral de "liquidity crush" (fracción respecto a la de entrada)
+    try:
+        KILL_LIQ_FRAC = float(os.getenv("KILL_LIQ_FRACTION", "0.70"))
+    except Exception:
+        KILL_LIQ_FRAC = 0.70
+
     def _near_exit_zone(pos: Position, now: dt.datetime) -> bool:
-        """
-        Heurística ligera:
-        - durante los primeros N minutos tras abrir → sí
-        - si ya registró algún pico de PnL (>0) → trailing podría saltar → sí
-        """
-        opened = pos.opened_at if pos.opened_at.tzinfo else pos.opened_at.replace(tzinfo=dt.timezone.utc)
+        opened_raw = getattr(pos, "opened_at", None)
+        if opened_raw is None:
+            # Sin fecha: nos quedamos en zona crítica por seguridad (permite crítico)
+            return True
+
+        opened: dt.datetime | None = None
+        try:
+            if isinstance(opened_raw, dt.datetime):
+                # Si es naïve, asumimos UTC (mantiene tu comportamiento actual)
+                opened = opened_raw if opened_raw.tzinfo else opened_raw.replace(tzinfo=dt.timezone.utc)
+            elif isinstance(opened_raw, str):
+                opened = parse_iso_utc(opened_raw)
+        except Exception:
+            opened = None
+
+        if opened is None:
+            return True  # No podemos calcular edad → tratamos como “bootstrap”
+
         age_min = (now - opened).total_seconds() / 60.0
         if age_min <= _CRIT_BOOTSTRAP_MIN:
             return True
+
         try:
             return (pos.highest_pnl_pct or 0.0) > 0.0
         except Exception:
             return False
 
-    # ① Preload batch de precios (una sola llamada para todas las posiciones)
+    def _buy_was_non_jup(p: Position) -> bool:
+        src = getattr(p, "price_source_at_buy", None) or ""
+        return src in {"dexscreener", "sol_estimate"}
+
+    # ① Preload batch de precios
     addr_list = [
         (getattr(p, "token_mint", None) or p.address)
         for p in positions
@@ -545,52 +758,186 @@ async def _check_positions(ses: SessionLocal) -> None:
     batch_resolved = 0
     fallback_resolved = 0
     critical_resolved = 0
+    dex_full_resolved = 0
     no_price = 0
     sells_done = 0
     crit_used = 0
+
+    positions_with_price = 0
+    positions_without_price = 0
+
+    consult_source_counts = {"jup_batch": 0, "jup_single": 0, "jup_critical": 0, "dex_full": 0, "none": 0}
+    close_source_counts   = {"jup_batch": 0, "jup_single": 0, "jup_critical": 0, "dex_full": 0, "fallback_buy": 0, "none": 0}
 
     for pos in positions:
         now = utc_now()
         mint_key = getattr(pos, "token_mint", None) or pos.address
 
-        # ② Precio: batch → unitario → crítico (limitado)
         price_src = None
-        price = batch_prices.get(mint_key)
-        if price is not None:
-            price_src = "jup_batch"
-            batch_resolved += 1
-        else:
-            # fallback unitario (barato, respeta NIL)
-            try:
-                price = await price_service.get_price_usd(mint_key)
-            except Exception:
-                price = None
-            if price is not None:
-                price_src = "jup_single"
-                fallback_resolved += 1
+        price: Optional[float] = None
+        liq_now: Optional[float] = None
+        prefer_dex = _buy_was_non_jup(pos)
 
-        # crítico: sólo si sigue None, si la posición lo “merece” y hay cupo
-        if price is None and crit_used < _CRIT_MAX and _near_exit_zone(pos, now):
+        if prefer_dex:
+            # 1) Dex/GT (SOLO PRECIO, puede traer liq si está disponible)
+            tok_full = None
             try:
-                price = await price_service.get_price_usd(mint_key, critical=True)
-            except TypeError:
-                # por compat: por si la firma no acepta 'critical'
+                tok_full = await price_service.get_price(mint_key, use_gt=True, price_only=True)
+            except Exception:
+                tok_full = None
+            if tok_full and tok_full.get("price_usd"):
+                price = float(tok_full["price_usd"])
+                liq_now = tok_full.get("liquidity_usd")
+                price_src = "dex_full"
+                dex_full_resolved += 1
+
+            # 2) Jupiter batch → single → critical
+            if price is None:
+                p_b = batch_prices.get(mint_key)
+                if p_b is not None:
+                    price = p_b
+                    price_src = "jup_batch"
+                    batch_resolved += 1
+
+            if price is None:
+                try:
+                    p_s = await price_service.get_price_usd(mint_key)
+                except Exception:
+                    p_s = None
+                if p_s is not None:
+                    price = p_s
+                    price_src = "jup_single"
+                    fallback_resolved += 1
+
+            if price is None and crit_used < _CRIT_MAX and _near_exit_zone(pos, now):
+                try:
+                    p_c = await price_service.get_price_usd(mint_key, critical=True)
+                except TypeError:
+                    try:
+                        p_c = await price_service.get_price_usd(mint_key)
+                    except Exception:
+                        p_c = None
+                except Exception:
+                    p_c = None
+                if p_c is not None:
+                    price = p_c
+                    price_src = "jup_critical"
+                    critical_resolved += 1
+                crit_used += 1
+
+        else:
+            # Camino original: Jupiter → Dex/GT
+            price = batch_prices.get(mint_key)
+            if price is not None:
+                price_src = "jup_batch"
+                batch_resolved += 1
+            else:
                 try:
                     price = await price_service.get_price_usd(mint_key)
                 except Exception:
                     price = None
-            except Exception:
-                price = None
-            if price is not None:
-                price_src = "jup_critical"
-                critical_resolved += 1
-            crit_used += 1
+                if price is not None:
+                    price_src = "jup_single"
+                    fallback_resolved += 1
 
+            if price is None and crit_used < _CRIT_MAX and _near_exit_zone(pos, now):
+                try:
+                    price = await price_service.get_price_usd(mint_key, critical=True)
+                except TypeError:
+                    try:
+                        price = await price_service.get_price_usd(mint_key)
+                    except Exception:
+                        price = None
+                except Exception:
+                    price = None
+                if price is not None:
+                    price_src = "jup_critical"
+                    critical_resolved += 1
+                crit_used += 1
+
+            if price is None:
+                tok_full = None
+                try:
+                    tok_full = await price_service.get_price(mint_key, use_gt=True, price_only=True)
+                except Exception:
+                    tok_full = None
+                if tok_full and tok_full.get("price_usd"):
+                    price = float(tok_full["price_usd"])
+                    liq_now = tok_full.get("liquidity_usd")
+                    price_src = "dex_full"
+                    dex_full_resolved += 1
+
+        # Métricas de cobertura de precio (consulta)
         if price is None:
+            positions_without_price += 1
             no_price += 1
+            consult_source_counts["none"] += 1
+        else:
+            positions_with_price += 1
+            consult_source_counts[price_src] = consult_source_counts.get(price_src, 0) + 1  # type: ignore
+
+        # ── Liquidity CRUSH proactivo (si no tenemos liq_now, intenta 1 tick “full”) ──
+        if getattr(pos, "buy_liquidity_usd", None) and (liq_now is None):
+            try:
+                tok_full_liq = await price_service.get_price(mint_key, use_gt=True)  # full: puede traer liquidez
+            except Exception:
+                tok_full_liq = None
+            if tok_full_liq:
+                try:
+                    liq_now = float(tok_full_liq.get("liquidity_usd") or 0.0)
+                except Exception:
+                    liq_now = None
+
+        if (
+            getattr(pos, "buy_liquidity_usd", None)
+            and liq_now
+            and KILL_LIQ_FRAC > 0
+            and float(liq_now) <= float(pos.buy_liquidity_usd) * float(KILL_LIQ_FRAC)
+        ):
+            # Venta inmediata por crush de liquidez
+            sell_resp = await seller.sell(
+                pos.address,
+                pos.qty,
+                token_mint=mint_key,
+                price_hint=price,
+                price_source_hint=price_src,
+            )
+            pos.closed = True
+            pos.closed_at = now
+            pos.exit_reason = "LIQUIDITY_CRUSH"
+
+            used_close  = (sell_resp or {}).get("price_used_usd")
+            used_source = (sell_resp or {}).get("price_source_close")
+
+            if used_close is not None:
+                try:
+                    pos.close_price_usd = float(used_close)
+                except Exception:
+                    pos.close_price_usd = price if price is not None else None
+            else:
+                pos.close_price_usd = price if price is not None else pos.buy_price_usd
+
+            if hasattr(pos, "price_source_at_close"):
+                pos.price_source_at_close = used_source or price_src or None
+
+            try:
+                await ses.commit()
+            except SQLAlchemyError:
+                await ses.rollback()
+
+            if not DRY_RUN:
+                try:
+                    _wallet_sol_balance += pos.qty / 1e9
+                except Exception:
+                    pass
+
+            _stats["sold"] += 1
+            sells_done += 1
+            # no seguimos evaluando más reglas para esta posición
+            continue
 
         # ③ Evaluar salida con el precio disponible (puede ser None)
-        if not await _should_exit(pos, price, now):
+        if not await _should_exit(pos, price, now, liq_now=liq_now):
             # si tenemos precio, actualiza el máximo de PnL observado (para trailing)
             try:
                 if price is not None and pos.buy_price_usd:
@@ -605,13 +952,33 @@ async def _check_positions(ses: SessionLocal) -> None:
                     pass
             continue
 
-        # ④ SELL — la función seller.sell hará su propio cálculo robusto de precio
-        sell_resp = await seller.sell(pos.address, pos.qty)
+        # ④ SELL — seller.sell hará su propio cálculo robusto de precio
+        sell_resp = await seller.sell(
+            pos.address,
+            pos.qty,
+            token_mint=mint_key,
+            price_hint=price,            # el que calculaste en el monitor (puede ser None)
+            price_source_hint=price_src, # "jup_batch" | "jup_single" | "jup_critical" | "dex_full" | None
+        )
         pos.closed = True
         pos.closed_at = now
 
-        # ⚠️ CLAVE: si no hay precio, NO lo rellenes con el buy; déjalo None
-        pos.close_price_usd = price if price is not None else None
+        # Precio realmente usado para cerrar (si seller lo resolvió)
+        used_close  = (sell_resp or {}).get("price_used_usd")
+        used_source = (sell_resp or {}).get("price_source_close")
+
+        # Persistencia de precio de cierre y fuente
+        if used_close is not None:
+            try:
+                pos.close_price_usd = float(used_close)  # incluye fallback_buy si aplicó
+            except Exception:
+                pos.close_price_usd = price if price is not None else None
+        else:
+            pos.close_price_usd = price if price is not None else None
+
+        if hasattr(pos, "price_source_at_close"):
+            pos.price_source_at_close = used_source or price_src or None
+
         pos.exit_tx_sig = (sell_resp or {}).get("signature")
 
         # ⑤ PnL → calcula solo si hay ambos precios
@@ -623,18 +990,13 @@ async def _check_positions(ses: SessionLocal) -> None:
         _stats["sold"] += 1
         sells_done += 1
 
-        # log de fuente para el cierre
-        try:
-            src = price_src or "none"
-            log.debug(
-                "🔎 close price src=%s addr=%s buy=%.6g close=%s pnl=%s",
-                src, (pos.address[:6] if pos.address else "?"),
-                pos.buy_price_usd,
-                f"{pos.close_price_usd:.6g}" if pos.close_price_usd is not None else "None",
-                f"{pnl_pct:.2f}%" if pnl_pct is not None else "None",
-            )
-        except Exception:
-            pass
+        # contadores de fuentes de cierre
+        if used_source in close_source_counts:
+            close_source_counts[used_source] += 1  # type: ignore
+        elif used_source is None:
+            close_source_counts["none"] += 1
+        else:
+            close_source_counts[used_source] = close_source_counts.get(used_source, 0) + 1  # type: ignore
 
         # persistencia
         try:
@@ -649,15 +1011,36 @@ async def _check_positions(ses: SessionLocal) -> None:
             except Exception:  # noqa: BLE001
                 pass
 
-    # ⑥ Log de métricas del ciclo
+    # ⑥ Log de métricas del ciclo (salud)
     try:
+        pct_with = (positions_with_price / total * 100.0) if total else 0.0
+        pct_without = 100.0 - pct_with if total else 0.0
+
+        log.info(
+            "📊 Monitor: con precio %.1f%% (sin %.1f%%) | consult srcs: batch=%d single=%d crit=%d dex=%d none=%d | cierres: batch=%d single=%d crit=%d dex=%d fb=%d none=%d | ventas=%d",
+            pct_with, pct_without,
+            consult_source_counts.get("jup_batch", 0),
+            consult_source_counts.get("jup_single", 0),
+            consult_source_counts.get("jup_critical", 0),
+            consult_source_counts.get("dex_full", 0),
+            consult_source_counts.get("none", 0),
+            close_source_counts.get("jup_batch", 0),
+            close_source_counts.get("jup_single", 0),
+            close_source_counts.get("jup_critical", 0),
+            close_source_counts.get("dex_full", 0),
+            close_source_counts.get("fallback_buy", 0),
+            close_source_counts.get("none", 0),
+            sells_done,
+        )
+
         log.debug(
-            "📊 Monitor: batch %d/%d, fallback %d, crítico %d/%d, sin precio %d, ventas %d",
+            "📊 Detalle: batch %d/%d, fallback %d, crítico %d/%d, dex_full %d, sin precio %d, ventas %d",
             batch_resolved,
             total,
             fallback_resolved,
             critical_resolved,
             _CRIT_MAX,
+            dex_full_resolved,
             no_price,
             sells_done,
         )
