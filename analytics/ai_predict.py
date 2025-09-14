@@ -1,6 +1,5 @@
+# analytics/ai_predict.py
 """
-analytics.ai_predict
-~~~~~~~~~~~~~~~~~~~~
 Inferencia en tiempo real para MemeBot 3.
 
 •  Carga «ml/model.pkl» (LightGBM / sklearn) y la lista de *features*
@@ -24,17 +23,53 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from config.config import CFG
+from config.config import CFG, PROJECT_ROOT
 
-# ───────────────────────── paths ──────────────────────────────
-_MODEL_PATH: Path = CFG.MODEL_PATH
-_META_PATH:  Path = _MODEL_PATH.with_suffix(".meta.json")
+# ───────────────────────── paths (robustos) ─────────────────────────
+def _resolve_model_path() -> Path:
+    """
+    Devuelve una ruta de modelo robusta:
+    - Si CFG.MODEL_PATH está vacío o es un directorio → usa PROJECT_ROOT/ml/model.pkl
+    - Si no tiene sufijo .pkl → se lo añade.
+    """
+    p = CFG.MODEL_PATH
+    # Caso vacío o ".", o nombre vacío
+    if not str(p) or p.name in ("", "."):
+        return (PROJECT_ROOT / "ml" / "model.pkl").resolve()
+
+    # Si apunta a un directorio, coloca model.pkl dentro
+    try:
+        if p.is_dir():
+            return (p / "model.pkl").resolve()
+    except Exception:
+        # Si la ruta no existe aún, inferimos por el sufijo
+        pass
+
+    # Si no tiene extensión, forzamos .pkl
+    if not p.suffix:
+        p = p.with_suffix(".pkl")
+
+    return p.resolve()
+
+_MODEL_PATH: Path = _resolve_model_path()
+
+def _resolve_meta_path(mp: Path) -> Path:
+    """
+    Devuelve la ruta del meta:
+    - Si mp tiene sufijo → mp.with_suffix(".meta.json")
+    - Si no (no debería ocurrir) → <mp>.meta.json
+    """
+    if mp.suffix:
+        return mp.with_suffix(".meta.json")
+    return mp.parent / (mp.name + ".meta.json")
+
+_META_PATH: Path = _resolve_meta_path(_MODEL_PATH)
 
 # ──────────────────── estado global ───────────────────────────
 _model_lock = threading.Lock()
-_model: Optional[Any]            = None          # objeto LightGBM / sklearn
-_model_mtime: Optional[float]    = None          # timestamp del .pkl
-_FEATURES: Optional[Sequence[str]] = None        # orden de columnas
+_model: Optional[Any]              = None          # objeto LightGBM / sklearn
+_model_mtime: Optional[float]      = None          # timestamp del .pkl
+_FEATURES: Optional[Sequence[str]] = None          # orden de columnas
 
 
 # ╭────────────────── helpers internos ─────────────────╮
@@ -42,7 +77,7 @@ def _load_model() -> None:
     """Carga modelo y lista de features en memoria (lazy, thread-safe)."""
     global _model, _model_mtime, _FEATURES
 
-    if not _MODEL_PATH.exists():        # aún no hay modelo entrenado
+    if not _MODEL_PATH.exists():        # primera ejecución: aún no hay modelo
         _model = None
         _model_mtime = None
         _FEATURES = None
@@ -60,9 +95,16 @@ def _load_model() -> None:
 
             # lista de columnas entrenadas
             if _META_PATH.exists():
-                _FEATURES = json.loads(_META_PATH.read_text())["features"]
-            else:                       # fallback
-                _FEATURES = list(_model.feature_name())
+                meta = json.loads(_META_PATH.read_text())
+                _FEATURES = meta.get("features")
+            # Fallback para algunos modelos (p.ej. LightGBM con atributo feature_name)
+            if not _FEATURES:
+                try:
+                    _FEATURES = list(_model.feature_name())
+                except Exception:
+                    raise RuntimeError(
+                        f"No se pudo determinar _FEATURES; falta {_META_PATH} y el modelo no expone feature_name()."
+                    )
 
             print(f"[AI] 🧠  Modelo cargado: {_MODEL_PATH.name} (mtime={mtime})")
 
@@ -73,10 +115,10 @@ def _to_dataframe(vec: Any) -> pd.DataFrame:
     con las columnas en el orden exacto de _FEATURES.
     """
     if _FEATURES is None:
-        raise RuntimeError("Modelo no cargado: _FEATURES desconocido")
+        raise RuntimeError("Modelo no cargado o sin _FEATURES (primera ejecución).")
 
     if isinstance(vec, pd.DataFrame):
-        X = vec[list(_FEATURES)]           # subset + orden
+        X = vec[list(_FEATURES)]  # subset + orden
     else:
         if isinstance(vec, pd.Series):
             vec = vec.to_dict()
@@ -93,10 +135,11 @@ def should_buy(vec: Any) -> float:
     """
     Devuelve la probabilidad de compra (label = 1) para el vector de características.
     •  `vec` puede ser dict, pandas.Series o pandas.DataFrame (1 fila).
+    •  Si no hay modelo aún (primera ejecución), devuelve 0.0.
     """
     _load_model()
     if _model is None:
-        return 0.0
+        return 0.0  # primera ejecución: aún sin modelo entrenado
 
     X = _to_dataframe(vec)
 

@@ -7,12 +7,14 @@ al menos `min_delta` (por defecto 0.005 = +0.5 pp).
 
 NOVEDADES
 ---------
-• Al conservarse el nuevo modelo (incluida primera vez), ejecuta el
-  sintonizado de umbral (ml.tune_threshold) y añade al .meta.json:
+• Tras conservar el nuevo modelo (incluida primera vez), ejecuta el
+  sintonizado de umbral (ml.tune_threshold) y deja siempre disponible
+  data/metrics/recommended_threshold.json (placeholder si hace falta).
+• Actualiza model.meta.json con:
     - ai_threshold_recommended
     - tune_objective
-    - tune_metrics (precision/recall/F1 en el umbral elegido, AUCs, etc.)
-• Logging robusto y rollback seguro de modelo/meta en caso de no mejora.
+    - tune_metrics (precision/recall/F1, AUC-PR, ROC-AUC, etc.)
+• Rollback seguro de modelo/meta/threshold si no hay mejora.
 
 Uso
 ---
@@ -24,7 +26,7 @@ import json
 import logging
 import pathlib
 import shutil
-from typing import Tuple
+from typing import Tuple, Optional
 
 from config.config import CFG
 from ml.train import train_and_save  # entrena y guarda modelo + meta
@@ -35,9 +37,9 @@ log = logging.getLogger("ml.retrain")
 MODEL_PATH: pathlib.Path = CFG.MODEL_PATH
 META_PATH: pathlib.Path = MODEL_PATH.with_suffix(".meta.json")
 
-# Rutas del tuner (comparten METRICS_DIR con train)
+# Rutas del tuner/metrics
 try:
-    from ml.tune_threshold import main as _tune_main  # función CLI-friendly
+    from ml.tune_threshold import main as _tune_main  # CLI-friendly
     from ml.tune_threshold import OUT_JSON as TUNE_JSON_PATH
 except Exception:  # pragma: no cover
     _tune_main = None  # type: ignore
@@ -45,7 +47,7 @@ except Exception:  # pragma: no cover
 
 
 # ───────────────────────── helpers ──────────────────────────────
-def _load_auc_pr(meta_path: pathlib.Path) -> float | None:
+def _load_auc_pr(meta_path: pathlib.Path) -> Optional[float]:
     """Carga AUC-PR (o métrica aproximada) desde el .meta.json."""
     if not meta_path.exists():
         return None
@@ -53,7 +55,6 @@ def _load_auc_pr(meta_path: pathlib.Path) -> float | None:
         meta = json.loads(meta_path.read_text())
     except Exception:  # pragma: no cover
         return None
-    # Prioridad: auc_pr_mean → auc_cv_mean → auc
     for k in ("auc_pr_mean", "auc_cv_mean", "auc"):
         v = meta.get(k)
         if isinstance(v, (int, float)):
@@ -61,40 +62,66 @@ def _load_auc_pr(meta_path: pathlib.Path) -> float | None:
     return None
 
 
-def _backup_old_model() -> Tuple[pathlib.Path, pathlib.Path] | None:
+def _backup_old(model: pathlib.Path, meta: pathlib.Path, tune_json: pathlib.Path) -> Tuple[Optional[pathlib.Path], Optional[pathlib.Path], Optional[pathlib.Path]]:
     """
-    Copia modelo+meta actuales a ficheros .bkup.* en el mismo directorio
-    y devuelve sus rutas (tmp_model, tmp_meta).
+    Copia modelo/meta/threshold actuales a .bkup.* y devuelve sus rutas.
+    Si alguno no existe, devuelve None en su lugar.
     """
-    if not MODEL_PATH.exists() or not META_PATH.exists():
-        return None
-    tmp_model = MODEL_PATH.parent / (MODEL_PATH.stem + ".bkup.pkl")
-    tmp_meta = META_PATH.parent / (META_PATH.stem + ".bkup.json")
-    shutil.copy2(MODEL_PATH, tmp_model)
-    shutil.copy2(META_PATH, tmp_meta)
-    return tmp_model, tmp_meta
+    tmp_model = tmp_meta = tmp_tune = None
+
+    if model.exists():
+        tmp_model = model.parent / (model.stem + ".bkup.pkl")
+        shutil.copy2(model, tmp_model)
+
+    if meta.exists():
+        tmp_meta = meta.parent / (meta.stem + ".bkup.json")
+        shutil.copy2(meta, tmp_meta)
+
+    if tune_json.exists():
+        tmp_tune = tune_json.parent / (tune_json.stem + ".bkup.json")
+        shutil.copy2(tune_json, tmp_tune)
+
+    return tmp_model, tmp_meta, tmp_tune
 
 
-def _restore_backup(paths: Tuple[pathlib.Path, pathlib.Path]) -> None:
-    """Restaura el modelo/meta anteriores en caso de que el nuevo no mejore."""
-    tmp_model, tmp_meta = paths
-    try:
-        shutil.move(tmp_model, MODEL_PATH)
-    finally:
-        # Si move falla, al menos intenta copiar de vuelta
-        if not MODEL_PATH.exists() and tmp_model.exists():
-            shutil.copy2(tmp_model, MODEL_PATH)
-    try:
-        shutil.move(tmp_meta, META_PATH)
-    finally:
-        if not META_PATH.exists() and tmp_meta.exists():
-            shutil.copy2(tmp_meta, META_PATH)
+def _restore_backup(
+    model: pathlib.Path, meta: pathlib.Path, tune_json: pathlib.Path,
+    b_model: Optional[pathlib.Path], b_meta: Optional[pathlib.Path], b_tune: Optional[pathlib.Path],
+) -> None:
+    """Restaura backups (si existen) sobre los ficheros reales."""
+    if b_model is not None:
+        shutil.move(str(b_model), str(model))
+    if b_meta is not None:
+        shutil.move(str(b_meta), str(meta))
+    if b_tune is not None:
+        shutil.move(str(b_tune), str(tune_json))
+
+
+def _write_placeholder_threshold(path: pathlib.Path) -> None:
+    """Escribe un JSON de threshold placeholder (=0.5) para no dejar el sistema sin archivo."""
+    data = {
+        "picked": 0.5,
+        "objective": "degenerate",
+        "f1_at_picked": 0.0,
+        "precision_at_picked": 0.0,
+        "recall_at_picked": 0.0,
+        "auc_pr": float("nan"),
+        "roc_auc": float("nan"),
+        "samples": 0,
+        "positives": 0,
+        "source_csv": str(CFG.FEATURES_DIR.parent / "metrics" / "val_preds.csv"),
+        "generated_at_utc": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "alternatives": {},
+        "note": "Placeholder: generar real con ml.tune_threshold en cuanto haya val_preds.csv.",
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2))
 
 
 def _augment_meta_with_threshold(meta_path: pathlib.Path, tune_json_path: pathlib.Path) -> None:
     """
     Inserta en el .meta.json la información del umbral recomendado si existe
-    el JSON producido por ml.tune_threshold.
+    el JSON producido por ml.tune_threshold (o placeholder).
     """
     if not meta_path.exists() or not tune_json_path.exists():
         return
@@ -105,7 +132,6 @@ def _augment_meta_with_threshold(meta_path: pathlib.Path, tune_json_path: pathli
         log.debug("No se pudo leer meta/tune JSON: %s", exc)
         return
 
-    # Campos añadidos
     meta["ai_threshold_recommended"] = tune.get("picked")
     meta["tune_objective"] = tune.get("objective")
     meta["tune_metrics"] = {
@@ -118,7 +144,6 @@ def _augment_meta_with_threshold(meta_path: pathlib.Path, tune_json_path: pathli
         "positives": tune.get("positives"),
     }
 
-    # Escritura segura
     tmp = meta_path.with_suffix(".meta.json.tmp")
     tmp.write_text(json.dumps(meta, indent=2))
     tmp.replace(meta_path)
@@ -127,53 +152,54 @@ def _augment_meta_with_threshold(meta_path: pathlib.Path, tune_json_path: pathli
 def _run_tuner() -> float | None:
     """
     Ejecuta el sintonizador de umbral (ml.tune_threshold) y devuelve
-    el valor recomendado (float) si todo fue bien.
+    el valor recomendado si todo fue bien. Si no genera JSON, crea un
+    placeholder para no dejar al bot sin archivo.
     """
     if _tune_main is None:
-        log.warning("ml.tune_threshold no disponible; omito sintonizado de umbral.")
-        return None
+        log.warning("ml.tune_threshold no disponible; se escribirá placeholder.")
+        _write_placeholder_threshold(TUNE_JSON_PATH)
+        return 0.5
 
     try:
         # Ejecuta con parámetros por defecto (objective=f1).
         _tune_main()
     except SystemExit:
-        # argparse puede hacer SystemExit(0). Lo consideramos OK.
+        # argparse puede lanzar SystemExit(0); lo consideramos OK.
         pass
     except Exception as exc:  # pragma: no cover
         log.warning("Fallo ejecutando ml.tune_threshold: %s", exc)
-        return None
 
-    # Lee el JSON resultante
     if not TUNE_JSON_PATH.exists():
-        log.warning("Tuner no generó %s; omito ai_threshold_recommended.", TUNE_JSON_PATH)
-        return None
+        log.warning("Tuner no generó %s; escribo placeholder.", TUNE_JSON_PATH)
+        _write_placeholder_threshold(TUNE_JSON_PATH)
+        return 0.5
+
     try:
         data = json.loads(TUNE_JSON_PATH.read_text())
         picked = data.get("picked")
-        if isinstance(picked, (int, float)):
-            return float(picked)
-        return None
+        return float(picked) if isinstance(picked, (int, float)) else None
     except Exception as exc:  # pragma: no cover
-        log.warning("No se pudo leer %s: %s", TUNE_JSON_PATH, exc)
-        return None
+        log.warning("No se pudo leer %s: %s. Escribo placeholder.", TUNE_JSON_PATH, exc)
+        _write_placeholder_threshold(TUNE_JSON_PATH)
+        return 0.5
 
 
 # ───────────────────── función principal ──────────────────────
 def retrain_if_better(min_delta: float = 0.005) -> bool:
     """
-    • Lanza `train_and_save()` – genera modelo + meta.
+    • Lanza `train_and_save()` – genera modelo + meta + val_preds.csv.
     • Compara el nuevo AUC-PR con el antiguo.
-    • Si mejora ≥ `min_delta`  → mantiene el nuevo y ejecuta tuner de umbral.
-      Si NO                   → restaura el antiguo.
+    • Si mejora ≥ `min_delta`  → mantiene el nuevo y ejecuta el tuner.
+      Si NO                   → restaura el anterior (modelo/meta/threshold).
 
     Returns
     -------
     bool
-        True  → modelo actualizado (y umbral sintonizado si fue posible)
+        True  → modelo actualizado (y threshold sintonizado/placeholder)
         False → se conserva el modelo previo
     """
     prev_auc_pr = _load_auc_pr(META_PATH)
-    backup = _backup_old_model()  # None si no existía modelo previo
+    b_model, b_meta, b_tune = _backup_old(MODEL_PATH, META_PATH, TUNE_JSON_PATH)
 
     # Entrena y guarda (modelo.pkl + modelo.meta.json + val_preds.csv)
     train_and_save()
@@ -182,13 +208,10 @@ def retrain_if_better(min_delta: float = 0.005) -> bool:
     # — primera vez —
     if prev_auc_pr is None:
         log.info("✅ Modelo entrenado por primera vez (AUC-PR=%.4f)", new_auc_pr or float("nan"))
-        # Sintoniza umbral al tener primer modelo
         picked = _run_tuner()
+        _augment_meta_with_threshold(META_PATH, TUNE_JSON_PATH)
         if picked is not None:
-            _augment_meta_with_threshold(META_PATH, TUNE_JSON_PATH)
             log.info("🎯 Umbral recomendado (AI_THRESHOLD)=%.3f (ver %s)", picked, TUNE_JSON_PATH)
-        else:
-            log.info("🎯 Umbral recomendado no disponible (ver logs del tuner).")
         return True
 
     # — comparar y decidir —
@@ -198,40 +221,33 @@ def retrain_if_better(min_delta: float = 0.005) -> bool:
             "✅ Modelo actualizado  AUC-PR %.4f → %.4f  (Δ=+%.4f)",
             prev_auc_pr, new_auc_pr, improvement,
         )
-        # El nuevo se queda → ejecuta tuner y anexa al meta
         picked = _run_tuner()
+        _augment_meta_with_threshold(META_PATH, TUNE_JSON_PATH)
         if picked is not None:
-            _augment_meta_with_threshold(META_PATH, TUNE_JSON_PATH)
             log.info("🎯 Umbral recomendado (AI_THRESHOLD)=%.3f (ver %s)", picked, TUNE_JSON_PATH)
-        else:
-            log.info("🎯 Umbral recomendado no disponible (ver logs del tuner).")
 
-        # limpia backups si los hay
-        if backup:
-            for p in backup:
-                try:
-                    p.unlink(missing_ok=True)
-                except Exception:
-                    pass
-        return True
-
-    # — sin mejora → rollback —
-    log.info(
-        "❌ Sin mejora (Δ=%.4f < %.4f) – se mantiene el modelo previo",
-        improvement, min_delta,
-    )
-    if backup:
-        _restore_backup(backup)
-        # borra backups residuales
-        for p in backup:
+        # limpia backups residuales
+        for p in (b_model, b_meta, b_tune):
             try:
-                p.unlink(missing_ok=True)
+                if p is not None:
+                    p.unlink(missing_ok=True)
             except Exception:
                 pass
+        return True
+
+    # — sin mejora → rollback completo —
+    log.info("❌ Sin mejora (Δ=%.4f < %.4f) – se mantiene el modelo previo", improvement, min_delta)
+    _restore_backup(MODEL_PATH, META_PATH, TUNE_JSON_PATH, b_model, b_meta, b_tune)
+    # limpia backups residuales si quedaron
+    for p in (b_model, b_meta, b_tune):
+        try:
+            if p is not None and p.exists():
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
     return False
 
 
 if __name__ == "__main__":
-    # Permite ejecutar `python -m ml.retrain` manualmente
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     retrain_if_better()

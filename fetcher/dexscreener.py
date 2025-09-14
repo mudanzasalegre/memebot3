@@ -4,6 +4,11 @@ Fetcher DexScreener (async) con TTL-cache y back-off.
 
 Cambios
 ───────
+2025-09-15
+• Normalización de `dexId`: se expone siempre `tok["dexId"]` **normalizado**
+  (lowercase, sin espacios) y mapeado a familia (raydium/orca/meteora, etc.)
+  para casar con DEX_WHITELIST. El valor normalizado prevalece sobre el crudo.
+
 2025-08-24
 • parse_iso_utc para fechas ISO y manejo seguro de enteros ms/seg (sin .replace).
 • Coerción estricta a float en price/liquidity/volume/mcap y aplanado del tick.
@@ -235,6 +240,49 @@ def _add_legacy_aliases(tok: dict) -> dict:
         out["fdv"] = out.get("market_cap_usd", np.nan)
     return out
 
+# ─────────────────────── normalización de dexId ───────────────────────
+def _normalize_dex_id(raw_val: Any) -> Optional[str]:
+    """
+    Devuelve un dex_id **normalizado**:
+      • lowercase
+      • sin espacios (ni guiones/barras)
+      • mapeado a familia: raydium / orca / meteora (y algunos extra)
+    """
+    if not raw_val:
+        return None
+    s0 = str(raw_val).strip().lower()
+    if not s0:
+        return None
+
+    # Texto "sin espacios" (quitamos separadores comunes)
+    s_clean = "".join(ch for ch in s0 if ch.isalnum())
+
+    # Mapeo por familia (coincidencia por inclusión o exacta)
+    family_map = {
+        "raydium": "raydium",
+        "raydiumamm": "raydium",
+        "raydiumclmm": "raydium",
+        "orca": "orca",
+        "orcawhirlpool": "orca",
+        "whirlpool": "orca",
+        "meteora": "meteora",
+        "phoenix": "phoenix",
+        "lifinity": "lifinity",
+        "jupiter": "jupiter",  # rara vez aparece como dexId, pero por si acaso
+    }
+
+    # Exact match
+    if s_clean in family_map:
+        return family_map[s_clean]
+
+    # Inclusión (por si vienen sufijos/prefijos)
+    for k, v in family_map.items():
+        if k in s_clean:
+            return v
+
+    # Fallback: devolver sin espacios tal cual
+    return s_clean
+
 # ───────────────────────── normalización main ─────────────────────
 def _norm_from_pair(raw_pair: dict) -> dict:
     """
@@ -278,6 +326,12 @@ def _norm_from_pair(raw_pair: dict) -> dict:
         # Pasar algunos campos originales por compat/debug
         **raw_pair,
     }
+
+    # ↪ Normalizar dexId y dejarlo **siempre** en `tok["dexId"]`
+    # (lo hacemos *después* del merge con raw_pair para que prevalezca)
+    dex_raw = raw_pair.get("dexId") or (raw_pair.get("dex") or {}).get("id")
+    tok["dexId"] = _normalize_dex_id(dex_raw)
+
     tok = sanitize_token_data(tok)
     tok = _add_legacy_aliases(tok)
     return tok

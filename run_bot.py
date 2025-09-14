@@ -2,30 +2,19 @@
 """
 ⏯️  Orquestador principal del sniper MemeBot 3
 ──────────────────────────────────────────────
-Última revisión · 2025-08-23
+Última revisión · 2025-09-15
 
 Novedades importantes
 ─────────────────────
-1) Ventanas horarias de trading (env):
-     TRADING_HOURS=13-16
-     TRADING_HOURS_EXTRA=11,18,22
-     USE_EXTRA_HOURS=false
-   Fuera de ventana → requeue con backoff hasta la siguiente.
-
-2) Compra sólo con precio de Jupiter (solo precio):
-     REQUIRE_JUPITER_FOR_BUY=true
-   Si Jupiter no devuelve precio → no se compra.
-
-3) Gestión de riesgo (monitor):
-   • Early-drop kill: KILL_EARLY_DROP_PCT (def. 45) dentro de
-     KILL_EARLY_WINDOW_S (def. 90 s) desde la apertura.
-   • Liquidity crush opcional: si dispones de liq_at_buy_usd en la Position
-     y el tick trae liquidity_usd, cierra si cae por debajo de
-     KILL_LIQ_FRACTION (def. 0.70). Si no hay datos, se omite.
-
-4) Umbral IA dinámico:
-   Si existe data/metrics/recommended_threshold.json o el .meta.json del
-   modelo trae ai_threshold_recommended, se aplica al arrancar.
+• Sin “fuga” de etiquetas: no se persisten positivos en T0 (solo negativos inmediatos).
+• Persistencia al cerrar posiciones (real y DRY-RUN) usando el vector T0 guardado.
+• Shadow simulation en MODO REAL (REAL_SHADOW_SIM=true).
+• Flag FORCE_JUP_IN_MONITOR para forzar Jupiter-first en monitor.
+• Umbral IA dinámico con suavizado (MIN_THRESHOLD_CHANGE).
+• Gate IA con AI_TH (nuevo) y soft-score mínimo BUY_SOFT_SCORE_MIN (nuevo).
+• Guard de pool: DEX_WHITELIST + (si router) ruta Jupiter requerida.
+• Rate limiter de BUY: BUY_RATE_LIMIT_N / BUY_RATE_LIMIT_WINDOW_S (no bloqueante).
+• Nuevas métricas: appended_at_close, appended_shadow, filtered_immediate_0.
 """
 
 from __future__ import annotations
@@ -71,12 +60,23 @@ from config.config import (  # noqa: E402 – after stdlib
     CFG,
     BANNED_CREATORS,
     INCOMPLETE_RETRIES,
-    USE_JUPITER_PRICE,  # batch Jupiter
+    USE_JUPITER_PRICE,      # batch Jupiter
+    FORCE_JUP_IN_MONITOR,   # ← NUEVO
+    REAL_SHADOW_SIM,        # ← NUEVO
+    MIN_THRESHOLD_CHANGE,   # ← NUEVO (suavizado umbral IA)
+    WIN_PCT,                # ← para etiquetado al cierre (ratio, no %)
+    # NUEVOS flags/umbrales
+    AI_THRESHOLD as AI_TH_CFG,
+    DEX_WHITELIST,
+    REQUIRE_POOL_INITIALIZED,
+    BUY_RATE_LIMIT_N,
+    BUY_RATE_LIMIT_WINDOW_S,
 )
 from config import exits  # take-profit / stop-loss
 
 MIN_MARKET_CAP_USD = CFG.MIN_MARKET_CAP_USD
 MAX_MARKET_CAP_USD = CFG.MAX_MARKET_CAP_USD
+BUY_SOFT_SCORE_MIN = CFG.BUY_SOFT_SCORE_MIN  # nuevo
 
 # ───────── DB & modelos ─────────────────────────────────────────────────────
 from db.database import SessionLocal, async_init_db  # noqa: E402
@@ -91,6 +91,16 @@ from fetcher import (  # noqa: E402
     socials,
     jupiter_price,  # batch de precios
 )
+# Router Jupiter (opcional) para has_route/impact
+try:
+    # Debe exponer get_quote(input_mint: str, output_mint: str, amount_sol: float)
+    # con atributos: ok: bool, price_impact_bps: int|None
+    from fetcher import jupiter_router as jupiter  # type: ignore
+    _JUP_ROUTER_AVAILABLE = True
+except Exception:
+    jupiter = None  # type: ignore
+    _JUP_ROUTER_AVAILABLE = False
+
 from analytics import filters, insider, trend, requeue_policy  # noqa: E402
 from analytics.ai_predict import should_buy, reload_model  # noqa: E402
 
@@ -121,7 +131,8 @@ from utils.time import utc_now, parse_iso_utc  # noqa: E402
 # Etiquetado de posiciones ganadoras
 from labeler.win_labeler import label_positions  # noqa: E402
 
-# ╭─────────────────────── helpers: ventanas horarias ────────────────────────╮
+
+# ╭─────────────────────── helpers: ventanas / bloqueos ──────────────────────╮
 def _parse_hours(spec: str) -> List[Tuple[int, int]]:
     """
     Convierte expresiones tipo "13-16,22,7" a rangos [(13,16),(22,22),(7,7)].
@@ -136,7 +147,10 @@ def _parse_hours(spec: str) -> List[Tuple[int, int]]:
             continue
         if "-" in part:
             a, b = part.split("-", 1)
-            a, b = int(a), int(b)
+            try:
+                a, b = int(a), int(b)
+            except Exception:
+                continue
             if 0 <= a <= 23 and 0 <= b <= 23:
                 if a <= b:
                     windows.append((a, b))
@@ -150,8 +164,16 @@ def _parse_hours(spec: str) -> List[Tuple[int, int]]:
                     windows.append((h, h))
             except Exception:
                 continue
-    # normaliza y ordena
     return sorted(windows)
+
+def _in_ranges(now_local: dt.datetime, ranges: List[Tuple[int, int]]) -> bool:
+    if not ranges:
+        return False
+    h = now_local.hour
+    for a, b in ranges:
+        if a <= h <= b:
+            return True
+    return False
 
 def _in_windows(now_local: dt.datetime, windows: List[Tuple[int, int]]) -> bool:
     if not windows:
@@ -166,42 +188,90 @@ def _secs_to_next_window(now_local: dt.datetime, windows: List[Tuple[int, int]])
     if not windows:
         return 0
     h, m, s = now_local.hour, now_local.minute, now_local.second
-    # si ya estamos dentro, siguiente es el inicio del siguiente rango (día actual o siguiente)
     if _in_windows(now_local, windows):
-        # encontrar el final del rango actual y sumar hasta el inicio del rango siguiente
-        # simplificación: esperamos 15 min para reintentar dentro de la ventana activa
-        return 15 * 60
-    # buscar el próximo inicio ≥ ahora
+        return 15 * 60  # estamos dentro; reintento “suave”
     candidates: List[int] = []
-    for a, b in windows:
+    for a, _ in windows:
         if a >= h:
-            # segundos hasta las a:00 de hoy
             delta = (a - h) * 3600 - m * 60 - s
             candidates.append(delta if delta >= 0 else 0)
         else:
-            # hasta mañana a:00
             delta = (24 - h + a) * 3600 - m * 60 - s
             candidates.append(delta)
     return min(candidates) if candidates else 3600
 
+# Ventanas permitidas
 _TRADING_HOURS       = _parse_hours(os.getenv("TRADING_HOURS", ""))
 _TRADING_HOURS_EXTRA = _parse_hours(os.getenv("TRADING_HOURS_EXTRA", ""))
 _USE_EXTRA_HOURS     = os.getenv("USE_EXTRA_HOURS", "false").lower() == "true"
+# Horas bloqueadas
+_BLOCK_HOURS         = _parse_hours(os.getenv("BLOCK_HOURS", ""))
+
 _REQUIRE_JUP_FOR_BUY = os.getenv("REQUIRE_JUPITER_FOR_BUY", "true").lower() == "true"
 
 def _in_trading_window(now_local: Optional[dt.datetime] = None) -> bool:
+    """True si (ventanas vacías o dentro de ventanas) y NO en horas bloqueadas."""
     now_local = now_local or dt.datetime.now()
     windows = list(_TRADING_HOURS)
     if _USE_EXTRA_HOURS:
         windows += list(_TRADING_HOURS_EXTRA)
-    return _in_windows(now_local, windows)
+    allowed_by_window = _in_windows(now_local, windows) if windows else True
+    blocked = _in_ranges(now_local, _BLOCK_HOURS) if _BLOCK_HOURS else False
+    return allowed_by_window and not blocked
 
 def _delay_until_window(now_local: Optional[dt.datetime] = None) -> int:
+    """
+    Segundos hasta la próxima franja permitida (considera ventanas y bloqueos).
+    Si ya está permitido, devuelve 0. Busca al siguiente “inicio de hora”.
+    """
     now_local = now_local or dt.datetime.now()
+    if _in_trading_window(now_local):
+        return 0
+
     windows = list(_TRADING_HOURS)
     if _USE_EXTRA_HOURS:
         windows += list(_TRADING_HOURS_EXTRA)
-    return _secs_to_next_window(now_local, windows)
+
+    base = now_local.replace(minute=0, second=0, microsecond=0)
+    # Buscamos en los próximos 48 saltos horarios una hora permitida
+    for i in range(0, 48):
+        # si ya estamos en xx:00 exacto, el siguiente turno es +0, si no, +1
+        cand = base + dt.timedelta(hours=i + (0 if now_local == base else 1))
+        ok_window = _in_windows(cand, windows) if windows else True
+        blocked = _in_ranges(cand, _BLOCK_HOURS) if _BLOCK_HOURS else False
+        if ok_window and not blocked:
+            delta = (cand - now_local).total_seconds()
+            return int(max(30, delta))
+    return 15 * 60  # fallback improbable
+
+
+# ╭─────────────────────── Rate limiter de BUY ───────────────────────────────╮
+class _BuyLimiter:
+    """Leaky-bucket simple no bloqueante para BUY."""
+    def __init__(self, max_hits: int, window_s: int):
+        self.max_hits = max(1, int(max_hits))
+        self.window_s = max(1, int(window_s))
+        self._ts = deque()  # timestamps monotonic de BUYs concedidos
+
+    def allow(self, n: int = 1) -> bool:
+        now = time.monotonic()
+        # purge fuera de ventana
+        while self._ts and now - self._ts[0] > self.window_s:
+            self._ts.popleft()
+        if len(self._ts) + n <= self.max_hits:
+            for _ in range(n):
+                self._ts.append(now)
+            return True
+        return False
+
+    def current(self) -> int:
+        now = time.monotonic()
+        while self._ts and now - self._ts[0] > self.window_s:
+            self._ts.popleft()
+        return len(self._ts)
+
+_BUY_LIMITER = _BuyLimiter(BUY_RATE_LIMIT_N, BUY_RATE_LIMIT_WINDOW_S)
+
 
 # ╭─────────────────────── CLI ───────────────────────────────────────────────╮
 parser = argparse.ArgumentParser(description="MemeBot 3 – sniper Solana")
@@ -247,12 +317,12 @@ TP_PCT        = exits.TAKE_PROFIT_PCT
 SL_PCT        = exits.STOP_LOSS_PCT
 TRAILING_PCT  = exits.TRAILING_PCT
 MAX_HOLDING_H = exits.MAX_HOLDING_H
-AI_TH         = CFG.AI_THRESHOLD  # se puede sobre-escribir por tuner
+AI_THRESHOLD         = AI_TH_CFG  # usar AI_TH nuevo por defecto; puede sobreescribirse abajo
 
 # Kill-switches (riesgo) — valores por defecto razonables
 _EARLY_DROP_PCT   = float(os.getenv("KILL_EARLY_DROP_PCT", "45"))
 _EARLY_WINDOW_S   = int(os.getenv("KILL_EARLY_WINDOW_S", "90"))
-_LIQ_CRUSH_FRAC   = float(os.getenv("KILL_LIQ_FRACTION", "0.70"))  # requiere liq_at_buy_usd + liq tick
+_LIQ_CRUSH_FRAC   = float(os.getenv("KILL_LIQ_FRACTION", "0.70"))  # requiere buy_liquidity_usd + liq tick
 
 # ╭─────────────────────── Carga de AI_THRESHOLD recomendado ─────────────────╮
 def _load_ai_threshold_override() -> Optional[float]:
@@ -279,6 +349,8 @@ def _load_ai_threshold_override() -> Optional[float]:
         if meta_path.exists():
             meta = json.loads(meta_path.read_text())
             val = meta.get("ai_threshold_recommended")
+            if not isinstance(val, (int, float)):
+                val = meta.get("threshold")
             if isinstance(val, (int, float)):
                 return float(val)
     except Exception:
@@ -287,13 +359,25 @@ def _load_ai_threshold_override() -> Optional[float]:
 
 _thr_override = _load_ai_threshold_override()
 if _thr_override is not None:
-    old = AI_TH
-    AI_TH = float(_thr_override)
-    log.info("🎯 AI_THRESHOLD override: %.3f (antes=%.3f)", AI_TH, old)
+    old = AI_THRESHOLD
+    # suavizado: solo aplicar si cambio >= MIN_THRESHOLD_CHANGE
+    if abs(float(_thr_override) - float(old)) >= float(MIN_THRESHOLD_CHANGE):
+        AI_THRESHOLD = float(_thr_override)
+        log.info("🎯 AI_THRESHOLD override aplicado: %.3f (antes=%.3f, Δ=%.3f≥%.3f)",
+                 AI_THRESHOLD, old, AI_THRESHOLD - old, MIN_THRESHOLD_CHANGE)
+    else:
+        log.info("🎯 AI_THRESHOLD override ignorado por suavizado: rec=%.3f, actual=%.3f, Δ=%.3f<%.3f",
+                 float(_thr_override), float(old), float(_thr_override) - float(old), float(MIN_THRESHOLD_CHANGE))
 
 # ╭─────────────────────── Estado global ─────────────────────────────────────╮
 _wallet_sol_balance: float = 0.0
 _last_wallet_check   : float = 0.0
+
+# Vectores de features pendientes de etiquetar (por mint/address)
+_pending_ai_vectors: Dict[str, List[float]] = {}  # address → feature_vector
+
+# NUEVO: shadow positions (modo real)
+_shadow_positions: Dict[str, Dict[str, object]] = {}  # address → {"vec":..., "opened_at":..., "buy_price_usd":...}
 
 _stats = {
     "raw_discovered": 0,
@@ -304,6 +388,10 @@ _stats = {
     "sold":           0,
     "requeues":       0,
     "requeue_success": 0,
+    # Nuevos contadores
+    "appended_at_close": 0,
+    "appended_shadow":   0,
+    "filtered_immediate_0": 0,
 }
 _last_stats_print: float = time.monotonic()
 _last_csv_export : float = time.monotonic()
@@ -336,6 +424,7 @@ def _pf_can_try_now(addr: str) -> bool:
     _pf_attempt_bucket.append(now)
     _pf_last_attempt[addr] = now
     return True
+
 
 # ╭─────────────────────── Helpers de balance ────────────────────────────────╮
 async def _refresh_balance(now_mono: float) -> None:
@@ -383,21 +472,119 @@ async def _periodic_labeler() -> None:
             log.error("label_positions → %s", exc)
         await asyncio.sleep(3600)
 
+
 # ╭─────────────────────── Logging de nuevos tokens ──────────────────────────╮
 def _log_token(tok: dict, addr: str) -> None:
     if not log.isEnabledFor(logging.DEBUG):
         return
+    dex_id = tok.get("dex_id") or tok.get("dexId") or tok.get("dexid")
+    dex_id_norm = _norm_dex_id(dex_id)
     log.debug(
-        "⛳ Nuevo %s | liq=%s vol24h=%s mcap=%s age=%s",
+        "⛳ Nuevo %s | liq=%s vol24h=%s mcap=%s age=%s | dexId=%s",
         tok.get("symbol") or addr[:4],
         _fmt(tok.get("liquidity_usd"), "{:.0f}"),
         _fmt(tok.get("volume_24h_usd"), "{:.0f}"),
         _fmt(tok.get("market_cap_usd"), "{:.0f}"),
         _fmt(tok.get("age_min"), "{:.1f}m"),
+        dex_id_norm or "?",
     )
 
+
+# ╭─────────────────────── Shadow helpers ────────────────────────────────────╮
+async def _open_shadow(addr: str, vec: List[float], price_hint: Optional[float] = None) -> None:
+    """Crea una shadow position (solo modo real) cuando pasa IA pero no se compra."""
+    if DRY_RUN or not REAL_SHADOW_SIM:
+        return
+    try:
+        price = price_hint
+        if price is None:
+            # Jupiter primero; si falla, fallback a Dex/GT “solo precio”
+            try:
+                price = await price_service.get_price_usd(addr)
+            except Exception:
+                price = None
+            if price is None:
+                tok = await price_service.get_price(addr, use_gt=True, price_only=True)
+                price = float(tok.get("price_usd")) if tok and tok.get("price_usd") else None
+        _shadow_positions[addr] = {
+            "vec": vec,
+            "opened_at": utc_now(),
+            "buy_price_usd": float(price) if price is not None else None,
+        }
+        log.info("👻 Shadow creada: %s (buy_price_usd=%s)", addr[:6], _fmt(price))
+    except Exception as exc:
+        log.debug("open_shadow %s → %s", addr[:6], exc)
+
+async def _tick_shadows() -> None:
+    """Revisa sombras y cierra las que hayan alcanzado MAX_HOLDING_H; persiste label."""
+    if not _shadow_positions:
+        return
+    to_delete: List[str] = []
+    now = utc_now()
+    for addr, sd in _shadow_positions.items():
+        opened = sd.get("opened_at")
+        if not opened:
+            to_delete.append(addr); continue
+        age_h = (now - opened).total_seconds() / 3600.0
+        if age_h < MAX_HOLDING_H:
+            continue
+
+        buy_price = sd.get("buy_price_usd")
+        # Obtener precio de cierre (Jupiter-first forzado)
+        try:
+            close_price = await price_service.get_price_usd(addr)
+        except Exception:
+            close_price = None
+        if close_price is None:
+            try:
+                tok = await price_service.get_price(addr, use_gt=True, price_only=True)
+                close_price = float(tok.get("price_usd")) if tok and tok.get("price_usd") else None
+            except Exception:
+                close_price = None
+
+        # Calcular label
+        label = 0
+        if buy_price and close_price:
+            pnl_ratio = (close_price - buy_price) / buy_price
+            label = 1 if pnl_ratio >= WIN_PCT else 0
+        vec = sd.get("vec")
+        if vec:
+            try:
+                store_append(vec, label)
+                _stats["appended_shadow"] += 1
+            except Exception as exc:
+                log.debug("store_append shadow %s → %s", addr[:6], exc)
+
+        to_delete.append(addr)
+
+    for addr in to_delete:
+        _shadow_positions.pop(addr, None)
+
+
+# ───────────────────────── helpers pool/route/DEX ───────────────────────────
+def _norm_dex_id(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    s = str(raw).strip().lower().replace(" ", "")
+    # normalizaciones rápidas típicas
+    s = s.replace("_", "").replace("-", "")
+    return s or None
+
+async def _has_jupiter_route(output_mint: str, amount_sol: float) -> Optional[bool]:
+    """Devuelve True/False si hay ruta según router; None si router no disponible/error."""
+    if not _JUP_ROUTER_AVAILABLE or jupiter is None:
+        return None
+    try:
+        SOL_MINT = "So11111111111111111111111111111111111111112"
+        amt = max(0.005, min(float(amount_sol or 0.01), 0.2))
+        q = await jupiter.get_quote(input_mint=SOL_MINT, output_mint=output_mint, amount_sol=amt)
+        return bool(getattr(q, "ok", False))
+    except Exception:
+        return None
+
+
 # ────────────────────────────────────────────────────────────────────────────
-# run_bot.py  — _evaluate_and_buy  (sin cambios de lógica, pero afinado)
+# run_bot.py  — _evaluate_and_buy
 # ────────────────────────────────────────────────────────────────────────────
 async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     """Evalúa un token y, si pasa los filtros + IA, lanza la compra."""
@@ -406,13 +593,17 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     addr = token["address"]
     _stats["raw_discovered"] += 1
 
-    # 0) — ventana horaria —
-    if _TRADING_HOURS or (_USE_EXTRA_HOURS and _TRADING_HOURS_EXTRA):
-        if not _in_trading_window():
-            delay = max(30, _delay_until_window())
-            requeue(addr, reason="off_hours", backoff=delay)
-            _stats["requeues"] += 1
-            return
+    # 0) — gate horario (24/7 si no hay ventanas; BLOCK_HOURS siempre aplica si define) —
+    if not _in_trading_window():
+        delay = max(30, _delay_until_window())
+        # Motivo de log diferenciado
+        if _BLOCK_HOURS and _in_ranges(dt.datetime.now(), _BLOCK_HOURS):
+            reason = "blocked_hour"
+        else:
+            reason = "off_hours"
+        requeue(addr, reason=reason, backoff=delay)
+        _stats["requeues"] += 1
+        return
 
     # 1) — limpieza básica + log preliminar —
     token = sanitize_token_data(token)
@@ -427,6 +618,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
     # 3) — filtros inmediatos —
     if token.get("creator") in BANNED_CREATORS:
+        _stats["filtered_out"] += 1
+        store_append(build_feature_vector(token), 0)
+        _stats["filtered_immediate_0"] += 1
         eliminar_par(addr)
         return
 
@@ -452,6 +646,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
         token["is_incomplete"] = 1
         store_append(build_feature_vector(token), 0)
+        _stats["filtered_immediate_0"] += 1
 
         attempts = int((meta := lista_pares.meta(addr) or {}).get("attempts", 0))
         backoff  = [60, 180, 420][min(attempts, 2)]
@@ -493,6 +688,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         else:
             _stats["filtered_out"] += 1
             store_append(build_feature_vector(token), 0)
+            _stats["filtered_immediate_0"] += 1
             eliminar_par(addr)
         return
 
@@ -501,20 +697,35 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["cluster_bad"] = await clusters.suspicious_cluster(addr)
     token["score_total"] = filters.total_score(token)
 
-    # 9) — IA —
+    # 9) — IA + soft score gate —
     vec = build_feature_vector(token)
     proba = should_buy(vec)
-    if proba < AI_TH:
+    if proba < AI_THRESHOLD:
         _stats["filtered_out"] += 1
         store_append(vec, 0)
+        _stats["filtered_immediate_0"] += 1
         eliminar_par(addr)
         return
+
+    if BUY_SOFT_SCORE_MIN > 0 and int(token.get("score_total") or 0) < int(BUY_SOFT_SCORE_MIN):
+        log.debug("🪫 Soft score gate: %s score_total=%d < %d",
+                  addr[:6], int(token.get("score_total") or 0), BUY_SOFT_SCORE_MIN)
+        _stats["filtered_out"] += 1
+        store_append(vec, 0)
+        _stats["filtered_immediate_0"] += 1
+        eliminar_par(addr)
+        return
+
     _stats["ai_pass"] += 1
-    store_append(vec, 1)
+
+    # IMPORTANTE: no etiquetar 1 en T0; guardamos el vector para el cierre
+    _pending_ai_vectors[addr] = vec
 
     # 10) — importe —
     amount_sol = _compute_trade_amount()
     if amount_sol < MIN_BUY_SOL:
+        # Shadow si pasa IA pero no se compra por importe
+        await _open_shadow(addr, vec, price_hint=token.get("price_usd"))
         eliminar_par(addr)
         return
 
@@ -529,18 +740,56 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         eliminar_par(addr)
         return
 
+    # 11.5) — Guard de pool (DEX whitelist) + ruta Jupiter (si router) —
+    if REQUIRE_POOL_INITIALIZED:
+        dex_id_norm = _norm_dex_id(token.get("dex_id") or token.get("dexId"))
+        if dex_id_norm and DEX_WHITELIST and dex_id_norm not in DEX_WHITELIST:
+            log.info("🛑 BUY bloqueado: DEX no whitelisted (dex=%s, allow=%s)", dex_id_norm, ",".join(DEX_WHITELIST))
+            _stats["filtered_out"] += 1
+            store_append(vec, 0)
+            _stats["filtered_immediate_0"] += 1
+            eliminar_par(addr)
+            return
+
+        # Mejor aún: comprobar ruta ejecutable (si router disponible)
+        has_route = await _has_jupiter_route(addr, amount_sol)
+
+        # ⚠️ Cambio clave: solo BLOQUEAMOS si la política exige Jupiter.
+        if _REQUIRE_JUP_FOR_BUY:
+            if has_route is False:
+                log.info("🛑 BUY bloqueado: sin ruta Jupiter (mint=%s, reason=no_route)", addr[:6])
+                requeue(addr, reason="no_route", backoff=90)
+                _stats["requeues"] += 1
+                return
+        else:
+            # Data acquisition / DRY-RUN: seguimos aunque Jupiter aún no tenga ruta
+            if has_route is False:
+                log.debug("[run_bot] sin ruta Jupiter (mint=%s) pero REQUIRE_JUPITER_FOR_BUY=false → continúo", addr[:6])
+        # has_route is None → router no disponible: no bloqueamos aquí
+
     # 12) — “Exigir Jupiter” para comprar (solo precio) —
     if _REQUIRE_JUP_FOR_BUY:
         try:
-            jtok = await price_service.get_price(addr, price_only=True)  # usa flag interno para bloquear
-        except TypeError:
-            jtok = None
+            jtok = await price_service.get_price(addr, price_only=True)  # usa flag interno
         except Exception:
             jtok = None
-        if not jtok or jtok.get("price_source") != "jupiter":
-            log.info("🛑 BUY bloqueado (sin Jupiter price) %s", addr[:6])
+        if not jtok or jtok.get("price_usd") in (None, 0):
+            log.info("🛑 BUY bloqueado (sin precio) %s", addr[:6])
+            # Shadow si pasa IA pero no hay precio Jupiter
+            await _open_shadow(addr, vec, price_hint=token.get("price_usd"))
             eliminar_par(addr)
             return
+
+    # 12.5) — Rate limiter de BUY (no bloqueante): cooldown si no permite —
+    if not _BUY_LIMITER.allow():
+        cur = _BUY_LIMITER.current()
+        log.info("⏳ BUY en cooldown por rate limit (%d/%ds, usado=%d) → requeue",
+                 BUY_RATE_LIMIT_N, BUY_RATE_LIMIT_WINDOW_S, cur)
+        # backoff prudente: mitad de ventana con jitter
+        back = max(20, int(BUY_RATE_LIMIT_WINDOW_S * random.uniform(0.4, 0.7)))
+        requeue(addr, reason="buy_rate_limit", backoff=back)
+        _stats["requeues"] += 1
+        return
 
     # 13) — BUY —
     try:
@@ -548,12 +797,15 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             buy_resp = await buyer.buy(
                 addr, amount_sol,
                 price_hint=token.get("price_usd"),
-                token_mint=token.get("address") or addr
+                token_mint=token.get("address") or addr,
+                liquidity_usd=token.get("liquidity_usd"),
             )
         else:
             buy_resp = await buyer.buy(addr, amount_sol, token_mint=addr)
     except Exception as exc:
         log.error("buyer.buy %s → %s", addr[:4], exc, exc_info=True)
+        # Shadow si falla la compra real
+        await _open_shadow(addr, vec, price_hint=token.get("price_usd"))
         eliminar_par(addr)
         return
 
@@ -596,14 +848,13 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     _stats["bought"] += 1
     eliminar_par(addr)
 
-# ╭─────────────────────── Exit strategy ──────────────────────────────────────╮
+
+# ╭─────────────────────── Exit strategy (monitor) ───────────────────────────╮
 async def _load_open_positions(ses: SessionLocal) -> Sequence[Position]:
     stmt = select(Position).where(Position.closed.is_(False))
     return (await ses.execute(stmt)).scalars().all()
 
-# ────────────────────────────────────────────────────────────────────────────
-# run_bot.py  — _should_exit  (usa buy_liquidity_usd en vez de liq_at_buy_usd)
-# ────────────────────────────────────────────────────────────────────────────
+
 async def _should_exit(
     pos: Position,
     price: Optional[float],
@@ -663,6 +914,7 @@ async def _should_exit(
         or (now - opened).total_seconds() / 3600 >= MAX_HOLDING_H
     )
 
+
 # ───── precarga de precios en batch para posiciones abiertas ────────────────
 async def _prefetch_batch_prices(addrs: List[str]) -> Dict[str, float]:
     """
@@ -685,8 +937,29 @@ async def _prefetch_batch_prices(addrs: List[str]) -> Dict[str, float]:
     except Exception as exc:
         log.debug("batch jupiter_price → %s", exc)
         return {}
-    
-# run_bot.py  — _check_positions  (implementada con "liquidity crush" proactivo)
+
+
+# ────────────────────────── Persistir label al cierre ───────────────────────
+def _persist_dataset_at_close(pos: Position, price_used: Optional[float]) -> None:
+    """Usa el vector T0 en memoria para persistir el label al cerrar la posición."""
+    try:
+        vec = _pending_ai_vectors.pop(pos.address, None)
+        if vec is None:
+            return
+        buy = getattr(pos, "buy_price_usd", None)
+        close = price_used if price_used is not None else getattr(pos, "close_price_usd", None)
+        if not buy or not close:
+            label = 0
+        else:
+            pnl_ratio = (float(close) - float(buy)) / float(buy)  # ratio, NO %
+            label = 1 if pnl_ratio >= float(WIN_PCT) else 0
+        store_append(vec, label)
+        _stats["appended_at_close"] += 1
+    except Exception as exc:
+        log.debug("persist_dataset_at_close %s → %s", pos.address[:6], exc)
+
+
+# ────────────────────────── Monitor de posiciones ───────────────────────────
 async def _check_positions(ses: SessionLocal) -> None:
     """Revisa posiciones abiertas y ejecuta ventas cuando corresponde."""
     import os
@@ -716,13 +989,11 @@ async def _check_positions(ses: SessionLocal) -> None:
     def _near_exit_zone(pos: Position, now: dt.datetime) -> bool:
         opened_raw = getattr(pos, "opened_at", None)
         if opened_raw is None:
-            # Sin fecha: nos quedamos en zona crítica por seguridad (permite crítico)
             return True
 
         opened: dt.datetime | None = None
         try:
             if isinstance(opened_raw, dt.datetime):
-                # Si es naïve, asumimos UTC (mantiene tu comportamiento actual)
                 opened = opened_raw if opened_raw.tzinfo else opened_raw.replace(tzinfo=dt.timezone.utc)
             elif isinstance(opened_raw, str):
                 opened = parse_iso_utc(opened_raw)
@@ -730,7 +1001,7 @@ async def _check_positions(ses: SessionLocal) -> None:
             opened = None
 
         if opened is None:
-            return True  # No podemos calcular edad → tratamos como “bootstrap”
+            return True
 
         age_min = (now - opened).total_seconds() / 60.0
         if age_min <= _CRIT_BOOTSTRAP_MIN:
@@ -777,6 +1048,10 @@ async def _check_positions(ses: SessionLocal) -> None:
         price: Optional[float] = None
         liq_now: Optional[float] = None
         prefer_dex = _buy_was_non_jup(pos)
+
+        # FORZAR Jupiter-first si el flag está activo
+        if FORCE_JUP_IN_MONITOR:
+            prefer_dex = False
 
         if prefer_dex:
             # 1) Dex/GT (SOLO PRECIO, puede traer liq si está disponible)
@@ -826,7 +1101,7 @@ async def _check_positions(ses: SessionLocal) -> None:
                 crit_used += 1
 
         else:
-            # Camino original: Jupiter → Dex/GT
+            # Camino preferente: Jupiter → Dex/GT
             price = batch_prices.get(mint_key)
             if price is not None:
                 price_src = "jup_batch"
@@ -925,6 +1200,9 @@ async def _check_positions(ses: SessionLocal) -> None:
             except SQLAlchemyError:
                 await ses.rollback()
 
+            # Persistencia dataset al cierre
+            _persist_dataset_at_close(pos, used_close if used_close is not None else price)
+
             if not DRY_RUN:
                 try:
                     _wallet_sol_balance += pos.qty / 1e9
@@ -933,8 +1211,7 @@ async def _check_positions(ses: SessionLocal) -> None:
 
             _stats["sold"] += 1
             sells_done += 1
-            # no seguimos evaluando más reglas para esta posición
-            continue
+            continue  # siguiente posición
 
         # ③ Evaluar salida con el precio disponible (puede ser None)
         if not await _should_exit(pos, price, now, liq_now=liq_now):
@@ -981,28 +1258,16 @@ async def _check_positions(ses: SessionLocal) -> None:
 
         pos.exit_tx_sig = (sell_resp or {}).get("signature")
 
-        # ⑤ PnL → calcula solo si hay ambos precios
-        pnl_pct = (
-            None
-            if pos.close_price_usd is None or pos.buy_price_usd is None
-            else (pos.close_price_usd - pos.buy_price_usd) / pos.buy_price_usd * 100
-        )
         _stats["sold"] += 1
         sells_done += 1
 
-        # contadores de fuentes de cierre
-        if used_source in close_source_counts:
-            close_source_counts[used_source] += 1  # type: ignore
-        elif used_source is None:
-            close_source_counts["none"] += 1
-        else:
-            close_source_counts[used_source] = close_source_counts.get(used_source, 0) + 1  # type: ignore
-
-        # persistencia
         try:
             await ses.commit()
         except SQLAlchemyError:
             await ses.rollback()
+
+        # Persistencia dataset al cierre
+        _persist_dataset_at_close(pos, used_close if used_close is not None else price)
 
         # devolver SOL al balance (real-mode)
         if not DRY_RUN:
@@ -1047,6 +1312,7 @@ async def _check_positions(ses: SessionLocal) -> None:
     except Exception:
         pass
 
+
 # ╭─────────────────────── Loop de entrenamiento ─────────────────────────────╮
 async def retrain_loop() -> None:
     import calendar
@@ -1070,18 +1336,49 @@ async def retrain_loop() -> None:
             await asyncio.sleep(3600)
         await asyncio.sleep(300)
 
+
 # ╭─────────────────────── Main loop ─────────────────────────────────────────╮
 async def main_loop() -> None:
     ses             = SessionLocal()
     last_discovery  = 0.0
 
+    # ── Banner de estado de ventanas/bloqueos al arrancar ──
+    now_local = dt.datetime.now()
+    windows = list(_TRADING_HOURS) + (list(_TRADING_HOURS_EXTRA) if _USE_EXTRA_HOURS else [])
+    has_windows = bool(windows)
+    is_blocked  = _in_ranges(now_local, _BLOCK_HOURS) if _BLOCK_HOURS else False
+    is_allowed  = _in_trading_window(now_local)
+
+    if not has_windows and not _BLOCK_HOURS:
+        log.info("🕒 Ventanas: 24/7 (sin TRADING_HOURS definidos); sin BLOCK_HOURS.")
+    else:
+        if is_allowed:
+            if is_blocked:
+                log.warning("⛔ Estado horario inconsistente: marcado como allowed pero en BLOCK_HOURS.")
+            else:
+                log.info("🟢 Inicio en hora PERMITIDA (ventanas aplicadas%s).",
+                         " + EXTRA" if _USE_EXTRA_HOURS else "")
+        else:
+            reason = "BLOCK_HOURS" if is_blocked else "fuera de ventana"
+            delay  = _delay_until_window(now_local)
+            log.info("⏸️  Inicio en hora NO operable (%s). Próximo intento en ~%ds.", reason, delay)
+
     log.info(
-        "Ready (discover=%ss, batch=%s, sleep=%ss, DRY_RUN=%s, AI_TH=%.2f)",
+        "Ready (discover=%ss, batch=%s, sleep=%ss, DRY_RUN=%s, AI_THRESHOLD=%.2f)",
         DISCOVERY_INTERVAL,
         VALIDATION_BATCH_SIZE,
         SLEEP_SECONDS,
         DRY_RUN,
-        AI_TH,
+        AI_THRESHOLD,
+    )
+    # Banner de nuevos flags/umbrales
+    log.info(
+        "⚙️  Config extra: soft_score_min=%d · dex_whitelist=%s · require_pool_initialized=%s · buy_rl=%d/%ds",
+        BUY_SOFT_SCORE_MIN,
+        ",".join(DEX_WHITELIST) or "(none)",
+        str(REQUIRE_POOL_INITIALIZED),
+        BUY_RATE_LIMIT_N,
+        BUY_RATE_LIMIT_WINDOW_S,
     )
 
     global _wallet_sol_balance, _last_stats_print, _last_csv_export
@@ -1125,6 +1422,13 @@ async def main_loop() -> None:
         except Exception as exc:
             log.error("Check positions → %s", exc)
 
+        # 4.5) Shadows (modo real)
+        if not DRY_RUN and REAL_SHADOW_SIM:
+            try:
+                await _tick_shadows()
+            except Exception as exc:
+                log.debug("tick_shadows → %s", exc)
+
         # 5) Métricas embudo + estado cola
         if (now_mono := time.monotonic()) - _last_stats_print >= 60:
             log_funnel(_stats)
@@ -1148,6 +1452,7 @@ async def main_loop() -> None:
             _last_csv_export = now_mono
 
         await asyncio.sleep(SLEEP_SECONDS)
+
 
 # ╭─────────────────────── Entrypoint ───────────────────────────────────────╮
 async def _runner() -> None:

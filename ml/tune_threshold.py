@@ -13,7 +13,7 @@ Salida
 data/metrics/recommended_threshold.json con:
   {
     "picked": 0.37,
-    "objective": "f1",
+    "objective": "f1" | "youden" | "constraint(precision>=X)" | "constraint(recall>=Y)",
     "f1_at_picked": 0.62,
     "precision_at_picked": 0.68,
     "recall_at_picked": 0.57,
@@ -30,11 +30,14 @@ data/metrics/recommended_threshold.json con:
     }
   }
 
+Además, actualiza/crea:
+  • model.meta.json → ai_threshold_recommended + threshold_metric
+
 Uso
 ---
 python -m ml.tune_threshold --objective f1
 python -m ml.tune_threshold --precision-floor 0.65  # elige t con recall máximo s.t. precision>=0.65
-python -m ml.tune_threshold --recall-floor 0.30     # elige t con precision máximo s.t. recall>=0.30
+python -m ml.tune_threshold --recall-floor 0.30     # elige t con precisión máxima s.t. recall>=0.30
 """
 
 from __future__ import annotations
@@ -56,10 +59,11 @@ from sklearn.metrics import (
 
 from config.config import CFG
 
-# Paths
+# Paths principales
 METRICS_DIR = CFG.FEATURES_DIR.parent / "metrics"
 VAL_PREDS_CSV = METRICS_DIR / "val_preds.csv"
 OUT_JSON = METRICS_DIR / "recommended_threshold.json"
+META_PATH = CFG.MODEL_PATH.with_suffix(".meta.json")
 
 
 @dataclass
@@ -82,7 +86,6 @@ def _safe_f1(prec: float, rec: float, beta: float = 1.0) -> float:
     if beta == 1.0:
         denom = prec + rec
         return 0.0 if denom == 0 else 2 * prec * rec / denom
-    # F-beta general
     b2 = beta * beta
     denom = (b2 * prec) + rec
     return 0.0 if denom == 0 else (1 + b2) * (prec * rec) / denom
@@ -108,21 +111,19 @@ def _recall(tp: int, fn: int) -> float:
 
 
 def _grid_from_probs(probs: np.ndarray, max_points: int = 400) -> np.ndarray:
-    """Crea un grid de umbrales basado en cuantiles de probs (estable y denso en los bordes)."""
+    """Grid de umbrales por cuantiles (denso y estable en bordes)."""
     probs = probs[np.isfinite(probs)]
     probs = probs[(probs >= 0) & (probs <= 1)]
     if probs.size == 0:
         return np.linspace(0.01, 0.99, 99)
     qs = np.linspace(0.01, 0.99, min(max_points, max(20, probs.size)))
     thr = np.unique(np.quantile(probs, qs))
-    # incluye extremos razonables
     thr = np.unique(np.clip(np.concatenate([[0.01], thr, [0.99]]), 0.0, 1.0))
     return thr
 
 
 def _compute_curve(y: np.ndarray, p: np.ndarray, thresholds: Iterable[float]) -> Tuple[Dict[float, PRPoint], float, float]:
     points: Dict[float, PRPoint] = {}
-    # Métricas globales independientes del umbral
     try:
         auc_pr = float(average_precision_score(y, p))
     except Exception:
@@ -133,7 +134,7 @@ def _compute_curve(y: np.ndarray, p: np.ndarray, thresholds: Iterable[float]) ->
         roc_auc = float("nan")
 
     for t in thresholds:
-        tp, fp, tn, fn = _confusion(y, p, t)
+        tp, fp, tn, fn = _confusion(y, p, float(t))
         prec = _precision(tp, fp)
         rec = _recall(tp, fn)
         points[float(t)] = PRPoint(
@@ -160,12 +161,12 @@ def _pick_by_youden(y: np.ndarray, p: np.ndarray, thresholds: Iterable[float]) -
         idx = int(np.argmax(j))
         return float(thr[idx]), float(j[idx])
     except Exception:
-        # fallback simple: J sobre grid manual
+        # fallback: calcula J sobre el grid
         best_t, best_j = 0.5, -1.0
         for t in thresholds:
             tp, fp, tn, fn = _confusion(y, p, float(t))
             rec = _recall(tp, fn)               # TPR
-            fpr = float(fp) / (fp + tn + 1e-9)  # FPR
+            fpr = float(fp) / max(fp + tn, 1e-9)  # FPR
             j = rec - fpr
             if j > best_j:
                 best_t, best_j = float(t), float(j)
@@ -178,17 +179,31 @@ def _pick_with_constraints(points: Dict[float, PRPoint], precision_floor: float 
         candidates = [(t, pt) for t, pt in candidates if pt.precision >= precision_floor]
         if not candidates:
             return None
-        # maximiza recall bajo la restricción
         t, pt = max(candidates, key=lambda kv: (kv[1].recall, kv[1].f1))
         return t, pt
     if recall_floor is not None:
         candidates = [(t, pt) for t, pt in candidates if pt.recall >= recall_floor]
         if not candidates:
             return None
-        # maximiza precisión bajo la restricción
         t, pt = max(candidates, key=lambda kv: (kv[1].precision, kv[1].f1))
         return t, pt
     return None
+
+
+def _update_model_meta(picked: float, objective: str) -> None:
+    """Actualiza/crea model.meta.json con ai_threshold_recommended."""
+    meta = {}
+    try:
+        if META_PATH.exists():
+            with open(META_PATH, "r", encoding="utf-8") as f:
+                meta = json.load(f) or {}
+    except Exception:
+        meta = {}
+    meta["ai_threshold_recommended"] = float(picked)
+    meta["threshold_metric"] = objective
+    META_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(META_PATH, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
 
 
 def main() -> int:
@@ -196,12 +211,12 @@ def main() -> int:
     parser.add_argument("--csv", type=str, default=str(VAL_PREDS_CSV), help="Ruta a val_preds.csv")
     parser.add_argument("--objective", type=str, default="f1", choices=["f1", "youden"], help="Criterio principal")
     parser.add_argument("--precision-floor", type=float, default=None, help="Elige t con RECALL máximo s.t. precision>=X")
-    parser.add_argument("--recall-floor", type=float, default=None, help="Elige t con PRECISIÓN máxima s.t. recall>=X")
+    parser.add_argument("--recall-floor", type=float, default=None, help="Elige t con PRECISIÓN máxima s.t. recall>=Y")
     parser.add_argument("--out", type=str, default=str(OUT_JSON), help="Ruta de salida JSON")
     parser.add_argument("--max-grid", type=int, default=400, help="Puntos máximos en el grid de thresholds")
     args = parser.parse_args()
 
-    csv_path = pd.Path(args.csv) if hasattr(pd, "Path") else args.csv  # compat pandas <2.2
+    # carga CSV
     try:
         df = pd.read_csv(args.csv)
     except FileNotFoundError as e:
@@ -237,13 +252,13 @@ def main() -> int:
         OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
         with open(args.out, "w", encoding="utf-8") as f:
             json.dump(out, f, indent=2)
-        print("[tune_threshold] Dataset sin variedad de clases; escrito placeholder 0.5")
+        _update_model_meta(out["picked"], out["objective"])
+        print("[tune_threshold] Dataset sin variedad de clases; escrito placeholder 0.5 y actualizado model.meta.json")
         return 0
 
     thr_grid = _grid_from_probs(p, max_points=args.max_grid)
     points, auc_pr, roc_auc = _compute_curve(y, p, thr_grid)
 
-    # candidatos
     picked_obj = None
     picked_t = None
     picked_pt = None
@@ -274,10 +289,8 @@ def main() -> int:
             )
             picked_obj = "youden"
 
-    # alternativas útiles para el JSON
-    # - Youden J
+    # alternativas útiles
     alt_youden_t, alt_youden_j = _pick_by_youden(y, p, thr_grid)
-    # - F0.5 y F2
     t_f05 = max(points, key=lambda t: points[t].f05)
     t_f2  = max(points, key=lambda t: points[t].f2)
 
@@ -298,12 +311,15 @@ def main() -> int:
             "max_f05":  {"threshold": float(t_f05), "f05": float(points[t_f05].f05)},
             "max_f2":   {"threshold": float(t_f2),  "f2":  float(points[t_f2].f2)},
         },
-        "note": "Copia 'picked' a AI_THRESHOLD en tu .env (o léelo dinámicamente al arrancar).",
+        "note": "El bot puede leer 'picked' automáticamente al arrancar.",
     }
 
     OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
+
+    # Actualiza metadatos del modelo con el umbral recomendado
+    _update_model_meta(result["picked"], result["objective"])
 
     print(
         f"[tune_threshold] picked={result['picked']:.3f} "
@@ -311,7 +327,7 @@ def main() -> int:
         f"P={picked_pt.precision:.3f} R={picked_pt.recall:.3f} "
         f"AP={auc_pr:.3f} AUC={roc_auc:.3f}"
     )
-    print(f"[tune_threshold] JSON → {args.out}")
+    print(f"[tune_threshold] JSON → {args.out}  |  meta → {META_PATH}")
     return 0
 
 

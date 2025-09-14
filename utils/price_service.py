@@ -3,18 +3,19 @@
 Capa de obtención de precio/liquidez con *fallback* controlado y conversión a USD.
 
 Orden de fuentes (2025-08):
-1. DexScreener → fuente primaria.
-2. Birdeye (si está activado en .env) rellena huecos críticos.
+1. Jupiter Price v3 (Lite) → **fuente primaria de price_usd**.
+   • Opcional: si hay router (jupiter_router), se expone price_impact/slippage.
+2. Birdeye (si está activado en .env) para **liquidez/volumen/mcap** y relleno.
 3. GeckoTerminal (si use_gt=True) para huecos restantes.
-4. Conversión: price_native × SOL_USD si sigue faltando price_usd.
-5. (NUEVO) Jupiter Price v3 (Lite) SOLO en consultas de “solo precio”.
+4. DexScreener como **último recurso** (relleno/visual), NO como primaria.
+5. Conversión: price_native × SOL_USD si sigue faltando price_usd.
 
 Extras:
 • Reintento corto de toda la cadena ante fallo transitorio.
 • Cacheo de aciertos y fallos (TTL configurable vía .env DEXS_TTL_NIL).
 • Bloqueo de direcciones no Solana (0x…).
-• Modo “solo precio”: en cierres/consultas rápidas aceptamos price_usd
-  aunque falte liquidity_usd (evita caer a fallback del buy_price).
+• Modo “solo precio”: acepta sólo price_usd (evita caer a fallback del buy_price).
+• Si hay router Jupiter, añade `price_impact_bps` y `price_impact_pct` al dict.
 """
 
 from __future__ import annotations
@@ -28,17 +29,41 @@ from utils.simple_cache import cache_get, cache_set
 from utils.fallback import fill_missing_fields
 from utils.sol_price import get_sol_usd
 
-from fetcher import dexscreener
+# Adapters
 from fetcher.geckoterminal import get_token_data as get_gt_data, USE_GECKO_TERMINAL
 from fetcher import birdeye
+from fetcher import dexscreener
 
-# (NUEVO) Jupiter Price v3 (Lite) como fallback final para "solo precio"
+# Jupiter Price (Lite)
 try:
     from fetcher.jupiter_price import get_usd_price as _jup_get_usd_price  # type: ignore
 except Exception:  # pragma: no cover
-    _jup_get_usd_price = None  # se comprobará en runtime
+    _jup_get_usd_price = None
+
+# Jupiter Router (opcional) — para exponer price_impact/slippage
+try:
+    # Debe exponer: get_quote(input_mint, output_mint, amount_sol) -> obj con .ok y .price_impact_bps
+    from fetcher import jupiter_router as _jup_router  # type: ignore
+    _JUP_ROUTER_AVAILABLE = True
+except Exception:  # pragma: no cover
+    _jup_router = None  # type: ignore
+    _JUP_ROUTER_AVAILABLE = False
 
 logger = logging.getLogger("price_service")
+
+# --- Saneador de claves no-T0 (futuras / de training / snapshots) ---
+_NON_T0_KEYS = {
+    "txns_last_5m_sells", "txns_last_5m_buys",
+    "txns_last_1h_sells", "txns_last_1h_buys",
+    "label", "target", "pnl_future",
+}
+def _strip_non_t0_keys(d: dict | None) -> dict | None:
+    if not isinstance(d, dict):
+        return d
+    for k in list(d.keys()):
+        if k in _NON_T0_KEYS or str(k).startswith("txns_last_"):
+            d.pop(k, None)
+    return d
 
 # ───────────────────────── configuración / constantes ─────────────────────────
 _TTL_OK   = int(os.getenv("DEXS_TTL_OK", "30"))           # s para respuestas válidas
@@ -56,8 +81,14 @@ _USE_BIRDEYE    = os.getenv("USE_BIRDEYE", "true").lower() == "true"
 _RETRY_ON_FAIL  = int(os.getenv("PRICE_RETRY_ON_FAIL", "1"))  # nº reintentos de la cadena
 _RETRY_DELAY_S  = float(os.getenv("PRICE_RETRY_DELAY_S", "2.0"))
 
-# (NUEVO) Flag de entorno para activar/desactivar Jupiter como último fallback
+# Flags Jupiter
 _USE_JUPITER_PRICE = os.getenv("USE_JUPITER_PRICE", "true").lower() == "true"
+_USE_JUPITER_IMPACT = os.getenv("USE_JUPITER_IMPACT", "true").lower() == "true"
+# Cantidad de SOL para la sonda de impacto (no ejecuta swap; solo quote)
+try:
+    _IMPACT_PROBE_SOL = float(os.getenv("IMPACT_PROBE_SOL", "0.05"))
+except Exception:
+    _IMPACT_PROBE_SOL = 0.05
 
 _REQUIRED_FOR_FULL  : Tuple[str, ...] = ("price_usd", "liquidity_usd")  # validación completa
 _REQUIRED_FOR_PRICE : Tuple[str, ...] = ("price_usd",)                  # solo precio (cierres)
@@ -76,6 +107,7 @@ def _coerce_tick_numbers(tick: dict | None) -> dict:
     """
     Convierte a float los campos típicos y aplana anidados si el adapter
     devolvió estructuras como {"liquidity":{"usd":...}} o strings.
+    Añade price_impact_pct si viene price_impact_bps.
     """
     if not isinstance(tick, dict):
         return {}
@@ -106,6 +138,13 @@ def _coerce_tick_numbers(tick: dict | None) -> dict:
         t["price_native"] = None
     else:
         t["price_native"] = _f(pn)
+
+    # Impacto en % si venía en bps
+    if "price_impact_bps" in t and t.get("price_impact_bps") is not None:
+        try:
+            t["price_impact_pct"] = float(t["price_impact_bps"]) / 100.0
+        except Exception:
+            t["price_impact_pct"] = None
 
     return t
 
@@ -157,7 +196,6 @@ async def _price_native_to_usd(tok: Dict[str, Any] | None) -> Dict[str, Any] | N
                 pn, su, tok["price_usd"],
             )
         except Exception:
-            # Si algo raro viene en price_native, lo anulamos para evitar dict*float
             tok["price_native"] = None
     return tok
 
@@ -169,27 +207,63 @@ def _normalize_after_merge(tok: Dict[str, Any] | None) -> Dict[str, Any] | None:
     return _coerce_tick_numbers(tok)
 
 
+# ─────────── Impacto Jupiter (opcional, si router disponible) ────────────────
+SOL_MINT = "So11111111111111111111111111111111111111112"
+
+async def _attach_jupiter_impact(tok: Dict[str, Any] | None, address: str) -> Dict[str, Any] | None:
+    """
+    Si hay router y el impacto está habilitado, consulta una cotización de ejemplo
+    para exponer `price_impact_bps` y `price_impact_pct` en el payload.
+    """
+    if not _USE_JUPITER_IMPACT or not _JUP_ROUTER_AVAILABLE or _jup_router is None:
+        return tok
+    try:
+        q = await _jup_router.get_quote(input_mint=SOL_MINT, output_mint=address, amount_sol=_IMPACT_PROBE_SOL)
+        if getattr(q, "ok", False):
+            pib = getattr(q, "price_impact_bps", None)
+            if tok is None:
+                tok = {}
+            tok["price_impact_bps"] = pib
+            # price_impact_pct se rellenará en _coerce_tick_numbers
+            tok = _coerce_tick_numbers(tok)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[price_service] Jupiter impact error: %s", exc)
+    return tok
+
+
 # ───────────────────── pipeline de fuentes (sin caché) ───────────────────────
 async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str, ...]) -> Optional[Dict[str, Any]]:
     """
     Ejecuta la cadena de fuentes y devuelve `tok` con los campos pedidos
     en 'fields_needed' completados en la medida de lo posible. No cachea.
+
+    Prioridad:
+      1) Jupiter (price_usd) [+impact opcional]
+      2) Birdeye (liq/vol/mcap y relleno)
+      3) GeckoTerminal (si se permite)
+      4) DexScreener (visual/último recurso)
+      5) Conversión price_native×SOL
     """
     tok: Dict[str, Any] | None = None
 
-    # ① DexScreener
-    try:
-        ds = await dexscreener.get_pair(address)
-        tok = _coerce_tick_numbers(ds)
-    except Exception as exc:
-        logger.debug("[price_service] DexScreener error: %s", exc)
-        tok = None
+    # ① Jupiter price como primaria (si está habilitado)
+    if _USE_JUPITER_PRICE and _jup_get_usd_price is not None:
+        try:
+            jup_price = await _jup_get_usd_price(address)
+        except Exception as exc:
+            logger.debug("[price_service] Jupiter price error: %s", exc)
+            jup_price = None
 
-    if tok and not _needs_fields(tok, fields_needed):
-        logger.debug("[price_service] DexScreener OK para %s…", address[:6])
-        return tok
+        if jup_price and not _is_missing(jup_price):
+            tok = {"price_usd": float(jup_price), "price_source": "jupiter"}
+            # Intentar impacto (no bloqueante)
+            tok = await _attach_jupiter_impact(tok, address)
+            tok = _coerce_tick_numbers(tok)
+            if not _needs_fields(tok, fields_needed):
+                return _strip_non_t0_keys(tok)
+        # Si Jupiter no dio precio, continuamos con las demás fuentes
 
-    # ② Birdeye (opcional)
+    # ② Birdeye (liquidez/volumen/mcap) + relleno de price_usd si faltara
     if _USE_BIRDEYE:
         be: Dict[str, Any] | None = None
         try:
@@ -202,13 +276,13 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
             be = None
 
         if be:
-            logger.debug("[price_service] Fallback → Birdeye para %s…", address[:6])
+            logger.debug("[price_service] Merge ← Birdeye para %s…", address[:6])
             merged = fill_missing_fields(tok or {}, be, _MISSING_FIELDS, treat_zero_as_missing=True)
             tok = _normalize_after_merge(merged)
             if tok and not _needs_fields(tok, fields_needed):
-                return tok
+                return _strip_non_t0_keys(tok)
 
-    # ③ GeckoTerminal (opcional)
+    # ③ GeckoTerminal (opcional, para completar)
     if use_gt and USE_GECKO_TERMINAL:
         try:
             gt = get_gt_data(_CHAIN, address)
@@ -218,44 +292,41 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
             gt = None
 
         if gt:
-            logger.debug("[price_service] Fallback → GeckoTerminal para %s…", address[:6])
+            logger.debug("[price_service] Merge ← GeckoTerminal para %s…", address[:6])
             merged = fill_missing_fields(tok or {}, gt, _MISSING_FIELDS, treat_zero_as_missing=True)
             tok = _normalize_after_merge(merged)
             if tok and not _needs_fields(tok, fields_needed):
-                return tok
+                return _strip_non_t0_keys(tok)
 
-    # ④ Conversión price_native→USD (segura)
+    # ④ DexScreener como *último recurso / visual*
+    try:
+        ds = await dexscreener.get_pair(address)
+        ds = _coerce_tick_numbers(ds)
+    except Exception as exc:
+        logger.debug("[price_service] DexScreener error: %s", exc)
+        ds = None
+
+    if ds:
+        logger.debug("[price_service] Merge ← DexScreener (último) para %s…", address[:6])
+        if tok:
+            # Ya hay base: solo rellenamos los huecos pedidos
+            merged = fill_missing_fields(tok, ds, _MISSING_FIELDS, treat_zero_as_missing=True)
+        else:
+            # DexScreener es la primera fuente válida → usa TODO su payload como base
+            merged = dict(ds)
+
+        tok = _normalize_after_merge(merged)
+        if tok and not _needs_fields(tok, fields_needed):
+            return _strip_non_t0_keys(tok)
+
+    # ⑤ Conversión price_native→USD (segura)
     tok = _normalize_after_merge(await _price_native_to_usd(tok))
     if tok and not _needs_fields(tok, fields_needed):
         logger.debug("[price_service] Fallback → native×SOL para %s…", address[:6])
-        return tok
+        return _strip_non_t0_keys(tok)
 
-    # ⑤ Jupiter Price v3 (Lite) SOLO si pedimos "solo precio"
-    if (
-        _USE_JUPITER_PRICE
-        and _jup_get_usd_price is not None
-        and tuple(fields_needed) == _REQUIRED_FOR_PRICE
-        and _needs_fields(tok, fields_needed)
-    ):
-        try:
-            jup_price = await _jup_get_usd_price(address)
-        except Exception as exc:
-            logger.debug("[price_service] Jupiter error: %s", exc)
-            jup_price = None
-
-        if jup_price and not _is_missing(jup_price):
-            if not tok:
-                tok = {}
-            try:
-                tok["price_usd"] = float(jup_price)
-            except Exception:
-                tok["price_usd"] = jup_price  # por si viene ya como float/Decimal
-            tok = _coerce_tick_numbers(tok)
-            logger.debug("[price_service] Fallback → Jupiter (price_only) para %s…", address[:6])
-            return tok
-
-    # ⑥ Sin datos suficientes para los campos solicitados
-    return tok  # puede ser dict incompleto o None
+    # ⑥ Sin datos suficientes para los campos solicitados (puede ser dict incompleto)
+    return _strip_non_t0_keys(tok)
 
 
 # ───────────────────────── API principal ──────────────────────────
@@ -290,6 +361,7 @@ async def get_price(
     fields_needed = _REQUIRED_FOR_PRICE if price_only else _REQUIRED_FOR_FULL
     ck = f"price:{address}:{int(use_gt)}:{int(price_only)}"
 
+    # ③(a) — Cache hit: refuerza tipos y garantiza `address`
     hit = cache_get(ck)
     if hit is not None:
         if hit is False:
@@ -298,11 +370,21 @@ async def get_price(
             else:
                 return None  # respetamos caché negativa en modo normal
         else:
-            # reforzamos tipos por si vino de disco
-            return _coerce_tick_numbers(hit)
+            hit = _coerce_tick_numbers(hit)
+            if isinstance(hit, dict):
+                hit.setdefault("address", address)  # ← garantía de address
+            hit = _strip_non_t0_keys(hit)  # saneo anti claves futuras
+            return hit
 
-    # Primer intento de la cadena
+    # Primer intento de la cadena (Jupiter primero)
     tok = await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed)
+
+    # ② — Garantiza `address` antes de cachear/devolver
+    if tok:
+        tok.setdefault("address", address)
+
+    tok = _strip_non_t0_keys(tok)  # saneo
+
     if tok and not _needs_fields(tok, fields_needed):
         cache_set(ck, tok, ttl=_TTL_OK)
         return tok
@@ -314,11 +396,22 @@ async def get_price(
             await asyncio.sleep(_RETRY_DELAY_S)
         except Exception:
             pass
+
         tok_retry = await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed)
+        if tok_retry:
+            tok_retry.setdefault("address", address)
+        tok_retry = _strip_non_t0_keys(tok_retry)
+
         if tok_retry and not _needs_fields(tok_retry, fields_needed):
             cache_set(ck, tok_retry, ttl=_TTL_OK)
             return tok_retry
+
         tok = tok_retry or tok
+
+    # Último chequeo post-reintento
+    if tok:
+        tok.setdefault("address", address)
+    tok = _strip_non_t0_keys(tok)
 
     if tok and not _needs_fields(tok, fields_needed):
         cache_set(ck, tok, ttl=_TTL_OK)

@@ -5,7 +5,8 @@ import asyncio
 import logging
 import os
 import time
-from typing import Dict, Iterable, List, Optional
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional, Tuple
 
 try:
     from config.config import (  # type: ignore
@@ -76,13 +77,20 @@ _KNOWN_STABLES: Dict[str, float] = {
 # Sentinela para “sáltalo, no cuentes miss ni hagas fetch”
 _FAST_SKIP = object()
 
+# ──────────────────────────── Tipos enriquecidos ───────────────────────────────
+Status = str  # Literal["OK", "NIL", "ERR"] (evitamos Literal por compatibilidad py<3.8)
 
-def _fast_known_price(mint: str):
-    """Devuelve 1.0 para stables, _FAST_SKIP para WSOL, o None si no aplica."""
-    if mint == _WSPL_SOL_MINT:
-        return _FAST_SKIP
-    price = _KNOWN_STABLES.get(mint)
-    return price if price is not None else None
+@dataclass(frozen=True)
+class PriceInfo:
+    """Salida enriquecida: status + precio + info de ruta."""
+    status: Status           # "OK" | "NIL" | "ERR"
+    price_usd: Optional[float]
+    has_route: bool          # True si hay precio real (asumimos ruta ejecutable)
+    routes_count: int        # Sin quote real: 1 si OK, 0 si NIL/ERR
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "OK"
 
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -250,7 +258,7 @@ def _normalize_incoming_list(mints: Iterable[str]) -> List[str]:
     return out
 
 
-# ───────────────────────────────── HTTP (batch) ──────────────────────────────
+# ───────────────────────────────── HTTP (batch, crudo) ────────────────────────
 async def _fetch_batch(mints: List[str]) -> Dict[str, Optional[float]]:
     """
     Hace una llamada a Jupiter Price v3 para hasta 50 mints.
@@ -334,6 +342,92 @@ async def _fetch_batch(mints: List[str]) -> Dict[str, Optional[float]]:
     return out
 
 
+async def _fetch_batch_with_status(mints: List[str]) -> Dict[str, Tuple[Status, Optional[float]]]:
+    """
+    Igual que _fetch_batch, pero distinguiendo NIL vs ERR a nivel de batch.
+    • Si la respuesta HTTP es 200: los que no vengan en payload → "NIL".
+    • Si hay error HTTP/timeout/etc: todos los mints del chunk → "ERR".
+    """
+    if not mints:
+        return {}
+
+    # Validación light
+    for m in mints:
+        if not _is_probably_mint(m):
+            logger.warning("[jupiter_price] ID no parece mint SPL: %s", _fmt_id(m))
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("[jupiter_price] solicitando batch de %d mints", len(mints))
+        if _VERBOSE:
+            logger.debug("[jupiter_price] mints: %s", ", ".join(_fmt_id(m) for m in mints))
+
+    ids = quote(",".join(mints), safe=",")
+    url = f"{JUPITER_PRICE_URL}?ids={ids}"
+
+    await _throttle()
+    sess = await _ensure_session()
+
+    # Por defecto marcamos todo como ERR; lo iremos corrigiendo
+    err_default: Dict[str, Tuple[Status, Optional[float]]] = {m: ("ERR", None) for m in mints}
+
+    try:
+        async with sess.get(url) as resp:
+            if resp.status == 429:
+                logger.warning("[jupiter_price] 429 Too Many Requests; backing off…")
+                await asyncio.sleep(max(1.0, _MIN_DELAY_S * 2))
+                return await _fetch_batch_with_status(mints)
+
+            if resp.status >= 500:
+                logger.warning("[jupiter_price] %s → %s", JUPITER_PRICE_URL, resp.status)
+                return err_default
+
+            if resp.status != 200:
+                logger.debug("[jupiter_price] Non-200 (%s) para %s", resp.status, JUPITER_PRICE_URL)
+                return err_default
+
+            data = await resp.json(content_type=None)
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        logger.debug("[jupiter_price] HTTP error para %s -> %s", JUPITER_PRICE_URL, e)
+        return err_default
+    except Exception as e:
+        logger.exception("[jupiter_price] Unexpected error parsing response: %s", e)
+        return err_default
+
+    # Si llegamos aquí, la respuesta es 200 → NIL/OK según payload
+    out: Dict[str, Tuple[Status, Optional[float]]] = {m: ("NIL", None) for m in mints}
+    found = 0
+    try:
+        payload = data.get("data", data)
+        for m in mints:
+            entry = payload.get(m)
+            if not entry:
+                continue
+            val = entry.get("usdPrice", entry.get("price"))
+            parsed: Optional[float] = None
+            if isinstance(val, (int, float)):
+                parsed = float(val)
+            else:
+                try:
+                    parsed = float(val)
+                except Exception:
+                    parsed = None
+            if parsed is not None:
+                out[m] = ("OK", parsed)
+                found += 1
+    except Exception as e:
+        logger.debug("[jupiter_price] Malformed payload: %s", e)
+
+    missing = len(mints) - found
+    if found and missing:
+        logger.info("[jupiter_price] batch OK: %d precios, %d sin datos", found, missing)
+    elif found:
+        logger.info("[jupiter_price] batch OK: %d precios", found)
+    else:
+        logger.debug("[jupiter_price] batch sin resultados")
+
+    return out
+
+
 def _dedup_preserve_order(items: Iterable[str]) -> List[str]:
     seen = set()
     out: List[str] = []
@@ -344,14 +438,15 @@ def _dedup_preserve_order(items: Iterable[str]) -> List[str]:
     return out
 
 
-# ───────────────────────────── API pública (batch) ────────────────────────────
-async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
+# ───────────────────────────── API enriquecida (batch) ─────────────────────────
+async def get_many_prices(mints: List[str]) -> Dict[str, PriceInfo]:
     """
-    Devuelve un dict mint -> usdPrice (solo para los que se hayan podido obtener).
-    Aplica caché TTL y NIL adaptativo. Se hacen llamadas solo para los misses.
-    Normaliza y valida los mints de entrada (evita pedir '<mint>pump', etc.).
-    Añadidos:
-      • Aciertos instantáneos: USDC/USDT = 1.0; WSOL se ignora.
+    Devuelve dict mint -> PriceInfo(status, price_usd, has_route, routes_count).
+    Reglas:
+      • status ∈ {"OK","NIL","ERR"}
+      • has_route=True iff status=="OK" (precio real → asumimos ruta ejecutable)
+      • routes_count=1 si OK, si no 0 (no hay quote de rutas reales aquí)
+    Mantiene los logs «batch OK: X precios».
     """
     _log_boot_if_needed()
 
@@ -363,21 +458,21 @@ async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
     if not mints:
         return {}
 
-    # 0.5) Atajos instantáneos (mejora hit-rate y ahorra cupo)
-    result: Dict[str, float] = {}
+    # 0.5) Atajos instantáneos (estables) y WSOL skip
+    result: Dict[str, PriceInfo] = {}
     filtered: List[str] = []
     instant_ok = 0
     instant_skips = 0
     for m in mints:
-        fp = _fast_known_price(m)
-        if fp is _FAST_SKIP:
+        # WSOL → skip “rápido”
+        if m == _WSPL_SOL_MINT:
             instant_skips += 1
-            # No lo pedimos ni contamos como miss
             continue
-        if isinstance(fp, (int, float)):
-            # Mete en caché OK y resultado
+        fp = _KNOWN_STABLES.get(m)
+        if fp is not None:
+            # Mete en caché OK y resultado enriquecido
             _cache_set_ok(m, float(fp))
-            result[m] = float(fp)
+            result[m] = PriceInfo(status="OK", price_usd=float(fp), has_route=True, routes_count=1)
             instant_ok += 1
             continue
         filtered.append(m)
@@ -399,10 +494,11 @@ async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
     for m in mints:
         hit = _cache_get_ok(m)
         if hit is not None:
-            result[m] = hit
+            result[m] = PriceInfo(status="OK", price_usd=hit, has_route=True, routes_count=1)
             cache_hits_ok += 1
             continue
         if _cache_get_nil(m):
+            result[m] = PriceInfo(status="NIL", price_usd=None, has_route=False, routes_count=0)
             cache_hits_nil += 1
             continue
         misses.append(m)
@@ -413,73 +509,105 @@ async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
             cache_hits_ok, cache_hits_nil, len(misses), len(mints), instant_ok, instant_skips,
         )
 
-    # 2) fetch para misses en chunks de 50
+    # 2) fetch para misses en chunks de 50 (con distinción NIL/ERR)
     fetched_ok = 0
+    nil_hits = cache_hits_nil
     for i in range(0, len(misses), _BATCH_MAX):
         chunk = misses[i : i + _BATCH_MAX]
         if not chunk:
             continue
-        fetched = await _fetch_batch(chunk)
-        for mint, price in fetched.items():
-            if price is None:
-                _cache_set_nil(mint)
-            else:
+        fetched = await _fetch_batch_with_status(chunk)
+        for mint, (st, price) in fetched.items():
+            if st == "OK" and price is not None:
                 _cache_set_ok(mint, price)
-                result[mint] = price
+                result[mint] = PriceInfo(status="OK", price_usd=price, has_route=True, routes_count=1)
                 fetched_ok += 1
+            elif st == "NIL":
+                _cache_set_nil(mint)
+                result[mint] = PriceInfo(status="NIL", price_usd=None, has_route=False, routes_count=0)
+                nil_hits += 1
+            else:  # "ERR"
+                # No cacheamos errores transitorios; devolvemos ERR
+                result[mint] = PriceInfo(status="ERR", price_usd=None, has_route=False, routes_count=0)
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(
             "[jupiter_price] resultado: total_ok=%d (instOK=%d, cacheOK=%d, fetchedOK=%d) | misses_restantes=%d | nil_hits=%d",
-            len(result), instant_ok, cache_hits_ok, fetched_ok, max(0, len(misses) - fetched_ok), cache_hits_nil
+            sum(1 for v in result.values() if v.status == "OK"),
+            instant_ok,
+            cache_hits_ok,
+            fetched_ok,
+            max(0, len(misses) - fetched_ok),
+            nil_hits,
         )
 
-    # 3) Devolver solo los disponibles
     return result
 
 
-# ───────────────────────────── API pública (unitario) ─────────────────────────
-async def get_usd_price(mint: str) -> Optional[float]:
+# ───────────────────────────── API enriquecida (unitario) ──────────────────────
+async def get_price(mint: str) -> PriceInfo:
     """
-    Devuelve el precio USD de un mint concreto o None si no disponible.
-    Usa caché TTL (aciertos) y NIL adaptativo (fallos).
-    Normaliza/valida el mint antes de consultar (evita '<mint>pump', etc.).
-    Respeta atajos: USDC/USDT=1.0, WSOL=skip.
+    Devuelve PriceInfo(status, price_usd, has_route, routes_count) para un mint.
+    Reglas:
+      • status ∈ {"OK","NIL","ERR"}
+      • has_route=True iff status=="OK"
+      • routes_count=1 si OK, si no 0
     """
     _log_boot_if_needed()
 
     if not mint:
-        return None
+        return PriceInfo(status="NIL", price_usd=None, has_route=False, routes_count=0)
+
     nm = normalize_mint(mint)
     if not nm:
         logger.debug("[jupiter_price] descartado unitario (no mint SPL): %r", mint)
-        return None
+        return PriceInfo(status="NIL", price_usd=None, has_route=False, routes_count=0)
 
-    # Atajo unitario
-    fp = _fast_known_price(nm)
-    if fp is _FAST_SKIP:
-        return None
-    if isinstance(fp, (int, float)):
+    # Atajo estables
+    fp = _KNOWN_STABLES.get(nm)
+    if fp is not None:
         _cache_set_ok(nm, float(fp))
-        return float(fp)
+        return PriceInfo(status="OK", price_usd=float(fp), has_route=True, routes_count=1)
+
+    # WSOL → skip
+    if nm == _WSPL_SOL_MINT:
+        return PriceInfo(status="NIL", price_usd=None, has_route=False, routes_count=0)
 
     # 1) caché
     hit = _cache_get_ok(nm)
     if hit is not None:
-        return hit
+        return PriceInfo(status="OK", price_usd=hit, has_route=True, routes_count=1)
     if _cache_get_nil(nm):
-        return None
+        return PriceInfo(status="NIL", price_usd=None, has_route=False, routes_count=0)
 
-    # 2) fetch (vía batch, por simplicidad)
+    # 2) fetch (vía batch enriquecido)
     if logger.isEnabledFor(logging.DEBUG):
         if nm != mint:
             logger.debug("[jupiter_price] miss unitario → normalizado %r → %s", mint, _fmt_id(nm))
         else:
             logger.debug("[jupiter_price] miss unitario → solicitando %s vía batch", _fmt_id(nm))
 
-    fetched = await get_many_usd_prices([nm])
-    # IMPORTANTE: get_many_usd_prices ya setea caches OK/NIL; no dupliques aquí
-    return fetched.get(nm)
+    fetched = await get_many_prices([nm])
+    return fetched.get(nm, PriceInfo(status="ERR", price_usd=None, has_route=False, routes_count=0))
+
+
+# ──────────────────────────── API legacy (compat) ──────────────────────────────
+async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
+    """
+    **Compat**: mantiene la firma original devolviendo sólo precios OK.
+    Internamente usa la versión enriquecida y filtra por status=="OK".
+    """
+    enriched = await get_many_prices(mints)
+    return {m: pi.price_usd for m, pi in enriched.items() if pi.status == "OK" and pi.price_usd is not None}
+
+
+async def get_usd_price(mint: str) -> Optional[float]:
+    """
+    **Compat**: mantiene la firma original.
+    Devuelve price_usd si status=="OK", si no None.
+    """
+    pi = await get_price(mint)
+    return pi.price_usd if pi.status == "OK" else None
 
 
 # ───────────────────────────── cierre de sesión ───────────────────────────────
@@ -494,8 +622,14 @@ async def aclose():
 
 
 __all__ = [
+    # Enriquecidos
+    "PriceInfo",
+    "get_price",
+    "get_many_prices",
+    # Legacy/compat
     "get_usd_price",
     "get_many_usd_prices",
+    # Utils
     "clear_caches",
     "aclose",
 ]

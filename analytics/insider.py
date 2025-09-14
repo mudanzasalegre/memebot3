@@ -1,6 +1,6 @@
 # memebot3/analytics/insider.py
 """
-Detección simplificada de actividad de insiders (heurístico).
+Detección simplificada de actividad de insiders (heurístico) en T0.
 
 Regla (proxy):
   Dentro de los primeros WINDOW_MINUTES minutos tras el mint,
@@ -10,22 +10,31 @@ Regla (proxy):
     • la liquidez es al menos MIN_LIQ_USD (para evitar ruido de pools ínfimos).
 
 Notas:
+  - Solo usa señales disponibles en T0 (snapshot en tiempo real).
   - No inspeccionamos tamaños de cada compra (la API pública no expone el tape completo).
   - Usamos `txns_last_5m` (buys) y `priceChange.m5` de DexScreener cuando está.
   - Si faltan datos críticos, devolvemos False (no alerta).
+  - Se añaden avisos (log DEBUG) si aparecen claves que parecen de “futuro”.
+
+Cambios
+───────
+2025-09-15
+• Anti falsos positivos: se quita "sell" de _FORBIDDEN_SUBSTR y se añade
+  excepción explícita para claves que empiecen por "txns_last_5m_sell".
+  Ya no avisa por "txns_last_5m_sells".
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Final, Optional
+from typing import Final, Optional, Dict
 
 from fetcher import dexscreener
 from utils.time import utc_now, parse_iso_utc
 
 log = logging.getLogger("insider")
 
-# Ventana de observación tras el mint
+# Ventana de observación tras el mint (T0)
 WINDOW_MINUTES: Final[int] = 20
 
 # Umbrales del heurístico
@@ -33,22 +42,53 @@ MIN_BUYS_5M:     Final[int]   = 3      # mínimo de compras en 5m
 MIN_PCT_UP_5M:   Final[float] = 5.0    # % mínimo de subida en 5m
 MIN_LIQ_USD:     Final[float] = 3000.0 # liquidez mínima para considerar la señal
 
+# Claves sospechosas de “futuro” que NO deben influir en T0 (solo aviso)
+# OJO: "sell" eliminado para no atrapar "txns_last_5m_sells".
+_FORBIDDEN_SUBSTR = (
+    "pnl",
+    "close_price",
+    "_at_close",
+    "_after_",
+    "outcome",
+    "result",
+    # "sell",  # ← removido: causaba falsos positivos con txns_last_5m_sells
+    "exit",
+    "tp_",
+    "sl_",
+)
+
+
 def _to_float(x) -> Optional[float]:
     try:
         v = float(x)
-        # considéralo inválido si es NaN
-        if v != v:  # NaN check
+        if v != v:  # NaN
             return None
         return v
     except Exception:
         return None
 
 
+def _warn_if_future_keys(token: Dict) -> None:
+    """Log de advertencia si el snapshot incluye claves que parecen de 'futuro'."""
+    bad = []
+    for k in token.keys():
+        lk = str(k).lower()
+        if any(sub in lk for sub in _FORBIDDEN_SUBSTR):
+            # Excepción concreta: no avisar por "txns_last_5m_sell*"
+            if lk.startswith("txns_last_5m_sell"):
+                continue
+            bad.append(k)
+    if bad:
+        log.debug("⚠️  insider: snapshot incluye claves no-T0 ignorables: %s", bad)
+
+
 async def insider_alert(address: str) -> bool:
-    # 1) Snapshot DexScreener normalizado
+    # 1) Snapshot DexScreener normalizado (T0)
     tok = await dexscreener.get_pair(address)
     if not tok:
         return False
+
+    _warn_if_future_keys(tok)
 
     # 2) Edad desde created_at
     created = tok.get("created_at")
