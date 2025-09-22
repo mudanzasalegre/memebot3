@@ -2,7 +2,7 @@
 """
 ⏯️  Orquestador principal del sniper MemeBot 3
 ──────────────────────────────────────────────
-Última revisión · 2025-09-15
+Última revisión · 2025-09-22
 
 Novedades importantes
 ─────────────────────
@@ -15,6 +15,14 @@ Novedades importantes
 • Guard de pool: DEX_WHITELIST + (si router) ruta Jupiter requerida.
 • Rate limiter de BUY: BUY_RATE_LIMIT_N / BUY_RATE_LIMIT_WINDOW_S (no bloqueante).
 • Nuevas métricas: appended_at_close, appended_shadow, filtered_immediate_0.
+
+Revisión 2025-09-22
+───────────────────
+• Reentrenamiento: se amplía la ventana de disparo de <10 a <15 minutos.
+• Reentrenamiento: tras `reload_model()` ahora se re-lee y aplica en caliente el
+  umbral recomendado desde `data/metrics/recommended_threshold.json` (o meta),
+  respetando `MIN_THRESHOLD_CHANGE`, con logs “aplicado/ignorado”.
+• Logs: se añade aviso “⏰ Ventana de retraining abierta (UTC=YYYY-mm-dd HH:MM)”.
 """
 
 from __future__ import annotations
@@ -783,7 +791,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     # 12.5) — Rate limiter de BUY (no bloqueante): cooldown si no permite —
     if not _BUY_LIMITER.allow():
         cur = _BUY_LIMITER.current()
-        log.info("⏳ BUY en cooldown por rate limit (%d/%ds, usado=%d) → requeue",
+        log.info("⏳ BUY en cooldown por rate limit (%d/%ds, usado=%d)",
                  BUY_RATE_LIMIT_N, BUY_RATE_LIMIT_WINDOW_S, cur)
         # backoff prudente: mitad de ventana con jitter
         back = max(20, int(BUY_RATE_LIMIT_WINDOW_S * random.uniform(0.4, 0.7)))
@@ -1325,16 +1333,45 @@ async def retrain_loop() -> None:
         if (
             now.weekday() == CFG.RETRAIN_DAY
             and now.hour   == CFG.RETRAIN_HOUR
-            and now.minute < 10
+            and now.minute < 15   # ← ampliamos ventana (antes: < 10)
         ):
+            # Log explícito de entrada en ventana
+            try:
+                log.info("⏰ Ventana de retraining abierta (UTC=%s)", now.strftime("%Y-%m-%d %H:%M"))
+            except Exception:
+                pass
+
             try:
                 if retrain_if_better():
+                    # 1) Recargar modelo recién guardado
                     reload_model()
+
+                    # 2) Releer y aplicar override de umbral recomendado en caliente
+                    _thr_override2 = _load_ai_threshold_override()
+                    if _thr_override2 is not None:
+                        global AI_THRESHOLD  # aplicar sobre el gate de IA en ejecución
+                        old = AI_THRESHOLD
+                        if abs(float(_thr_override2) - float(old)) >= float(MIN_THRESHOLD_CHANGE):
+                            AI_THRESHOLD = float(_thr_override2)
+                            log.info(
+                                "🎯 AI_THRESHOLD override aplicado: %.3f (antes=%.3f, Δ=%.3f≥%.3f)",
+                                AI_THRESHOLD, old, AI_THRESHOLD - old, MIN_THRESHOLD_CHANGE
+                            )
+                        else:
+                            log.info(
+                                "🎯 AI_THRESHOLD override ignorado por suavizado: rec=%.3f, actual=%.3f, Δ=%.3f<%.3f",
+                                float(_thr_override2), float(old),
+                                float(_thr_override2) - float(old), float(MIN_THRESHOLD_CHANGE)
+                            )
+
                     log.info("🐢 Retrain completo; modelo recargado en memoria")
             except Exception as exc:
                 log.error("Retrain error: %s", exc)
+
+            # Evitar disparos repetidos dentro de la misma hora
             await asyncio.sleep(3600)
-        await asyncio.sleep(300)
+        else:
+            await asyncio.sleep(300)
 
 
 # ╭─────────────────────── Main loop ─────────────────────────────────────────╮

@@ -201,6 +201,8 @@ class _Config:
     AI_THRESHOLD_FILE: pathlib.Path = pathlib.Path(
         os.getenv("AI_THRESHOLD_FILE", PROJECT_ROOT / "data" / "metrics" / "recommended_threshold.json")
     )
+    # ⚠️ RETRAIN_DAY / RETRAIN_HOUR se interpretan en **UTC**.
+    #    weekday() en Python: lunes=0 … domingo=6
     RETRAIN_DAY: int = _num_env("RETRAIN_DAY", int, 6)
     RETRAIN_HOUR: int = _num_env("RETRAIN_HOUR", int, 4)
 

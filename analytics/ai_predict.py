@@ -10,11 +10,15 @@ Inferencia en tiempo real para MemeBot 3.
 •  Convierte cualquier entrada (dict / Series / DataFrame) a un
    DataFrame de una fila con las columnas exactas que espera el modelo,
    convierte a numérico, llena NaN con 0 y hace la predicción.
+
+Nota: Este archivo ahora usa logging en vez de print para integrarse con
+el sistema de logs del proyecto (utils/logger.py).
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from pathlib import Path
 from typing import Any, Optional, Sequence
@@ -24,6 +28,9 @@ import numpy as np
 import pandas as pd
 
 from config.config import CFG, PROJECT_ROOT
+
+# Logger del módulo
+log = logging.getLogger("ai_predict")
 
 # ───────────────────────── paths (robustos) ─────────────────────────
 def _resolve_model_path() -> Path:
@@ -51,7 +58,9 @@ def _resolve_model_path() -> Path:
 
     return p.resolve()
 
+
 _MODEL_PATH: Path = _resolve_model_path()
+
 
 def _resolve_meta_path(mp: Path) -> Path:
     """
@@ -63,13 +72,14 @@ def _resolve_meta_path(mp: Path) -> Path:
         return mp.with_suffix(".meta.json")
     return mp.parent / (mp.name + ".meta.json")
 
+
 _META_PATH: Path = _resolve_meta_path(_MODEL_PATH)
 
 # ──────────────────── estado global ───────────────────────────
 _model_lock = threading.Lock()
-_model: Optional[Any]              = None          # objeto LightGBM / sklearn
-_model_mtime: Optional[float]      = None          # timestamp del .pkl
-_FEATURES: Optional[Sequence[str]] = None          # orden de columnas
+_model: Optional[Any] = None               # objeto LightGBM / sklearn
+_model_mtime: Optional[float] = None       # timestamp del .pkl
+_FEATURES: Optional[Sequence[str]] = None  # orden de columnas
 
 
 # ╭────────────────── helpers internos ─────────────────╮
@@ -77,36 +87,45 @@ def _load_model() -> None:
     """Carga modelo y lista de features en memoria (lazy, thread-safe)."""
     global _model, _model_mtime, _FEATURES
 
-    if not _MODEL_PATH.exists():        # primera ejecución: aún no hay modelo
+    if not _MODEL_PATH.exists():  # primera ejecución: aún no hay modelo
         _model = None
         _model_mtime = None
         _FEATURES = None
+        log.debug("Modelo no encontrado en disco: %s", _MODEL_PATH)
         return
 
     mtime = _MODEL_PATH.stat().st_mtime
     if _model is not None and mtime == _model_mtime:
-        return                          # ya actualizado
+        # Ya actualizado en memoria
+        return
 
     with _model_lock:
         # doble-check por concurrencia
-        if _model is None or _MODEL_PATH.stat().st_mtime != _model_mtime:
+        current_mtime = _MODEL_PATH.stat().st_mtime
+        if _model is None or current_mtime != _model_mtime:
             _model = joblib.load(_MODEL_PATH)
-            _model_mtime = mtime
+            _model_mtime = current_mtime
 
             # lista de columnas entrenadas
+            _FEATURES = None
             if _META_PATH.exists():
-                meta = json.loads(_META_PATH.read_text())
-                _FEATURES = meta.get("features")
+                try:
+                    meta = json.loads(_META_PATH.read_text())
+                    _FEATURES = meta.get("features")
+                except Exception as e:
+                    log.warning("No se pudo leer meta %s: %s", _META_PATH, e)
+
             # Fallback para algunos modelos (p.ej. LightGBM con atributo feature_name)
             if not _FEATURES:
                 try:
                     _FEATURES = list(_model.feature_name())
                 except Exception:
                     raise RuntimeError(
-                        f"No se pudo determinar _FEATURES; falta {_META_PATH} y el modelo no expone feature_name()."
+                        f"No se pudo determinar _FEATURES; falta {_META_PATH} "
+                        "y el modelo no expone feature_name()."
                     )
 
-            print(f"[AI] 🧠  Modelo cargado: {_MODEL_PATH.name} (mtime={mtime})")
+            log.info("🧠 Modelo cargado: %s (mtime=%d)", _MODEL_PATH.name, int(_model_mtime))
 
 
 def _to_dataframe(vec: Any) -> pd.DataFrame:
@@ -139,15 +158,16 @@ def should_buy(vec: Any) -> float:
     """
     _load_model()
     if _model is None:
+        log.debug("Predicción omitida: no hay modelo aún, devolviendo 0.0")
         return 0.0  # primera ejecución: aún sin modelo entrenado
 
     X = _to_dataframe(vec)
 
     # LightGBM Booster o sklearn estimators
     try:
-        proba = _model.predict_proba(X)[0, 1]   # sklearn-style
+        proba = _model.predict_proba(X)[0, 1]  # sklearn-style
     except AttributeError:
-        proba = _model.predict(X)[0]            # LightGBM Booster
+        proba = _model.predict(X)[0]           # LightGBM Booster
     return float(proba)
 
 
@@ -158,7 +178,7 @@ def reload_model() -> None:
         _model = None
         _model_mtime = None
     _load_model()
-    print("[AI] 🔄  Modelo recargado manualmente.")
+    log.info("🔄 Modelo recargado manualmente (forzando reload en memoria)")
 
 
 __all__ = ["should_buy", "reload_model"]
