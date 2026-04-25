@@ -1,5 +1,7 @@
 # config/config.py – MemeBot 3
 """
+Configuración central (CFG) + exports “legacy” para compatibilidad.
+
 Añadidos 2025-09-15
 ──────────────────
 • (UNIFICADO) AI_THRESHOLD ← lee también AI_TH para compatibilidad; default 0.65
@@ -60,14 +62,35 @@ import re
 from dataclasses import dataclass
 from typing import Callable, TypeVar, Tuple
 
-from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
+from trade_pnl import resolve_take_profit_and_win_pct
+
+# python-dotenv es opcional pero normalmente está instalado en el proyecto
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover
+    load_dotenv = None  # type: ignore
 
 T = TypeVar("T", int, float)
 _num_re = re.compile(r"-?\d+(?:\.\d+)?")
 
+_TRUE = {"1", "true", "yes", "y", "on"}
+_FALSE = {"0", "false", "no", "n", "off"}
+
 
 # ───────────────────────── helpers ──────────────────────────
+def _bool_env(key: str, default: bool = False) -> bool:
+    raw = os.getenv(key)
+    if raw is None:
+        return default
+    s = str(raw).strip().lower()
+    if s in _TRUE:
+        return True
+    if s in _FALSE:
+        return False
+    return default
+
+
 def _num_env(key: str, cast: Callable[[str], T], default: T) -> T:
     """Lee key numérica del .env con casting seguro y fallback."""
     raw = os.getenv(key, str(default))
@@ -84,10 +107,32 @@ def _num_env_multi(names: list[str], cast: Callable[[str], T], default: T) -> T:
     con casting seguro. Útil para migraciones/back-compat (AI_THRESHOLD vs AI_TH).
     """
     for key in names:
-        raw = os.getenv(key)
-        if raw is not None:
+        if os.getenv(key) is not None:
             return _num_env(key, cast, default)
     return default
+
+
+def _opt_num_env(key: str, cast: Callable[[str], T]) -> T | None:
+    raw = os.getenv(key)
+    if raw is None or not str(raw).strip():
+        return None
+    m = _num_re.search(str(raw))
+    try:
+        return cast(m.group()) if m else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _opt_bool_env(key: str) -> bool | None:
+    raw = os.getenv(key)
+    if raw is None or not str(raw).strip():
+        return None
+    s = str(raw).strip().lower()
+    if s in _TRUE:
+        return True
+    if s in _FALSE:
+        return False
+    return None
 
 
 def _csv_tuple(raw: str, *, lower: bool = True, strip: bool = True) -> Tuple[str, ...]:
@@ -97,15 +142,17 @@ def _csv_tuple(raw: str, *, lower: bool = True, strip: bool = True) -> Tuple[str
     """
     if not raw:
         return tuple()
-    items = []
+
+    items: list[str] = []
     for part in str(raw).split(","):
         s = part.strip() if strip else part
         if not s:
             continue
         items.append(s.lower() if lower else s)
+
     # dedup preservando orden
-    seen = set()
-    out = []
+    seen: set[str] = set()
+    out: list[str] = []
     for s in items:
         if s not in seen:
             seen.add(s)
@@ -122,8 +169,9 @@ def _parse_windows(raw: str) -> tuple[tuple[int, int], ...]:
     """
     if not raw:
         return tuple()
+
     out: list[tuple[int, int]] = []
-    for chunk in raw.split(","):
+    for chunk in str(raw).split(","):
         c = chunk.strip()
         if not c:
             continue
@@ -145,8 +193,10 @@ def _parse_windows(raw: str) -> tuple[tuple[int, int], ...]:
                 continue
             h = max(0, min(23, h))
             out.append((h, h))
+
     if not out:
         return tuple()
+
     out.sort()
     merged: list[tuple[int, int]] = []
     cur_s, cur_e = out[0]
@@ -173,65 +223,144 @@ def _find_project_root(start: pathlib.Path) -> pathlib.Path:
 
 
 PROJECT_ROOT = _find_project_root(PKG_DIR)
-load_dotenv(PROJECT_ROOT / ".env", override=True)
+
+if load_dotenv is not None:
+    # override=True para que el .env del proyecto mande frente a variables heredadas
+    load_dotenv(PROJECT_ROOT / ".env", override=True)
+
+
+_TAKE_PROFIT_PCT_VALUE, _WIN_PCT_VALUE = resolve_take_profit_and_win_pct(
+    take_profit_pct_raw=os.getenv("TAKE_PROFIT_PCT"),
+    win_pct_raw=os.getenv("WIN_PCT"),
+    default_take_profit_pct=35.0,
+)
+_ML_POSITIVE_PNL_PCT_VALUE = _num_env("ML_POSITIVE_PNL_PCT", float, _WIN_PCT_VALUE * 100.0)
 
 
 # ───────────────────────── Config dataclass ─────────────────
 @dataclass(frozen=True)
 class _Config:
     # ------- modo ---------------------------------------------------
-    DRY_RUN: bool = os.getenv("DRY_RUN", "0") == "1"
+    DRY_RUN: bool = _bool_env("DRY_RUN", False)
     TRADE_AMOUNT_SOL: float = _num_env("TRADE_AMOUNT_SOL", float, 0.1)
     GAS_RESERVE_SOL: float = _num_env("GAS_RESERVE_SOL", float, 0.05)
-    MIN_BUY_SOL: float = _num_env("MIN_BUY_SOL", float, 0.01)
+    MIN_BUY_SOL: float = _num_env("MIN_BUY_SOL", float, 0.1)
     MIN_SOL_BALANCE: float = _num_env("MIN_SOL_BALANCE", float, 0.01)
+
+    # TTLs (legacy/compat)
     DEXS_TTL_NIL: int = _num_env("DEXS_TTL_NIL", int, 300)
     DEXS_TTL_OK: int = _num_env("DEXS_TTL_OK", int, 30)
 
     # ------- IA / ML -----------------------------------------------
-    # Unificado: AI_THRESHOLD (lee AI_THRESHOLD o AI_TH; prioridad a AI_THRESHOLD)
     AI_THRESHOLD: float = _num_env_multi(["AI_THRESHOLD", "AI_TH"], float, 0.65)
     BUY_SOFT_SCORE_MIN: int = _num_env("BUY_SOFT_SCORE_MIN", int, 40)
-    FEATURES_DIR: pathlib.Path = pathlib.Path(
-        os.getenv("FEATURES_DIR", PROJECT_ROOT / "data" / "features")
-    )
-    MODEL_PATH: pathlib.Path = pathlib.Path(
-        os.getenv("MODEL_PATH", PROJECT_ROOT / "ml" / "model.pkl")
-    )
+    FEATURES_DIR: pathlib.Path = pathlib.Path(os.getenv("FEATURES_DIR", PROJECT_ROOT / "data" / "features"))
+    MODEL_PATH: pathlib.Path = pathlib.Path(os.getenv("MODEL_PATH", PROJECT_ROOT / "ml" / "model.pkl"))
     AI_THRESHOLD_FILE: pathlib.Path = pathlib.Path(
         os.getenv("AI_THRESHOLD_FILE", PROJECT_ROOT / "data" / "metrics" / "recommended_threshold.json")
     )
-    # ⚠️ RETRAIN_DAY / RETRAIN_HOUR se interpretan en **UTC**.
+
+    # ⚠️ RETRAIN_FREQUENCY / RETRAIN_DAY / RETRAIN_HOUR se interpretan en **UTC**.
     #    weekday() en Python: lunes=0 … domingo=6
+    RETRAIN_FREQUENCY: str = (os.getenv("RETRAIN_FREQUENCY", "weekly") or "weekly").strip().lower()
     RETRAIN_DAY: int = _num_env("RETRAIN_DAY", int, 6)
     RETRAIN_HOUR: int = _num_env("RETRAIN_HOUR", int, 4)
 
-    # —— nuevos de entrenamiento/validación ——
+    # —— entrenamiento/validación ——
     TRAIN_FORWARD_HOLDOUT_DAYS: int = _num_env("TRAIN_FORWARD_HOLDOUT_DAYS", int, 3)
     TRAIN_FORWARD_HOLDOUT_PCT: float = _num_env("TRAIN_FORWARD_HOLDOUT_PCT", float, 0.0)  # 0 → ignorar
     TRAINING_WINDOW_DAYS: int = _num_env("TRAINING_WINDOW_DAYS", int, 28)
     MIN_THRESHOLD_CHANGE: float = _num_env("MIN_THRESHOLD_CHANGE", float, 0.01)  # 0.01 = 1 p.p.
+    PRECISION_AT_K_PCT: float = _num_env("PRECISION_AT_K_PCT", float, 0.10)
+    ML_GATE_MODE: str = (os.getenv("ML_GATE_MODE", "shadow") or "shadow").strip().lower()
+    RESEARCH_LANE_ENABLED: bool = _bool_env("RESEARCH_LANE_ENABLED", True)
+    RESEARCH_SHADOW_ENABLED: bool = _bool_env("RESEARCH_SHADOW_ENABLED", True)
+    RESEARCH_DECISION_DEDUP_TTL_S: int = _num_env("RESEARCH_DECISION_DEDUP_TTL_S", int, 600)
+    RESEARCH_SHADOW_MAX_OPEN: int = _num_env("RESEARCH_SHADOW_MAX_OPEN", int, 6)
+    RESEARCH_SHADOW_MAX_OPEN_PER_REGIME: int = _num_env("RESEARCH_SHADOW_MAX_OPEN_PER_REGIME", int, 4)
+    RESEARCH_SHADOW_MIN_RANK_SCORE: float = _num_env("RESEARCH_SHADOW_MIN_RANK_SCORE", float, 55.0)
+    RESEARCH_SHADOW_MIN_AGE_MIN: float = _num_env("RESEARCH_SHADOW_MIN_AGE_MIN", float, 2.0)
+    RESEARCH_SHADOW_MIN_LIQUIDITY_USD: float = _num_env("RESEARCH_SHADOW_MIN_LIQUIDITY_USD", float, 1500.0)
+    RESEARCH_NEAR_MISS_SCORE_MARGIN: int = _num_env("RESEARCH_NEAR_MISS_SCORE_MARGIN", int, 8)
+    RESEARCH_NEAR_MISS_PROBA_MARGIN: float = _num_env("RESEARCH_NEAR_MISS_PROBA_MARGIN", float, 0.12)
+    RESEARCH_SCORECARD_INTERVAL_MIN: int = _num_env("RESEARCH_SCORECARD_INTERVAL_MIN", int, 60)
+    RESEARCH_THRESHOLD_MIN_OUTCOMES: int = _num_env("RESEARCH_THRESHOLD_MIN_OUTCOMES", int, 20)
+    RESEARCH_THRESHOLD_MIN_POSITIVES: int = _num_env("RESEARCH_THRESHOLD_MIN_POSITIVES", int, 4)
+    RESEARCH_THRESHOLD_MIN_SELECTED: int = _num_env("RESEARCH_THRESHOLD_MIN_SELECTED", int, 6)
+    RESEARCH_THRESHOLD_MIN_REALIZED_SELECTED: int = _num_env("RESEARCH_THRESHOLD_MIN_REALIZED_SELECTED", int, 4)
+    RESEARCH_THRESHOLD_PRECISION_FLOOR: float = _num_env("RESEARCH_THRESHOLD_PRECISION_FLOOR", float, 0.55)
+    ML_MIN_DATASET_ROWS: int = _num_env("ML_MIN_DATASET_ROWS", int, 250)
+    ML_MIN_POSITIVES: int = _num_env("ML_MIN_POSITIVES", int, 40)
+    ML_MIN_UNIQUE_TOKENS: int = _num_env("ML_MIN_UNIQUE_TOKENS", int, 200)
+    ML_MIN_REALIZED_RETURN_ROWS: int = _num_env("ML_MIN_REALIZED_RETURN_ROWS", int, 50)
+    ML_MIN_HOLDOUT_ROWS: int = _num_env("ML_MIN_HOLDOUT_ROWS", int, 40)
+    ML_MIN_HOLDOUT_POSITIVES: int = _num_env("ML_MIN_HOLDOUT_POSITIVES", int, 8)
+    ML_MIN_NON_CONSTANT_FEATURES: int = _num_env("ML_MIN_NON_CONSTANT_FEATURES", int, 12)
+    ML_TUNE_OBJECTIVE: str = (
+        (os.getenv("ML_TUNE_OBJECTIVE", "expected_pnl_precision_floor") or "expected_pnl_precision_floor")
+        .strip()
+        .lower()
+    )
+    ML_TUNE_PRECISION_FLOOR: float = _num_env("ML_TUNE_PRECISION_FLOOR", float, 0.60)
+    ML_TUNE_MIN_SELECTED: int = _num_env("ML_TUNE_MIN_SELECTED", int, 10)
+    ML_TUNE_MIN_REALIZED_SELECTED: int = _num_env("ML_TUNE_MIN_REALIZED_SELECTED", int, 5)
+    ML_SELECTION_MIN_DELTA: float = _num_env("ML_SELECTION_MIN_DELTA", float, 0.25)
+    ML_TRAIN_ENTRY_LANE_ALLOWLIST: str = os.getenv(
+        "ML_TRAIN_ENTRY_LANE_ALLOWLIST",
+        "pump_early_pumpswap_profit,pump_early_pumpswap_prime,pump_early_meteor_prime",
+    )
+    ML_TRAIN_ALLOW_MISSING_ENTRY_LANE: bool = _bool_env("ML_TRAIN_ALLOW_MISSING_ENTRY_LANE", True)
+    ML_TRAIN_DEX_ALLOWLIST: str = os.getenv("ML_TRAIN_DEX_ALLOWLIST", "pumpswap")
+    ML_BOOTSTRAP_RESEARCH_SHADOW_ENABLED: bool = _bool_env("ML_BOOTSTRAP_RESEARCH_SHADOW_ENABLED", True)
+    ML_BOOTSTRAP_ONLY_WHEN_MODEL_MISSING: bool = _bool_env("ML_BOOTSTRAP_ONLY_WHEN_MODEL_MISSING", False)
+    ML_BOOTSTRAP_ENTRY_LANE_ALLOWLIST: str = os.getenv(
+        "ML_BOOTSTRAP_ENTRY_LANE_ALLOWLIST",
+        "pump_early_pumpswap_profit,pump_early_pumpswap_prime,pump_early_meteor_prime,pump_early_sniper_research",
+    )
+    ML_BOOTSTRAP_DEX_ALLOWLIST: str = os.getenv("ML_BOOTSTRAP_DEX_ALLOWLIST", "")
+    PUMP_EARLY_SHADOW_RECOVERY_ENABLED: bool = _bool_env("PUMP_EARLY_SHADOW_RECOVERY_ENABLED", True)
+    PUMP_EARLY_SHADOW_RECOVERY_WINDOW: int = _num_env("PUMP_EARLY_SHADOW_RECOVERY_WINDOW", int, 8)
+    PUMP_EARLY_SHADOW_RECOVERY_MIN_TRADES: int = _num_env("PUMP_EARLY_SHADOW_RECOVERY_MIN_TRADES", int, 8)
+    PUMP_EARLY_SHADOW_RECOVERY_MIN_AVG_PNL_PCT: float = _num_env(
+        "PUMP_EARLY_SHADOW_RECOVERY_MIN_AVG_PNL_PCT",
+        float,
+        5.0,
+    )
+    PUMP_EARLY_SHADOW_RECOVERY_MIN_WIN_RATE_PCT: float = _num_env(
+        "PUMP_EARLY_SHADOW_RECOVERY_MIN_WIN_RATE_PCT",
+        float,
+        45.0,
+    )
+    PUMP_EARLY_SHADOW_RECOVERY_MAX_SEVERE_EXITS: int = _num_env(
+        "PUMP_EARLY_SHADOW_RECOVERY_MAX_SEVERE_EXITS",
+        int,
+        2,
+    )
+    PUMP_EARLY_SHADOW_RECOVERY_MAX_LIQ_CRUSH: int = _num_env(
+        "PUMP_EARLY_SHADOW_RECOVERY_MAX_LIQ_CRUSH",
+        int,
+        1,
+    )
+    PUMP_EARLY_SHADOW_RECOVERY_MAX_CONSECUTIVE_LOSSES: int = _num_env(
+        "PUMP_EARLY_SHADOW_RECOVERY_MAX_CONSECUTIVE_LOSSES",
+        int,
+        3,
+    )
+    PUMP_EARLY_SHADOW_RECOVERY_MAX_AGE_H: float = _num_env("PUMP_EARLY_SHADOW_RECOVERY_MAX_AGE_H", float, 36.0)
 
     # ------- endpoints ---------------------------------------------
     RPC_URL: str = os.getenv("RPC_URL", "https://api.mainnet-beta.solana.com")
-    DEXSCREENER_API: str = (
-        os.getenv("DEXSCREENER_API")
-        or os.getenv("DEX_API_BASE")
-        or "https://api.dexscreener.com"
-    )
+    DEXSCREENER_API: str = os.getenv("DEXSCREENER_API") or os.getenv("DEX_API_BASE") or "https://api.dexscreener.com"
 
     # ------- Helius -------------------------------------------------
     HELIUS_API_KEY: str | None = os.getenv("HELIUS_API_KEY")
-    HELIUS_REST_BASE: str = os.getenv(
-        "HELIUS_REST_BASE",
-        os.getenv("HELIUS_API_BASE", "https://api.helius.xyz"),
-    )
+    HELIUS_REST_BASE: str = os.getenv("HELIUS_REST_BASE", os.getenv("HELIUS_API_BASE", "https://api.helius.xyz"))
     HELIUS_RPC_URL: str = os.getenv(
         "HELIUS_RPC_URL",
-        f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}"
-        if HELIUS_API_KEY
-        else "https://api.mainnet-beta.solana.com",
+        f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}" if HELIUS_API_KEY else RPC_URL,
     )
+    USE_PRIVATE_RPC_FIRST: bool = _bool_env("USE_PRIVATE_RPC_FIRST", True)
+    SOL_RPC_FALLBACKS: Tuple[str, ...] = _csv_tuple(os.getenv("SOL_RPC_FALLBACKS", ""), lower=False)
 
     # ------- otros servicios ---------------------------------------
     RUGCHECK_API_BASE: str = os.getenv("RUGCHECK_API_BASE", "https://api.rugcheck.xyz/v1")
@@ -240,12 +369,12 @@ class _Config:
     PUMPFUN_PROGRAM: str | None = os.getenv("PUMPFUN_PROGRAM")
 
     # ------- GeckoTerminal -----------------------------------------
-    USE_GECKO_TERMINAL: bool = os.getenv("USE_GECKO_TERMINAL", "true").lower() == "true"
+    USE_GECKO_TERMINAL: bool = _bool_env("USE_GECKO_TERMINAL", True)
     GECKO_API_URL: str = os.getenv("GECKO_API_URL", "https://api.geckoterminal.com/api/v2")
     GECKO_SOL_ENDPOINT: str = f"{GECKO_API_URL}/networks/solana/pools"
 
     # ------- Jupiter Price v3 (Lite) -------------------------------
-    USE_JUPITER_PRICE: bool = os.getenv("USE_JUPITER_PRICE", "true").lower() == "true"
+    USE_JUPITER_PRICE: bool = _bool_env("USE_JUPITER_PRICE", True)
     JUPITER_PRICE_URL: str = os.getenv("JUPITER_PRICE_URL", "https://lite-api.jup.ag/price/v3")
     JUPITER_RPM: int = _num_env("JUPITER_RPM", int, 60)
     JUPITER_TTL_NIL_SHORT: int = _num_env("JUPITER_TTL_NIL_SHORT", int, 120)
@@ -253,63 +382,1070 @@ class _Config:
     JUPITER_TTL_OK: int = _num_env("JUPITER_TTL_OK", int, 120)
 
     # ------- Impacto Jupiter (router opcional) ---------------------
-    USE_JUPITER_IMPACT: bool = os.getenv("USE_JUPITER_IMPACT", "false").lower() == "true"
+    USE_JUPITER_IMPACT: bool = _bool_env("USE_JUPITER_IMPACT", False)
     IMPACT_PROBE_SOL: float = _num_env("IMPACT_PROBE_SOL", float, 0.05)
     IMPACT_MAX_PCT: float = _num_env("IMPACT_MAX_PCT", float, 8.0)
+    JUP_MANAGED_ENABLED: bool = _bool_env("JUP_MANAGED_ENABLED", True)
+    JUP_LEGACY_SWAP_ENABLED: bool = _bool_env("JUP_LEGACY_SWAP_ENABLED", True)
+    JUP_ORDER_URL: str = os.getenv("JUP_ORDER_URL", "https://api.jup.ag/ultra/v1/order")
+    JUP_EXECUTE_URL: str = os.getenv("JUP_EXECUTE_URL", "https://api.jup.ag/ultra/v1/execute")
+    JUP_MANAGED_SLIPPAGE_BPS: int = _num_env("JUP_MANAGED_SLIPPAGE_BPS", int, 100)
+    JITO_BLOCK_ENGINE_URL: str = os.getenv("JITO_BLOCK_ENGINE_URL", "https://ny.mainnet.block-engine.jito.wtf")
+    JITO_UUID: str | None = os.getenv("JITO_UUID")
+    JITO_BROADCAST_ENABLED: bool = _bool_env("JITO_BROADCAST_ENABLED", False)
+    JITO_BUNDLE_ONLY: bool = _bool_env("JITO_BUNDLE_ONLY", True)
 
     # ------- filtros básicos ---------------------------------------
-    MAX_AGE_DAYS: float = _num_env("MAX_AGE_DAYS", float, 2)
-    MIN_AGE_MIN: float = _num_env("MIN_AGE_MIN", float, 3.0)  # ↑ default 3.0 (antes 2.0)
+    MAX_AGE_DAYS: float = _num_env("MAX_AGE_DAYS", float, 2.0)
+    MIN_AGE_MIN: float = _num_env("MIN_AGE_MIN", float, 3.0)
     MIN_HOLDERS: int = _num_env("MIN_HOLDERS", int, 10)
-    MIN_LIQUIDITY_USD: float = _num_env("MIN_LIQUIDITY_USD", float, 5_000)
-    MIN_VOL_USD_24H: float = _num_env("MIN_VOL_USD_24H", float, 10_000)
-    MIN_MARKET_CAP_USD: float = _num_env("MIN_MARKET_CAP_USD", float, 5_000)
-    MAX_MARKET_CAP_USD: float = _num_env("MAX_MARKET_CAP_USD", float, 20_000)
-    MAX_24H_VOLUME: float = _num_env("MAX_24H_VOLUME", float, 1_500_000)
+    MIN_LIQUIDITY_USD: float = _num_env("MIN_LIQUIDITY_USD", float, 5_000.0)
+    MIN_VOL_USD_24H: float = _num_env("MIN_VOL_USD_24H", float, 10_000.0)
+    MIN_MARKET_CAP_USD: float = _num_env("MIN_MARKET_CAP_USD", float, 5_000.0)
+    MAX_MARKET_CAP_USD: float = _num_env("MAX_MARKET_CAP_USD", float, 20_000.0)
+    MAX_24H_VOLUME: float = _num_env("MAX_24H_VOLUME", float, 1_500_000.0)
     MIN_SCORE_TOTAL: int = _num_env("MIN_SCORE_TOTAL", int, 50)
     MAX_ACTIVE_POSITIONS: int = _num_env("MAX_ACTIVE_POSITIONS", int, 25)
-    DEXS_TXNS_5M_MIN: int = _num_env("DEXS_TXNS_5M_MIN", int, 2)  # umbral DexScreener
+    DEXS_TXNS_5M_MIN: int = _num_env("DEXS_TXNS_5M_MIN", int, 2)
+    FILTER_PROFILE_BY_DISCOVERY: bool = _bool_env("FILTER_PROFILE_BY_DISCOVERY", False)
+    SNAPSHOT_QUALITY_FILTER_ENABLED: bool = _bool_env("SNAPSHOT_QUALITY_FILTER_ENABLED", False)
+    SNAPSHOT_MAX_MISSING_FIELDS: int = _num_env("SNAPSHOT_MAX_MISSING_FIELDS", int, 99)
+    SNAPSHOT_REQUIRE_ACTIVITY_SIGNAL: bool = _bool_env("SNAPSHOT_REQUIRE_ACTIVITY_SIGNAL", False)
+    SNAPSHOT_REQUIRE_SOCIAL_OR_TREND: bool = _bool_env("SNAPSHOT_REQUIRE_SOCIAL_OR_TREND", False)
+    SNAPSHOT_REQUIRE_RUG_SCORE: bool = _bool_env("SNAPSHOT_REQUIRE_RUG_SCORE", False)
+    SNAPSHOT_ALLOWED_PRICE_SOURCES: Tuple[str, ...] = _csv_tuple(os.getenv("SNAPSHOT_ALLOWED_PRICE_SOURCES", ""))
+
+    # Overrides opcionales por regimen (solo se aplican si FILTER_PROFILE_BY_DISCOVERY=true)
+    DEX_MIN_AGE_MIN: float | None = _opt_num_env("DEX_MIN_AGE_MIN", float)
+    DEX_MIN_HOLDERS: int | None = _opt_num_env("DEX_MIN_HOLDERS", int)
+    DEX_MIN_LIQUIDITY_USD: float | None = _opt_num_env("DEX_MIN_LIQUIDITY_USD", float)
+    DEX_MIN_VOL_USD_24H: float | None = _opt_num_env("DEX_MIN_VOL_USD_24H", float)
+    DEX_MIN_MARKET_CAP_USD: float | None = _opt_num_env("DEX_MIN_MARKET_CAP_USD", float)
+    DEX_MAX_MARKET_CAP_USD: float | None = _opt_num_env("DEX_MAX_MARKET_CAP_USD", float)
+    DEX_BUY_SOFT_SCORE_MIN: int | None = _opt_num_env("DEX_BUY_SOFT_SCORE_MIN", int)
+    DEX_AI_THRESHOLD: float | None = _opt_num_env("DEX_AI_THRESHOLD", float)
+    DEX_REQUIRE_JUPITER_FOR_BUY: bool | None = _opt_bool_env("DEX_REQUIRE_JUPITER_FOR_BUY")
+
+    PUMPFUN_MIN_AGE_MIN: float | None = _opt_num_env("PUMPFUN_MIN_AGE_MIN", float)
+    PUMPFUN_MIN_HOLDERS: int | None = _opt_num_env("PUMPFUN_MIN_HOLDERS", int)
+    PUMPFUN_MIN_LIQUIDITY_USD: float | None = _opt_num_env("PUMPFUN_MIN_LIQUIDITY_USD", float)
+    PUMPFUN_MIN_VOL_USD_24H: float | None = _opt_num_env("PUMPFUN_MIN_VOL_USD_24H", float)
+    PUMPFUN_MIN_MARKET_CAP_USD: float | None = _opt_num_env("PUMPFUN_MIN_MARKET_CAP_USD", float)
+    PUMPFUN_MAX_MARKET_CAP_USD: float | None = _opt_num_env("PUMPFUN_MAX_MARKET_CAP_USD", float)
+    PUMPFUN_BUY_SOFT_SCORE_MIN: int | None = _opt_num_env("PUMPFUN_BUY_SOFT_SCORE_MIN", int)
+    PUMPFUN_AI_THRESHOLD: float | None = _opt_num_env("PUMPFUN_AI_THRESHOLD", float)
+    PUMPFUN_REQUIRE_JUPITER_FOR_BUY: bool | None = _opt_bool_env("PUMPFUN_REQUIRE_JUPITER_FOR_BUY")
+
+    REVIVAL_MIN_AGE_MIN: float | None = _opt_num_env("REVIVAL_MIN_AGE_MIN", float)
+    REVIVAL_MIN_HOLDERS: int | None = _opt_num_env("REVIVAL_MIN_HOLDERS", int)
+    REVIVAL_MIN_LIQUIDITY_USD: float | None = _opt_num_env("REVIVAL_MIN_LIQUIDITY_USD", float)
+    REVIVAL_MIN_VOL_USD_24H: float | None = _opt_num_env("REVIVAL_MIN_VOL_USD_24H", float)
+    REVIVAL_MIN_MARKET_CAP_USD: float | None = _opt_num_env("REVIVAL_MIN_MARKET_CAP_USD", float)
+    REVIVAL_MAX_MARKET_CAP_USD: float | None = _opt_num_env("REVIVAL_MAX_MARKET_CAP_USD", float)
+    REVIVAL_BUY_SOFT_SCORE_MIN: int | None = _opt_num_env("REVIVAL_BUY_SOFT_SCORE_MIN", int)
+    REVIVAL_AI_THRESHOLD: float | None = _opt_num_env("REVIVAL_AI_THRESHOLD", float)
+    REVIVAL_REQUIRE_JUPITER_FOR_BUY: bool | None = _opt_bool_env("REVIVAL_REQUIRE_JUPITER_FOR_BUY")
+
+    # ------- regimenes operativos / sizing -------------------------
+    REGIME_PUMP_EARLY_MAX_AGE_MIN: float = _num_env("REGIME_PUMP_EARLY_MAX_AGE_MIN", float, 5.0)
+    DYNAMIC_SIZING_ENABLED: bool = _bool_env("DYNAMIC_SIZING_ENABLED", False)
+    AI_SIZING_ENABLED: bool = _bool_env("AI_SIZING_ENABLED", False)
+    SIZE_MIN_MULTIPLIER: float = _num_env("SIZE_MIN_MULTIPLIER", float, 0.10)
+    SIZE_MID_MULTIPLIER: float = _num_env("SIZE_MID_MULTIPLIER", float, 0.20)
+    SIZE_MAX_MULTIPLIER: float = _num_env("SIZE_MAX_MULTIPLIER", float, 0.20)
+    SIZE_ACCEPTABLE_MIN_POINTS: int = _num_env("SIZE_ACCEPTABLE_MIN_POINTS", int, 3)
+    SIZE_PREMIUM_MIN_POINTS: int = _num_env("SIZE_PREMIUM_MIN_POINTS", int, 6)
+    PUMP_EARLY_MAX_SIZE_MULTIPLIER: float = _num_env("PUMP_EARLY_MAX_SIZE_MULTIPLIER", float, 0.50)
+    DEX_MATURE_MAX_SIZE_MULTIPLIER: float = _num_env("DEX_MATURE_MAX_SIZE_MULTIPLIER", float, 1.00)
+    REVIVAL_MAX_SIZE_MULTIPLIER: float = _num_env("REVIVAL_MAX_SIZE_MULTIPLIER", float, 0.75)
+    MAX_ACTIVE_POSITIONS_PER_REGIME: int = _num_env("MAX_ACTIVE_POSITIONS_PER_REGIME", int, 0)
+    PUMP_EARLY_MAX_ACTIVE_POSITIONS: int | None = _opt_num_env("PUMP_EARLY_MAX_ACTIVE_POSITIONS", int)
+    DEX_MATURE_MAX_ACTIVE_POSITIONS: int | None = _opt_num_env("DEX_MATURE_MAX_ACTIVE_POSITIONS", int)
+    REVIVAL_MAX_ACTIVE_POSITIONS: int | None = _opt_num_env("REVIVAL_MAX_ACTIVE_POSITIONS", int)
+    STRATEGY_REGIME_MODE_DEFAULT: str = (
+        (os.getenv("STRATEGY_REGIME_MODE_DEFAULT", "shadow") or "shadow").strip().lower()
+    )
+    PUMP_EARLY_EXECUTION_MODE: str = (
+        (os.getenv("PUMP_EARLY_EXECUTION_MODE", STRATEGY_REGIME_MODE_DEFAULT) or STRATEGY_REGIME_MODE_DEFAULT)
+        .strip()
+        .lower()
+    )
+    DEX_MATURE_EXECUTION_MODE: str = (
+        (os.getenv("DEX_MATURE_EXECUTION_MODE", "live") or "live").strip().lower()
+    )
+    REVIVAL_EXECUTION_MODE: str = (
+        (os.getenv("REVIVAL_EXECUTION_MODE", STRATEGY_REGIME_MODE_DEFAULT) or STRATEGY_REGIME_MODE_DEFAULT)
+        .strip()
+        .lower()
+    )
+    STRATEGY_CONFIRMATION_ENABLED: bool = _bool_env("STRATEGY_CONFIRMATION_ENABLED", True)
+    STRATEGY_CONFIRM_DEFAULT_SNAPSHOTS: int = _num_env("STRATEGY_CONFIRM_DEFAULT_SNAPSHOTS", int, 2)
+    STRATEGY_CONFIRM_DEFAULT_BACKOFF_S: int = _num_env("STRATEGY_CONFIRM_DEFAULT_BACKOFF_S", int, 45)
+    STRATEGY_CONFIRM_REQUIRE_ROUTE: bool = _bool_env("STRATEGY_CONFIRM_REQUIRE_ROUTE", True)
+    STRATEGY_CONFIRM_LIQUIDITY_DROP_PCT: float = _num_env("STRATEGY_CONFIRM_LIQUIDITY_DROP_PCT", float, 20.0)
+    PUMP_EARLY_CONFIRM_SNAPSHOTS: int = _num_env("PUMP_EARLY_CONFIRM_SNAPSHOTS", int, 3)
+    DEX_MATURE_CONFIRM_SNAPSHOTS: int = _num_env("DEX_MATURE_CONFIRM_SNAPSHOTS", int, 2)
+    REVIVAL_CONFIRM_SNAPSHOTS: int = _num_env("REVIVAL_CONFIRM_SNAPSHOTS", int, 2)
+    PUMP_EARLY_CONFIRM_BACKOFF_S: int = _num_env("PUMP_EARLY_CONFIRM_BACKOFF_S", int, 30)
+    DEX_MATURE_CONFIRM_BACKOFF_S: int = _num_env("DEX_MATURE_CONFIRM_BACKOFF_S", int, 45)
+    REVIVAL_CONFIRM_BACKOFF_S: int = _num_env("REVIVAL_CONFIRM_BACKOFF_S", int, 60)
+    PUMP_EARLY_CONFIRM_MIN_AGE_MIN: float = _num_env("PUMP_EARLY_CONFIRM_MIN_AGE_MIN", float, 1.0)
+    DEX_MATURE_CONFIRM_MIN_AGE_MIN: float = _num_env("DEX_MATURE_CONFIRM_MIN_AGE_MIN", float, 3.0)
+    REVIVAL_CONFIRM_MIN_AGE_MIN: float = _num_env("REVIVAL_CONFIRM_MIN_AGE_MIN", float, 8.0)
+    PUMP_EARLY_QUALITY_MIN_POINTS: int = _num_env("PUMP_EARLY_QUALITY_MIN_POINTS", int, 0)
+    PUMP_EARLY_QUALITY_BACKOFF_S: int = _num_env("PUMP_EARLY_QUALITY_BACKOFF_S", int, 120)
+    PUMP_EARLY_QUALITY_MIN_AGE_MIN: float = _num_env("PUMP_EARLY_QUALITY_MIN_AGE_MIN", float, 0.0)
+    PUMP_EARLY_QUALITY_MIN_LIQUIDITY_USD: float = _num_env("PUMP_EARLY_QUALITY_MIN_LIQUIDITY_USD", float, 0.0)
+    PUMP_EARLY_QUALITY_MIN_VOLUME_USD_24H: float = _num_env("PUMP_EARLY_QUALITY_MIN_VOLUME_USD_24H", float, 0.0)
+    PUMP_EARLY_QUALITY_MIN_MARKET_CAP_USD: float = _num_env("PUMP_EARLY_QUALITY_MIN_MARKET_CAP_USD", float, 0.0)
+    PUMP_EARLY_QUALITY_MIN_HOLDERS: int = _num_env("PUMP_EARLY_QUALITY_MIN_HOLDERS", int, 0)
+    PUMP_EARLY_QUALITY_MIN_SCORE_TOTAL: int = _num_env("PUMP_EARLY_QUALITY_MIN_SCORE_TOTAL", int, 0)
+    PUMP_EARLY_QUALITY_MAX_PRICE_IMPACT_PCT: float = _num_env(
+        "PUMP_EARLY_QUALITY_MAX_PRICE_IMPACT_PCT",
+        float,
+        0.0,
+    )
+    PUMP_EARLY_LIVE_HARD_MAX_MARKET_CAP_USD: float = _num_env(
+        "PUMP_EARLY_LIVE_HARD_MAX_MARKET_CAP_USD",
+        float,
+        125_000.0,
+    )
+    PUMP_EARLY_LIVE_HARD_MAX_PRICE_IMPACT_PCT: float = _num_env(
+        "PUMP_EARLY_LIVE_HARD_MAX_PRICE_IMPACT_PCT",
+        float,
+        10.0,
+    )
+    PUMP_EARLY_LIVE_MAX_SNAPSHOT_MISSING_FIELDS: int = _num_env(
+        "PUMP_EARLY_LIVE_MAX_SNAPSHOT_MISSING_FIELDS",
+        int,
+        3,
+    )
+    PAPER_COLD_START_ENABLED: bool = _bool_env("PAPER_COLD_START_ENABLED", True)
+    PAPER_COLD_START_MAX_CLOSED_TRADES: int = _num_env("PAPER_COLD_START_MAX_CLOSED_TRADES", int, 50)
+    PAPER_COLD_START_MIN_AGE_MIN: float = _num_env("PAPER_COLD_START_MIN_AGE_MIN", float, 12.0)
+    PAPER_COLD_START_MIN_SCORE_TOTAL: int = _num_env("PAPER_COLD_START_MIN_SCORE_TOTAL", int, 45)
+    PAPER_COLD_START_MIN_LIQUIDITY_USD: float = _num_env("PAPER_COLD_START_MIN_LIQUIDITY_USD", float, 10_000.0)
+    PAPER_COLD_START_MIN_MARKET_CAP_USD: float = _num_env("PAPER_COLD_START_MIN_MARKET_CAP_USD", float, 15_000.0)
+    PAPER_COLD_START_MAX_SNAPSHOT_MISSING_FIELDS: int = _num_env(
+        "PAPER_COLD_START_MAX_SNAPSHOT_MISSING_FIELDS",
+        int,
+        4,
+    )
+    PAPER_COLD_START_MIN_RANK_SCORE: float = _num_env("PAPER_COLD_START_MIN_RANK_SCORE", float, 12.5)
+    PAPER_COLD_START_REQUIRE_PRICE_PCT_5M: bool = _bool_env("PAPER_COLD_START_REQUIRE_PRICE_PCT_5M", True)
+    PAPER_COLD_START_MIN_PRICE_PCT_5M: float = _num_env("PAPER_COLD_START_MIN_PRICE_PCT_5M", float, 0.0)
+    PAPER_COLD_START_MAX_PRICE_PCT_5M: float = _num_env("PAPER_COLD_START_MAX_PRICE_PCT_5M", float, 80.0)
+    PAPER_COLD_START_SHADOW_PROBE_ENABLED: bool = _bool_env("PAPER_COLD_START_SHADOW_PROBE_ENABLED", True)
+    PAPER_COLD_START_SHADOW_PROBE_SIZE_MULTIPLIER: float = _num_env(
+        "PAPER_COLD_START_SHADOW_PROBE_SIZE_MULTIPLIER",
+        float,
+        0.10,
+    )
+    PUMP_EARLY_SNIPER_ENABLED: bool = _bool_env("PUMP_EARLY_SNIPER_ENABLED", True)
+    PUMP_EARLY_SNIPER_MODE: str = (
+        (os.getenv("PUMP_EARLY_SNIPER_MODE", "canary_aggressive") or "canary_aggressive").strip().lower()
+    )
+    PUMP_EARLY_SNIPER_MIN_AGE_MIN: float = _num_env("PUMP_EARLY_SNIPER_MIN_AGE_MIN", float, 3.0)
+    PUMP_EARLY_SNIPER_MAX_AGE_MIN: float = _num_env("PUMP_EARLY_SNIPER_MAX_AGE_MIN", float, 30.0)
+    PUMP_EARLY_SNIPER_MIN_LIQUIDITY_USD: float = _num_env(
+        "PUMP_EARLY_SNIPER_MIN_LIQUIDITY_USD",
+        float,
+        1_500.0,
+    )
+    PUMP_EARLY_SNIPER_MICRO_MIN_LIQUIDITY_USD: float = _num_env(
+        "PUMP_EARLY_SNIPER_MICRO_MIN_LIQUIDITY_USD",
+        float,
+        1_000.0,
+    )
+    PUMP_EARLY_SNIPER_MICRO_MIN_VOLUME_USD_24H: float = _num_env(
+        "PUMP_EARLY_SNIPER_MICRO_MIN_VOLUME_USD_24H",
+        float,
+        15_000.0,
+    )
+    PUMP_EARLY_SNIPER_MIN_MARKET_CAP_USD: float = _num_env(
+        "PUMP_EARLY_SNIPER_MIN_MARKET_CAP_USD",
+        float,
+        2_000.0,
+    )
+    PUMP_EARLY_SNIPER_MAX_MARKET_CAP_USD: float = _num_env(
+        "PUMP_EARLY_SNIPER_MAX_MARKET_CAP_USD",
+        float,
+        200_000.0,
+    )
+    PUMP_EARLY_SNIPER_MICRO_MAX_MARKET_CAP_USD: float = _num_env(
+        "PUMP_EARLY_SNIPER_MICRO_MAX_MARKET_CAP_USD",
+        float,
+        125_000.0,
+    )
+    PUMP_EARLY_SNIPER_MIN_SCORE_TOTAL: int = _num_env("PUMP_EARLY_SNIPER_MIN_SCORE_TOTAL", int, 30)
+    PUMP_EARLY_SNIPER_MICRO_MIN_SCORE_TOTAL: int = _num_env(
+        "PUMP_EARLY_SNIPER_MICRO_MIN_SCORE_TOTAL",
+        int,
+        25,
+    )
+    PUMP_EARLY_SNIPER_MIN_RANK_SCORE: float = _num_env(
+        "PUMP_EARLY_SNIPER_MIN_RANK_SCORE",
+        float,
+        40.0,
+    )
+    PUMP_EARLY_SNIPER_MICRO_MIN_RANK_SCORE: float = _num_env(
+        "PUMP_EARLY_SNIPER_MICRO_MIN_RANK_SCORE",
+        float,
+        42.0,
+    )
+    PUMP_EARLY_SNIPER_MAX_PRICE_IMPACT_PCT: float = _num_env(
+        "PUMP_EARLY_SNIPER_MAX_PRICE_IMPACT_PCT",
+        float,
+        20.0,
+    )
+    PUMP_EARLY_SNIPER_MICRO_MAX_PRICE_IMPACT_PCT: float = _num_env(
+        "PUMP_EARLY_SNIPER_MICRO_MAX_PRICE_IMPACT_PCT",
+        float,
+        15.0,
+    )
+    PUMP_EARLY_SNIPER_MIN_TXNS_5M: int = _num_env("PUMP_EARLY_SNIPER_MIN_TXNS_5M", int, 15)
+    PUMP_EARLY_SNIPER_MICRO_MIN_TXNS_5M: int = _num_env(
+        "PUMP_EARLY_SNIPER_MICRO_MIN_TXNS_5M",
+        int,
+        50,
+    )
+    PUMP_EARLY_SNIPER_MIN_PRICE_PCT_5M: float = _num_env(
+        "PUMP_EARLY_SNIPER_MIN_PRICE_PCT_5M",
+        float,
+        -20.0,
+    )
+    PUMP_EARLY_SNIPER_MAX_PRICE_PCT_5M: float = _num_env(
+        "PUMP_EARLY_SNIPER_MAX_PRICE_PCT_5M",
+        float,
+        240.0,
+    )
+    PUMP_EARLY_SNIPER_MICRO_MIN_PRICE_PCT_5M: float = _num_env(
+        "PUMP_EARLY_SNIPER_MICRO_MIN_PRICE_PCT_5M",
+        float,
+        5.0,
+    )
+    PUMP_EARLY_SNIPER_MAX_SNAPSHOT_MISSING_FIELDS: int = _num_env(
+        "PUMP_EARLY_SNIPER_MAX_SNAPSHOT_MISSING_FIELDS",
+        int,
+        5,
+    )
+    PUMP_EARLY_SNIPER_HOT_MIN_RANK_SCORE: float = _num_env(
+        "PUMP_EARLY_SNIPER_HOT_MIN_RANK_SCORE",
+        float,
+        50.0,
+    )
+    PUMP_EARLY_SNIPER_HOT_MIN_TXNS_5M: int = _num_env("PUMP_EARLY_SNIPER_HOT_MIN_TXNS_5M", int, 100)
+    PUMP_EARLY_SNIPER_HOT_MIN_PRICE_PCT_5M: float = _num_env(
+        "PUMP_EARLY_SNIPER_HOT_MIN_PRICE_PCT_5M",
+        float,
+        10.0,
+    )
+    PUMP_EARLY_SNIPER_HOT_MAX_PRICE_PCT_5M: float = _num_env(
+        "PUMP_EARLY_SNIPER_HOT_MAX_PRICE_PCT_5M",
+        float,
+        120.0,
+    )
+    PUMP_EARLY_SNIPER_HOT_MAX_SNAPSHOT_MISSING_FIELDS: int = _num_env(
+        "PUMP_EARLY_SNIPER_HOT_MAX_SNAPSHOT_MISSING_FIELDS",
+        int,
+        2,
+    )
+    PUMP_EARLY_SNIPER_FAST_CONFIRM_MIN_AGE_MIN: float = _num_env(
+        "PUMP_EARLY_SNIPER_FAST_CONFIRM_MIN_AGE_MIN",
+        float,
+        3.0,
+    )
+    PUMP_EARLY_SNIPER_FAST_CONFIRM_MIN_TXNS_5M: int = _num_env(
+        "PUMP_EARLY_SNIPER_FAST_CONFIRM_MIN_TXNS_5M",
+        int,
+        40,
+    )
+    PUMP_EARLY_SNIPER_FAST_CONFIRM_BACKOFF_S: int = _num_env(
+        "PUMP_EARLY_SNIPER_FAST_CONFIRM_BACKOFF_S",
+        int,
+        10,
+    )
+    PUMP_EARLY_SNIPER_SIZE_MICRO_MULTIPLIER: float = _num_env(
+        "PUMP_EARLY_SNIPER_SIZE_MICRO_MULTIPLIER",
+        float,
+        0.10,
+    )
+    PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER: float = _num_env(
+        "PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER",
+        float,
+        0.20,
+    )
+    PUMP_EARLY_SNIPER_SIZE_HOT_MULTIPLIER: float = _num_env(
+        "PUMP_EARLY_SNIPER_SIZE_HOT_MULTIPLIER",
+        float,
+        0.30,
+    )
+    PUMP_EARLY_SNIPER_CANARY_INITIAL_CLOSES: int = _num_env(
+        "PUMP_EARLY_SNIPER_CANARY_INITIAL_CLOSES",
+        int,
+        10,
+    )
+    PUMP_EARLY_SNIPER_CANARY_INITIAL_SIZE_CAP: float = _num_env(
+        "PUMP_EARLY_SNIPER_CANARY_INITIAL_SIZE_CAP",
+        float,
+        0.20,
+    )
+    PUMP_EARLY_SNIPER_MAX_OPEN_PAPER: int = _num_env("PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", int, 3)
+    PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY: int = _num_env(
+        "PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY",
+        int,
+        1,
+    )
+    PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY_ADVANCED: int = _num_env(
+        "PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY_ADVANCED",
+        int,
+        2,
+    )
+    PUMP_EARLY_SNIPER_ADVANCED_MIN_CLOSED: int = _num_env(
+        "PUMP_EARLY_SNIPER_ADVANCED_MIN_CLOSED",
+        int,
+        10,
+    )
+    PUMP_EARLY_SNIPER_ADVANCED_MIN_AVG_PNL_PCT: float = _num_env(
+        "PUMP_EARLY_SNIPER_ADVANCED_MIN_AVG_PNL_PCT",
+        float,
+        1.0,
+    )
+    PUMP_EARLY_SNIPER_ADVANCED_MAX_LOSS_STREAK: int = _num_env(
+        "PUMP_EARLY_SNIPER_ADVANCED_MAX_LOSS_STREAK",
+        int,
+        3,
+    )
+    PUMP_EARLY_SNIPER_DEMOTE_LOSS_STREAK: int = _num_env(
+        "PUMP_EARLY_SNIPER_DEMOTE_LOSS_STREAK",
+        int,
+        4,
+    )
+    PUMP_EARLY_SNIPER_DEMOTE_WINDOW_TRADES: int = _num_env(
+        "PUMP_EARLY_SNIPER_DEMOTE_WINDOW_TRADES",
+        int,
+        8,
+    )
+    PUMP_EARLY_SNIPER_DEMOTE_AVG_PNL_PCT: float = _num_env(
+        "PUMP_EARLY_SNIPER_DEMOTE_AVG_PNL_PCT",
+        float,
+        -5.0,
+    )
+    PUMP_EARLY_SNIPER_DEMOTE_LIQ_CRUSH_FIRST_CLOSES: int = _num_env(
+        "PUMP_EARLY_SNIPER_DEMOTE_LIQ_CRUSH_FIRST_CLOSES",
+        int,
+        10,
+    )
+    PUMP_EARLY_SNIPER_DEMOTE_LIQ_CRUSH_ROLLING: int = _num_env(
+        "PUMP_EARLY_SNIPER_DEMOTE_LIQ_CRUSH_ROLLING",
+        int,
+        2,
+    )
+    PUMP_EARLY_SNIPER_RECOVERY_MIN_PAPER_CLOSES: int = _num_env(
+        "PUMP_EARLY_SNIPER_RECOVERY_MIN_PAPER_CLOSES",
+        int,
+        8,
+    )
+    PUMP_EARLY_SNIPER_RECOVERY_MIN_AVG_PNL_PCT: float = _num_env(
+        "PUMP_EARLY_SNIPER_RECOVERY_MIN_AVG_PNL_PCT",
+        float,
+        2.0,
+    )
+    PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH: bool = _bool_env(
+        "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH",
+        True,
+    )
+    PUMP_EARLY_SNIPER_PAPER_RECOVERY_SIZE_CAP: float = _num_env(
+        "PUMP_EARLY_SNIPER_PAPER_RECOVERY_SIZE_CAP",
+        float,
+        0.20,
+    )
+    PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_ENABLED: bool = _bool_env(
+        "PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_ENABLED",
+        True,
+    )
+    PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_MIN_AGE_MIN: float = _num_env(
+        "PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_MIN_AGE_MIN",
+        float,
+        3.0,
+    )
+    PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_USD: float = _num_env(
+        "PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_USD",
+        float,
+        1_500.0,
+    )
+    PUMP_EARLY_PROFIT_LANE_ENABLED: bool = _bool_env("PUMP_EARLY_PROFIT_LANE_ENABLED", True)
+    PUMP_EARLY_PROFIT_DEX_ALLOWLIST: str = os.getenv(
+        "PUMP_EARLY_PROFIT_DEX_ALLOWLIST",
+        "pumpswap",
+    )
+    PUMP_EARLY_PROFIT_REQUIRE_REAL_LIQUIDITY: bool = _bool_env(
+        "PUMP_EARLY_PROFIT_REQUIRE_REAL_LIQUIDITY",
+        True,
+    )
+    PUMP_EARLY_PROFIT_MIN_LIQUIDITY_USD: float = _num_env(
+        "PUMP_EARLY_PROFIT_MIN_LIQUIDITY_USD",
+        float,
+        5_000.0,
+    )
+    PUMP_EARLY_PROFIT_MIN_SCORE_TOTAL: int = _num_env("PUMP_EARLY_PROFIT_MIN_SCORE_TOTAL", int, 35)
+    PUMP_EARLY_PROFIT_MIN_AGE_MIN: float = _num_env("PUMP_EARLY_PROFIT_MIN_AGE_MIN", float, 3.0)
+    PUMP_EARLY_PROFIT_MAX_AGE_MIN: float = _num_env("PUMP_EARLY_PROFIT_MAX_AGE_MIN", float, 30.0)
+    PUMP_EARLY_PROFIT_MAX_PRICE_IMPACT_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_MAX_PRICE_IMPACT_PCT",
+        float,
+        10.0,
+    )
+    PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD: float = _num_env(
+        "PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD",
+        float,
+        25_000.0,
+    )
+    PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD: float = _num_env(
+        "PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD",
+        float,
+        50_000.0,
+    )
+    PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES: str = os.getenv(
+        "PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES",
+        "0:25,50:100",
+    )
+    PUMP_EARLY_METEOR_PRIME_ENABLED: bool = _bool_env("PUMP_EARLY_METEOR_PRIME_ENABLED", True)
+    PUMP_EARLY_METEOR_PRIME_MIN_LIQUIDITY_USD: float = _num_env(
+        "PUMP_EARLY_METEOR_PRIME_MIN_LIQUIDITY_USD",
+        float,
+        4_000.0,
+    )
+    PUMP_EARLY_METEOR_PRIME_MAX_LIQUIDITY_USD: float = _num_env(
+        "PUMP_EARLY_METEOR_PRIME_MAX_LIQUIDITY_USD",
+        float,
+        30_000.0,
+    )
+    PUMP_EARLY_METEOR_PRIME_MIN_MARKET_CAP_USD: float = _num_env(
+        "PUMP_EARLY_METEOR_PRIME_MIN_MARKET_CAP_USD",
+        float,
+        5_000.0,
+    )
+    PUMP_EARLY_METEOR_PRIME_MAX_MARKET_CAP_USD: float = _num_env(
+        "PUMP_EARLY_METEOR_PRIME_MAX_MARKET_CAP_USD",
+        float,
+        30_000.0,
+    )
+    PUMP_EARLY_METEOR_PRIME_MIN_PRICE_PCT_5M: float = _num_env(
+        "PUMP_EARLY_METEOR_PRIME_MIN_PRICE_PCT_5M",
+        float,
+        110.0,
+    )
+    PUMP_EARLY_METEOR_PRIME_MAX_PRICE_PCT_5M: float = _num_env(
+        "PUMP_EARLY_METEOR_PRIME_MAX_PRICE_PCT_5M",
+        float,
+        300.0,
+    )
+    PUMP_EARLY_METEOR_PRIME_MIN_TXNS_5M: int = _num_env("PUMP_EARLY_METEOR_PRIME_MIN_TXNS_5M", int, 220)
+    PUMP_EARLY_METEOR_PRIME_MIN_SCORE_TOTAL: int = _num_env(
+        "PUMP_EARLY_METEOR_PRIME_MIN_SCORE_TOTAL",
+        int,
+        30,
+    )
+    PUMP_EARLY_METEOR_PRIME_MIN_AGE_MIN: float = _num_env(
+        "PUMP_EARLY_METEOR_PRIME_MIN_AGE_MIN",
+        float,
+        3.0,
+    )
+    PUMP_EARLY_METEOR_PRIME_MAX_AGE_MIN: float = _num_env(
+        "PUMP_EARLY_METEOR_PRIME_MAX_AGE_MIN",
+        float,
+        18.0,
+    )
+    PUMP_EARLY_METEOR_PRIME_MAX_PRICE_IMPACT_PCT: float = _num_env(
+        "PUMP_EARLY_METEOR_PRIME_MAX_PRICE_IMPACT_PCT",
+        float,
+        12.0,
+    )
+    PUMP_EARLY_METEOR_PRIME_MIN_VOLUME_USD_24H: float = _num_env(
+        "PUMP_EARLY_METEOR_PRIME_MIN_VOLUME_USD_24H",
+        float,
+        8_000.0,
+    )
+    PUMP_EARLY_PROFIT_SHAPE_GUARD_ENABLED: bool = _bool_env("PUMP_EARLY_PROFIT_SHAPE_GUARD_ENABLED", True)
+    PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE: bool = _bool_env(
+        "PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE",
+        True,
+    )
+    PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD: float = _num_env(
+        "PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD",
+        float,
+        500_000.0,
+    )
+    PUMP_EARLY_PROFIT_DEEP_NEG_PRICE5M_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_DEEP_NEG_PRICE5M_PCT",
+        float,
+        -40.0,
+    )
+    PUMP_EARLY_PROFIT_DEEP_NEG_MIN_TXNS_5M: int = _num_env(
+        "PUMP_EARLY_PROFIT_DEEP_NEG_MIN_TXNS_5M",
+        int,
+        1_500,
+    )
+    PUMP_EARLY_PROFIT_DEEP_NEG_MIN_VOLUME_USD_24H: float = _num_env(
+        "PUMP_EARLY_PROFIT_DEEP_NEG_MIN_VOLUME_USD_24H",
+        float,
+        150_000.0,
+    )
+    PUMP_EARLY_PROFIT_EXTREME_PRICE5M_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_EXTREME_PRICE5M_PCT",
+        float,
+        300.0,
+    )
+    PUMP_EARLY_PROFIT_EXTREME_PRICE5M_MIN_MCAP_USD: float = _num_env(
+        "PUMP_EARLY_PROFIT_EXTREME_PRICE5M_MIN_MCAP_USD",
+        float,
+        100_000.0,
+    )
+    PUMP_EARLY_PROFIT_DEAD_VOLUME_MIN_USD_24H: float = _num_env(
+        "PUMP_EARLY_PROFIT_DEAD_VOLUME_MIN_USD_24H",
+        float,
+        15_000.0,
+    )
+    PUMP_EARLY_PROFIT_DEAD_VOLUME_MAX_USD_24H: float = _num_env(
+        "PUMP_EARLY_PROFIT_DEAD_VOLUME_MAX_USD_24H",
+        float,
+        30_000.0,
+    )
+    PUMP_EARLY_PROFIT_DEAD_VOLUME_MAX_TXNS_5M: int = _num_env(
+        "PUMP_EARLY_PROFIT_DEAD_VOLUME_MAX_TXNS_5M",
+        int,
+        1_000,
+    )
+    PUMP_EARLY_PROFIT_HOT_PRICE5M_MIN_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_HOT_PRICE5M_MIN_PCT",
+        float,
+        100.0,
+    )
+    PUMP_EARLY_PROFIT_HOT_PRICE5M_MAX_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_HOT_PRICE5M_MAX_PCT",
+        float,
+        180.0,
+    )
+    PUMP_EARLY_PROFIT_HOT_MCAP_MIN_USD: float = _num_env(
+        "PUMP_EARLY_PROFIT_HOT_MCAP_MIN_USD",
+        float,
+        50_000.0,
+    )
+    PUMP_EARLY_PROFIT_HOT_MIN_LIQUIDITY_USD: float = _num_env(
+        "PUMP_EARLY_PROFIT_HOT_MIN_LIQUIDITY_USD",
+        float,
+        20_000.0,
+    )
+    PUMP_EARLY_PROFIT_HOT_MIN_TXNS_5M: int = _num_env("PUMP_EARLY_PROFIT_HOT_MIN_TXNS_5M", int, 600)
+    PUMP_EARLY_PROFIT_HOT_MIN_VOLUME_USD_24H: float = _num_env(
+        "PUMP_EARLY_PROFIT_HOT_MIN_VOLUME_USD_24H",
+        float,
+        50_000.0,
+    )
+    PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_VOLUME_USD_24H: float = _num_env(
+        "PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_VOLUME_USD_24H",
+        float,
+        15_000.0,
+    )
+    PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_TXNS_5M: int = _num_env(
+        "PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_TXNS_5M",
+        int,
+        500,
+    )
+    PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_PRICE5M_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_PRICE5M_PCT",
+        float,
+        50.0,
+    )
+    PUMP_EARLY_PROFIT_PRIME_MID_MOMENTUM_MIN_TXNS_5M: int = _num_env(
+        "PUMP_EARLY_PROFIT_PRIME_MID_MOMENTUM_MIN_TXNS_5M",
+        int,
+        350,
+    )
+    PUMP_EARLY_PROFIT_PRIME_MID_MOMENTUM_MIN_VOLUME_USD_24H: float = _num_env(
+        "PUMP_EARLY_PROFIT_PRIME_MID_MOMENTUM_MIN_VOLUME_USD_24H",
+        float,
+        100_000.0,
+    )
+    PUMP_EARLY_PROFIT_HIGH_MCAP_MID_PRICE5M_MIN_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_HIGH_MCAP_MID_PRICE5M_MIN_PCT",
+        float,
+        40.0,
+    )
+    PUMP_EARLY_PROFIT_HIGH_MCAP_MID_PRICE5M_MAX_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_HIGH_MCAP_MID_PRICE5M_MAX_PCT",
+        float,
+        50.0,
+    )
+    PUMP_EARLY_PROFIT_HIGH_MCAP_MID_MIN_MCAP_USD: float = _num_env(
+        "PUMP_EARLY_PROFIT_HIGH_MCAP_MID_MIN_MCAP_USD",
+        float,
+        100_000.0,
+    )
+    PUMP_EARLY_PROFIT_MAX_OPEN_PAPER: int = _num_env("PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", int, 2)
+    PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY: int = _num_env(
+        "PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY",
+        int,
+        1,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_BROAD_LOCK_FLOOR_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_BROAD_LOCK_FLOOR_PCT",
+        float,
+        20.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_BROAD_MAX_GIVEBACK_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_BROAD_MAX_GIVEBACK_PCT",
+        float,
+        5.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_PRIME_BASE_LOCK_FLOOR_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_PRIME_BASE_LOCK_FLOOR_PCT",
+        float,
+        25.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_PRIME_BASE_MAX_GIVEBACK_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_PRIME_BASE_MAX_GIVEBACK_PCT",
+        float,
+        10.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_PRIME_STEP_PEAK_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_PRIME_STEP_PEAK_PCT",
+        float,
+        80.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_PRIME_STEP_LOCK_FLOOR_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_PRIME_STEP_LOCK_FLOOR_PCT",
+        float,
+        45.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_PRIME_STEP_MAX_GIVEBACK_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_PRIME_STEP_MAX_GIVEBACK_PCT",
+        float,
+        15.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_METEOR_BASE_LOCK_FLOOR_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_METEOR_BASE_LOCK_FLOOR_PCT",
+        float,
+        25.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_METEOR_BASE_MAX_GIVEBACK_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_METEOR_BASE_MAX_GIVEBACK_PCT",
+        float,
+        15.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP1_PEAK_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP1_PEAK_PCT",
+        float,
+        100.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP1_LOCK_FLOOR_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP1_LOCK_FLOOR_PCT",
+        float,
+        70.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP1_MAX_GIVEBACK_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP1_MAX_GIVEBACK_PCT",
+        float,
+        20.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP2_PEAK_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP2_PEAK_PCT",
+        float,
+        250.0,
+    )
+    PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP2_LOCK_FLOOR_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP2_LOCK_FLOOR_PCT",
+        float,
+        120.0,
+    )
+    PUMP_EARLY_RESEARCH_ALLOW_PROXY: bool = _bool_env("PUMP_EARLY_RESEARCH_ALLOW_PROXY", True)
+    PAPER_PNL_STRICT_HEALTH: bool = _bool_env("PAPER_PNL_STRICT_HEALTH", True)
+    PUMP_EARLY_PROFIT_ADVERSE_TICK_AFTER_S: int = _num_env(
+        "PUMP_EARLY_PROFIT_ADVERSE_TICK_AFTER_S",
+        int,
+        75,
+    )
+    PUMP_EARLY_PROFIT_ADVERSE_TICK_PNL_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_ADVERSE_TICK_PNL_PCT",
+        float,
+        -8.0,
+    )
+    PUMP_EARLY_PROFIT_NO_PUMP_WINDOW_MIN: float = _num_env(
+        "PUMP_EARLY_PROFIT_NO_PUMP_WINDOW_MIN",
+        float,
+        3.0,
+    )
+    PUMP_EARLY_PROFIT_NO_PUMP_MIN_PEAK_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_NO_PUMP_MIN_PEAK_PCT",
+        float,
+        2.0,
+    )
+    PUMP_EARLY_PROFIT_NO_PUMP_MAX_PNL_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_NO_PUMP_MAX_PNL_PCT",
+        float,
+        0.0,
+    )
+    LIVE_RANK_SCORE_FALLBACK_MIN: float = _num_env(
+        "LIVE_RANK_SCORE_FALLBACK_MIN",
+        float,
+        12.5,
+    )
+    LIVE_RANK_SCORE_MIN_SELECTED_ROWS: int = _num_env(
+        "LIVE_RANK_SCORE_MIN_SELECTED_ROWS",
+        int,
+        20,
+    )
+    LIVE_RANK_SCORE_MIN_AVG_PNL_PCT: float = _num_env(
+        "LIVE_RANK_SCORE_MIN_AVG_PNL_PCT",
+        float,
+        3.0,
+    )
+    REGIME_HEALTH_WINDOW_TRADES: int = _num_env("REGIME_HEALTH_WINDOW_TRADES", int, 20)
+    REGIME_HEALTH_WINDOW_EVENTS: int = _num_env("REGIME_HEALTH_WINDOW_EVENTS", int, 40)
+    REGIME_HEALTH_MIN_TRADES: int = _num_env("REGIME_HEALTH_MIN_TRADES", int, 6)
+    REGIME_HEALTH_DISABLE_EXPECTANCY_PCT: float = _num_env(
+        "REGIME_HEALTH_DISABLE_EXPECTANCY_PCT",
+        float,
+        -5.0,
+    )
+    REGIME_HEALTH_RECOVERY_EXPECTANCY_PCT: float = _num_env(
+        "REGIME_HEALTH_RECOVERY_EXPECTANCY_PCT",
+        float,
+        1.0,
+    )
+    REGIME_HEALTH_MAX_CONSECUTIVE_LOSSES: int = _num_env(
+        "REGIME_HEALTH_MAX_CONSECUTIVE_LOSSES",
+        int,
+        4,
+    )
+    REGIME_HEALTH_MIN_EXEC_SUCCESS_RATE: float = _num_env(
+        "REGIME_HEALTH_MIN_EXEC_SUCCESS_RATE",
+        float,
+        0.70,
+    )
+    REGIME_HEALTH_MIN_PRICE_COVERAGE_RATE: float = _num_env(
+        "REGIME_HEALTH_MIN_PRICE_COVERAGE_RATE",
+        float,
+        0.70,
+    )
+    REGIME_HEALTH_COOLDOWN_MIN: int = _num_env("REGIME_HEALTH_COOLDOWN_MIN", int, 120)
+    REGIME_HEALTH_DISABLE_ACTION: str = (
+        (os.getenv("REGIME_HEALTH_DISABLE_ACTION", "shadow") or "shadow").strip().lower()
+    )
+    REGIME_HEALTH_COOLDOWN_MAX_SIZE_MULTIPLIER: float = _num_env(
+        "REGIME_HEALTH_COOLDOWN_MAX_SIZE_MULTIPLIER",
+        float,
+        0.10,
+    )
+    STRATEGY_SCORECARD_OVERRIDE_ENABLED: bool = _bool_env("STRATEGY_SCORECARD_OVERRIDE_ENABLED", True)
+    STRATEGY_SCORECARD_MIN_OUTCOMES: int = _num_env("STRATEGY_SCORECARD_MIN_OUTCOMES", int, 12)
+    STRATEGY_SCORECARD_MAX_AGE_MIN: float = _num_env("STRATEGY_SCORECARD_MAX_AGE_MIN", float, 240.0)
+    STRATEGY_SCORECARD_DEMOTE_MAX_AVG_PNL_PCT: float = _num_env(
+        "STRATEGY_SCORECARD_DEMOTE_MAX_AVG_PNL_PCT",
+        float,
+        -1.0,
+    )
+    STRATEGY_SCORECARD_PROMOTE_DEX_MATURE_ENABLED: bool = _bool_env(
+        "STRATEGY_SCORECARD_PROMOTE_DEX_MATURE_ENABLED",
+        True,
+    )
+    STRATEGY_SCORECARD_PROMOTE_MIN_AVG_PNL_PCT: float = _num_env(
+        "STRATEGY_SCORECARD_PROMOTE_MIN_AVG_PNL_PCT",
+        float,
+        5.0,
+    )
+    STRATEGY_SCORECARD_PROMOTE_MIN_WIN_RATE_PCT: float = _num_env(
+        "STRATEGY_SCORECARD_PROMOTE_MIN_WIN_RATE_PCT",
+        float,
+        50.0,
+    )
+    PUMP_EARLY_RECOVERY_MIN_WIN_RATE_PCT: float = _num_env(
+        "PUMP_EARLY_RECOVERY_MIN_WIN_RATE_PCT",
+        float,
+        42.0,
+    )
+    PUMP_EARLY_RECOVERY_RECENT_OVERRIDE_ENABLED: bool = _bool_env(
+        "PUMP_EARLY_RECOVERY_RECENT_OVERRIDE_ENABLED",
+        True,
+    )
+    PUMP_EARLY_RECOVERY_RECENT_TRADES: int = _num_env("PUMP_EARLY_RECOVERY_RECENT_TRADES", int, 6)
+    PUMP_EARLY_RECOVERY_RECENT_MIN_AVG_PNL_PCT: float = _num_env(
+        "PUMP_EARLY_RECOVERY_RECENT_MIN_AVG_PNL_PCT",
+        float,
+        5.0,
+    )
+    PUMP_EARLY_RECOVERY_RECENT_MIN_WIN_RATE_PCT: float = _num_env(
+        "PUMP_EARLY_RECOVERY_RECENT_MIN_WIN_RATE_PCT",
+        float,
+        66.0,
+    )
+    PUMP_EARLY_RECOVERY_RECENT_IGNORE_OLD_LIQ_CRUSH: bool = _bool_env(
+        "PUMP_EARLY_RECOVERY_RECENT_IGNORE_OLD_LIQ_CRUSH",
+        True,
+    )
+    PUMP_EARLY_PROFIT_RECOVERY_RECENT_TRADES: int = _num_env(
+        "PUMP_EARLY_PROFIT_RECOVERY_RECENT_TRADES",
+        int,
+        8,
+    )
+    PUMP_EARLY_PROFIT_RECOVERY_RECENT_MIN_AVG_PNL_PCT: float = _num_env(
+        "PUMP_EARLY_PROFIT_RECOVERY_RECENT_MIN_AVG_PNL_PCT",
+        float,
+        5.0,
+    )
+    PUMP_EARLY_PROFIT_RECOVERY_RECENT_MAX_CONSECUTIVE_LOSSES: int = _num_env(
+        "PUMP_EARLY_PROFIT_RECOVERY_RECENT_MAX_CONSECUTIVE_LOSSES",
+        int,
+        2,
+    )
+    REGIME_RECOVERY_MAX_SIZE_MULTIPLIER: float = _num_env(
+        "REGIME_RECOVERY_MAX_SIZE_MULTIPLIER",
+        float,
+        0.10,
+    )
+    PUMP_EARLY_RECOVERY_MAX_SIZE_MULTIPLIER: float = _num_env(
+        "PUMP_EARLY_RECOVERY_MAX_SIZE_MULTIPLIER",
+        float,
+        0.10,
+    )
+    DEX_MATURE_RECOVERY_MAX_SIZE_MULTIPLIER: float = _num_env(
+        "DEX_MATURE_RECOVERY_MAX_SIZE_MULTIPLIER",
+        float,
+        0.10,
+    )
+    REVIVAL_RECOVERY_MAX_SIZE_MULTIPLIER: float = _num_env(
+        "REVIVAL_RECOVERY_MAX_SIZE_MULTIPLIER",
+        float,
+        0.10,
+    )
 
     # ------- control horario (.env moderno) ------------------------
-    TRADING_HOURS: str = os.getenv("TRADING_HOURS", "")                 # ej. "0-2" (CEST)
+    TRADING_HOURS: str = os.getenv("TRADING_HOURS", "")                 # ej. "0-2" (local)
     TRADING_HOURS_EXTRA: str = os.getenv("TRADING_HOURS_EXTRA", "")     # ej. "9-10"
-    USE_EXTRA_HOURS: bool = os.getenv("USE_EXTRA_HOURS", "false").lower() == "true"
+    USE_EXTRA_HOURS: bool = _bool_env("USE_EXTRA_HOURS", False)
     LOCAL_TZ_NAME: str = os.getenv("LOCAL_TZ", "Europe/Madrid")
     BLOCK_HOURS: str = os.getenv("BLOCK_HOURS", "")                     # ej. "3,12,17-19"
 
     # ------- trading windows (legacy, por compatibilidad) ----------
     TRADING_WINDOWS: str = os.getenv("TRADING_WINDOWS", "13-16")
-    TRADING_STRICT: bool = os.getenv("TRADING_STRICT", "true").lower() == "true"
+    TRADING_STRICT: bool = _bool_env("TRADING_STRICT", True)
 
     # ------- compra / requisitos -----------------------------------
-    REQUIRE_JUPITER_FOR_BUY: bool = os.getenv("REQUIRE_JUPITER_FOR_BUY", "true").lower() == "true"
-    DEX_WHITELIST: Tuple[str, ...] = _csv_tuple(
-        os.getenv("DEX_WHITELIST", "raydium,orca,meteora"), lower=True, strip=True
-    )
-    REQUIRE_POOL_INITIALIZED: bool = os.getenv("REQUIRE_POOL_INITIALIZED", "true").lower() == "true"
+    REQUIRE_JUPITER_FOR_BUY: bool = _bool_env("REQUIRE_JUPITER_FOR_BUY", True)
+    DEX_WHITELIST: Tuple[str, ...] = _csv_tuple(os.getenv("DEX_WHITELIST", "raydium,orca,meteora"))
+    REQUIRE_POOL_INITIALIZED: bool = _bool_env("REQUIRE_POOL_INITIALIZED", True)
     BUY_RATE_LIMIT_N: int = _num_env("BUY_RATE_LIMIT_N", int, 3)
     BUY_RATE_LIMIT_WINDOW_S: int = _num_env("BUY_RATE_LIMIT_WINDOW_S", int, 120)
 
     # ------- monitor / shadow-sim ----------------------------------
-    FORCE_JUP_IN_MONITOR: bool = os.getenv("FORCE_JUP_IN_MONITOR", "false").lower() == "true"
-    REAL_SHADOW_SIM: bool = os.getenv("REAL_SHADOW_SIM", "false").lower() == "true"
+    FORCE_JUP_IN_MONITOR: bool = _bool_env("FORCE_JUP_IN_MONITOR", False)
+    REAL_SHADOW_SIM: bool = _bool_env("REAL_SHADOW_SIM", False)
+    RESEARCH_SHADOW_USE_GECKO: bool = _bool_env("RESEARCH_SHADOW_USE_GECKO", False)
+    PUMPFUN_PRICE_USE_GECKO: bool = _bool_env("PUMPFUN_PRICE_USE_GECKO", False)
 
     # ------- riesgo / exits ----------------------------------------
-    TAKE_PROFIT_PCT: float = _num_env("TAKE_PROFIT_PCT", float, 35)
-    STOP_LOSS_PCT: float = _num_env("STOP_LOSS_PCT", float, 20)
-    TRAILING_PCT: float = _num_env("TRAILING_PCT", float, 30)
+    TAKE_PROFIT_PCT: float = _TAKE_PROFIT_PCT_VALUE
+    STOP_LOSS_PCT: float = _num_env("STOP_LOSS_PCT", float, 20.0)
+    TRAILING_PCT: float = _num_env("TRAILING_PCT", float, 30.0)
     MAX_HOLDING_H: int = _num_env("MAX_HOLDING_H", int, 24)
-    # Límite duro opcional si extiendes por trailing (p.ej. 4h)
     MAX_HARD_HOLD_H: int = _num_env("MAX_HARD_HOLD_H", int, 4)
 
     # Salidas mejoradas
-    EARLY_DROP_KILL_PCT: float = _num_env("EARLY_DROP_KILL_PCT", float, 12)     # %
-    EARLY_DROP_WINDOW_MIN: int = _num_env("EARLY_DROP_WINDOW_MIN", int, 7)      # min
-    LIQ_CRUSH_DROP_PCT: float = _num_env("LIQ_CRUSH_DROP_PCT", float, 35)       # %
-    LIQ_CRUSH_WINDOW_MIN: int = _num_env("LIQ_CRUSH_WINDOW_MIN", int, 10)       # min
+    EARLY_DROP_KILL_PCT: float = _num_env_multi(
+        ["EARLY_DROP_KILL_PCT", "KILL_EARLY_DROP_PCT", "EARLY_DROP_PCT"],
+        float,
+        12.0,
+    )  # %
+    EARLY_DROP_WINDOW_MIN: int = _num_env_multi(
+        ["EARLY_DROP_WINDOW_MIN", "EARLY_WINDOW_MIN"],
+        int,
+        7,
+    )  # min
+    LIQ_CRUSH_DROP_PCT: float = _num_env("LIQ_CRUSH_DROP_PCT", float, 35.0)        # %
+    LIQ_CRUSH_WINDOW_MIN: int = _num_env("LIQ_CRUSH_WINDOW_MIN", int, 10)         # min
+    LIQ_CRUSH_ABS_FRACT: float = _num_env("LIQ_CRUSH_ABS_FRACT", float, 0.60)
+    KILL_LIQ_FRACTION: float = _num_env("KILL_LIQ_FRACTION", float, 0.70)
+    NO_EXPANSION_MAX_PCT: float = _num_env("NO_EXPANSION_MAX_PCT", float, 0.0)
+    TP_PARTIAL_ENABLED: bool = _bool_env("TP_PARTIAL_ENABLED", True)
+    TP_PARTIAL_FRACTION: float = _num_env("TP_PARTIAL_FRACTION", float, 0.80)
+    TP_PARTIAL_MIN_REMAIN_LAMPORTS: int = _num_env("TP_PARTIAL_MIN_REMAIN_LAMPORTS", int, 1)
+    TP_PARTIAL_TRIGGER_PCT: float = _num_env("TP_PARTIAL_TRIGGER_PCT", float, 6.0)
+    POST_PARTIAL_STOP_PCT: float = _num_env("POST_PARTIAL_STOP_PCT", float, 0.0)
+    POST_PARTIAL_TRAILING_PCT: float = _num_env("POST_PARTIAL_TRAILING_PCT", float, 0.0)
+    POST_PARTIAL_PROTECTION_ENABLED: bool = _bool_env("POST_PARTIAL_PROTECTION_ENABLED", True)
+    POST_PARTIAL_LOCK_FLOOR_PCT: float = _num_env("POST_PARTIAL_LOCK_FLOOR_PCT", float, 20.0)
+    POST_PARTIAL_MAX_GIVEBACK_PCT: float = _num_env("POST_PARTIAL_MAX_GIVEBACK_PCT", float, 5.0)
+    POST_PARTIAL_EXPERIMENT_ENABLED: bool = _bool_env("POST_PARTIAL_EXPERIMENT_ENABLED", True)
+    POST_PARTIAL_EXPERIMENT_MODE: str = (
+        (os.getenv("POST_PARTIAL_EXPERIMENT_MODE", "paper_shadow") or "paper_shadow").strip().lower()
+    )
+    POST_PARTIAL_EXPERIMENT_REGIME: str = (
+        (os.getenv("POST_PARTIAL_EXPERIMENT_REGIME", "pump_early") or "pump_early").strip().lower()
+    )
+    POST_PARTIAL_EXPERIMENT_LOCK_FLOOR_PCT: float = _num_env(
+        "POST_PARTIAL_EXPERIMENT_LOCK_FLOOR_PCT",
+        float,
+        20.0,
+    )
+    POST_PARTIAL_EXPERIMENT_MAX_GIVEBACK_PCT: float = _num_env(
+        "POST_PARTIAL_EXPERIMENT_MAX_GIVEBACK_PCT",
+        float,
+        5.0,
+    )
+    POST_PARTIAL_EXPERIMENT_MIN_NEW_CLOSES: int = _num_env(
+        "POST_PARTIAL_EXPERIMENT_MIN_NEW_CLOSES",
+        int,
+        50,
+    )
+    POST_PARTIAL_EXPERIMENT_LOCKED_ML_THRESHOLD: float = _num_env(
+        "POST_PARTIAL_EXPERIMENT_LOCKED_ML_THRESHOLD",
+        float,
+        0.3972866423002348,
+    )
+    PRE_PARTIAL_TIME_STOP_MIN: float = _num_env("PRE_PARTIAL_TIME_STOP_MIN", float, 0.0)
+    PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT: float = _num_env("PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT", float, 0.0)
+    PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT: float = _num_env("PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT", float, 0.0)
+    PRE_PARTIAL_RETRACE_TRIGGER_PCT: float = _num_env("PRE_PARTIAL_RETRACE_TRIGGER_PCT", float, 0.0)
+    PRE_PARTIAL_RETRACE_GIVEBACK_PCT: float = _num_env("PRE_PARTIAL_RETRACE_GIVEBACK_PCT", float, 0.0)
+    PRE_PARTIAL_RETRACE_FLOOR_PCT: float = _num_env("PRE_PARTIAL_RETRACE_FLOOR_PCT", float, 0.0)
+    NO_PUMP_WINDOW_MIN: float = _num_env("NO_PUMP_WINDOW_MIN", float, 0.0)
+    NO_PUMP_MIN_PNL_PCT: float = _num_env_multi(
+        ["NO_PUMP_MIN_PNL_PCT", "NO_PUMP_MIN_PEAK_PCT"],
+        float,
+        5.0,
+    )
+    NO_PUMP_MAX_PNL_PCT: float | None = _opt_num_env("NO_PUMP_MAX_PNL_PCT", float)
+    TIME_STOP_MIN: float = _num_env("TIME_STOP_MIN", float, 0.0)
+    TIME_STOP_MAX_PNL_PCT: float = _num_env("TIME_STOP_MAX_PNL_PCT", float, 2.0)
+    TIME_STOP_MIN_PEAK_PCT: float = _num_env("TIME_STOP_MIN_PEAK_PCT", float, 5.0)
+    EXIT_PROFILE_BY_REGIME: bool = _bool_env("EXIT_PROFILE_BY_REGIME", False)
+
+    # Overrides opcionales de exits por regimen (solo se aplican si EXIT_PROFILE_BY_REGIME=true)
+    PUMP_EARLY_TRAILING_PCT: float | None = _opt_num_env("PUMP_EARLY_TRAILING_PCT", float)
+    PUMP_EARLY_TAKE_PROFIT_PCT: float | None = _opt_num_env("PUMP_EARLY_TAKE_PROFIT_PCT", float)
+    PUMP_EARLY_STOP_LOSS_PCT: float | None = _opt_num_env("PUMP_EARLY_STOP_LOSS_PCT", float)
+    PUMP_EARLY_MAX_HOLDING_H: float | None = _opt_num_env("PUMP_EARLY_MAX_HOLDING_H", float)
+    PUMP_EARLY_MAX_HARD_HOLD_H: float | None = _opt_num_env("PUMP_EARLY_MAX_HARD_HOLD_H", float)
+    PUMP_EARLY_TP_PARTIAL_TRIGGER_PCT: float | None = _opt_num_env("PUMP_EARLY_TP_PARTIAL_TRIGGER_PCT", float)
+    PUMP_EARLY_TP_PARTIAL_FRACTION: float | None = _opt_num_env("PUMP_EARLY_TP_PARTIAL_FRACTION", float)
+    PUMP_EARLY_POST_PARTIAL_STOP_PCT: float | None = _opt_num_env("PUMP_EARLY_POST_PARTIAL_STOP_PCT", float)
+    PUMP_EARLY_POST_PARTIAL_TRAILING_PCT: float | None = _opt_num_env("PUMP_EARLY_POST_PARTIAL_TRAILING_PCT", float)
+    PUMP_EARLY_POST_PARTIAL_PROTECTION_ENABLED: bool | None = _opt_bool_env("PUMP_EARLY_POST_PARTIAL_PROTECTION_ENABLED")
+    PUMP_EARLY_POST_PARTIAL_LOCK_FLOOR_PCT: float | None = _opt_num_env("PUMP_EARLY_POST_PARTIAL_LOCK_FLOOR_PCT", float)
+    PUMP_EARLY_POST_PARTIAL_MAX_GIVEBACK_PCT: float | None = _opt_num_env("PUMP_EARLY_POST_PARTIAL_MAX_GIVEBACK_PCT", float)
+    PUMP_EARLY_PRE_PARTIAL_TIME_STOP_MIN: float | None = _opt_num_env("PUMP_EARLY_PRE_PARTIAL_TIME_STOP_MIN", float)
+    PUMP_EARLY_PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT: float | None = _opt_num_env(
+        "PUMP_EARLY_PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT",
+        float,
+    )
+    PUMP_EARLY_PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT: float | None = _opt_num_env(
+        "PUMP_EARLY_PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT",
+        float,
+    )
+    PUMP_EARLY_PRE_PARTIAL_RETRACE_TRIGGER_PCT: float | None = _opt_num_env(
+        "PUMP_EARLY_PRE_PARTIAL_RETRACE_TRIGGER_PCT",
+        float,
+    )
+    PUMP_EARLY_PRE_PARTIAL_RETRACE_GIVEBACK_PCT: float | None = _opt_num_env(
+        "PUMP_EARLY_PRE_PARTIAL_RETRACE_GIVEBACK_PCT",
+        float,
+    )
+    PUMP_EARLY_PRE_PARTIAL_RETRACE_FLOOR_PCT: float | None = _opt_num_env(
+        "PUMP_EARLY_PRE_PARTIAL_RETRACE_FLOOR_PCT",
+        float,
+    )
+    PUMP_EARLY_NO_PUMP_WINDOW_MIN: float | None = _opt_num_env("PUMP_EARLY_NO_PUMP_WINDOW_MIN", float)
+    PUMP_EARLY_NO_PUMP_MIN_PNL_PCT: float | None = _opt_num_env("PUMP_EARLY_NO_PUMP_MIN_PNL_PCT", float)
+    PUMP_EARLY_NO_PUMP_MAX_PNL_PCT: float | None = _opt_num_env("PUMP_EARLY_NO_PUMP_MAX_PNL_PCT", float)
+    PUMP_EARLY_TIME_STOP_MIN: float | None = _opt_num_env("PUMP_EARLY_TIME_STOP_MIN", float)
+    PUMP_EARLY_TIME_STOP_MAX_PNL_PCT: float | None = _opt_num_env("PUMP_EARLY_TIME_STOP_MAX_PNL_PCT", float)
+    PUMP_EARLY_TIME_STOP_MIN_PEAK_PCT: float | None = _opt_num_env("PUMP_EARLY_TIME_STOP_MIN_PEAK_PCT", float)
+
+    DEX_MATURE_TRAILING_PCT: float | None = _opt_num_env("DEX_MATURE_TRAILING_PCT", float)
+    DEX_MATURE_TAKE_PROFIT_PCT: float | None = _opt_num_env("DEX_MATURE_TAKE_PROFIT_PCT", float)
+    DEX_MATURE_STOP_LOSS_PCT: float | None = _opt_num_env("DEX_MATURE_STOP_LOSS_PCT", float)
+    DEX_MATURE_MAX_HOLDING_H: float | None = _opt_num_env("DEX_MATURE_MAX_HOLDING_H", float)
+    DEX_MATURE_MAX_HARD_HOLD_H: float | None = _opt_num_env("DEX_MATURE_MAX_HARD_HOLD_H", float)
+    DEX_MATURE_TP_PARTIAL_TRIGGER_PCT: float | None = _opt_num_env("DEX_MATURE_TP_PARTIAL_TRIGGER_PCT", float)
+    DEX_MATURE_TP_PARTIAL_FRACTION: float | None = _opt_num_env("DEX_MATURE_TP_PARTIAL_FRACTION", float)
+    DEX_MATURE_POST_PARTIAL_STOP_PCT: float | None = _opt_num_env("DEX_MATURE_POST_PARTIAL_STOP_PCT", float)
+    DEX_MATURE_POST_PARTIAL_TRAILING_PCT: float | None = _opt_num_env("DEX_MATURE_POST_PARTIAL_TRAILING_PCT", float)
+    DEX_MATURE_POST_PARTIAL_PROTECTION_ENABLED: bool | None = _opt_bool_env("DEX_MATURE_POST_PARTIAL_PROTECTION_ENABLED")
+    DEX_MATURE_POST_PARTIAL_LOCK_FLOOR_PCT: float | None = _opt_num_env("DEX_MATURE_POST_PARTIAL_LOCK_FLOOR_PCT", float)
+    DEX_MATURE_POST_PARTIAL_MAX_GIVEBACK_PCT: float | None = _opt_num_env("DEX_MATURE_POST_PARTIAL_MAX_GIVEBACK_PCT", float)
+    DEX_MATURE_PRE_PARTIAL_TIME_STOP_MIN: float | None = _opt_num_env("DEX_MATURE_PRE_PARTIAL_TIME_STOP_MIN", float)
+    DEX_MATURE_PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT: float | None = _opt_num_env(
+        "DEX_MATURE_PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT",
+        float,
+    )
+    DEX_MATURE_PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT: float | None = _opt_num_env(
+        "DEX_MATURE_PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT",
+        float,
+    )
+    DEX_MATURE_PRE_PARTIAL_RETRACE_TRIGGER_PCT: float | None = _opt_num_env(
+        "DEX_MATURE_PRE_PARTIAL_RETRACE_TRIGGER_PCT",
+        float,
+    )
+    DEX_MATURE_PRE_PARTIAL_RETRACE_GIVEBACK_PCT: float | None = _opt_num_env(
+        "DEX_MATURE_PRE_PARTIAL_RETRACE_GIVEBACK_PCT",
+        float,
+    )
+    DEX_MATURE_PRE_PARTIAL_RETRACE_FLOOR_PCT: float | None = _opt_num_env(
+        "DEX_MATURE_PRE_PARTIAL_RETRACE_FLOOR_PCT",
+        float,
+    )
+    DEX_MATURE_NO_PUMP_WINDOW_MIN: float | None = _opt_num_env("DEX_MATURE_NO_PUMP_WINDOW_MIN", float)
+    DEX_MATURE_NO_PUMP_MIN_PNL_PCT: float | None = _opt_num_env("DEX_MATURE_NO_PUMP_MIN_PNL_PCT", float)
+    DEX_MATURE_NO_PUMP_MAX_PNL_PCT: float | None = _opt_num_env("DEX_MATURE_NO_PUMP_MAX_PNL_PCT", float)
+    DEX_MATURE_TIME_STOP_MIN: float | None = _opt_num_env("DEX_MATURE_TIME_STOP_MIN", float)
+    DEX_MATURE_TIME_STOP_MAX_PNL_PCT: float | None = _opt_num_env("DEX_MATURE_TIME_STOP_MAX_PNL_PCT", float)
+    DEX_MATURE_TIME_STOP_MIN_PEAK_PCT: float | None = _opt_num_env("DEX_MATURE_TIME_STOP_MIN_PEAK_PCT", float)
+
+    REVIVAL_TRAILING_PCT: float | None = _opt_num_env("REVIVAL_TRAILING_PCT", float)
+    REVIVAL_TAKE_PROFIT_PCT: float | None = _opt_num_env("REVIVAL_TAKE_PROFIT_PCT", float)
+    REVIVAL_STOP_LOSS_PCT: float | None = _opt_num_env("REVIVAL_STOP_LOSS_PCT", float)
+    REVIVAL_MAX_HOLDING_H: float | None = _opt_num_env("REVIVAL_MAX_HOLDING_H", float)
+    REVIVAL_MAX_HARD_HOLD_H: float | None = _opt_num_env("REVIVAL_MAX_HARD_HOLD_H", float)
+    REVIVAL_TP_PARTIAL_TRIGGER_PCT: float | None = _opt_num_env("REVIVAL_TP_PARTIAL_TRIGGER_PCT", float)
+    REVIVAL_TP_PARTIAL_FRACTION: float | None = _opt_num_env("REVIVAL_TP_PARTIAL_FRACTION", float)
+    REVIVAL_POST_PARTIAL_STOP_PCT: float | None = _opt_num_env("REVIVAL_POST_PARTIAL_STOP_PCT", float)
+    REVIVAL_POST_PARTIAL_TRAILING_PCT: float | None = _opt_num_env("REVIVAL_POST_PARTIAL_TRAILING_PCT", float)
+    REVIVAL_POST_PARTIAL_PROTECTION_ENABLED: bool | None = _opt_bool_env("REVIVAL_POST_PARTIAL_PROTECTION_ENABLED")
+    REVIVAL_POST_PARTIAL_LOCK_FLOOR_PCT: float | None = _opt_num_env("REVIVAL_POST_PARTIAL_LOCK_FLOOR_PCT", float)
+    REVIVAL_POST_PARTIAL_MAX_GIVEBACK_PCT: float | None = _opt_num_env("REVIVAL_POST_PARTIAL_MAX_GIVEBACK_PCT", float)
+    REVIVAL_PRE_PARTIAL_TIME_STOP_MIN: float | None = _opt_num_env("REVIVAL_PRE_PARTIAL_TIME_STOP_MIN", float)
+    REVIVAL_PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT: float | None = _opt_num_env(
+        "REVIVAL_PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT",
+        float,
+    )
+    REVIVAL_PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT: float | None = _opt_num_env(
+        "REVIVAL_PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT",
+        float,
+    )
+    REVIVAL_PRE_PARTIAL_RETRACE_TRIGGER_PCT: float | None = _opt_num_env(
+        "REVIVAL_PRE_PARTIAL_RETRACE_TRIGGER_PCT",
+        float,
+    )
+    REVIVAL_PRE_PARTIAL_RETRACE_GIVEBACK_PCT: float | None = _opt_num_env(
+        "REVIVAL_PRE_PARTIAL_RETRACE_GIVEBACK_PCT",
+        float,
+    )
+    REVIVAL_PRE_PARTIAL_RETRACE_FLOOR_PCT: float | None = _opt_num_env(
+        "REVIVAL_PRE_PARTIAL_RETRACE_FLOOR_PCT",
+        float,
+    )
+    REVIVAL_NO_PUMP_WINDOW_MIN: float | None = _opt_num_env("REVIVAL_NO_PUMP_WINDOW_MIN", float)
+    REVIVAL_NO_PUMP_MIN_PNL_PCT: float | None = _opt_num_env("REVIVAL_NO_PUMP_MIN_PNL_PCT", float)
+    REVIVAL_NO_PUMP_MAX_PNL_PCT: float | None = _opt_num_env("REVIVAL_NO_PUMP_MAX_PNL_PCT", float)
+    REVIVAL_TIME_STOP_MIN: float | None = _opt_num_env("REVIVAL_TIME_STOP_MIN", float)
+    REVIVAL_TIME_STOP_MAX_PNL_PCT: float | None = _opt_num_env("REVIVAL_TIME_STOP_MAX_PNL_PCT", float)
+    REVIVAL_TIME_STOP_MIN_PEAK_PCT: float | None = _opt_num_env("REVIVAL_TIME_STOP_MIN_PEAK_PCT", float)
 
     # ------- etiquetado posiciones ---------------------------------
-    WIN_PCT: float = _num_env("WIN_PCT", float, 0.30)
+    WIN_PCT: float = _WIN_PCT_VALUE
+    ML_POSITIVE_PNL_PCT: float = _ML_POSITIVE_PNL_PCT_VALUE
+    ML_POSITIVE_PNL_RATIO: float = _ML_POSITIVE_PNL_PCT_VALUE / 100.0
     LABEL_GRACE_H: int = _num_env("LABEL_GRACE_H", int, 2)
 
     # ------- temporizadores ----------------------------------------
@@ -324,7 +1460,7 @@ class _Config:
     MAX_RETRIES: int = _num_env("MAX_RETRIES", int, 5)
 
     # ------- estrategia avanzada -----------------------------------
-    BUY_FROM_CURVE: bool = os.getenv("BUY_FROM_CURVE", "0") == "1"
+    BUY_FROM_CURVE: bool = _bool_env("BUY_FROM_CURVE", False)
     CURVE_BUY_RANK_MAX: int = _num_env("CURVE_BUY_RANK_MAX", int, 40)
     CURVE_MAX_COST: float = _num_env("CURVE_MAX_COST", float, 1.0)
     REVIVAL_LIQ_USD: float = _num_env("REVIVAL_LIQ_USD", float, 250.0)
@@ -340,22 +1476,33 @@ class _Config:
 
     # ------- wallet / black-lists ----------------------------------
     SOL_PUBLIC_KEY: str | None = os.getenv("SOL_PUBLIC_KEY")
-    BANNED_CREATORS: tuple[str, ...] = tuple(x for x in os.getenv("BANNED_CREATORS", "").split(",") if x)
+    BANNED_CREATORS: tuple[str, ...] = tuple(
+        x.strip() for x in (os.getenv("BANNED_CREATORS", "") or "").split(",") if x.strip()
+    )
 
 
 # instancia global inmutable
 CFG = _Config()
 
-# Aliases/herramientas de compatibilidad y export cómodos
+# Crear carpeta de logs si procede (side-effect benigno)
+try:
+    CFG.LOG_PATH.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
+
+# ───────────────────── exports legacy / conveniencia ─────────────────────
+# TTL Dex
 DEXS_TTL_NIL = CFG.DEXS_TTL_NIL
 DEXS_TTL_OK = CFG.DEXS_TTL_OK
 
 # Dex/Gecko
 DEX_API_BASE = CFG.DEXSCREENER_API
+DEXSCREENER_API = CFG.DEXSCREENER_API
 USE_GECKO_TERMINAL = CFG.USE_GECKO_TERMINAL
 GECKO_API_URL = CFG.GECKO_API_URL
 
-# Jupiter Price v3 (Lite) — aliases
+# Jupiter Price v3 (Lite)
 USE_JUPITER_PRICE = CFG.USE_JUPITER_PRICE
 JUPITER_PRICE_URL = CFG.JUPITER_PRICE_URL
 JUPITER_RPM = CFG.JUPITER_RPM
@@ -374,6 +1521,8 @@ HELIUS_RPC_URL = CFG.HELIUS_RPC_URL
 HELIUS_API_KEY = CFG.HELIUS_API_KEY
 RUGCHECK_API_BASE = CFG.RUGCHECK_API_BASE
 RUGCHECK_API_KEY = CFG.RUGCHECK_API_KEY
+BITQUERY_TOKEN = CFG.BITQUERY_TOKEN
+PUMPFUN_PROGRAM = CFG.PUMPFUN_PROGRAM
 
 # Filtros
 MAX_AGE_DAYS = CFG.MAX_AGE_DAYS
@@ -388,30 +1537,205 @@ MIN_SCORE_TOTAL = CFG.MIN_SCORE_TOTAL
 MAX_ACTIVE_POSITIONS = CFG.MAX_ACTIVE_POSITIONS
 MAX_QUEUE_SIZE = CFG.MAX_QUEUE_SIZE
 DEXS_TXNS_5M_MIN = CFG.DEXS_TXNS_5M_MIN
+FILTER_PROFILE_BY_DISCOVERY = CFG.FILTER_PROFILE_BY_DISCOVERY
+SNAPSHOT_QUALITY_FILTER_ENABLED = CFG.SNAPSHOT_QUALITY_FILTER_ENABLED
+SNAPSHOT_MAX_MISSING_FIELDS = CFG.SNAPSHOT_MAX_MISSING_FIELDS
+SNAPSHOT_REQUIRE_ACTIVITY_SIGNAL = CFG.SNAPSHOT_REQUIRE_ACTIVITY_SIGNAL
+SNAPSHOT_REQUIRE_SOCIAL_OR_TREND = CFG.SNAPSHOT_REQUIRE_SOCIAL_OR_TREND
+SNAPSHOT_REQUIRE_RUG_SCORE = CFG.SNAPSHOT_REQUIRE_RUG_SCORE
+SNAPSHOT_ALLOWED_PRICE_SOURCES = CFG.SNAPSHOT_ALLOWED_PRICE_SOURCES
+
+DEX_MIN_AGE_MIN = CFG.DEX_MIN_AGE_MIN
+DEX_MIN_HOLDERS = CFG.DEX_MIN_HOLDERS
+DEX_MIN_LIQUIDITY_USD = CFG.DEX_MIN_LIQUIDITY_USD
+DEX_MIN_VOL_USD_24H = CFG.DEX_MIN_VOL_USD_24H
+DEX_MIN_MARKET_CAP_USD = CFG.DEX_MIN_MARKET_CAP_USD
+DEX_MAX_MARKET_CAP_USD = CFG.DEX_MAX_MARKET_CAP_USD
+DEX_BUY_SOFT_SCORE_MIN = CFG.DEX_BUY_SOFT_SCORE_MIN
+DEX_AI_THRESHOLD = CFG.DEX_AI_THRESHOLD
+DEX_REQUIRE_JUPITER_FOR_BUY = CFG.DEX_REQUIRE_JUPITER_FOR_BUY
+
+PUMPFUN_MIN_AGE_MIN = CFG.PUMPFUN_MIN_AGE_MIN
+PUMPFUN_MIN_HOLDERS = CFG.PUMPFUN_MIN_HOLDERS
+PUMPFUN_MIN_LIQUIDITY_USD = CFG.PUMPFUN_MIN_LIQUIDITY_USD
+PUMPFUN_MIN_VOL_USD_24H = CFG.PUMPFUN_MIN_VOL_USD_24H
+PUMPFUN_MIN_MARKET_CAP_USD = CFG.PUMPFUN_MIN_MARKET_CAP_USD
+PUMPFUN_MAX_MARKET_CAP_USD = CFG.PUMPFUN_MAX_MARKET_CAP_USD
+PUMPFUN_BUY_SOFT_SCORE_MIN = CFG.PUMPFUN_BUY_SOFT_SCORE_MIN
+PUMPFUN_AI_THRESHOLD = CFG.PUMPFUN_AI_THRESHOLD
+PUMPFUN_REQUIRE_JUPITER_FOR_BUY = CFG.PUMPFUN_REQUIRE_JUPITER_FOR_BUY
+
+REVIVAL_MIN_AGE_MIN = CFG.REVIVAL_MIN_AGE_MIN
+REVIVAL_MIN_HOLDERS = CFG.REVIVAL_MIN_HOLDERS
+REVIVAL_MIN_LIQUIDITY_USD = CFG.REVIVAL_MIN_LIQUIDITY_USD
+REVIVAL_MIN_VOL_USD_24H = CFG.REVIVAL_MIN_VOL_USD_24H
+REVIVAL_MIN_MARKET_CAP_USD = CFG.REVIVAL_MIN_MARKET_CAP_USD
+REVIVAL_MAX_MARKET_CAP_USD = CFG.REVIVAL_MAX_MARKET_CAP_USD
+REVIVAL_BUY_SOFT_SCORE_MIN = CFG.REVIVAL_BUY_SOFT_SCORE_MIN
+REVIVAL_AI_THRESHOLD = CFG.REVIVAL_AI_THRESHOLD
+REVIVAL_REQUIRE_JUPITER_FOR_BUY = CFG.REVIVAL_REQUIRE_JUPITER_FOR_BUY
+REGIME_PUMP_EARLY_MAX_AGE_MIN = CFG.REGIME_PUMP_EARLY_MAX_AGE_MIN
+DYNAMIC_SIZING_ENABLED = CFG.DYNAMIC_SIZING_ENABLED
+AI_SIZING_ENABLED = CFG.AI_SIZING_ENABLED
+SIZE_MIN_MULTIPLIER = CFG.SIZE_MIN_MULTIPLIER
+SIZE_MID_MULTIPLIER = CFG.SIZE_MID_MULTIPLIER
+SIZE_MAX_MULTIPLIER = CFG.SIZE_MAX_MULTIPLIER
+SIZE_ACCEPTABLE_MIN_POINTS = CFG.SIZE_ACCEPTABLE_MIN_POINTS
+SIZE_PREMIUM_MIN_POINTS = CFG.SIZE_PREMIUM_MIN_POINTS
+PUMP_EARLY_MAX_SIZE_MULTIPLIER = CFG.PUMP_EARLY_MAX_SIZE_MULTIPLIER
+DEX_MATURE_MAX_SIZE_MULTIPLIER = CFG.DEX_MATURE_MAX_SIZE_MULTIPLIER
+REVIVAL_MAX_SIZE_MULTIPLIER = CFG.REVIVAL_MAX_SIZE_MULTIPLIER
+MAX_ACTIVE_POSITIONS_PER_REGIME = CFG.MAX_ACTIVE_POSITIONS_PER_REGIME
+PUMP_EARLY_MAX_ACTIVE_POSITIONS = CFG.PUMP_EARLY_MAX_ACTIVE_POSITIONS
+DEX_MATURE_MAX_ACTIVE_POSITIONS = CFG.DEX_MATURE_MAX_ACTIVE_POSITIONS
+REVIVAL_MAX_ACTIVE_POSITIONS = CFG.REVIVAL_MAX_ACTIVE_POSITIONS
+PUMP_EARLY_LIVE_HARD_MAX_MARKET_CAP_USD = CFG.PUMP_EARLY_LIVE_HARD_MAX_MARKET_CAP_USD
+PUMP_EARLY_LIVE_HARD_MAX_PRICE_IMPACT_PCT = CFG.PUMP_EARLY_LIVE_HARD_MAX_PRICE_IMPACT_PCT
+PUMP_EARLY_LIVE_MAX_SNAPSHOT_MISSING_FIELDS = CFG.PUMP_EARLY_LIVE_MAX_SNAPSHOT_MISSING_FIELDS
+PAPER_COLD_START_ENABLED = CFG.PAPER_COLD_START_ENABLED
+PAPER_COLD_START_MAX_CLOSED_TRADES = CFG.PAPER_COLD_START_MAX_CLOSED_TRADES
+PAPER_COLD_START_MIN_AGE_MIN = CFG.PAPER_COLD_START_MIN_AGE_MIN
+PAPER_COLD_START_MIN_SCORE_TOTAL = CFG.PAPER_COLD_START_MIN_SCORE_TOTAL
+PAPER_COLD_START_MIN_LIQUIDITY_USD = CFG.PAPER_COLD_START_MIN_LIQUIDITY_USD
+PAPER_COLD_START_MIN_MARKET_CAP_USD = CFG.PAPER_COLD_START_MIN_MARKET_CAP_USD
+PAPER_COLD_START_MAX_SNAPSHOT_MISSING_FIELDS = CFG.PAPER_COLD_START_MAX_SNAPSHOT_MISSING_FIELDS
+PAPER_COLD_START_MIN_RANK_SCORE = CFG.PAPER_COLD_START_MIN_RANK_SCORE
+PAPER_COLD_START_REQUIRE_PRICE_PCT_5M = CFG.PAPER_COLD_START_REQUIRE_PRICE_PCT_5M
+PAPER_COLD_START_MIN_PRICE_PCT_5M = CFG.PAPER_COLD_START_MIN_PRICE_PCT_5M
+PAPER_COLD_START_MAX_PRICE_PCT_5M = CFG.PAPER_COLD_START_MAX_PRICE_PCT_5M
+PAPER_COLD_START_SHADOW_PROBE_ENABLED = CFG.PAPER_COLD_START_SHADOW_PROBE_ENABLED
+PAPER_COLD_START_SHADOW_PROBE_SIZE_MULTIPLIER = CFG.PAPER_COLD_START_SHADOW_PROBE_SIZE_MULTIPLIER
+PUMP_EARLY_SNIPER_ENABLED = CFG.PUMP_EARLY_SNIPER_ENABLED
+PUMP_EARLY_SNIPER_MODE = CFG.PUMP_EARLY_SNIPER_MODE
+PUMP_EARLY_SNIPER_MIN_AGE_MIN = CFG.PUMP_EARLY_SNIPER_MIN_AGE_MIN
+PUMP_EARLY_SNIPER_MAX_AGE_MIN = CFG.PUMP_EARLY_SNIPER_MAX_AGE_MIN
+PUMP_EARLY_SNIPER_MIN_LIQUIDITY_USD = CFG.PUMP_EARLY_SNIPER_MIN_LIQUIDITY_USD
+PUMP_EARLY_SNIPER_MICRO_MIN_LIQUIDITY_USD = CFG.PUMP_EARLY_SNIPER_MICRO_MIN_LIQUIDITY_USD
+PUMP_EARLY_SNIPER_MICRO_MIN_VOLUME_USD_24H = CFG.PUMP_EARLY_SNIPER_MICRO_MIN_VOLUME_USD_24H
+PUMP_EARLY_SNIPER_MIN_MARKET_CAP_USD = CFG.PUMP_EARLY_SNIPER_MIN_MARKET_CAP_USD
+PUMP_EARLY_SNIPER_MAX_MARKET_CAP_USD = CFG.PUMP_EARLY_SNIPER_MAX_MARKET_CAP_USD
+PUMP_EARLY_SNIPER_MICRO_MAX_MARKET_CAP_USD = CFG.PUMP_EARLY_SNIPER_MICRO_MAX_MARKET_CAP_USD
+PUMP_EARLY_SNIPER_MIN_SCORE_TOTAL = CFG.PUMP_EARLY_SNIPER_MIN_SCORE_TOTAL
+PUMP_EARLY_SNIPER_MICRO_MIN_SCORE_TOTAL = CFG.PUMP_EARLY_SNIPER_MICRO_MIN_SCORE_TOTAL
+PUMP_EARLY_SNIPER_MIN_RANK_SCORE = CFG.PUMP_EARLY_SNIPER_MIN_RANK_SCORE
+PUMP_EARLY_SNIPER_MICRO_MIN_RANK_SCORE = CFG.PUMP_EARLY_SNIPER_MICRO_MIN_RANK_SCORE
+PUMP_EARLY_SNIPER_MAX_PRICE_IMPACT_PCT = CFG.PUMP_EARLY_SNIPER_MAX_PRICE_IMPACT_PCT
+PUMP_EARLY_SNIPER_MICRO_MAX_PRICE_IMPACT_PCT = CFG.PUMP_EARLY_SNIPER_MICRO_MAX_PRICE_IMPACT_PCT
+PUMP_EARLY_SNIPER_MIN_TXNS_5M = CFG.PUMP_EARLY_SNIPER_MIN_TXNS_5M
+PUMP_EARLY_SNIPER_MICRO_MIN_TXNS_5M = CFG.PUMP_EARLY_SNIPER_MICRO_MIN_TXNS_5M
+PUMP_EARLY_SNIPER_MIN_PRICE_PCT_5M = CFG.PUMP_EARLY_SNIPER_MIN_PRICE_PCT_5M
+PUMP_EARLY_SNIPER_MAX_PRICE_PCT_5M = CFG.PUMP_EARLY_SNIPER_MAX_PRICE_PCT_5M
+PUMP_EARLY_SNIPER_MICRO_MIN_PRICE_PCT_5M = CFG.PUMP_EARLY_SNIPER_MICRO_MIN_PRICE_PCT_5M
+PUMP_EARLY_SNIPER_MAX_SNAPSHOT_MISSING_FIELDS = CFG.PUMP_EARLY_SNIPER_MAX_SNAPSHOT_MISSING_FIELDS
+PUMP_EARLY_SNIPER_HOT_MIN_RANK_SCORE = CFG.PUMP_EARLY_SNIPER_HOT_MIN_RANK_SCORE
+PUMP_EARLY_SNIPER_HOT_MIN_TXNS_5M = CFG.PUMP_EARLY_SNIPER_HOT_MIN_TXNS_5M
+PUMP_EARLY_SNIPER_HOT_MIN_PRICE_PCT_5M = CFG.PUMP_EARLY_SNIPER_HOT_MIN_PRICE_PCT_5M
+PUMP_EARLY_SNIPER_HOT_MAX_PRICE_PCT_5M = CFG.PUMP_EARLY_SNIPER_HOT_MAX_PRICE_PCT_5M
+PUMP_EARLY_SNIPER_HOT_MAX_SNAPSHOT_MISSING_FIELDS = CFG.PUMP_EARLY_SNIPER_HOT_MAX_SNAPSHOT_MISSING_FIELDS
+PUMP_EARLY_SNIPER_FAST_CONFIRM_MIN_AGE_MIN = CFG.PUMP_EARLY_SNIPER_FAST_CONFIRM_MIN_AGE_MIN
+PUMP_EARLY_SNIPER_FAST_CONFIRM_MIN_TXNS_5M = CFG.PUMP_EARLY_SNIPER_FAST_CONFIRM_MIN_TXNS_5M
+PUMP_EARLY_SNIPER_FAST_CONFIRM_BACKOFF_S = CFG.PUMP_EARLY_SNIPER_FAST_CONFIRM_BACKOFF_S
+PUMP_EARLY_SNIPER_SIZE_MICRO_MULTIPLIER = CFG.PUMP_EARLY_SNIPER_SIZE_MICRO_MULTIPLIER
+PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER = CFG.PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER
+PUMP_EARLY_SNIPER_SIZE_HOT_MULTIPLIER = CFG.PUMP_EARLY_SNIPER_SIZE_HOT_MULTIPLIER
+PUMP_EARLY_SNIPER_CANARY_INITIAL_CLOSES = CFG.PUMP_EARLY_SNIPER_CANARY_INITIAL_CLOSES
+PUMP_EARLY_SNIPER_CANARY_INITIAL_SIZE_CAP = CFG.PUMP_EARLY_SNIPER_CANARY_INITIAL_SIZE_CAP
+PUMP_EARLY_SNIPER_MAX_OPEN_PAPER = CFG.PUMP_EARLY_SNIPER_MAX_OPEN_PAPER
+PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY = CFG.PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY
+PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY_ADVANCED = CFG.PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY_ADVANCED
+PUMP_EARLY_SNIPER_ADVANCED_MIN_CLOSED = CFG.PUMP_EARLY_SNIPER_ADVANCED_MIN_CLOSED
+PUMP_EARLY_SNIPER_ADVANCED_MIN_AVG_PNL_PCT = CFG.PUMP_EARLY_SNIPER_ADVANCED_MIN_AVG_PNL_PCT
+PUMP_EARLY_SNIPER_ADVANCED_MAX_LOSS_STREAK = CFG.PUMP_EARLY_SNIPER_ADVANCED_MAX_LOSS_STREAK
+PUMP_EARLY_SNIPER_DEMOTE_LOSS_STREAK = CFG.PUMP_EARLY_SNIPER_DEMOTE_LOSS_STREAK
+PUMP_EARLY_SNIPER_DEMOTE_WINDOW_TRADES = CFG.PUMP_EARLY_SNIPER_DEMOTE_WINDOW_TRADES
+PUMP_EARLY_SNIPER_DEMOTE_AVG_PNL_PCT = CFG.PUMP_EARLY_SNIPER_DEMOTE_AVG_PNL_PCT
+PUMP_EARLY_SNIPER_DEMOTE_LIQ_CRUSH_FIRST_CLOSES = CFG.PUMP_EARLY_SNIPER_DEMOTE_LIQ_CRUSH_FIRST_CLOSES
+PUMP_EARLY_SNIPER_DEMOTE_LIQ_CRUSH_ROLLING = CFG.PUMP_EARLY_SNIPER_DEMOTE_LIQ_CRUSH_ROLLING
+PUMP_EARLY_SNIPER_RECOVERY_MIN_PAPER_CLOSES = CFG.PUMP_EARLY_SNIPER_RECOVERY_MIN_PAPER_CLOSES
+PUMP_EARLY_SNIPER_RECOVERY_MIN_AVG_PNL_PCT = CFG.PUMP_EARLY_SNIPER_RECOVERY_MIN_AVG_PNL_PCT
+PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH = CFG.PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH
+PUMP_EARLY_SNIPER_PAPER_RECOVERY_SIZE_CAP = CFG.PUMP_EARLY_SNIPER_PAPER_RECOVERY_SIZE_CAP
+PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_ENABLED = CFG.PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_ENABLED
+PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_MIN_AGE_MIN = CFG.PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_MIN_AGE_MIN
+PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_USD = CFG.PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_USD
+PUMP_EARLY_PROFIT_LANE_ENABLED = CFG.PUMP_EARLY_PROFIT_LANE_ENABLED
+PUMP_EARLY_PROFIT_DEX_ALLOWLIST = CFG.PUMP_EARLY_PROFIT_DEX_ALLOWLIST
+PUMP_EARLY_PROFIT_REQUIRE_REAL_LIQUIDITY = CFG.PUMP_EARLY_PROFIT_REQUIRE_REAL_LIQUIDITY
+PUMP_EARLY_PROFIT_MIN_LIQUIDITY_USD = CFG.PUMP_EARLY_PROFIT_MIN_LIQUIDITY_USD
+PUMP_EARLY_PROFIT_MIN_SCORE_TOTAL = CFG.PUMP_EARLY_PROFIT_MIN_SCORE_TOTAL
+PUMP_EARLY_PROFIT_MIN_AGE_MIN = CFG.PUMP_EARLY_PROFIT_MIN_AGE_MIN
+PUMP_EARLY_PROFIT_MAX_AGE_MIN = CFG.PUMP_EARLY_PROFIT_MAX_AGE_MIN
+PUMP_EARLY_PROFIT_MAX_PRICE_IMPACT_PCT = CFG.PUMP_EARLY_PROFIT_MAX_PRICE_IMPACT_PCT
+PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD = CFG.PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD
+PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD = CFG.PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD
+PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES = CFG.PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES
+PUMP_EARLY_METEOR_PRIME_ENABLED = CFG.PUMP_EARLY_METEOR_PRIME_ENABLED
+PUMP_EARLY_METEOR_PRIME_MIN_LIQUIDITY_USD = CFG.PUMP_EARLY_METEOR_PRIME_MIN_LIQUIDITY_USD
+PUMP_EARLY_METEOR_PRIME_MAX_LIQUIDITY_USD = CFG.PUMP_EARLY_METEOR_PRIME_MAX_LIQUIDITY_USD
+PUMP_EARLY_METEOR_PRIME_MIN_MARKET_CAP_USD = CFG.PUMP_EARLY_METEOR_PRIME_MIN_MARKET_CAP_USD
+PUMP_EARLY_METEOR_PRIME_MAX_MARKET_CAP_USD = CFG.PUMP_EARLY_METEOR_PRIME_MAX_MARKET_CAP_USD
+PUMP_EARLY_METEOR_PRIME_MIN_PRICE_PCT_5M = CFG.PUMP_EARLY_METEOR_PRIME_MIN_PRICE_PCT_5M
+PUMP_EARLY_METEOR_PRIME_MAX_PRICE_PCT_5M = CFG.PUMP_EARLY_METEOR_PRIME_MAX_PRICE_PCT_5M
+PUMP_EARLY_METEOR_PRIME_MIN_TXNS_5M = CFG.PUMP_EARLY_METEOR_PRIME_MIN_TXNS_5M
+PUMP_EARLY_METEOR_PRIME_MIN_SCORE_TOTAL = CFG.PUMP_EARLY_METEOR_PRIME_MIN_SCORE_TOTAL
+PUMP_EARLY_METEOR_PRIME_MIN_AGE_MIN = CFG.PUMP_EARLY_METEOR_PRIME_MIN_AGE_MIN
+PUMP_EARLY_METEOR_PRIME_MAX_AGE_MIN = CFG.PUMP_EARLY_METEOR_PRIME_MAX_AGE_MIN
+PUMP_EARLY_METEOR_PRIME_MAX_PRICE_IMPACT_PCT = CFG.PUMP_EARLY_METEOR_PRIME_MAX_PRICE_IMPACT_PCT
+PUMP_EARLY_METEOR_PRIME_MIN_VOLUME_USD_24H = CFG.PUMP_EARLY_METEOR_PRIME_MIN_VOLUME_USD_24H
+PUMP_EARLY_PROFIT_SHAPE_GUARD_ENABLED = CFG.PUMP_EARLY_PROFIT_SHAPE_GUARD_ENABLED
+PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE = CFG.PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE
+PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD = CFG.PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD
+PUMP_EARLY_PROFIT_DEEP_NEG_PRICE5M_PCT = CFG.PUMP_EARLY_PROFIT_DEEP_NEG_PRICE5M_PCT
+PUMP_EARLY_PROFIT_DEEP_NEG_MIN_TXNS_5M = CFG.PUMP_EARLY_PROFIT_DEEP_NEG_MIN_TXNS_5M
+PUMP_EARLY_PROFIT_DEEP_NEG_MIN_VOLUME_USD_24H = CFG.PUMP_EARLY_PROFIT_DEEP_NEG_MIN_VOLUME_USD_24H
+PUMP_EARLY_PROFIT_EXTREME_PRICE5M_PCT = CFG.PUMP_EARLY_PROFIT_EXTREME_PRICE5M_PCT
+PUMP_EARLY_PROFIT_EXTREME_PRICE5M_MIN_MCAP_USD = CFG.PUMP_EARLY_PROFIT_EXTREME_PRICE5M_MIN_MCAP_USD
+PUMP_EARLY_PROFIT_DEAD_VOLUME_MIN_USD_24H = CFG.PUMP_EARLY_PROFIT_DEAD_VOLUME_MIN_USD_24H
+PUMP_EARLY_PROFIT_DEAD_VOLUME_MAX_USD_24H = CFG.PUMP_EARLY_PROFIT_DEAD_VOLUME_MAX_USD_24H
+PUMP_EARLY_PROFIT_DEAD_VOLUME_MAX_TXNS_5M = CFG.PUMP_EARLY_PROFIT_DEAD_VOLUME_MAX_TXNS_5M
+PUMP_EARLY_PROFIT_HOT_PRICE5M_MIN_PCT = CFG.PUMP_EARLY_PROFIT_HOT_PRICE5M_MIN_PCT
+PUMP_EARLY_PROFIT_HOT_PRICE5M_MAX_PCT = CFG.PUMP_EARLY_PROFIT_HOT_PRICE5M_MAX_PCT
+PUMP_EARLY_PROFIT_HOT_MCAP_MIN_USD = CFG.PUMP_EARLY_PROFIT_HOT_MCAP_MIN_USD
+PUMP_EARLY_PROFIT_HOT_MIN_LIQUIDITY_USD = CFG.PUMP_EARLY_PROFIT_HOT_MIN_LIQUIDITY_USD
+PUMP_EARLY_PROFIT_HOT_MIN_TXNS_5M = CFG.PUMP_EARLY_PROFIT_HOT_MIN_TXNS_5M
+PUMP_EARLY_PROFIT_HOT_MIN_VOLUME_USD_24H = CFG.PUMP_EARLY_PROFIT_HOT_MIN_VOLUME_USD_24H
+PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_VOLUME_USD_24H = CFG.PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_VOLUME_USD_24H
+PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_TXNS_5M = CFG.PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_TXNS_5M
+PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_PRICE5M_PCT = CFG.PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_PRICE5M_PCT
+PUMP_EARLY_PROFIT_PRIME_MID_MOMENTUM_MIN_TXNS_5M = CFG.PUMP_EARLY_PROFIT_PRIME_MID_MOMENTUM_MIN_TXNS_5M
+PUMP_EARLY_PROFIT_PRIME_MID_MOMENTUM_MIN_VOLUME_USD_24H = CFG.PUMP_EARLY_PROFIT_PRIME_MID_MOMENTUM_MIN_VOLUME_USD_24H
+PUMP_EARLY_PROFIT_HIGH_MCAP_MID_PRICE5M_MIN_PCT = CFG.PUMP_EARLY_PROFIT_HIGH_MCAP_MID_PRICE5M_MIN_PCT
+PUMP_EARLY_PROFIT_HIGH_MCAP_MID_PRICE5M_MAX_PCT = CFG.PUMP_EARLY_PROFIT_HIGH_MCAP_MID_PRICE5M_MAX_PCT
+PUMP_EARLY_PROFIT_HIGH_MCAP_MID_MIN_MCAP_USD = CFG.PUMP_EARLY_PROFIT_HIGH_MCAP_MID_MIN_MCAP_USD
+PUMP_EARLY_PROFIT_MAX_OPEN_PAPER = CFG.PUMP_EARLY_PROFIT_MAX_OPEN_PAPER
+PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY = CFG.PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY
+PUMP_EARLY_RESEARCH_ALLOW_PROXY = CFG.PUMP_EARLY_RESEARCH_ALLOW_PROXY
+PAPER_PNL_STRICT_HEALTH = CFG.PAPER_PNL_STRICT_HEALTH
+LIVE_RANK_SCORE_FALLBACK_MIN = CFG.LIVE_RANK_SCORE_FALLBACK_MIN
 
 # Re-queues
 INCOMPLETE_RETRIES = CFG.INCOMPLETE_RETRIES
 MAX_RETRIES = CFG.MAX_RETRIES
 
-# Trading amounts
+# Trading amounts / balances
 TRADE_AMOUNT_SOL = CFG.TRADE_AMOUNT_SOL
 GAS_RESERVE_SOL = CFG.GAS_RESERVE_SOL
 MIN_BUY_SOL = CFG.MIN_BUY_SOL
 MIN_SOL_BALANCE = CFG.MIN_SOL_BALANCE
 
-# DB / tokens
+# DB
 SQLITE_DB = CFG.SQLITE_DB
 DB_URI = f"sqlite+aiosqlite:///{pathlib.Path(SQLITE_DB).expanduser().resolve()}"
-BITQUERY_TOKEN = CFG.BITQUERY_TOKEN
-PUMPFUN_PROGRAM = CFG.PUMPFUN_PROGRAM
 
-# Riesgo/Exits (expuestos)
+# Riesgo/Exits
 TAKE_PROFIT_PCT = CFG.TAKE_PROFIT_PCT
 STOP_LOSS_PCT = CFG.STOP_LOSS_PCT
 TRAILING_PCT = CFG.TRAILING_PCT
 MAX_HOLDING_H = CFG.MAX_HOLDING_H
 MAX_HARD_HOLD_H = CFG.MAX_HARD_HOLD_H
-WIN_PCT = CFG.WIN_PCT           # fracción (0.30 = 30%)
+WIN_PCT = CFG.WIN_PCT
+ML_POSITIVE_PNL_PCT = CFG.ML_POSITIVE_PNL_PCT
+ML_POSITIVE_PNL_RATIO = CFG.ML_POSITIVE_PNL_RATIO
 LABEL_GRACE_H = CFG.LABEL_GRACE_H
 
 # Horarios modernos
@@ -420,15 +1744,14 @@ TRADING_HOURS_EXTRA = CFG.TRADING_HOURS_EXTRA
 USE_EXTRA_HOURS = CFG.USE_EXTRA_HOURS
 BLOCK_HOURS = CFG.BLOCK_HOURS
 
-# Zona horaria local
+# Zona horaria local (objeto ZoneInfo)
 LOCAL_TZ_NAME = CFG.LOCAL_TZ_NAME
 try:
     LOCAL_TZ = ZoneInfo(LOCAL_TZ_NAME)
 except Exception:
-    # Fallback defensivo a Europe/Madrid si la zona no existe en el sistema
     LOCAL_TZ = ZoneInfo("Europe/Madrid")
 
-# Ventanas legacy (mantener para compatibilidad en utils.time)
+# Ventanas legacy (compat)
 TRADING_WINDOWS = CFG.TRADING_WINDOWS
 TRADING_WINDOWS_PARSED: tuple[tuple[int, int], ...] = _parse_windows(TRADING_WINDOWS)
 TRADING_STRICT = CFG.TRADING_STRICT
@@ -440,7 +1763,7 @@ REQUIRE_POOL_INITIALIZED = CFG.REQUIRE_POOL_INITIALIZED
 BUY_RATE_LIMIT_N = CFG.BUY_RATE_LIMIT_N
 BUY_RATE_LIMIT_WINDOW_S = CFG.BUY_RATE_LIMIT_WINDOW_S
 
-# Monitor / Shadow-sim
+# Monitor / shadow-sim
 FORCE_JUP_IN_MONITOR = CFG.FORCE_JUP_IN_MONITOR
 REAL_SHADOW_SIM = CFG.REAL_SHADOW_SIM
 
@@ -450,14 +1773,55 @@ EARLY_DROP_WINDOW_MIN = CFG.EARLY_DROP_WINDOW_MIN
 LIQ_CRUSH_DROP_PCT = CFG.LIQ_CRUSH_DROP_PCT
 LIQ_CRUSH_WINDOW_MIN = CFG.LIQ_CRUSH_WINDOW_MIN
 
-# IA thresholds y entreno
-AI_THRESHOLD = CFG.AI_THRESHOLD             # unificado
-AI_TH = AI_THRESHOLD                        # alias de compatibilidad
+# IA thresholds + entreno
+AI_THRESHOLD = CFG.AI_THRESHOLD
+AI_TH = AI_THRESHOLD  # alias compat
 AI_THRESHOLD_FILE = CFG.AI_THRESHOLD_FILE
+BUY_SOFT_SCORE_MIN = CFG.BUY_SOFT_SCORE_MIN
 TRAIN_FORWARD_HOLDOUT_DAYS = CFG.TRAIN_FORWARD_HOLDOUT_DAYS
 TRAIN_FORWARD_HOLDOUT_PCT = CFG.TRAIN_FORWARD_HOLDOUT_PCT
 TRAINING_WINDOW_DAYS = CFG.TRAINING_WINDOW_DAYS
 MIN_THRESHOLD_CHANGE = CFG.MIN_THRESHOLD_CHANGE
+PRECISION_AT_K_PCT = CFG.PRECISION_AT_K_PCT
+ML_GATE_MODE = CFG.ML_GATE_MODE
+ML_MIN_DATASET_ROWS = CFG.ML_MIN_DATASET_ROWS
+ML_MIN_POSITIVES = CFG.ML_MIN_POSITIVES
+ML_MIN_UNIQUE_TOKENS = CFG.ML_MIN_UNIQUE_TOKENS
+ML_MIN_REALIZED_RETURN_ROWS = CFG.ML_MIN_REALIZED_RETURN_ROWS
+ML_MIN_HOLDOUT_ROWS = CFG.ML_MIN_HOLDOUT_ROWS
+ML_MIN_HOLDOUT_POSITIVES = CFG.ML_MIN_HOLDOUT_POSITIVES
+ML_MIN_NON_CONSTANT_FEATURES = CFG.ML_MIN_NON_CONSTANT_FEATURES
+ML_TUNE_OBJECTIVE = CFG.ML_TUNE_OBJECTIVE
+ML_TUNE_PRECISION_FLOOR = CFG.ML_TUNE_PRECISION_FLOOR
+ML_TUNE_MIN_SELECTED = CFG.ML_TUNE_MIN_SELECTED
+ML_TUNE_MIN_REALIZED_SELECTED = CFG.ML_TUNE_MIN_REALIZED_SELECTED
+ML_SELECTION_MIN_DELTA = CFG.ML_SELECTION_MIN_DELTA
+ML_TRAIN_ENTRY_LANE_ALLOWLIST = CFG.ML_TRAIN_ENTRY_LANE_ALLOWLIST
+ML_TRAIN_ALLOW_MISSING_ENTRY_LANE = CFG.ML_TRAIN_ALLOW_MISSING_ENTRY_LANE
+ML_TRAIN_DEX_ALLOWLIST = CFG.ML_TRAIN_DEX_ALLOWLIST
+ML_BOOTSTRAP_RESEARCH_SHADOW_ENABLED = CFG.ML_BOOTSTRAP_RESEARCH_SHADOW_ENABLED
+ML_BOOTSTRAP_ONLY_WHEN_MODEL_MISSING = CFG.ML_BOOTSTRAP_ONLY_WHEN_MODEL_MISSING
+ML_BOOTSTRAP_ENTRY_LANE_ALLOWLIST = CFG.ML_BOOTSTRAP_ENTRY_LANE_ALLOWLIST
+ML_BOOTSTRAP_DEX_ALLOWLIST = CFG.ML_BOOTSTRAP_DEX_ALLOWLIST
+PUMP_EARLY_SHADOW_RECOVERY_ENABLED = CFG.PUMP_EARLY_SHADOW_RECOVERY_ENABLED
+PUMP_EARLY_SHADOW_RECOVERY_WINDOW = CFG.PUMP_EARLY_SHADOW_RECOVERY_WINDOW
+PUMP_EARLY_SHADOW_RECOVERY_MIN_TRADES = CFG.PUMP_EARLY_SHADOW_RECOVERY_MIN_TRADES
+PUMP_EARLY_SHADOW_RECOVERY_MIN_AVG_PNL_PCT = CFG.PUMP_EARLY_SHADOW_RECOVERY_MIN_AVG_PNL_PCT
+PUMP_EARLY_SHADOW_RECOVERY_MIN_WIN_RATE_PCT = CFG.PUMP_EARLY_SHADOW_RECOVERY_MIN_WIN_RATE_PCT
+PUMP_EARLY_SHADOW_RECOVERY_MAX_SEVERE_EXITS = CFG.PUMP_EARLY_SHADOW_RECOVERY_MAX_SEVERE_EXITS
+PUMP_EARLY_SHADOW_RECOVERY_MAX_LIQ_CRUSH = CFG.PUMP_EARLY_SHADOW_RECOVERY_MAX_LIQ_CRUSH
+PUMP_EARLY_SHADOW_RECOVERY_MAX_CONSECUTIVE_LOSSES = CFG.PUMP_EARLY_SHADOW_RECOVERY_MAX_CONSECUTIVE_LOSSES
+PUMP_EARLY_SHADOW_RECOVERY_MAX_AGE_H = CFG.PUMP_EARLY_SHADOW_RECOVERY_MAX_AGE_H
+POST_PARTIAL_PROTECTION_ENABLED = CFG.POST_PARTIAL_PROTECTION_ENABLED
+POST_PARTIAL_LOCK_FLOOR_PCT = CFG.POST_PARTIAL_LOCK_FLOOR_PCT
+POST_PARTIAL_MAX_GIVEBACK_PCT = CFG.POST_PARTIAL_MAX_GIVEBACK_PCT
+POST_PARTIAL_EXPERIMENT_ENABLED = CFG.POST_PARTIAL_EXPERIMENT_ENABLED
+POST_PARTIAL_EXPERIMENT_MODE = CFG.POST_PARTIAL_EXPERIMENT_MODE
+POST_PARTIAL_EXPERIMENT_REGIME = CFG.POST_PARTIAL_EXPERIMENT_REGIME
+POST_PARTIAL_EXPERIMENT_LOCK_FLOOR_PCT = CFG.POST_PARTIAL_EXPERIMENT_LOCK_FLOOR_PCT
+POST_PARTIAL_EXPERIMENT_MAX_GIVEBACK_PCT = CFG.POST_PARTIAL_EXPERIMENT_MAX_GIVEBACK_PCT
+POST_PARTIAL_EXPERIMENT_MIN_NEW_CLOSES = CFG.POST_PARTIAL_EXPERIMENT_MIN_NEW_CLOSES
+POST_PARTIAL_EXPERIMENT_LOCKED_ML_THRESHOLD = CFG.POST_PARTIAL_EXPERIMENT_LOCKED_ML_THRESHOLD
 
 # Estrategia avanzada
 REVIVAL_LIQ_USD = CFG.REVIVAL_LIQ_USD
@@ -468,10 +1832,26 @@ CURVE_BUY_RANK_MAX = CFG.CURVE_BUY_RANK_MAX
 CURVE_MAX_COST = CFG.CURVE_MAX_COST
 
 # Miscelánea
-BANNED_CREATORS = CFG.BANNED_CREATORS
 SOL_PUBLIC_KEY = CFG.SOL_PUBLIC_KEY
+BANNED_CREATORS = CFG.BANNED_CREATORS
 LOG_LEVEL = CFG.LOG_LEVEL
 LOG_PATH = CFG.LOG_PATH
 FEATURES_DIR = CFG.FEATURES_DIR
 MODEL_PATH = CFG.MODEL_PATH
-PROJECT_ROOT = PROJECT_ROOT  # re-export
+
+__all__ = [
+    "CFG",
+    # helper exports (legacy)
+    "PROJECT_ROOT",
+    "DB_URI",
+    "LOCAL_TZ",
+    "TRADING_WINDOWS_PARSED",
+    # common config exports
+    "MIN_AGE_MIN",
+    "MIN_LIQUIDITY_USD",
+    "MIN_VOL_USD_24H",
+    "MIN_HOLDERS",
+    "MAX_MARKET_CAP_USD",
+    "AI_THRESHOLD",
+    "AI_TH",
+]

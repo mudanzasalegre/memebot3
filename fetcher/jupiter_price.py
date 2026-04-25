@@ -25,7 +25,7 @@ except Exception:
 
 import aiohttp
 from urllib.parse import quote
-from utils.solana_addr import normalize_mint  # saneo de mints ('pump' y validación SPL)
+from utils.solana_addr import normalize_mint  # preserva mints válidos y sanea sufijos inválidos
 
 logger = logging.getLogger("jupiter_price")
 
@@ -58,6 +58,7 @@ _HTTP_TIMEOUT = aiohttp.ClientTimeout(total=6.0)
 
 # Verbose opcional (0/1)
 _VERBOSE: bool = os.getenv("JUPITER_VERBOSE", "0") == "1"
+_JUP_API_KEY: str = os.getenv("JUP_API_KEY", "").strip()
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Atajos de precio instantáneo (para subir hit-rate y ahorrar cupo)
@@ -156,10 +157,10 @@ async def _ensure_session() -> aiohttp.ClientSession:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("[jupiter_price] creando nueva sesión HTTP (timeout=%ss)", _HTTP_TIMEOUT.total)
         # UA explícito: a veces mejora la aceptación en algunos proxies/CDNs
-        _SESSION = aiohttp.ClientSession(
-            timeout=_HTTP_TIMEOUT,
-            headers={"User-Agent": os.getenv("JUPITER_UA", "MemeBot3/1.0 (+bot)")},
-        )
+        headers = {"User-Agent": os.getenv("JUPITER_UA", "MemeBot3/1.0 (+bot)")}
+        if _JUP_API_KEY:
+            headers["x-api-key"] = _JUP_API_KEY
+        _SESSION = aiohttp.ClientSession(timeout=_HTTP_TIMEOUT, headers=headers)
     return _SESSION
 
 
@@ -237,7 +238,7 @@ def clear_caches():
 # ───────────────────────── normalización de entradas ─────────────────────────
 def _normalize_incoming_list(mints: Iterable[str]) -> List[str]:
     """
-    • Aplica normalize_mint (quita 'pump', trim, valida).
+    • Aplica normalize_mint (preserva mints válidos y sanea sufijos inválidos).
     • Dedup preservando orden.
     • Loggea los descartes por no parecer mint SPL.
     """
@@ -591,6 +592,20 @@ async def get_price(mint: str) -> PriceInfo:
     return fetched.get(nm, PriceInfo(status="ERR", price_usd=None, has_route=False, routes_count=0))
 
 
+async def get_price_status(mint: str) -> Dict[str, object]:
+    pi = await get_price(mint)
+    return {
+        "status": pi.status,
+        "price_usd": pi.price_usd,
+        "has_route": pi.has_route,
+        "routes_count": pi.routes_count,
+    }
+
+
+async def get_quote_status(mint: str) -> Dict[str, object]:
+    return await get_price_status(mint)
+
+
 # ──────────────────────────── API legacy (compat) ──────────────────────────────
 async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
     """
@@ -626,6 +641,8 @@ __all__ = [
     "PriceInfo",
     "get_price",
     "get_many_prices",
+    "get_price_status",
+    "get_quote_status",
     # Legacy/compat
     "get_usd_price",
     "get_many_usd_prices",

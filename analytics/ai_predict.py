@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 
 from config.config import CFG, PROJECT_ROOT
+from ml.feature_matrix import coerce_feature_frame
 
 # Logger del módulo
 log = logging.getLogger("ai_predict")
@@ -74,12 +75,15 @@ def _resolve_meta_path(mp: Path) -> Path:
 
 
 _META_PATH: Path = _resolve_meta_path(_MODEL_PATH)
+_TRAIN_STATUS_PATH: Path = (PROJECT_ROOT / "data" / "metrics" / "train_status.json").resolve()
 
 # ──────────────────── estado global ───────────────────────────
 _model_lock = threading.Lock()
 _model: Optional[Any] = None               # objeto LightGBM / sklearn
 _model_mtime: Optional[float] = None       # timestamp del .pkl
 _FEATURES: Optional[Sequence[str]] = None  # orden de columnas
+_meta_cache: Optional[dict[str, Any]] = None
+_meta_mtime: Optional[float] = None
 
 
 # ╭────────────────── helpers internos ─────────────────╮
@@ -128,6 +132,45 @@ def _load_model() -> None:
             log.info("🧠 Modelo cargado: %s (mtime=%d)", _MODEL_PATH.name, int(_model_mtime))
 
 
+def _load_meta() -> dict[str, Any]:
+    global _meta_cache, _meta_mtime
+
+    if not _META_PATH.exists():
+        _meta_cache = {}
+        _meta_mtime = None
+        return {}
+
+    mtime = _META_PATH.stat().st_mtime
+    if _meta_cache is not None and _meta_mtime == mtime:
+        return dict(_meta_cache)
+
+    with _model_lock:
+        current_mtime = _META_PATH.stat().st_mtime if _META_PATH.exists() else None
+        if current_mtime is None:
+            _meta_cache = {}
+            _meta_mtime = None
+            return {}
+        if _meta_cache is None or _meta_mtime != current_mtime:
+            try:
+                _meta_cache = json.loads(_META_PATH.read_text(encoding="utf-8")) or {}
+            except Exception as exc:
+                log.warning("No se pudo leer meta %s: %s", _META_PATH, exc)
+                _meta_cache = {}
+            _meta_mtime = current_mtime
+    return dict(_meta_cache or {})
+
+
+def _load_train_status() -> dict[str, Any]:
+    if not _TRAIN_STATUS_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(_TRAIN_STATUS_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        log.warning("No se pudo leer train_status %s: %s", _TRAIN_STATUS_PATH, exc)
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _to_dataframe(vec: Any) -> pd.DataFrame:
     """
     Convierte dict / Series / DataFrame → DataFrame de 1 fila
@@ -144,9 +187,7 @@ def _to_dataframe(vec: Any) -> pd.DataFrame:
         row = {k: vec.get(k) for k in _FEATURES}
         X = pd.DataFrame([row], columns=_FEATURES)
 
-    # cast numérico (strings → NaN) y fillna
-    X = X.apply(pd.to_numeric, errors="coerce").fillna(0).astype(np.float32)
-    return X
+    return coerce_feature_frame(X, _FEATURES)
 
 
 # ╭────────────────── API pública ─────────────────╮
@@ -173,12 +214,106 @@ def should_buy(vec: Any) -> float:
 
 def reload_model() -> None:
     """Borra el modelo en memoria para forzar recarga (p. ej. tras retrain)."""
-    global _model, _model_mtime
+    global _model, _model_mtime, _meta_cache, _meta_mtime
     with _model_lock:
         _model = None
         _model_mtime = None
+        _meta_cache = None
+        _meta_mtime = None
     _load_model()
     log.info("🔄 Modelo recargado manualmente (forzando reload en memoria)")
 
+def model_runtime_status() -> dict[str, Any]:
+    """Estado ligero del modelo y de su activación recomendada."""
+    meta = _load_meta()
+    train_status = _load_train_status()
+    _load_model()
+    dataset_quality = meta.get("dataset_quality")
+    if not isinstance(dataset_quality, dict):
+        dataset_quality = train_status.get("dataset_quality")
+    dataset_quality_passed = meta.get("dataset_quality_passed")
+    if dataset_quality_passed is None and isinstance(dataset_quality, dict):
+        dataset_quality_passed = dataset_quality.get("passed")
+    eligible_rows = train_status.get("eligible_rows")
+    if eligible_rows is None and isinstance(dataset_quality, dict):
+        eligible_rows = dataset_quality.get("rows")
+    eligible_unique_tokens = train_status.get("eligible_unique_tokens")
+    if eligible_unique_tokens is None and isinstance(dataset_quality, dict):
+        eligible_unique_tokens = dataset_quality.get("unique_tokens")
+    eligible_positives = train_status.get("eligible_positives")
+    if eligible_positives is None and isinstance(dataset_quality, dict):
+        eligible_positives = dataset_quality.get("positives")
+    holdout_rows = train_status.get("holdout_rows")
+    if holdout_rows is None and isinstance(dataset_quality, dict):
+        holdout_rows = dataset_quality.get("holdout_rows")
+    skip_reasons = train_status.get("skip_reasons")
+    if skip_reasons is None and isinstance(dataset_quality, dict):
+        skip_reasons = dataset_quality.get("reasons")
 
-__all__ = ["should_buy", "reload_model"]
+    rows_to_next_model = train_status.get("rows_to_next_model")
+    positives_to_next_model = train_status.get("positives_to_next_model")
+    unique_tokens_to_next_model = train_status.get("unique_tokens_to_next_model")
+    holdout_rows_to_next_model = train_status.get("holdout_rows_to_next_model")
+    holdout_positives_to_next_model = train_status.get("holdout_positives_to_next_model")
+    if rows_to_next_model is None and eligible_rows is not None and eligible_unique_tokens is not None:
+        rows_to_next_model = max(
+            max(0, int(getattr(CFG, "ML_MIN_DATASET_ROWS", 190) or 190) - int(eligible_rows)),
+            max(0, int(getattr(CFG, "ML_MIN_UNIQUE_TOKENS", 190) or 190) - int(eligible_unique_tokens)),
+        )
+    if positives_to_next_model is None and eligible_positives is not None:
+        positives_to_next_model = max(0, int(getattr(CFG, "ML_MIN_POSITIVES", 40) or 40) - int(eligible_positives))
+    if unique_tokens_to_next_model is None and eligible_unique_tokens is not None:
+        unique_tokens_to_next_model = max(
+            0,
+            int(getattr(CFG, "ML_MIN_UNIQUE_TOKENS", 190) or 190) - int(eligible_unique_tokens),
+        )
+    if holdout_rows_to_next_model is None and holdout_rows is not None:
+        holdout_rows_to_next_model = max(
+            0,
+            int(getattr(CFG, "ML_MIN_HOLDOUT_ROWS", 40) or 40) - int(holdout_rows),
+        )
+    holdout_positives = train_status.get("holdout_positives")
+    if holdout_positives is None and isinstance(dataset_quality, dict):
+        holdout_positives = dataset_quality.get("holdout_positives")
+    if holdout_positives_to_next_model is None and holdout_positives is not None:
+        holdout_positives_to_next_model = max(
+            0,
+            int(getattr(CFG, "ML_MIN_HOLDOUT_POSITIVES", 8) or 8) - int(holdout_positives),
+        )
+    blocker = train_status.get("blocker")
+    if blocker is None and skip_reasons:
+        blocker = ",".join(str(item) for item in skip_reasons if str(item))
+    return {
+        "model_exists": _MODEL_PATH.exists(),
+        "meta_exists": _META_PATH.exists(),
+        "model_loaded": _model is not None,
+        "features_count": len(_FEATURES or ()),
+        "activation_ready": meta.get("activation_ready"),
+        "dataset_quality_passed": dataset_quality_passed,
+        "threshold_metric": meta.get("threshold_metric") or train_status.get("threshold_metric"),
+        "training_scope": meta.get("training_scope") or train_status.get("training_scope"),
+        "bootstrap_used": meta.get("bootstrap_used") if meta.get("bootstrap_used") is not None else train_status.get("bootstrap_used"),
+        "strict_productive_dataset": train_status.get("strict_productive_dataset") or meta.get("strict_productive_dataset"),
+        "bootstrap_candidate_dataset": train_status.get("bootstrap_candidate_dataset") or meta.get("bootstrap_candidate_dataset"),
+        "rows": meta.get("rows") or train_status.get("rows") or eligible_rows,
+        "eligible_rows": eligible_rows,
+        "eligible_unique_tokens": eligible_unique_tokens,
+        "eligible_positives": eligible_positives,
+        "holdout_rows": holdout_rows,
+        "rows_missing_lane_metadata": train_status.get("rows_missing_lane_metadata"),
+        "last_train_attempt_at": train_status.get("last_train_attempt_at"),
+        "last_train_status": train_status.get("last_train_status") or train_status.get("status"),
+        "skip_reasons": skip_reasons,
+        "rows_to_next_model": rows_to_next_model,
+        "positives_to_next_model": positives_to_next_model,
+        "unique_tokens_to_next_model": unique_tokens_to_next_model,
+        "holdout_rows_to_next_model": holdout_rows_to_next_model,
+        "holdout_positives_to_next_model": holdout_positives_to_next_model,
+        "blocker": blocker,
+        "model_path": str(_MODEL_PATH),
+        "meta_path": str(_META_PATH),
+        "train_status_path": str(_TRAIN_STATUS_PATH),
+    }
+
+
+__all__ = ["should_buy", "reload_model", "model_runtime_status"]

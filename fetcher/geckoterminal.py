@@ -31,6 +31,7 @@ import asyncio
 import logging
 import math
 import os
+import threading
 import time
 from typing import Optional, TypedDict, cast, Any, Dict
 
@@ -65,7 +66,13 @@ _fail_count: dict[str, int] = {}
 
 # rate-limit interno extra (mínimo intervalo entre llamadas)
 _last_call_ts = 0.0
-_min_interval_s = 2.0  # 1 req/2 s → 30 req/min máx.
+_min_interval_s = max(0.0, 60.0 / max(1, int(getattr(GECKO_LIMITER, "max_calls", 30))))
+try:
+    _cooldown_on_429_s = max(5.0, float(os.getenv("GECKO_COOLDOWN_ON_429_S", "60")))
+except Exception:
+    _cooldown_on_429_s = 60.0
+_cooldown_until = 0.0
+_cooldown_lock = threading.Lock()
 
 # ─────────────────────────────── tipos ──────────────────────────────────
 class GTData(TypedDict, total=False):
@@ -88,6 +95,32 @@ def _throttle_internal() -> None:
     if delta < _min_interval_s:
         time.sleep(_min_interval_s - delta)
     _last_call_ts = time.monotonic()
+
+
+def _cooldown_remaining() -> float:
+    return max(0.0, _cooldown_until - time.monotonic())
+
+
+def _register_global_cooldown(ttl_s: float | None = None) -> None:
+    global _cooldown_until
+    ttl = max(float(ttl_s or _cooldown_on_429_s), _cooldown_on_429_s)
+    with _cooldown_lock:
+        _cooldown_until = max(_cooldown_until, time.monotonic() + ttl)
+    logger.warning("[GT] cooldown global %.0fs tras 429", ttl)
+
+
+def _wait_for_global_cooldown_sync() -> None:
+    remaining = _cooldown_remaining()
+    if remaining > 0:
+        logger.debug("[GT] cooldown activo (sync) %.1fs", remaining)
+        time.sleep(remaining)
+
+
+async def _wait_for_global_cooldown_async() -> None:
+    remaining = _cooldown_remaining()
+    if remaining > 0:
+        logger.debug("[GT] cooldown activo (async) %.1fs", remaining)
+        await asyncio.sleep(remaining)
 
 
 def _build_endpoint(network: str, address: str) -> str:
@@ -238,6 +271,7 @@ def get_token_data(
     if hit is not None:
         return None if hit is _SENTINEL_NIL else hit
 
+    _wait_for_global_cooldown_sync()
     _throttle_internal()
     _acquire_sync()
 
@@ -247,6 +281,10 @@ def get_token_data(
 
     try:
         resp = sess.get(url, headers=headers, timeout=timeout)
+        if resp.status_code == 429:
+            _register_global_cooldown()
+            _register_fail(ck)
+            return None
         if resp.status_code == 404:
             _register_fail(ck)
             return None
@@ -298,6 +336,8 @@ async def get_token_data_async(
     if hit is not None:
         return None if hit is _SENTINEL_NIL else hit
 
+    await _wait_for_global_cooldown_async()
+
     # ratelimit interno + bucket global
     global _last_call_ts
     now = time.monotonic()
@@ -313,6 +353,10 @@ async def get_token_data_async(
         async def _fetch(client: "aiohttp.ClientSession") -> Optional[dict]:
             try:
                 async with client.get(url, headers=headers, timeout=timeout) as r:
+                    if r.status == 429:
+                        _register_global_cooldown()
+                        _register_fail(ck)
+                        return None
                     if r.status == 404:
                         _register_fail(ck)
                         return None
@@ -358,16 +402,7 @@ async def get_token_data_async(
 
 # ───────────────────────── helpers de rate-limit sync ───────────────────
 def _acquire_sync() -> None:
-    while True:
-        now = time.monotonic()
-        # noqa: SLF001 por uso de atributos "privados" del limiter controlado
-        if now - GECKO_LIMITER._last_reset >= GECKO_LIMITER.interval:      # noqa: SLF001
-            GECKO_LIMITER._tokens = GECKO_LIMITER.max_calls                # noqa: SLF001
-            GECKO_LIMITER._last_reset = now                                # noqa: SLF001
-        if GECKO_LIMITER._tokens > 0:                                      # noqa: SLF001
-            GECKO_LIMITER._tokens -= 1                                     # noqa: SLF001
-            return
-        time.sleep(GECKO_LIMITER._time_until_reset() + 0.01)               # noqa: SLF001
+    GECKO_LIMITER.acquire_sync()
 
 
 # ───────────────────────── control de fallos ────────────────────────────

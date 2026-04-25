@@ -47,6 +47,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -91,6 +92,7 @@ class Token(Base):
     score_total:  Mapped[int]   = mapped_column(Integer, default=0)
 
     # —— metadatos descubrimiento ——
+    dex_id: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
     discovered_via: Mapped[Optional[str]]          = mapped_column(String(16), nullable=True)
     discovered_at:  Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -126,13 +128,29 @@ class Position(Base):
     address: Mapped[str] = mapped_column(String(64), ForeignKey("tokens.address"), index=True)
     symbol:  Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
 
-    # Cantidad en lamports del token (no SOL)
+    # Cantidad remanente en lamports del token (no SOL)
     qty:     Mapped[int] = mapped_column(Integer)
+    entry_qty: Mapped[int] = mapped_column(Integer, default=0)
 
     # —— entrada (compra) ——
     buy_price_usd: Mapped[float] = mapped_column(Float)
     price_source_at_buy: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     buy_tx_sig: Mapped[Optional[str]] = mapped_column(String(96), nullable=True)  # firma de compra (Solana ~88 chars)
+    entry_regime: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    size_bucket: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    size_multiplier: Mapped[float] = mapped_column(Float, default=1.0)
+    buy_amount_sol: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    entry_notional_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    entry_ai_proba: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    entry_score_total: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    entry_lane: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    gate_profile: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    buy_dex_id: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    buy_price_pct_5m: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    buy_txns_last_5m: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    buy_liquidity_is_proxy: Mapped[bool] = mapped_column(Boolean, default=False)
+    mcap_bucket: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    price5m_bucket: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
 
     # Métricas del par en el momento de la compra (para auditoría / reglas como liquidity-crush)
     buy_liquidity_usd:   Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -159,10 +177,28 @@ class Position(Base):
 
     # Métrica histórica de PnL máximo (en %)
     highest_pnl_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    max_pnl_pct_seen: Mapped[float] = mapped_column(Float, default=0.0)
+    realized_qty: Mapped[int] = mapped_column(Integer, default=0)
+    realized_proceeds_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    realized_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    realized_pnl_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    effective_exit_price_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    total_pnl_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    total_pnl_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    runner_exit_profile: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    time_to_partial_sec: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    time_to_peak_sec: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    peak_after_partial_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    exit_from_peak_giveback_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # —— NUEVOS CAMPOS (2025-08-28) ——
     # Marca si ya se hizo una toma de ganancias parcial
     partial_taken: Mapped[bool] = mapped_column(Boolean, default=False)
+    partial_count: Mapped[int] = mapped_column(Integer, default=0)
+    first_partial_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_partial_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_partial_qty: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_partial_price_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # Campo explícito solicitado (además de peak_price_usd). Se mantiene separado.
     peak_price: Mapped[float] = mapped_column(Float, default=0.0)
@@ -258,3 +294,86 @@ class RevivedToken(Base):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<RevivedToken {self.token_address[:4]} revived_at={self.revived_at.isoformat()}>"
+
+
+class BotRuntimeState(Base):
+    __tablename__ = "bot_runtime_state"
+
+    bot_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    updated_at: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    heartbeat_at: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    started_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    process_state: Mapped[str] = mapped_column(String(16), default="starting")
+    dry_run: Mapped[bool] = mapped_column(Boolean, default=False)
+    discovery_paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    buys_paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    retrain_state: Mapped[str] = mapped_column(String(16), default="idle")
+    reports_refresh_state: Mapped[str] = mapped_column(String(16), default="idle")
+    wallet_sol: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    wallet_checked_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    open_positions_count: Mapped[int] = mapped_column(Integer, default=0)
+    queue_pending: Mapped[int] = mapped_column(Integer, default=0)
+    queue_requeued: Mapped[int] = mapped_column(Integer, default=0)
+    queue_cooldown: Mapped[int] = mapped_column(Integer, default=0)
+    queue_oldest_first_seen_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    buy_limiter_in_window: Mapped[int] = mapped_column(Integer, default=0)
+    buy_limiter_window_s: Mapped[int] = mapped_column(Integer, default=0)
+    discovery_last_ok_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    monitor_last_ok_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_error_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    stats_json: Mapped[str] = mapped_column(Text, default="{}")
+    ml_gate_json: Mapped[str] = mapped_column(Text, default="{}")
+    strategy_health_json: Mapped[str] = mapped_column(Text, default="{}")
+    research_json: Mapped[str] = mapped_column(Text, default="{}")
+    queue_items_json: Mapped[str] = mapped_column(Text, default="{}")
+    build_info_json: Mapped[str] = mapped_column(Text, default="{}")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<BotRuntimeState {self.bot_id} state={self.process_state} updated={self.updated_at.isoformat()}>"
+
+
+class ControlCommand(Base):
+    __tablename__ = "control_commands"
+    __table_args__ = (
+        Index("ix_control_commands_bot_status_requested", "bot_id", "status", "requested_at"),
+        Index("ix_control_commands_bot_command_requested", "bot_id", "command_type", "requested_at"),
+        Index("ux_control_commands_bot_idempotency", "bot_id", "idempotency_key", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    bot_id: Mapped[str] = mapped_column(String(32), default="main", index=True)
+    command_type: Mapped[str] = mapped_column(String(32), index=True)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    requested_by: Mapped[str] = mapped_column(String(128))
+    requested_from: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    requested_at: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    started_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    result_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<ControlCommand id={self.id} bot={self.bot_id} type={self.command_type} status={self.status}>"
+
+
+class UiSavedView(Base):
+    __tablename__ = "ui_saved_views"
+    __table_args__ = (
+        Index("ix_ui_saved_views_page_owner_updated", "page_key", "created_by", "updated_at"),
+        Index("ix_ui_saved_views_owner_updated", "created_by", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    page_key: Mapped[str] = mapped_column(String(64), index=True)
+    view_name: Mapped[str] = mapped_column(String(128))
+    filters_json: Mapped[str] = mapped_column(Text, default="{}")
+    layout_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(128), index=True)
+    created_at: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    updated_at: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<UiSavedView id={self.id} page={self.page_key} owner={self.created_by} name={self.view_name}>"

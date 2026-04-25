@@ -308,6 +308,8 @@ def _norm_from_pair(raw_pair: dict) -> dict:
     buys_5m  = _safe_float(txns_m5.get("buys")) or 0.0
     sells_5m = _safe_float(txns_m5.get("sells")) or 0.0
     total_5m = (buys_5m or 0.0) + (sells_5m or 0.0)
+    price_change = raw_pair.get("priceChange") or {}
+    volume_change = raw_pair.get("volumeChange") or {}
 
     tok = {
         "address":        (str(mint).strip() if mint else None),  # ← MINT SPL ¡clave!
@@ -321,7 +323,11 @@ def _norm_from_pair(raw_pair: dict) -> dict:
         "market_cap_usd": mcap_usd  if mcap_usd  is not None else np.nan,
         # señales rápidas
         "txns_last_5m":        total_5m or 0.0,
+        "txns_last_5m_buys":   buys_5m or 0.0,
         "txns_last_5m_sells":  sells_5m or 0.0,
+        "price_pct_1m": _safe_float(price_change.get("m1")),
+        "price_pct_5m": _safe_float(price_change.get("m5")),
+        "volume_pct_5m": _safe_float(volume_change.get("m5")),
         "holders": _safe_float(raw_pair.get("holders")),
         # Pasar algunos campos originales por compat/debug
         **raw_pair,

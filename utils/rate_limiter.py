@@ -30,6 +30,7 @@ Incluye dos implementaciones complementarias:
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 import time
 from collections import deque
@@ -184,5 +185,8 @@ class LeakyBucket:
 
 # ╭────────────────── Limiter público de ejemplo ───────────────────╮
 # Límite típico para llamadas a GeckoTerminal (30 req/min).
-MAX_GT_CALLS_PER_MIN = 30
+try:
+    MAX_GT_CALLS_PER_MIN = max(1, int(os.getenv("GECKO_RATE_LIMIT", "30")))
+except Exception:
+    MAX_GT_CALLS_PER_MIN = 30
 GECKO_LIMITER = RateLimiter(max_calls=MAX_GT_CALLS_PER_MIN)

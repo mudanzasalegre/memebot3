@@ -2,27 +2,26 @@
 """
 Interfaz unificada para salidas en modo REAL:
     • Enviar la orden real de venta priorizando Jupiter (si hay router);
-      fallback a gmgn.sell solo con liquidez suficiente.
-    • Evaluar las condiciones de salida (TP parcial / SL / Trailing / Timeout / No-Expansion)
-    • Señales extra: EARLY_DROP y LIQUIDITY_CRUSH (alineadas con run_bot)
-    • Obtener el precio actual abstrayéndose de la fuente concreta:
-        DexScreener → Birdeye → GeckoTerminal → conversión price_native→USD
-    • Generar un snapshot de cierre con PnL coherente incluso si
-      no se pudo obtener el precio (fallback = buy_price)
+      fallback a gmgn.sell solo con liquidez suficiente (o si no se puede determinar).
+    • Evaluar condiciones de salida (TP/SL/Trailing/Timeout/No-Expansion + señales extra)
+    • Obtener precio de cierre de forma robusta (hint → Jupiter → critical → Dex/GT)
+    • Snapshot coherente incluso si no hay precio (fallback = buy_price)
 
-2025-08-28
-──────────
-• Prioridad Jupiter en cierre (si hay `fetcher.jupiter_router`): get_quote→execute_swap.
-  Fallback a gmgn.sell solo si liquidity_usd ≥ CFG.MIN_LIQUIDITY_USD (si no, requeue/skip).
-• Nuevo motivo de salida "NO_EXPANSION": si age≥1h y pnl_pct ≤ NO_EXPANSION_MAX_PCT (env, por defecto 0.0).
-• Timeout con extensión condicional: si pnl_pct ≥ TRAILING_PCT permite alargar hasta MAX_HARD_HOLD_H (env, por defecto 4h).
-• TP parcial: al alcanzar TAKE_PROFIT_PCT vende WIN_PCT (env; por defecto 0.30) y mantiene trailing sobre el resto.
-• SL/TP/Trailing ajustados a CFG.* y robustecidos.
+Notas importantes (alineación con tu orquestador):
+─────────────────────────────────────────────────
+- El “TP parcial real” lo debe orquestar run_bot.py (DB + flags + trailing + reason).
+  Aquí dejamos helpers por compatibilidad (apply_partial_tp), pero seller.py NO decide
+  por sí solo cuándo hacer el parcial en real trading (eso es del monitor).
+- Para vender vía Jupiter de verdad, se usa:
+      jupiter_router.get_quote(..., amount_lamports=...)
+      jupiter_router.execute_swap(quote=quote.raw | QuoteResult)
+  (y si falla, fallback a GMGN bajo condición de liquidez).
 
-2025-08-23
-──────────
-• Alineación de variables .env con run_bot (early-drop y liquidity-crush).
-• `check_exit_conditions(...)` acepta tanto `buy_liquidity_usd` como `liq_at_buy_usd`.
+2026-01 (parche):
+────────────────
+- FIX: jupiter.get_quote() debe recibir amount_lamports (NO amount_tokens).
+- FIX: execute_swap() recibe quote raw (dict) o QuoteResult (según implementación).
+- Mejoras: fallback liquidity check más robusto (intenta resolver liquidity si viene None).
 """
 
 from __future__ import annotations
@@ -34,13 +33,13 @@ from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 
 from config.config import CFG
+import analytics.exit_policy as exit_policy
 from utils.time import parse_iso_utc
 from utils import price_service
 from fetcher import jupiter_price
 
-# Router Jupiter opcional (para cuotas/ejecución de swap)
+# Router Jupiter opcional (quote + swap real)
 try:
-    # Se espera: get_quote(input_mint, output_mint, amount_tokens) y execute_swap(quote)
     from fetcher import jupiter_router as jupiter  # type: ignore
     _JUP_ROUTER_AVAILABLE = True
 except Exception:
@@ -55,22 +54,26 @@ log = logging.getLogger("seller")
 SOL_MINT = "So11111111111111111111111111111111111111112"
 
 # ─── Umbrales de salida (config base) ───────────────────────────────────────
-TAKE_PROFIT_PCT   = float(CFG.TAKE_PROFIT_PCT or 0.0)
-STOP_LOSS_PCT     = float(CFG.STOP_LOSS_PCT or 0.0)
-TRAILING_PCT      = float(CFG.TRAILING_PCT or 0.0)
-MAX_HOLDING_H     = float(CFG.MAX_HOLDING_H or 24)
+TAKE_PROFIT_PCT = float(getattr(CFG, "TAKE_PROFIT_PCT", 0.0) or 0.0)
+STOP_LOSS_PCT = float(getattr(CFG, "STOP_LOSS_PCT", 0.0) or 0.0)
+TRAILING_PCT = float(getattr(CFG, "TRAILING_PCT", 0.0) or getattr(CFG, "TRAILING_PCT", 0.0) or 0.0)
+MAX_HOLDING_H = float(getattr(CFG, "MAX_HOLDING_H", 24) or 24)
 
-TAKE_PROFIT       = TAKE_PROFIT_PCT / 100.0
-STOP_LOSS         = abs(STOP_LOSS_PCT) / 100.0
-TRAILING_STOP     = TRAILING_PCT / 100.0
-TIMEOUT_SECONDS   = int(MAX_HOLDING_H * 3600)
+TAKE_PROFIT = TAKE_PROFIT_PCT / 100.0
+STOP_LOSS = abs(STOP_LOSS_PCT) / 100.0
+TRAILING_STOP = (float(getattr(CFG, "TRAILING_PCT", TRAILING_PCT) or TRAILING_PCT) / 100.0) if TRAILING_PCT else 0.0
+TIMEOUT_SECONDS = int(MAX_HOLDING_H * 3600)
 
-# TP parcial (fracción de la posición a realizar)
+# TP parcial (fracción de la posición a realizar) — compat
+# (run_bot lo orquesta; aquí solo para helper apply_partial_tp)
 try:
-    WIN_PCT = float(getattr(CFG, "WIN_PCT", 0.30))
+    _partial_cfg = getattr(CFG, "TP_PARTIAL_FRACTION", None)
+    if _partial_cfg is None:
+        _partial_cfg = getattr(CFG, "PARTIAL_TP_FRACTION", 0.30)
+    PARTIAL_TP_FRACTION = float(_partial_cfg)
 except Exception:
-    WIN_PCT = 0.30
-WIN_PCT = min(max(WIN_PCT, 0.05), 0.95)  # clamp 5%..95%
+    PARTIAL_TP_FRACTION = 0.30
+PARTIAL_TP_FRACTION = min(max(PARTIAL_TP_FRACTION, 0.05), 0.95)  # clamp 5%..95%
 
 # Extensión máxima dura (si va muy en verde)
 try:
@@ -91,20 +94,48 @@ NO_EXPANSION_MAX_FRAC = NO_EXPANSION_MAX_PCT / 100.0
 _EARLY_DROP_PCT = os.getenv("KILL_EARLY_DROP_PCT")
 if _EARLY_DROP_PCT is None:
     _EARLY_DROP_PCT = os.getenv("EARLY_DROP_PCT", "45")
-EARLY_DROP_PCT = float(_EARLY_DROP_PCT)
+try:
+    EARLY_DROP_PCT = float(_EARLY_DROP_PCT)
+except Exception:
+    EARLY_DROP_PCT = 45.0
 
 # Ventana early-drop en segundos (o fallback minutos)
 if (ew_s := os.getenv("KILL_EARLY_WINDOW_S")) is not None:
-    EARLY_WINDOW_S = int(ew_s)
+    try:
+        EARLY_WINDOW_S = int(ew_s)
+    except Exception:
+        EARLY_WINDOW_S = 0
 else:
-    EARLY_WINDOW_S = int(float(os.getenv("EARLY_WINDOW_MIN", "10")) * 60)
+    try:
+        EARLY_WINDOW_S = int(float(os.getenv("EARLY_WINDOW_MIN", "10")) * 60)
+    except Exception:
+        EARLY_WINDOW_S = 0
 
 # Liquidity crush:
 _LIQ_FRAC = os.getenv("KILL_LIQ_FRACTION")
-LIQ_CRUSH_FRAC = float(_LIQ_FRAC) if _LIQ_FRAC is not None else 0.0  # 0 ⇒ desactivado si no hay entry_liq
-LIQ_CRUSH_DROP_PCT = float(os.getenv("LIQ_CRUSH_DROP_PCT", "0"))     # alternativa si no usas fracción directa
-LIQ_CRUSH_WINDOW_MIN = int(os.getenv("LIQ_CRUSH_WINDOW_MIN", "30"))  # 0 ⇒ sin límite temporal
-LIQ_CRUSH_ABS_FRACT = float(os.getenv("LIQ_CRUSH_ABS_FRACT", "0.60"))  # vs CFG.MIN_LIQUIDITY_USD
+try:
+    LIQ_CRUSH_FRAC = float(_LIQ_FRAC) if _LIQ_FRAC is not None else 0.0  # 0 ⇒ desactivado si no hay entry_liq
+except Exception:
+    LIQ_CRUSH_FRAC = 0.0
+try:
+    LIQ_CRUSH_DROP_PCT = float(os.getenv("LIQ_CRUSH_DROP_PCT", "0"))
+except Exception:
+    LIQ_CRUSH_DROP_PCT = 0.0
+try:
+    LIQ_CRUSH_WINDOW_MIN = int(os.getenv("LIQ_CRUSH_WINDOW_MIN", "30"))  # 0 ⇒ sin límite temporal
+except Exception:
+    LIQ_CRUSH_WINDOW_MIN = 30
+try:
+    LIQ_CRUSH_ABS_FRACT = float(os.getenv("LIQ_CRUSH_ABS_FRACT", "0.60"))  # vs CFG.MIN_LIQUIDITY_USD
+except Exception:
+    LIQ_CRUSH_ABS_FRACT = 0.60
+
+# Slippage para swaps de venta (bps). Si no se define, usa el de quote router por defecto.
+try:
+    JUP_SELL_SLIPPAGE_BPS = int(os.getenv("JUP_SELL_SLIPPAGE_BPS", "150"))  # 1.50% por defecto (meme coins)
+except Exception:
+    JUP_SELL_SLIPPAGE_BPS = 150
+
 
 # ─── Utilidades ─────────────────────────────────────────────────────────────
 def _is_solana_address(addr: str) -> bool:
@@ -124,7 +155,7 @@ async def _resolve_close_price_usd(
     """
     Prioridad para snapshot de cierre:
       1) hint del orquestador (si válido)
-      2) Jupiter unitario
+      2) Jupiter unitario (jupiter_price)
       3) price_service crítico (saltando caché NIL)
       4) Dex/GT “full” (par), como último recurso
     Devuelve (precio | None, fuente | None)
@@ -156,7 +187,7 @@ async def _resolve_close_price_usd(
     except Exception:
         pass
 
-    # 4) Dex/GT “full” (por par)
+    # 4) Dex/GT “full”
     try:
         tok_full = await price_service.get_price(token_mint, use_gt=True)
         if tok_full and tok_full.get("price_usd"):
@@ -200,57 +231,133 @@ async def get_current_price(token_addr: str) -> float:
     return 0.0
 
 
+async def _resolve_liquidity_usd(token_mint: str) -> Optional[float]:
+    """
+    Intenta resolver liquidity_usd cuando el caller no la pasa.
+    Es un best-effort: no bloquea el sell si no se puede determinar.
+    """
+    try:
+        tok = await price_service.get_price(token_mint, use_gt=True, price_only=True)
+        if tok and tok.get("liquidity_usd") is not None:
+            try:
+                liq = float(tok.get("liquidity_usd") or 0.0)
+                return liq if liq > 0 else None
+            except Exception:
+                return None
+    except Exception:
+        return None
+    return None
+
+
 # ─── Ejecución preferente Jupiter (si hay router) ───────────────────────────
 async def _sell_execute_prefer_jupiter(
     token_addr: str,
     qty_lamports: int,
     *,
-    token_mint: Optional[str],
+    token_mint: str,
     liquidity_usd: Optional[float],
 ) -> Tuple[bool, Dict[str, object]]:
     """
     Intenta vender priorizando Jupiter (si hay router). Fallback a gmgn.sell
-    solo si la liquidez es suficiente. Devuelve (ok, payload_dict).
+    si la liquidez es suficiente (o no se puede determinar).
+    Devuelve (ok, payload_dict).
     """
-    # 1) Jupiter si está disponible
+    # 0) sanity
+    if qty_lamports <= 0:
+        return False, {"signature": "NO_QTY", "route": {}, "ok": False}
+
+    # 1) Jupiter swap real si está disponible
     if _JUP_ROUTER_AVAILABLE and jupiter is not None:
         try:
-            # Nota: algunos routers esperan cantidad en *tokens*, no lamports del token.
-            # Aquí asumimos que el router sabe interpretar qty_lamports (SDK propio).
-            quote = await jupiter.get_quote(input_mint=token_mint or token_addr,
-                                            output_mint=SOL_MINT,
-                                            amount_tokens=qty_lamports)
+            if hasattr(jupiter, "execute_managed_swap") and bool(getattr(jupiter, "JUP_API_KEY", "")):
+                managed_resp = await jupiter.execute_managed_swap(
+                    input_mint=token_mint,
+                    output_mint=SOL_MINT,
+                    amount_lamports=int(qty_lamports),
+                    slippage_bps=JUP_SELL_SLIPPAGE_BPS,
+                )
+                route_meta = dict(managed_resp.get("route") or {})
+                return True, {
+                    "signature": managed_resp.get("signature"),
+                    "route": route_meta,
+                    "ok": True,
+                    "venue": "jupiter_managed",
+                }
+
+            # FIX: Jupiter quote espera amount_lamports (unidades del token input)
+            quote = await jupiter.get_quote(
+                input_mint=token_mint,
+                output_mint=SOL_MINT,
+                amount_lamports=int(qty_lamports),
+                slippage_bps=JUP_SELL_SLIPPAGE_BPS,
+                only_direct_routes=False,
+            )
+
             if getattr(quote, "ok", False):
                 try:
-                    txid = await jupiter.execute_swap(quote)
-                    return True, {"signature": txid, "route": {"jup_quote": True}}
+                    # execute_swap puede aceptar QuoteResult o quote.raw (dict), según implementación
+                    try:
+                        txid = await jupiter.execute_swap(quote=quote.raw)  # type: ignore[arg-type]
+                    except TypeError:
+                        # compat: execute_swap(quote_result)
+                        txid = await jupiter.execute_swap(quote)  # type: ignore[misc]
+
+                    route_meta = {
+                        "router": "jupiter",
+                        "priceImpactBps": getattr(quote, "price_impact_bps", None),
+                        "inAmount": getattr(quote, "in_amount", None),
+                        "outAmount": getattr(quote, "out_amount", None),
+                    }
+                    return True, {"signature": txid, "route": route_meta, "ok": True, "venue": "jupiter_legacy"}
                 except Exception as exc:
                     log.warning("[seller] Jupiter execute_swap falló: %s", exc)
             else:
-                log.info("[seller] Jupiter no ofrece ruta válida para cerrar %s", (token_mint or token_addr)[:6])
+                log.info(
+                    "[seller] Jupiter sin ruta válida para cerrar %s (mint=%s)",
+                    token_addr[:6],
+                    token_mint[:6],
+                )
         except Exception as exc:
             log.debug("[seller] Jupiter get_quote error: %s", exc)
 
-    # 2) Fallback a GMGN solo si hay liquidez decente
-    try:
-        if liquidity_usd is not None and liquidity_usd < float(CFG.MIN_LIQUIDITY_USD):
-            log.info("[seller] Low liquidity (%.0f < %.0f) y sin ruta Jupiter → skip/queue",
-                     liquidity_usd, float(CFG.MIN_LIQUIDITY_USD))
-            return False, {
-                "signature": "SKIP_LOW_LIQ",
-                "route": {},
-                "ok": False,
-                "price_used_usd": None,
-                "price_source_close": None,
-            }
+    # 2) Fallback a GMGN solo si hay liquidez decente (si podemos medirla)
+    liq = liquidity_usd
+    if liq is None:
+        liq = await _resolve_liquidity_usd(token_mint)
 
+    try:
+        min_liq = float(getattr(CFG, "MIN_LIQUIDITY_USD", 0) or 0)
+    except Exception:
+        min_liq = 0.0
+
+    if liq is not None and min_liq > 0 and liq < min_liq:
+        log.info(
+            "[seller] Low liquidity (%.0f < %.0f) y sin ruta Jupiter → skip",
+            liq,
+            min_liq,
+        )
+        return False, {
+            "signature": "SKIP_LOW_LIQ",
+            "route": {"router": "none", "reason": "low_liquidity"},
+            "ok": False,
+            "price_used_usd": None,
+            "price_source_close": None,
+        }
+
+    # 3) Ejecuta GMGN
+    try:
         resp = await gmgn.sell(token_addr, qty_lamports)
-        return True, {"signature": resp.get("signature"), "route": resp.get("route", {})}
+        return True, {
+            "signature": resp.get("signature"),
+            "route": (resp.get("route", {}) or {"router": "gmgn"}),
+            "ok": True,
+            "venue": "gmgn",
+        }
     except Exception as e:
         log.exception("[seller] Fallback gmgn.sell error: %s", e)
         return False, {
             "signature": "ERROR",
-            "route": {},
+            "route": {"router": "gmgn"},
             "ok": False,
             "error": str(e),
             "price_used_usd": None,
@@ -280,12 +387,22 @@ async def sell(
       - price_used_usd: float|None precio usado para snapshot/telemetría
       - price_source_close: str|None fuente del precio usado
     """
-    key_for_price = token_mint or token_addr
+    key_for_quote = token_mint or token_addr
 
     if not _is_solana_address(token_addr):
         log.error("[seller] Venta bloqueada: address no Solana %r", token_addr)
         return {
             "signature": "INVALID_ADDRESS",
+            "route": {},
+            "ok": False,
+            "price_used_usd": None,
+            "price_source_close": None,
+        }
+
+    if not _is_solana_address(key_for_quote):
+        log.error("[seller] Venta bloqueada: token_mint no Solana %r", key_for_quote)
+        return {
+            "signature": "INVALID_MINT",
             "route": {},
             "ok": False,
             "price_used_usd": None,
@@ -304,33 +421,40 @@ async def sell(
 
     # 1) Ejecutar venta (preferentemente Jupiter)
     ok, exec_payload = await _sell_execute_prefer_jupiter(
-        token_addr, qty_lamports, token_mint=key_for_price, liquidity_usd=liquidity_usd
+        token_addr,
+        int(qty_lamports),
+        token_mint=key_for_quote,
+        liquidity_usd=liquidity_usd,
     )
     if not ok:
+        # en caso de "SKIP_LOW_LIQ" o error, devolvemos tal cual
         return exec_payload
 
     signature = exec_payload.get("signature")
-    route = exec_payload.get("route", {})
-    ok_flag = True
+    route = exec_payload.get("route", {}) or {}
+    ok_flag = bool(exec_payload.get("ok", True))
+    venue = exec_payload.get("venue")
 
     # 2) Snapshot de cierre (robusto)
     price_used, src_used = await _resolve_close_price_usd(
-        key_for_price, price_hint=price_hint, price_source_hint=price_source_hint
+        key_for_quote, price_hint=price_hint, price_source_hint=price_source_hint
     )
 
+    # Reintento suave si sigue vacío
     if price_used is None or price_used <= 0.0:
         try:
-            ps = await price_service.get_price_usd(key_for_price, use_gt=True, critical=True)
+            ps = await price_service.get_price_usd(key_for_quote, use_gt=True, critical=True)
             if ps and ps > 0:
                 price_used, src_used = float(ps), (src_used or "jup_critical")
         except Exception:
             pass
 
     log.info(
-        "[seller] SELL sent sig=%s  price_used=%s  src=%s",
+        "[seller] SELL sent sig=%s  price_used=%s  src=%s  router=%s",
         (signature or "UNKNOWN"),
         f"{price_used:.8g}" if price_used else "None",
         src_used or "None",
+        route.get("router") if isinstance(route, dict) else "unknown",
     )
 
     return {
@@ -339,6 +463,7 @@ async def sell(
         "ok": ok_flag,
         "price_used_usd": price_used,
         "price_source_close": src_used,
+        "venue": venue,
     }
 
 
@@ -360,104 +485,22 @@ def check_exit_conditions(
     price_now : float – precio actual (USD)
     tick : Optional[dict] – si trae `liquidity_usd`, se evalúa LIQUIDITY_CRUSH
     """
-    buy_price  = float(position.get("buy_price_usd", 0.0) or 0.0)
-    opened_at  = position.get("opened_at")
-    peak_price = float(position.get("peak_price", buy_price) or buy_price)
+    if price_now > float(position.get("peak_price", 0.0) or 0.0):
+        position["peak_price"] = float(price_now)
 
-    if not buy_price or not opened_at:
-        return None  # datos insuficientes
-
-    # edad de la posición
-    try:
-        opened_dt = parse_iso_utc(opened_at) or datetime.now(timezone.utc)
-        if opened_dt.tzinfo is None:
-            opened_dt = opened_dt.replace(tzinfo=timezone.utc)
-        age_sec = (datetime.now(timezone.utc) - opened_dt).total_seconds()
-        age_min = age_sec / 60.0
-    except Exception:
-        age_sec = 0.0
-        age_min = 0.0
-
-    # PnL fraccional
-    pnl_frac = (price_now - buy_price) / buy_price if buy_price else 0.0
-
-    # actualiza máximo histórico
-    if price_now > peak_price:
-        position["peak_price"] = price_now
-        peak_price = price_now
-
-    # 0) Señales tempranas (prioridad)
-    # 0.a) EARLY_DROP (ventana en segundos)
-    if EARLY_WINDOW_S > 0 and age_sec <= EARLY_WINDOW_S:
-        if pnl_frac <= - (EARLY_DROP_PCT / 100.0):
-            return "EARLY_DROP"
-
-    # 0.b) LIQUIDITY_CRUSH (si tick trae liquidity_usd)
+    liq_now = None
     if tick and isinstance(tick, dict):
-        curr_liq = tick.get("liquidity_usd")
         try:
-            curr_liq_val = float(curr_liq) if curr_liq is not None else None
+            liq_now = float(tick.get("liquidity_usd")) if tick.get("liquidity_usd") is not None else None
         except Exception:
-            curr_liq_val = None
+            liq_now = None
 
-        window_ok = (LIQ_CRUSH_WINDOW_MIN <= 0) or (age_min <= LIQ_CRUSH_WINDOW_MIN)
-
-        if curr_liq_val and curr_liq_val > 0 and window_ok:
-            # intentamos obtener la liquidez de entrada con varias claves posibles
-            entry_liq = None
-            for k in ("liq_at_buy_usd", "buy_liquidity_usd", "liquidity_at_buy", "entry_liquidity_usd"):
-                v = position.get(k)
-                if v:
-                    try:
-                        entry_liq = float(v)
-                        break
-                    except Exception:
-                        entry_liq = None
-
-            # Regla preferente: fracción directa vs entry_liq
-            if entry_liq and entry_liq > 0 and LIQ_CRUSH_FRAC > 0:
-                if curr_liq_val <= entry_liq * LIQ_CRUSH_FRAC:
-                    return "LIQUIDITY_CRUSH"
-
-            # Fallback: caída porcentual vs entry_liq
-            if entry_liq and entry_liq > 0 and LIQ_CRUSH_DROP_PCT > 0:
-                drop_frac = (entry_liq - curr_liq_val) / entry_liq
-                if drop_frac >= (LIQ_CRUSH_DROP_PCT / 100.0):
-                    return "LIQUIDITY_CRUSH"
-
-            # Último recurso: corte absoluto vs mínimo global
-            if curr_liq_val < float(CFG.MIN_LIQUIDITY_USD) * LIQ_CRUSH_ABS_FRACT:
-                return "LIQUIDITY_CRUSH"
-
-    # 1) No-Expansion (a 1h) --------------------------------------------------------
-    if age_sec >= 3600 and pnl_frac <= NO_EXPANSION_MAX_FRAC:
-        return "NO_EXPANSION"
-
-    # 2) TP parcial / TP total ------------------------------------------------------
-    partial_taken = bool(position.get("partial_taken", False))
-    if TAKE_PROFIT > 0 and pnl_frac >= TAKE_PROFIT:
-        if not partial_taken:
-            return "TAKE_PROFIT_PARTIAL"  # primero parcial
-        else:
-            return "TAKE_PROFIT"          # si ya hubo parcial, cerramos todo
-
-    # 3) SL / Trailing --------------------------------------------------------------
-    if STOP_LOSS > 0 and pnl_frac <= -STOP_LOSS:
-        return "STOP_LOSS"
-
-    if TRAILING_STOP > 0 and price_now <= peak_price * (1 - TRAILING_STOP):
-        return "TRAILING_STOP"
-
-    # 4) Timeout con extensión condicional -----------------------------------------
-    # Si el trade va ≥ TRAILING_PCT en verde, permitimos ampliar hasta MAX_HARD_HOLD_H.
-    if age_sec >= TIMEOUT_SECONDS:
-        if pnl_frac >= TRAILING_STOP and HARD_TIMEOUT_SECONDS > TIMEOUT_SECONDS:
-            if age_sec >= HARD_TIMEOUT_SECONDS:
-                return "TIMEOUT"
-        else:
-            return "TIMEOUT"
-
-    return None
+    return exit_policy.should_exit(
+        position,
+        price_now,
+        datetime.now(timezone.utc),
+        liq_now=liq_now,
+    )
 
 
 # ─── TP Parcial helper ──────────────────────────────────────────────────────
@@ -466,12 +509,20 @@ def compute_partial_qty(position: dict, fraction: float) -> int:
     Calcula la cantidad (lamports del token) para una venta parcial.
     Usa `position["qty_lamports"]` o, alternativamente, `position["size_tokens"]`.
     """
+    try:
+        frac = float(fraction)
+    except Exception:
+        frac = 0.0
+    frac = min(max(frac, 0.0), 1.0)
+
     qty_lp = int(position.get("qty_lamports") or 0)
     if qty_lp <= 0:
-        # fallback por si la estructura usa otro campo
         qty_lp = int(position.get("size_tokens") or 0)
-    take = int(max(1, round(qty_lp * float(fraction))))
-    # No tomar más de lo que queda
+
+    if qty_lp <= 0 or frac <= 0.0:
+        return 0
+
+    take = int(max(1, round(qty_lp * frac)))
     take = min(take, qty_lp)
     return max(0, take)
 
@@ -484,14 +535,22 @@ async def apply_partial_tp(
     liquidity_usd: Optional[float],
 ) -> Optional[Dict[str, object]]:
     """
-    Ejecuta la venta parcial (WIN_PCT) y actualiza flags locales de la posición.
+    Ejecuta la venta parcial (TP_PARTIAL_FRACTION) y actualiza flags locales de la posición.
     Devuelve el payload de la venta o None si no se pudo ejecutar.
+
+    IMPORTANTE: en tu arquitectura, esto debe llamarlo el orquestador (run_bot),
+    no seller de forma autónoma.
     """
-    token_addr = position.get("token_mint") or position.get("token_address") or position.get("address") or ""
+    token_addr = (
+        position.get("token_mint")
+        or position.get("token_address")
+        or position.get("address")
+        or ""
+    )
     if not token_addr:
         return None
 
-    qty = compute_partial_qty(position, WIN_PCT)
+    qty = compute_partial_qty(position, PARTIAL_TP_FRACTION)
     if qty <= 0:
         log.info("[seller] partial TP sin cantidad disponible")
         return None
@@ -505,13 +564,11 @@ async def apply_partial_tp(
         liquidity_usd=liquidity_usd,
     )
     if res.get("ok"):
-        # Actualiza estado local (el caller debe persistir en DB)
         position["partial_taken"] = True
         position["qty_lamports"] = int(position.get("qty_lamports", 0)) - qty
         if position["qty_lamports"] < 0:
             position["qty_lamports"] = 0
-        # mantener peak_price (ya se actualiza en loop con price_now)
-        log.info("[seller] Partial TP ejecutado: vendidas ~%.0f%% (%d lamports)", WIN_PCT * 100, qty)
+        log.info("[seller] Partial TP ejecutado: vendidas ~%.0f%% (%d lamports)", PARTIAL_TP_FRACTION * 100, qty)
         return res
     return None
 
@@ -530,8 +587,13 @@ async def safe_close_snapshot(
       - Fallback al buy_price si sigue faltando precio.
       - Calcula pnl_pct y sella closed_at/exit_reason.
     """
-    token_addr = position.get("token_mint") or position.get("token_address") or position.get("address") or ""
-    buy_price  = float(position.get("buy_price_usd", 0.0) or 0.0)
+    token_addr = (
+        position.get("token_mint")
+        or position.get("token_address")
+        or position.get("address")
+        or ""
+    )
+    buy_price = float(position.get("buy_price_usd", 0.0) or 0.0)
 
     price_now, src_used = await _resolve_close_price_usd(
         token_addr,

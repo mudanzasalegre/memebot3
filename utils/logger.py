@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
 import pathlib
 import re
 import time
@@ -84,6 +85,11 @@ class HourlySplitFileHandler(logging.Handler):
 
 # ——————————————————— observabilidad ——————————————————
 _CRITICAL_NUMERIC = {"liquidity_usd", "volume_24h_usd"}
+_NULL_WARN_CACHE: dict[str, float] = {}
+try:
+    _NULL_WARN_TTL_S = max(0.0, float(os.getenv("NULL_WARNING_TTL_S", "300")))
+except Exception:
+    _NULL_WARN_TTL_S = 300.0
 
 def warn_if_nulls(data: Mapping[str, Any], *, context: str = "") -> None:
     """
@@ -94,6 +100,12 @@ def warn_if_nulls(data: Mapping[str, Any], *, context: str = "") -> None:
         if not data.get(k) or (hasattr(data.get(k), "size") and data.get(k) != data.get(k))
     ]
     if missing:
+        key = f"{','.join(sorted(missing))}:{context}"
+        now = time.time()
+        last = _NULL_WARN_CACHE.get(key, 0.0)
+        if _NULL_WARN_TTL_S > 0 and (now - last) < _NULL_WARN_TTL_S:
+            return
+        _NULL_WARN_CACHE[key] = now
         logging.getLogger("data").warning(
             "Campos críticos nulos %s — %s",
             ",".join(missing),

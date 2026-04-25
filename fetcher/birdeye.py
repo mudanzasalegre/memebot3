@@ -284,8 +284,8 @@ async def get_token_info(address: str) -> Dict[str, Any] | None:
     Normalizamos la dirección (quita sufijo 'pump' y valida mint SPL)
     antes de llamar al endpoint para evitar 404 y spam de reintentos.
     """
-    addr = normalize_mint(address)
-    if not addr:
+    addr = str(address or "").strip()
+    if not addr or addr.startswith("0x") or not (30 <= len(addr) <= 60):
         log.warning("[birdeye] address inválido (no mint SPL): %r", address)
         return None
 
@@ -314,8 +314,8 @@ async def get_pool_info(address: str) -> Dict[str, Any] | None:
     normalización y dejar que data_utils gestione advertencias. Dado tu log actual,
     mantenemos el mismo guardarraíl para evitar llamadas /pool/<mint>pump.
     """
-    addr = normalize_mint(address)
-    if not addr:
+    addr = str(address or "").strip()
+    if not addr or addr.startswith("0x") or not (30 <= len(addr) <= 60):
         log.warning("[birdeye] pool inválido (no mint SPL): %r", address)
         return None
 

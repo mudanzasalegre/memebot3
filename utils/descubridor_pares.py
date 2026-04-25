@@ -12,16 +12,20 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import time
 from typing import List, Optional
 
 import aiohttp
 
 from utils.time import utc_now
+from utils.solana_addr import normalize_mint
 from config import DEX_API_BASE, MAX_AGE_DAYS  # alias retro-compat
 from config.config import CFG  # ← incluye MAX_CANDIDATES
 
 log = logging.getLogger("descubridor")
 log.setLevel(logging.DEBUG)
+_SPARSE_LOG_UNTIL: dict[str, float] = {}
+_SPARSE_LOG_TTL_S = 300.0
 
 # ───────────────────────── endpoints ──────────────────────────
 DEX = DEX_API_BASE.rstrip("/")
@@ -124,6 +128,15 @@ def _is_chain_solana(tok: dict) -> bool:
     return cid in ("solana", "sol")
 
 
+def _debug_sparse(key: str, msg: str, *args: object) -> None:
+    now = time.monotonic()
+    until = _SPARSE_LOG_UNTIL.get(key, 0.0)
+    if now < until:
+        return
+    _SPARSE_LOG_UNTIL[key] = now + _SPARSE_LOG_TTL_S
+    log.debug(msg, *args)
+
+
 # ───────────────────────── API pública ─────────────────────────
 async def fetch_candidate_pairs() -> List[str]:
     """
@@ -152,17 +165,21 @@ async def fetch_candidate_pairs() -> List[str]:
     for t in _items(raw):
         # 1) chainId (si existe)
         if not _is_chain_solana(t):
-            # Evita ruido en logs: solo traza en DEBUG
-            log.debug("⛔ chainId≠solana (descartado)")
+            _debug_sparse("chain_not_solana", "⛔ chainId≠solana (descartado)")
             continue
 
         # 2) address
-        addr = _extract_addr(t)
+        raw_addr = _extract_addr(t)
+        if not raw_addr:
+            continue
+
+        addr = normalize_mint(raw_addr)
         if not addr:
+            _debug_sparse(f"invalid_mint:{raw_addr[:12]}", "⛔ mint no resoluble/invalid %s…", raw_addr[:6])
             continue
 
         if not _is_solana_address(addr):
-            log.debug("⛔ no-Solana (0x…/len) %s…", addr[:6])
+            _debug_sparse(f"invalid_addr:{addr[:12]}", "⛔ no-Solana (0x…/len) %s…", addr[:6])
             continue
 
         # 3) edad

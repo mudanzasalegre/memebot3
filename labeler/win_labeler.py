@@ -8,13 +8,14 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from utils.time import utc_now
+from trade_pnl import total_pnl_ratio_from_record
 from db.database import async_init_db, SessionLocal, DB_PATH  # usa el mismo engine
-from config.config import WIN_PCT, MAX_HOLDING_H, LABEL_GRACE_H
+from config.config import ML_POSITIVE_PNL_RATIO, MAX_HOLDING_H, LABEL_GRACE_H
 
 log = logging.getLogger("labeler")
 
 # --- parámetros de negocio ----------------------------
-WIN_THRESH = Decimal(WIN_PCT)  # +X %
+WIN_THRESH = Decimal(str(ML_POSITIVE_PNL_RATIO))  # ratio positivo mínimo para outcome=win
 MAX_H_HOLD = dt.timedelta(hours=MAX_HOLDING_H)
 GRACE = dt.timedelta(hours=LABEL_GRACE_H)  # ej.: 2 h tras cierre
 
@@ -33,12 +34,8 @@ async def label_positions() -> None:
         )
         res = await s.execute(q)
         for pos in res.scalars():
-            pnl_pct = (
-                (pos.close_price_usd - pos.buy_price_usd) / pos.buy_price_usd
-                if pos.close_price_usd and pos.buy_price_usd
-                else 0
-            )
-            pos.outcome = "win" if pnl_pct >= WIN_THRESH else "fail"
+            pnl_ratio = Decimal(str(total_pnl_ratio_from_record(pos)))
+            pos.outcome = "win" if pnl_ratio >= WIN_THRESH else "fail"
 
         # 2) abiertas demasiado tiempo → fail_timeout
         q_open = sa.select(Position).where(

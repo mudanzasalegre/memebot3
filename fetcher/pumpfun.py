@@ -12,7 +12,7 @@ Requisitos: aiohttp (ya presente en el proyecto).
 Docs: ver PumpPortal → Data API → Real-time Updates.
 
 Mejoras:
-• Normalización de mint con utils.solana_addr.normalize_mint (quita 'pump', valida SPL).
+• Normalización de mint con utils.solana_addr.normalize_mint (preserva mints válidos y sanea sufijos inválidos).
 • Fechas robustas con utils.time.parse_iso_utc (evita errores `.replace`).
 • Métricas críticas como None (no 0.0) para no “matar” señales tempranas.
 """

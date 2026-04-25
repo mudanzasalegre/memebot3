@@ -68,7 +68,7 @@ async def buy(token_addr: str, amount_sol: float) -> dict:
         log.info("[GMGN] Simulación BUY – amount=0")
         return {"route": {}, "signature": "SIMULATION"}
 
-    owner = sol_signer.PUBLIC_KEY.to_string()
+    owner = str(sol_signer.PUBLIC_KEY)
     lamports_in = int(amount_sol * LAMPORTS)
 
     route = await _route(SOL_MINT, token_addr, lamports_in, owner)
@@ -95,7 +95,7 @@ async def sell(token_addr: str, qty_lamports: int) -> dict:
         log.info("[GMGN] Simulación SELL – qty=0")
         return {"route": {}, "signature": "SIMULATION"}
 
-    owner = sol_signer.PUBLIC_KEY.to_string()
+    owner = str(sol_signer.PUBLIC_KEY)
 
     route = await _route(token_addr, SOL_MINT, qty_lamports, owner)
     unsigned_b64 = route["data"]["raw_tx"]["swapTransaction"]

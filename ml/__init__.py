@@ -1,9 +1,10 @@
 """
 ml package
 ~~~~~~~~~~
-Funciones de entrenamiento y modelos para MemeBot 3.
+Pipeline de entrenamiento, calibración de threshold y retraining.
 
-• `train.train_and_save()`   – entrenamiento completo + persistencia  
-• `retrain.retrain_if_better()` – lógica de re-entrenos semanales
+Se evita importar submódulos pesados en import-time para no contaminar
+`python -m ml.train` / `python -m ml.retrain` con warnings de runpy.
 """
-from .train import train_and_save          # noqa: F401
+
+__all__: list[str] = []

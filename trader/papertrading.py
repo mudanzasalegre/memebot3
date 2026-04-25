@@ -33,8 +33,11 @@ import time
 from typing import Any, Dict, Optional, Tuple
 
 from config.config import CFG, PROJECT_ROOT
+import analytics.exit_policy as exit_policy
 from utils.time import utc_now, is_in_trading_window, seconds_until_next_window
 from utils import price_service
+from utils.sol_price import amount_sol_to_usd, get_sol_usd
+from trade_pnl import apply_partial_fill, summarize_trade
 from fetcher import jupiter_price
 
 log = logging.getLogger("papertrading")
@@ -73,12 +76,13 @@ STOP_LOSS_FRAC    = abs(STOP_LOSS_PCT) / 100.0
 TRAILING_FRAC     = TRAILING_PCT / 100.0
 TIMEOUT_SECONDS   = int(MAX_HOLDING_H * 3600)
 
-# TP parcial (fracción de la posición a realizar)
+# TP parcial (alineado con run_bot.py)
+TP_PARTIAL_ENABLED = os.getenv("TP_PARTIAL_ENABLED", "true").lower() == "true"
 try:
-    WIN_PCT = float(getattr(CFG, "WIN_PCT", 0.30))
+    TP_PARTIAL_FRACTION = float(os.getenv("TP_PARTIAL_FRACTION", "0.40"))
 except Exception:
-    WIN_PCT = 0.30
-WIN_PCT = min(max(WIN_PCT, 0.05), 0.95)  # clamp 5%..95%
+    TP_PARTIAL_FRACTION = 0.40
+TP_PARTIAL_FRACTION = min(max(TP_PARTIAL_FRACTION, 0.05), 0.95)
 
 # Extensión máxima dura (si va muy en verde)
 try:
@@ -107,7 +111,7 @@ async def _resolve_buy_price_usd(
     if p is not None and p > 0:
         return float(p), "jupiter"
     # 2) Estimar con SOL/USD si sabemos cuántos tokens recibimos
-    sol_usd = await jupiter_price.get_usd_price(SOL_MINT)
+    sol_usd = await get_sol_usd()
     if sol_usd and sol_usd > 0 and tokens_received and tokens_received > 0:
         return float((amount_sol * sol_usd) / tokens_received), "sol_estimate"
     # 3) Hint (DexScreener) si venía del orquestador
@@ -168,6 +172,100 @@ async def _resolve_close_price_usd(
         pass
 
     return None, None
+
+
+async def _resolve_entry_notional_usd(amount_sol: float) -> float:
+    notional = await amount_sol_to_usd(amount_sol)
+    return float(notional or 0.0)
+
+
+def _recompute_entry_totals(entry: Dict[str, Any]) -> None:
+    entry = _ensure_entry_accounting(entry)
+    entry_notional = float(entry.get("entry_notional_usd") or 0.0)
+    if entry_notional <= 0.0:
+        return
+
+    if bool(entry.get("closed")):
+        totals = summarize_trade(
+            entry_qty=entry.get("entry_qty", 0),
+            remaining_qty=entry.get("qty_lamports", 0),
+            buy_price_usd=entry.get("buy_price_usd", 0.0),
+            entry_notional_usd=entry_notional,
+            realized_qty=entry.get("realized_qty", 0),
+            realized_proceeds_usd=entry.get("realized_proceeds_usd", 0.0),
+            close_price_usd=entry.get("close_price_usd"),
+        )
+        entry["realized_cost_usd"] = float(totals.realized_cost_usd)
+        entry["realized_pnl_usd"] = float(totals.realized_pnl_usd)
+        entry["effective_exit_price_usd"] = totals.effective_exit_price_usd
+        entry["total_pnl_usd"] = float(totals.total_pnl_usd)
+        entry["total_pnl_pct"] = float(totals.total_pnl_pct)
+        entry["pnl_pct"] = float(totals.total_pnl_pct)
+        return
+
+    if int(entry.get("realized_qty") or 0) > 0:
+        totals = summarize_trade(
+            entry_qty=entry.get("entry_qty", 0),
+            remaining_qty=entry.get("qty_lamports", 0),
+            buy_price_usd=entry.get("buy_price_usd", 0.0),
+            entry_notional_usd=entry_notional,
+            realized_qty=entry.get("realized_qty", 0),
+            realized_proceeds_usd=entry.get("realized_proceeds_usd", 0.0),
+            close_price_usd=None,
+        )
+        entry["realized_cost_usd"] = float(totals.realized_cost_usd)
+        entry["realized_pnl_usd"] = float(totals.realized_pnl_usd)
+
+
+async def _ensure_entry_notional_async(entry: Dict[str, Any]) -> float:
+    entry = _ensure_entry_accounting(entry)
+    current = float(entry.get("entry_notional_usd") or 0.0)
+    if current > 0.0:
+        return current
+    amount_sol = float(entry.get("amount_sol") or 0.0)
+    if amount_sol <= 0.0:
+        return 0.0
+    notional = await _resolve_entry_notional_usd(amount_sol)
+    if notional > 0.0:
+        entry["entry_notional_usd"] = float(notional)
+        _recompute_entry_totals(entry)
+        _save()
+    return float(notional or 0.0)
+
+
+async def backfill_entry_notionals() -> int:
+    sol_usd = await get_sol_usd()
+    if sol_usd is None or sol_usd <= 0:
+        return 0
+    updated = 0
+    for entry in _PORTFOLIO.values():
+        amount_sol = float(entry.get("amount_sol") or 0.0)
+        if amount_sol <= 0.0:
+            continue
+        before = (
+            float(entry.get("entry_notional_usd") or 0.0),
+            entry.get("total_pnl_usd"),
+            entry.get("total_pnl_pct"),
+            entry.get("realized_cost_usd"),
+            entry.get("realized_pnl_usd"),
+        )
+        if float(entry.get("entry_notional_usd") or 0.0) <= 0.0:
+            entry["entry_notional_usd"] = float(amount_sol * float(sol_usd))
+        if float(entry.get("entry_notional_usd") or 0.0) > 0.0:
+            _recompute_entry_totals(entry)
+        after = (
+            float(entry.get("entry_notional_usd") or 0.0),
+            entry.get("total_pnl_usd"),
+            entry.get("total_pnl_pct"),
+            entry.get("realized_cost_usd"),
+            entry.get("realized_pnl_usd"),
+        )
+        if after != before:
+            updated += 1
+    if updated:
+        _save()
+        log.info("[papertrading] resync entry_notional_usd/PnL aplicado a %d posiciones", updated)
+    return updated
 
 
 async def _has_jupiter_route(token_mint: str) -> tuple[Optional[bool], str]:
@@ -238,6 +336,30 @@ def _pick_key_for_entry(address: str, token_mint: Optional[str]) -> str:
     return address
 
 
+def _ensure_entry_accounting(entry: Dict[str, Any]) -> Dict[str, Any]:
+    qty_now = int(entry.get("qty_lamports") or 0)
+    realized_qty = int(entry.get("realized_qty") or entry.get("realized_qty_lamports") or 0)
+    entry_qty = int(entry.get("entry_qty") or 0)
+    if entry_qty <= 0:
+        entry_qty = qty_now + realized_qty
+
+    entry["entry_qty"] = max(entry_qty, qty_now + realized_qty)
+    entry["realized_qty"] = realized_qty
+    entry.setdefault("realized_proceeds_usd", 0.0)
+    entry.setdefault("realized_cost_usd", 0.0)
+    entry.setdefault("realized_pnl_usd", 0.0)
+    entry.setdefault("partial_count", 0)
+    entry.setdefault("first_partial_at", None)
+    entry.setdefault("last_partial_at", None)
+    entry.setdefault("last_partial_qty", None)
+    entry.setdefault("last_partial_price_usd", None)
+    entry.setdefault("effective_exit_price_usd", None)
+    entry.setdefault("total_pnl_usd", None)
+    entry.setdefault("total_pnl_pct", None)
+    entry.setdefault("entry_notional_usd", 0.0)
+    return entry
+
+
 # ─── lógica de compra ──────────────────────────────────────────
 async def buy(
     address: str,
@@ -246,6 +368,9 @@ async def buy(
     price_hint: float | None = None,
     token_mint: str | None = None,
     liquidity_usd: float | None = None,
+    entry_regime: str | None = None,
+    entry_lane: str | None = None,
+    discovered_via: str | None = None,
 ) -> dict:
     """
     Registra una posición simulada.
@@ -393,19 +518,37 @@ async def buy(
         tokens_received=tokens_received,
         ds_price_usd=price_hint,
     )
+    entry_notional_usd = await _resolve_entry_notional_usd(amount_sol)
 
     # 2️⃣ Alta de la posición en el JSON
     qty_lp = int(amount_sol * 1e9)  # simulamos "lamports" del token de salida
     _PORTFOLIO[mint_key] = {
         "qty_lamports": qty_lp,
+        "entry_qty": qty_lp,
         "buy_price_usd": float(buy_price_usd),
         "peak_price": float(buy_price_usd),
         "amount_sol": amount_sol,
+        "entry_notional_usd": float(entry_notional_usd),
         "opened_at": utc_now().isoformat(),
         "closed": False,
         "token_address": mint_key,
         "price_source": price_src,
+        "entry_regime": entry_regime,
+        "entry_lane": entry_lane,
+        "discovered_via": discovered_via,
         "partial_taken": False,
+        "partial_count": 0,
+        "realized_qty": 0,
+        "realized_proceeds_usd": 0.0,
+        "realized_cost_usd": 0.0,
+        "realized_pnl_usd": 0.0,
+        "effective_exit_price_usd": None,
+        "total_pnl_usd": None,
+        "total_pnl_pct": None,
+        "first_partial_at": None,
+        "last_partial_at": None,
+        "last_partial_qty": None,
+        "last_partial_price_usd": None,
         "exit_reason": None,
     }
     _save()
@@ -425,6 +568,7 @@ async def buy(
         "buy_price_usd": float(buy_price_usd),
         "peak_price": float(buy_price_usd),
         "price_source": price_src,
+        "entry_notional_usd": float(entry_notional_usd),
     }
 
 
@@ -473,6 +617,8 @@ async def sell(
     entry = _PORTFOLIO.get(key)
     if not entry or entry.get("closed"):
         raise RuntimeError(f"No hay posición activa para {address[:4]}")
+    entry = _ensure_entry_accounting(entry)
+    await _ensure_entry_notional_async(entry)
 
     if not _is_solana_address(key):
         log.error("[papertrading] Venta bloqueada: address no Solana %r", key)
@@ -515,10 +661,27 @@ async def sell(
 
     # 3) Parcial vs cierre total
     if take_qty < total_qty:
-        # Venta parcial
-        entry["qty_lamports"] = total_qty - take_qty
+        totals = apply_partial_fill(
+            entry_qty=entry.get("entry_qty", total_qty),
+            remaining_qty=total_qty,
+            buy_price_usd=entry.get("buy_price_usd", 0.0),
+            entry_notional_usd=entry.get("entry_notional_usd", 0.0),
+            realized_qty=entry.get("realized_qty", 0),
+            realized_proceeds_usd=entry.get("realized_proceeds_usd", 0.0),
+            qty_sold=take_qty,
+            fill_price_usd=price_now,
+        )
+        entry["qty_lamports"] = int(totals.remaining_qty)
+        entry["entry_qty"] = int(totals.entry_qty)
+        entry["realized_qty"] = int(totals.realized_qty)
+        entry["realized_proceeds_usd"] = float(totals.realized_proceeds_usd)
+        entry["realized_cost_usd"] = float(totals.realized_cost_usd)
+        entry["realized_pnl_usd"] = float(totals.realized_pnl_usd)
         entry["partial_taken"] = True
+        entry["partial_count"] = int(entry.get("partial_count") or 0) + 1
+        entry["first_partial_at"] = entry.get("first_partial_at") or utc_now().isoformat()
         entry["last_partial_at"] = utc_now().isoformat()
+        entry["last_partial_qty"] = int(take_qty)
         entry["last_partial_price_usd"] = float(price_now)
         entry["price_source_close"] = price_src  # guardamos fuente de la última acción
         entry["exit_reason"] = exit_reason or "partial_tp"
@@ -538,19 +701,27 @@ async def sell(
 
     # 4) Cierre total
     buy_price = float(entry.get("buy_price_usd") or 0.0)
-    pnl_pct = (
-        ((float(price_now) - buy_price) / buy_price * 100.0)
-        if buy_price > 0.0 else 0.0
+    totals = summarize_trade(
+        entry_qty=entry.get("entry_qty", total_qty),
+        remaining_qty=total_qty,
+        buy_price_usd=buy_price,
+        entry_notional_usd=entry.get("entry_notional_usd", 0.0),
+        realized_qty=entry.get("realized_qty", 0),
+        realized_proceeds_usd=entry.get("realized_proceeds_usd", 0.0),
+        close_price_usd=price_now,
     )
 
     entry.update(
         {
             "closed_at": utc_now().isoformat(),
             "close_price_usd": float(price_now),
-            "pnl_pct": float(pnl_pct),
+            "pnl_pct": float(totals.total_pnl_pct),
             "closed": True,
             "price_source_close": price_src,
             "qty_lamports": 0,
+            "effective_exit_price_usd": totals.effective_exit_price_usd,
+            "total_pnl_usd": float(totals.total_pnl_usd),
+            "total_pnl_pct": float(totals.total_pnl_pct),
             "exit_reason": exit_reason or entry.get("exit_reason") or "manual/auto",
         }
     )
@@ -558,7 +729,7 @@ async def sell(
 
     log.info(
         "📝 PAPER-SELL %s…  close=%.6f USD  PnL=%.2f%%  src=%s  sig=%s  reason=%s",
-        key[:4], price_now, pnl_pct, price_src, sig, entry["exit_reason"]
+        key[:4], price_now, totals.total_pnl_pct, price_src, sig, entry["exit_reason"]
     )
     return {
         "signature": sig,
@@ -587,6 +758,7 @@ async def check_exit_conditions(address: str) -> bool:  # noqa: C901
     entry = _PORTFOLIO.get(address)
     if not entry or entry.get("closed"):
         return False
+    entry = _ensure_entry_accounting(entry)
 
     # Precio actual (usar crítico para saltar cachés NIL)
     price_val = await price_service.get_price_usd(address, use_gt=True, critical=True)
@@ -600,68 +772,28 @@ async def check_exit_conditions(address: str) -> bool:  # noqa: C901
         entry["peak_price"] = peak_price = price
         _save()
 
-    # PnL fraccional y %
-    pnl_frac = ((price - buy_price) / buy_price) if (buy_price > 0.0 and price > 0.0) else 0.0
-    pnl_pct = pnl_frac * 100.0
+    pnl_pct = (((price - buy_price) / buy_price) * 100.0) if (buy_price > 0.0 and price > 0.0) else 0.0
 
-    # TIMEOUT y edad
-    try:
-        opened_at = dt.datetime.fromisoformat(entry["opened_at"])
-        if opened_at.tzinfo is None:
-            opened_at = opened_at.replace(tzinfo=dt.timezone.utc)
-        age_sec = (utc_now() - opened_at).total_seconds()
-    except Exception:
-        age_sec = 0.0
-
-    # 1) No-Expansion a 1h
-    if age_sec >= 3600 and pnl_frac <= NO_EXPANSION_MAX_FRAC:
-        await sell(address, int(entry.get("qty_lamports", 0)), token_mint=address, exit_reason="no_expansion_1h")
-        log.info("[papertrading] NO_EXPANSION → cierre a %.2f%%", pnl_pct)
-        return True
-
-    # 2) TP parcial / TP total
-    partial_taken = bool(entry.get("partial_taken", False))
-    if TAKE_PROFIT_FRAC > 0 and pnl_frac >= TAKE_PROFIT_FRAC:
-        if not partial_taken:
-            qty = _compute_partial_qty(entry, WIN_PCT)
-            if qty > 0:
-                await sell(address, qty, token_mint=address, exit_reason="tp_partial")
-                log.info("[papertrading] Partial TP @ %.2f%% → vendidas ~%.0f%%", pnl_pct, WIN_PCT * 100)
-                return True
-        else:
-            await sell(address, int(entry.get("qty_lamports", 0)), token_mint=address, exit_reason="tp_final")
-            log.info("[papertrading] TP final @ %.2f%% → cierre total", pnl_pct)
+    if exit_policy.should_take_partial(entry, pnl_pct):
+        frac = exit_policy.partial_fraction(entry)
+        qty = _compute_partial_qty(entry, frac)
+        if qty > 0:
+            await sell(address, qty, token_mint=address, exit_reason="tp_partial")
+            log.info("[papertrading] Partial TP @ %.2f%% → vendidas ~%.0f%%", pnl_pct, frac * 100.0)
             return True
 
-    # 3) SL
-    if STOP_LOSS_FRAC > 0 and pnl_frac <= -STOP_LOSS_FRAC:
-        await sell(address, int(entry.get("qty_lamports", 0)), token_mint=address, exit_reason="stop_loss")
-        log.info("[papertrading] STOP_LOSS @ %.2f%% → cierre total", pnl_pct)
-        return True
+    exit_reason = exit_policy.should_exit(
+        entry,
+        price,
+        utc_now(),
+        pnl_pct=pnl_pct,
+    )
+    if exit_reason is None:
+        return False
 
-    # 4) Trailing
-    if TRAILING_FRAC > 0 and price > 0.0 and peak_price > 0.0:
-        trailing_lvl = peak_price * (1 - TRAILING_FRAC)
-        if price <= trailing_lvl:
-            await sell(address, int(entry.get("qty_lamports", 0)), token_mint=address, exit_reason="trailing_stop")
-            log.info("[papertrading] TRAILING_STOP (peak %.6f → lvl %.6f) → cierre total", peak_price, trailing_lvl)
-            return True
-
-    # 5) Timeout (con extensión condicional si va muy en verde)
-    if TIMEOUT_SECONDS > 0 and age_sec >= TIMEOUT_SECONDS:
-        if TRAILING_FRAC > 0 and pnl_frac >= TRAILING_FRAC and HARD_TIMEOUT_SECONDS > TIMEOUT_SECONDS:
-            if age_sec >= HARD_TIMEOUT_SECONDS:
-                await sell(address, int(entry.get("qty_lamports", 0)), token_mint=address, exit_reason="timeout_hard")
-                log.info("[papertrading] TIMEOUT duro (extendido) → cierre total")
-                return True
-            # si aún no alcanzó el límite duro, dejamos correr
-            return False
-        else:
-            await sell(address, int(entry.get("qty_lamports", 0)), token_mint=address, exit_reason="timeout")
-            log.info("[papertrading] TIMEOUT → cierre total")
-            return True
-
-    return False
+    await sell(address, int(entry.get("qty_lamports", 0)), token_mint=address, exit_reason=str(exit_reason).lower())
+    log.info("[papertrading] %s @ %.2f%% → cierre total", exit_reason, pnl_pct)
+    return True
 
 
 # ─── snapshot de cierre seguro (para orquestador) ───────────────────────────
@@ -688,6 +820,7 @@ async def safe_close_snapshot(
             "close_price_usd": None,
             "price_source_close": None,
             "pnl_pct": None,
+            "total_pnl_pct": entry.get("total_pnl_pct") if entry else None,
             "closed_at": entry.get("closed_at") if entry else None,
             "exit_reason": entry.get("exit_reason") if entry else reason,
         }
@@ -709,6 +842,7 @@ async def safe_close_snapshot(
         "close_price_usd": entry.get("close_price_usd"),
         "price_source_close": entry.get("price_source_close"),
         "pnl_pct": entry.get("pnl_pct"),
+        "total_pnl_pct": entry.get("total_pnl_pct"),
         "closed_at": entry.get("closed_at"),
         "exit_reason": entry.get("exit_reason"),
     }
@@ -717,4 +851,4 @@ async def safe_close_snapshot(
 
 
 # ─── exportación mínima ────────────────────────────────────────
-__all__ = ["buy", "sell", "check_exit_conditions", "safe_close_snapshot"]
+__all__ = ["buy", "sell", "check_exit_conditions", "safe_close_snapshot", "backfill_entry_notionals"]

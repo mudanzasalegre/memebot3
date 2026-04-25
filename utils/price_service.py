@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional, Tuple
 from utils.simple_cache import cache_get, cache_set
 from utils.fallback import fill_missing_fields
 from utils.sol_price import get_sol_usd
+from utils.solana_addr import normalize_mint
 
 # Adapters
 from fetcher.geckoterminal import get_token_data as get_gt_data, USE_GECKO_TERMINAL
@@ -51,17 +52,41 @@ except Exception:  # pragma: no cover
 
 logger = logging.getLogger("price_service")
 
-# --- Saneador de claves no-T0 (futuras / de training / snapshots) ---
+# --- Saneador de claves no-T0 (futuras / de training; NO snapshots T0) ---
 _NON_T0_KEYS = {
-    "txns_last_5m_sells", "txns_last_5m_buys",
-    "txns_last_1h_sells", "txns_last_1h_buys",
     "label", "target", "pnl_future",
+    "pnl_pct", "pnl_ratio",
+    "close_price_usd", "close_price",
+    "effective_exit_price_usd",
+    "total_pnl_pct", "total_pnl_usd",
+    "outcome", "closed_at", "exit_reason",
 }
+_MERGE_FIELDS = [
+    "address",
+    "symbol",
+    "name",
+    "created_at",
+    "pairCreatedAt",
+    "pairCreatedAtMs",
+    "price_usd",
+    "liquidity_usd",
+    "market_cap_usd",
+    "volume_24h_usd",
+    "txns_last_5m",
+    "txns_last_5m_sells",
+    "txns_last_5m_buys",
+    "holders",
+    "price_pct_1m",
+    "price_pct_5m",
+    "volume_pct_5m",
+    "pair_address",
+    "dexId",
+]
 def _strip_non_t0_keys(d: dict | None) -> dict | None:
     if not isinstance(d, dict):
         return d
     for k in list(d.keys()):
-        if k in _NON_T0_KEYS or str(k).startswith("txns_last_"):
+        if k in _NON_T0_KEYS:
             d.pop(k, None)
     return d
 
@@ -69,13 +94,14 @@ def _strip_non_t0_keys(d: dict | None) -> dict | None:
 _TTL_OK   = int(os.getenv("DEXS_TTL_OK", "30"))           # s para respuestas válidas
 _TTL_ERR  = int(os.getenv("DEXS_TTL_NIL", "15"))          # s para cachear fallos
 _CHAIN    = "solana"
-
-_MISSING_FIELDS = [
-    "price_usd",
-    "liquidity_usd",
-    "market_cap_usd",
-    "volume_24h_usd",
-]
+try:
+    _TTL_PARTIAL = max(_TTL_ERR, int(os.getenv("PRICE_PARTIAL_TTL_S", "180")))
+except Exception:
+    _TTL_PARTIAL = max(_TTL_ERR, 180)
+try:
+    _GT_SKIP_TTL = max(_TTL_ERR, int(os.getenv("PRICE_GT_SKIP_TTL_S", "300")))
+except Exception:
+    _GT_SKIP_TTL = max(_TTL_ERR, 300)
 
 _USE_BIRDEYE    = os.getenv("USE_BIRDEYE", "true").lower() == "true"
 _RETRY_ON_FAIL  = int(os.getenv("PRICE_RETRY_ON_FAIL", "1"))  # nº reintentos de la cadena
@@ -132,6 +158,18 @@ def _coerce_tick_numbers(tick: dict | None) -> dict:
     # Market cap / FDV
     t["market_cap_usd"] = _f(t.get("market_cap_usd") or t.get("fdv") or t.get("mcap"))
 
+    for key in (
+        "txns_last_5m",
+        "txns_last_5m_sells",
+        "txns_last_5m_buys",
+        "holders",
+        "price_pct_1m",
+        "price_pct_5m",
+        "volume_pct_5m",
+    ):
+        if key in t:
+            t[key] = _f(t.get(key))
+
     # Precio nativo: evitar dict/list
     pn = t.get("price_native")
     if isinstance(pn, (dict, list, tuple)):
@@ -165,6 +203,25 @@ def _needs_fields(tok: Dict[str, Any] | None, fields: Tuple[str, ...]) -> bool:
     return any(_is_missing(tok.get(k)) for k in fields)
 
 
+def _has_any_signal(tok: Dict[str, Any] | None) -> bool:
+    if not tok:
+        return False
+    for key in (
+        "price_usd",
+        "liquidity_usd",
+        "volume_24h_usd",
+        "market_cap_usd",
+        "holders",
+        "txns_last_5m",
+        "price_pct_1m",
+        "price_pct_5m",
+        "volume_pct_5m",
+    ):
+        if not _is_missing(tok.get(key)):
+            return True
+    return False
+
+
 def _is_solana_address(addr: str) -> bool:
     """
     Filtro defensivo de address:
@@ -174,6 +231,15 @@ def _is_solana_address(addr: str) -> bool:
     if not addr or addr.startswith("0x"):
         return False
     return 30 <= len(addr) <= 50
+
+
+def _extract_pair_address(tok: Dict[str, Any] | None) -> Optional[str]:
+    if not isinstance(tok, dict):
+        return None
+    pair = tok.get("pair_address") or tok.get("pairAddress") or tok.get("poolAddress")
+    if isinstance(pair, str) and pair.strip():
+        return pair.strip()
+    return None
 
 
 async def _price_native_to_usd(tok: Dict[str, Any] | None) -> Dict[str, Any] | None:
@@ -240,8 +306,8 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
     Prioridad:
       1) Jupiter (price_usd) [+impact opcional]
       2) Birdeye (liq/vol/mcap y relleno)
-      3) GeckoTerminal (si se permite)
-      4) DexScreener (visual/último recurso)
+      3) DexScreener (metadata + snapshot base)
+      4) GeckoTerminal (si se permite, para completar)
       5) Conversión price_native×SOL
     """
     tok: Dict[str, Any] | None = None
@@ -268,8 +334,6 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
         be: Dict[str, Any] | None = None
         try:
             be = await birdeye.get_token_info(address)
-            if not be:
-                be = await birdeye.get_pool_info(address)
             be = _coerce_tick_numbers(be)
         except Exception as exc:
             logger.debug("[price_service] Birdeye error: %s", exc)
@@ -277,28 +341,12 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
 
         if be:
             logger.debug("[price_service] Merge ← Birdeye para %s…", address[:6])
-            merged = fill_missing_fields(tok or {}, be, _MISSING_FIELDS, treat_zero_as_missing=True)
+            merged = fill_missing_fields(tok or {}, be, _MERGE_FIELDS, treat_zero_as_missing=True)
             tok = _normalize_after_merge(merged)
             if tok and not _needs_fields(tok, fields_needed):
                 return _strip_non_t0_keys(tok)
 
-    # ③ GeckoTerminal (opcional, para completar)
-    if use_gt and USE_GECKO_TERMINAL:
-        try:
-            gt = get_gt_data(_CHAIN, address)
-            gt = _coerce_tick_numbers(gt)
-        except Exception as exc:
-            logger.debug("[price_service] GeckoTerminal error: %s", exc)
-            gt = None
-
-        if gt:
-            logger.debug("[price_service] Merge ← GeckoTerminal para %s…", address[:6])
-            merged = fill_missing_fields(tok or {}, gt, _MISSING_FIELDS, treat_zero_as_missing=True)
-            tok = _normalize_after_merge(merged)
-            if tok and not _needs_fields(tok, fields_needed):
-                return _strip_non_t0_keys(tok)
-
-    # ④ DexScreener como *último recurso / visual*
+    # ③ DexScreener como snapshot base/metadata
     try:
         ds = await dexscreener.get_pair(address)
         ds = _coerce_tick_numbers(ds)
@@ -310,7 +358,7 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
         logger.debug("[price_service] Merge ← DexScreener (último) para %s…", address[:6])
         if tok:
             # Ya hay base: solo rellenamos los huecos pedidos
-            merged = fill_missing_fields(tok, ds, _MISSING_FIELDS, treat_zero_as_missing=True)
+            merged = fill_missing_fields(tok, ds, _MERGE_FIELDS, treat_zero_as_missing=True)
         else:
             # DexScreener es la primera fuente válida → usa TODO su payload como base
             merged = dict(ds)
@@ -319,11 +367,52 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
         if tok and not _needs_fields(tok, fields_needed):
             return _strip_non_t0_keys(tok)
 
+    # ④ GeckoTerminal (opcional, para completar sin perder metadata previa)
+    gt_skip_key = f"price:gt_skip:{address}"
+    if use_gt and USE_GECKO_TERMINAL and cache_get(gt_skip_key) is None:
+        try:
+            gt = get_gt_data(_CHAIN, address)
+            gt = _coerce_tick_numbers(gt)
+        except Exception as exc:
+            logger.debug("[price_service] GeckoTerminal error: %s", exc)
+            gt = None
+
+        if gt:
+            logger.debug("[price_service] Merge ← GeckoTerminal para %s…", address[:6])
+            merged = fill_missing_fields(tok or {}, gt, _MERGE_FIELDS, treat_zero_as_missing=True)
+            tok = _normalize_after_merge(merged)
+            if tok and not _needs_fields(tok, fields_needed):
+                return _strip_non_t0_keys(tok)
+        else:
+            cache_set(gt_skip_key, True, ttl=_GT_SKIP_TTL)
+    elif use_gt and USE_GECKO_TERMINAL:
+        logger.debug("[price_service] GeckoTerminal skip cache activo para %s…", address[:6])
+
     # ⑤ Conversión price_native→USD (segura)
+    if _USE_BIRDEYE:
+        pair_address = _extract_pair_address(tok)
+        if pair_address:
+            try:
+                be_pool = await birdeye.get_pool_info(pair_address)
+                be_pool = _coerce_tick_numbers(be_pool)
+            except Exception as exc:
+                logger.debug("[price_service] Birdeye pool error: %s", exc)
+                be_pool = None
+
+            if be_pool:
+                logger.debug("[price_service] Merge â† Birdeye pool para %sâ€¦", pair_address[:6])
+                merged = fill_missing_fields(tok or {}, be_pool, _MERGE_FIELDS, treat_zero_as_missing=True)
+                tok = _normalize_after_merge(merged)
+                if tok and not _needs_fields(tok, fields_needed):
+                    return _strip_non_t0_keys(tok)
+
     tok = _normalize_after_merge(await _price_native_to_usd(tok))
     if tok and not _needs_fields(tok, fields_needed):
         logger.debug("[price_service] Fallback → native×SOL para %s…", address[:6])
         return _strip_non_t0_keys(tok)
+
+    if use_gt and USE_GECKO_TERMINAL:
+        cache_set(gt_skip_key, True, ttl=_GT_SKIP_TTL)
 
     # ⑥ Sin datos suficientes para los campos solicitados (puede ser dict incompleto)
     return _strip_non_t0_keys(tok)
@@ -336,6 +425,7 @@ async def get_price(
     use_gt: bool = False,
     critical: bool = False,
     price_only: bool = False,
+    allow_partial: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """
     Devuelve un dict con métricas de precio/liquidez o ``None``.
@@ -350,21 +440,34 @@ async def get_price(
     price_only : bool
         Si True, exige SOLO `price_usd` (cierres/compras rápidas).
         Si False, exige `price_usd` + `liquidity_usd` (validaciones).
+    allow_partial : bool
+        Si True, puede devolver snapshots parciales cacheados para no volver a
+        golpear todas las fuentes cuando faltan campos no críticos.
     """
-    if not _is_solana_address(address):
+    norm_address = normalize_mint(address)
+    if not norm_address or not _is_solana_address(norm_address):
         # cache negativo corto para no martillear (salvo en crítico)
         if not critical:
             cache_set(f"price:{address}:bad", False, ttl=_TTL_ERR)
         logger.debug("[price_service] Address no-Solana bloqueada: %r", address)
         return None
+    address = norm_address
 
     fields_needed = _REQUIRED_FOR_PRICE if price_only else _REQUIRED_FOR_FULL
     ck = f"price:{address}:{int(use_gt)}:{int(price_only)}"
+    partial_ck = f"{ck}:partial"
 
     # ③(a) — Cache hit: refuerza tipos y garantiza `address`
     hit = cache_get(ck)
     if hit is not None:
         if hit is False:
+            if allow_partial:
+                partial_hit = cache_get(partial_ck)
+                if partial_hit is not None:
+                    partial_hit = _coerce_tick_numbers(partial_hit)
+                    if isinstance(partial_hit, dict):
+                        partial_hit.setdefault("address", address)
+                    return _strip_non_t0_keys(partial_hit)
             if critical:
                 logger.debug("[price_service] critical=True: ignorando cache negativa para %s", address[:6])
             else:
@@ -375,6 +478,13 @@ async def get_price(
                 hit.setdefault("address", address)  # ← garantía de address
             hit = _strip_non_t0_keys(hit)  # saneo anti claves futuras
             return hit
+    elif allow_partial:
+        partial_hit = cache_get(partial_ck)
+        if partial_hit is not None:
+            partial_hit = _coerce_tick_numbers(partial_hit)
+            if isinstance(partial_hit, dict):
+                partial_hit.setdefault("address", address)
+            return _strip_non_t0_keys(partial_hit)
 
     # Primer intento de la cadena (Jupiter primero)
     tok = await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed)
@@ -415,6 +525,10 @@ async def get_price(
 
     if tok and not _needs_fields(tok, fields_needed):
         cache_set(ck, tok, ttl=_TTL_OK)
+        return tok
+
+    if allow_partial and _has_any_signal(tok):
+        cache_set(partial_ck, tok, ttl=_TTL_PARTIAL)
         return tok
 
     # Sin datos válidos → sólo cache negativa si NO es crítico

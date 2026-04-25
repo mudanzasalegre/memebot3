@@ -1,35 +1,59 @@
-# utils/solana_addr.py
 from __future__ import annotations
 
 import logging
-from typing import Optional, Dict
+import re
+from typing import Dict, Optional
 
 log = logging.getLogger("solana_addr")
 
-# Rango típico de longitud Base58 de mints SPL en Solana
+# Typical Base58 length range for SPL token mints on Solana.
 _MIN_LEN = 30
 _MAX_LEN = 50
+_CACHE_MAX = 8192
 
-# Cache para evitar spamear logs con el mismo "strip 'pump'"
-# Clave: addr ya .strip()'eada; Valor: versión limpiada (con o sin 'pump').
-_PUMP_STRIP_CACHE: Dict[str, str] = {}
+# Cache full normalization results to avoid repeated Base58 decoding and log spam.
+_NORMALIZE_CACHE: Dict[str, Optional[str]] = {}
+# Cache sanitation logs so the same raw input is only reported once.
+_SANITIZE_LOG_CACHE: Dict[str, str] = {}
 
-# Base58 (opcional, pero recomendado para validar 32 bytes)
+_DELIMITED_PUMP_SUFFIX_RE = re.compile(
+    r"^(?P<mint>[1-9A-HJ-NP-Za-km-z]+?)(?:[._\-\s:/]+pump)$",
+    re.IGNORECASE,
+)
+
+# Base58 is optional, but preferred for strict 32-byte validation.
 try:
-    from base58 import b58decode as _b58decode  # pip install base58
-except Exception:  # pragma: no cover - entorno sin dependencia
+    from base58 import b58decode as _b58decode
+except Exception:  # pragma: no cover - environment without dependency
     _b58decode = None  # type: ignore[attr-defined]
     _BASE58_IMPORT_OK = False
 else:  # pragma: no cover
     _BASE58_IMPORT_OK = True
 
 
+def _cache_set(cache: Dict[str, Optional[str] | str], key: str, value: Optional[str] | str) -> None:
+    if key not in cache and len(cache) >= _CACHE_MAX:
+        cache.clear()
+    cache[key] = value
+
+
+def _log_sanitize_once(raw: str, cleaned: str, reason: str) -> None:
+    cached = _SANITIZE_LOG_CACHE.get(raw)
+    if cached == cleaned:
+        return
+    try:
+        log.debug("[addr] normalize %s: %s -> %s", reason, raw, cleaned)
+    except Exception:
+        pass
+    _cache_set(_SANITIZE_LOG_CACHE, raw, cleaned)
+
+
 def is_probably_mint(s: str | None) -> bool:
     """
-    Heurística ligera: parece un mint SPL válido (no 0x, longitud 30–50).
+    Cheap heuristic: looks like an SPL mint (not 0x, length 30-50).
 
-    Nota: Esto NO garantiza que sea un mint válido de 32 bytes.
-    Para eso usa la validación Base58 de 32 bytes (is_valid_base58_32).
+    This does not guarantee a valid 32-byte public key. Use
+    `is_valid_base58_32()` for strict validation.
     """
     if not s:
         return False
@@ -39,44 +63,13 @@ def is_probably_mint(s: str | None) -> bool:
     return _MIN_LEN <= len(s) <= _MAX_LEN
 
 
-def _strip_pump_suffix(addr: str) -> str:
-    """Quita un sufijo literal 'pump' (muy común en feeds de Pump.fun).
-
-    Usa un pequeño caché para:
-      • Evitar repetir el log para el mismo mint.
-      • Devolver inmediatamente la versión ya normalizada.
-    """
-    s = addr.strip()
-
-    # Si ya lo procesamos, devolvemos el valor cacheado (sin re-log).
-    cached = _PUMP_STRIP_CACHE.get(s)
-    if cached is not None:
-        return cached
-
-    # Sólo si el sufijo es exactamente 'pump' (lowercase) y está al final.
-    if s.endswith("pump"):
-        cleaned = s[:-4]
-        try:
-            log.debug("[addr] strip 'pump': %s → %s", s, cleaned)
-        except Exception:
-            # El log no es crítico; seguimos.
-            pass
-        _PUMP_STRIP_CACHE[s] = cleaned
-        return cleaned
-
-    # Si no hay 'pump', no almacenamos para no crecer de forma innecesaria.
-    return s
-
-
 def is_valid_base58_32(s: str) -> bool:
     """
-    Valida que `s`:
-      1) Sea Base58 válido.
-      2) Decodifique exactamente a 32 bytes (clave pública SPL).
+    Validate that `s`:
+      1) is valid Base58
+      2) decodes to exactly 32 bytes
     """
     if not _BASE58_IMPORT_OK:
-        # Sin la lib base58, no podemos garantizar validez estricta.
-        # Caemos a la heurística de longitud como mejor esfuerzo.
         return is_probably_mint(s)
 
     try:
@@ -86,35 +79,72 @@ def is_valid_base58_32(s: str) -> bool:
     return len(decoded) == 32
 
 
+def _is_valid_mint(s: str) -> bool:
+    return is_probably_mint(s) and is_valid_base58_32(s)
+
+
+def _fallback_cleanup_invalid_mint(raw: str) -> tuple[Optional[str], Optional[str]]:
+    """
+    Try controlled cleanup variants, but only for raw inputs that already failed
+    strict validation.
+
+    Important: a bare trailing "pump" is Base58-compatible, so a valid mint can
+    legitimately end with it. We only try to strip it if the original raw input
+    is invalid and the cleaned version becomes a valid mint.
+    """
+    match = _DELIMITED_PUMP_SUFFIX_RE.fullmatch(raw)
+    if match:
+        return match.group("mint"), "delimited_pump_suffix"
+
+    if raw.lower().endswith("pump") and len(raw) > 4:
+        return raw[:-4], "pump_suffix_fallback"
+
+    return None, None
+
+
 def normalize_mint(addr: str | None) -> Optional[str]:
     """
-    Devuelve un mint normalizado o None si no parece un mint SPL.
+    Return a normalized mint or None if the input is not a valid SPL mint.
 
-    Proceso:
-      - trim
-      - quita sufijo 'pump' si está presente (con caché anti-ruido de logs)
-      - valida heurísticamente longitud y no-0x
-      - valida que la codificación Base58 decodifique a 32 bytes (si hay lib base58)
+    Behavior:
+      - trim the raw input
+      - accept a valid raw mint unchanged
+      - only if raw is invalid, try controlled cleanup variants such as:
+        * delimiter suffixes like "_pump", ".pump", "-pump"
+        * bare "pump" suffix fallback
+      - accept the cleaned candidate only if it becomes a valid 32-byte Base58 key
     """
     if not addr:
         return None
-    s = _strip_pump_suffix(addr.strip())
-    if not is_probably_mint(s):
-        # No spammeamos en WARNING aquí; dejamos WARNING al consumidor si quiere.
+
+    raw = addr.strip()
+    if not raw:
         return None
-    if not is_valid_base58_32(s):
-        # Mint con longitud razonable pero NO 32 bytes al decodificar (WrongSize típico).
-        return None
-    return s
+
+    if raw in _NORMALIZE_CACHE:
+        return _NORMALIZE_CACHE[raw]
+
+    if _is_valid_mint(raw):
+        _cache_set(_NORMALIZE_CACHE, raw, raw)
+        return raw
+
+    cleaned, reason = _fallback_cleanup_invalid_mint(raw)
+    if cleaned and _is_valid_mint(cleaned):
+        _log_sanitize_once(raw, cleaned, reason or "fallback")
+        _cache_set(_NORMALIZE_CACHE, raw, cleaned)
+        return cleaned
+
+    _cache_set(_NORMALIZE_CACHE, raw, None)
+    return None
 
 
 def short_mint(s: str, left: int = 6, right: int = 4) -> str:
-    """Forma corta amigable para logs: ABCDEF…WXYZ."""
+    """Human-friendly short form for logs: ABCDEF...WXYZ."""
     if not s:
         return s
     if len(s) <= left + right + 1:
         return s
-    return f"{s[:left]}…{s[-right:]}"
+    return f"{s[:left]}...{s[-right:]}"
 
 
 __all__ = [

@@ -9,8 +9,10 @@ como:
 
 • Si SQLITE_DB es relativa, siempre se ubica bajo memebot3/data/.
 • Asegura columnas útiles en Position:
-    - partial_taken (INTEGER NOT NULL DEFAULT 0)
-    - peak_price    (REAL    NOT NULL DEFAULT 0.0)
+    - partial_taken / partial_count
+    - peak_price
+    - entry_qty / realized_* / total_pnl_*
+    - first_partial_at / last_partial_at / last_partial_*
 • Expone utilidades asíncronas para actualizar peak, parciales y cierre.
 """
 from __future__ import annotations
@@ -48,6 +50,7 @@ if str(REPO_ROOT) not in sys.path:    # garantiza import config
     sys.path.insert(0, str(REPO_ROOT))
 
 from config import SQLITE_DB          # type: ignore
+from trade_pnl import apply_partial_fill, summarize_trade
 
 # ─────── ruta definitiva de la BD ───────
 sqlite_path = Path(SQLITE_DB).expanduser()
@@ -86,31 +89,150 @@ async def _table_has_column(conn, table: str, column: str) -> bool:
 async def _ensure_position_columns() -> None:
     """
     Asegura que la tabla Position contiene las columnas necesarias:
-      - partial_taken INTEGER NOT NULL DEFAULT 0
-      - peak_price    REAL    NOT NULL DEFAULT 0.0
+      - columnas de parciales
+      - contabilidad total del trade
     Usa ALTER TABLE condicional (safe para SQLite).
     """
+    column_defs = [
+        ("token_mint", "VARCHAR(64)"),
+        ("partial_taken", "INTEGER NOT NULL DEFAULT 0"),
+        ("peak_price", "REAL NOT NULL DEFAULT 0.0"),
+        ("entry_qty", "INTEGER NOT NULL DEFAULT 0"),
+        ("price_source_at_buy", "VARCHAR(16)"),
+        ("buy_tx_sig", "VARCHAR(96)"),
+        ("entry_regime", "VARCHAR(24)"),
+        ("size_bucket", "VARCHAR(16)"),
+        ("size_multiplier", "REAL NOT NULL DEFAULT 1.0"),
+        ("buy_amount_sol", "REAL"),
+        ("entry_notional_usd", "REAL"),
+        ("entry_ai_proba", "REAL"),
+        ("entry_score_total", "INTEGER"),
+        ("entry_lane", "VARCHAR(32)"),
+        ("gate_profile", "VARCHAR(32)"),
+        ("buy_dex_id", "VARCHAR(24)"),
+        ("buy_price_pct_5m", "REAL"),
+        ("buy_txns_last_5m", "INTEGER"),
+        ("buy_liquidity_is_proxy", "INTEGER NOT NULL DEFAULT 0"),
+        ("mcap_bucket", "VARCHAR(16)"),
+        ("price5m_bucket", "VARCHAR(16)"),
+        ("buy_liquidity_usd", "REAL"),
+        ("buy_market_cap_usd", "REAL"),
+        ("buy_volume_24h_usd", "REAL"),
+        ("peak_price_usd", "REAL NOT NULL DEFAULT 0.0"),
+        ("max_pnl_pct_seen", "REAL NOT NULL DEFAULT 0.0"),
+        ("realized_qty", "INTEGER NOT NULL DEFAULT 0"),
+        ("realized_proceeds_usd", "REAL NOT NULL DEFAULT 0.0"),
+        ("realized_cost_usd", "REAL NOT NULL DEFAULT 0.0"),
+        ("realized_pnl_usd", "REAL NOT NULL DEFAULT 0.0"),
+        ("effective_exit_price_usd", "REAL"),
+        ("total_pnl_usd", "REAL"),
+        ("total_pnl_pct", "REAL"),
+        ("runner_exit_profile", "VARCHAR(24)"),
+        ("time_to_partial_sec", "INTEGER"),
+        ("time_to_peak_sec", "INTEGER"),
+        ("peak_after_partial_pct", "REAL"),
+        ("exit_from_peak_giveback_pct", "REAL"),
+        ("partial_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("first_partial_at", "TIMESTAMP"),
+        ("last_partial_at", "TIMESTAMP"),
+        ("last_partial_qty", "INTEGER"),
+        ("last_partial_price_usd", "REAL"),
+        ("exit_tx_sig", "VARCHAR(96)"),
+        ("price_source_at_close", "VARCHAR(16)"),
+        ("exit_reason", "VARCHAR(24)"),
+        ("outcome", "VARCHAR(12)"),
+    ]
+
     async with engine.begin() as conn:
-        # Si la tabla Position no existe aún, create_all las creará después.
-        # Comprobamos columnas solo si la tabla ya está creada.
         res = await conn.exec_driver_sql(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='position';"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('positions', 'position');"
         )
-        tbl = res.scalar_one_or_none()
-        if not tbl:
-            return  # la crearemos en create_all()
+        tables = [row[0] for row in res.fetchall()]
+        if not tables:
+            return
 
-        # partial_taken
-        if not await _table_has_column(conn, "position", "partial_taken"):
-            await conn.exec_driver_sql(
-                "ALTER TABLE position ADD COLUMN partial_taken INTEGER NOT NULL DEFAULT 0;"
-            )
+        for table_name in tables:
+            for column_name, column_sql in column_defs:
+                if not await _table_has_column(conn, table_name, column_name):
+                    await conn.exec_driver_sql(
+                        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql};"
+                    )
 
-        # peak_price
-        if not await _table_has_column(conn, "position", "peak_price"):
-            await conn.exec_driver_sql(
-                "ALTER TABLE position ADD COLUMN peak_price REAL NOT NULL DEFAULT 0.0;"
-            )
+
+async def _ensure_token_columns() -> None:
+    column_defs = [
+        ("dex_id", "VARCHAR(24)"),
+    ]
+
+    async with engine.begin() as conn:
+        if not await _table_has_column(conn, "tokens", "address"):
+            return
+        for column_name, column_sql in column_defs:
+            if not await _table_has_column(conn, "tokens", column_name):
+                await conn.exec_driver_sql(
+                    f"ALTER TABLE tokens ADD COLUMN {column_name} {column_sql};"
+                )
+
+
+async def _ensure_control_command_schema() -> None:
+    async with engine.begin() as conn:
+        await conn.exec_driver_sql(
+            """
+            CREATE TABLE IF NOT EXISTS control_commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id TEXT NOT NULL,
+                command_type TEXT NOT NULL,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL,
+                requested_by TEXT NOT NULL,
+                requested_from TEXT,
+                idempotency_key TEXT,
+                requested_at TIMESTAMP NOT NULL,
+                started_at TIMESTAMP,
+                finished_at TIMESTAMP,
+                result_json TEXT,
+                error_text TEXT
+            );
+            """
+        )
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_control_commands_bot_status_requested "
+            "ON control_commands (bot_id, status, requested_at);"
+        )
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_control_commands_bot_command_requested "
+            "ON control_commands (bot_id, command_type, requested_at);"
+        )
+        await conn.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_control_commands_bot_idempotency "
+            "ON control_commands (bot_id, idempotency_key);"
+        )
+
+
+async def _ensure_ui_saved_views_schema() -> None:
+    async with engine.begin() as conn:
+        await conn.exec_driver_sql(
+            """
+            CREATE TABLE IF NOT EXISTS ui_saved_views (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                page_key TEXT NOT NULL,
+                view_name TEXT NOT NULL,
+                filters_json TEXT NOT NULL DEFAULT '{}',
+                layout_json TEXT,
+                created_by TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL
+            );
+            """
+        )
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_ui_saved_views_page_owner_updated "
+            "ON ui_saved_views (page_key, created_by, updated_at);"
+        )
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_ui_saved_views_owner_updated "
+            "ON ui_saved_views (created_by, updated_at);"
+        )
 
 # ─────────── Init helper ───────────
 async def async_init_db() -> None:
@@ -128,15 +250,17 @@ async def async_init_db() -> None:
         await conn.exec_driver_sql("PRAGMA journal_mode=WAL;")
 
     # Asegura columnas adicionales en SQLite (ALTER TABLE si faltan)
+    await _ensure_token_columns()
     await _ensure_position_columns()
+    await _ensure_control_command_schema()
+    await _ensure_ui_saved_views_schema()
 
-    print(f"[DB] OK  →  {DB_PATH}")
+    print(f"[DB] OK -> {DB_PATH}")
 
 # ─────────── Helpers de dominio (Position) ───────────
-# Nota: asumimos un modelo Position con (campos habituales):
-#   id, token_mint, qty_lamports, buy_price_usd, peak_price,
-#   opened_at, closed, closed_at, close_price_usd, pnl_pct,
-#   exit_reason, price_source_close, partial_taken, ...
+# Nota: asumimos un modelo Position con:
+#   id, token_mint, qty_lamports, entry_qty, buy_price_usd,
+#   close_price_usd, realized_*, total_pnl_*, partial_taken, ...
 from .models import Position  # type: ignore
 
 async def get_open_positions(session: AsyncSession) -> List[Position]:
@@ -192,7 +316,9 @@ async def mark_partial_and_reduce_qty(
     pos = await session.get(Position, pos_id)
     if not pos:
         return None
-    remaining = max(0, int(getattr(pos, "qty_lamports", 0)) - int(qty_sold))
+    remaining_before = max(0, int(getattr(pos, "qty_lamports", 0) or 0))
+    sold_qty = max(0, min(remaining_before, int(qty_sold)))
+    remaining = max(0, remaining_before - sold_qty)
     pos.qty_lamports = remaining
     # flag parcial
     try:
@@ -200,10 +326,37 @@ async def mark_partial_and_reduce_qty(
     except Exception:
         # Si el modelo aún no tiene la propiedad en runtime, ignorar (compat)
         pass
-    # opcional: si el modelo incluye estos campos, se setean
+    now = datetime.now(timezone.utc)
+    if hasattr(pos, "partial_count"):
+        setattr(pos, "partial_count", int(getattr(pos, "partial_count", 0) or 0) + 1)
+    if hasattr(pos, "first_partial_at") and getattr(pos, "first_partial_at", None) is None:
+        setattr(pos, "first_partial_at", now)
+    if hasattr(pos, "last_partial_at"):
+        setattr(pos, "last_partial_at", now)
+    if hasattr(pos, "last_partial_qty"):
+        setattr(pos, "last_partial_qty", sold_qty)
     if last_partial_price_usd is not None and hasattr(pos, "last_partial_price_usd"):
         setattr(pos, "last_partial_price_usd", float(last_partial_price_usd))
-        setattr(pos, "last_partial_at", datetime.now(timezone.utc))
+        totals = apply_partial_fill(
+            entry_qty=getattr(pos, "entry_qty", 0),
+            remaining_qty=remaining_before,
+            buy_price_usd=getattr(pos, "buy_price_usd", 0.0),
+            entry_notional_usd=getattr(pos, "entry_notional_usd", None),
+            realized_qty=getattr(pos, "realized_qty", 0),
+            realized_proceeds_usd=getattr(pos, "realized_proceeds_usd", 0.0),
+            qty_sold=sold_qty,
+            fill_price_usd=last_partial_price_usd,
+        )
+        if hasattr(pos, "entry_qty"):
+            setattr(pos, "entry_qty", totals.entry_qty)
+        if hasattr(pos, "realized_qty"):
+            setattr(pos, "realized_qty", totals.realized_qty)
+        if hasattr(pos, "realized_proceeds_usd"):
+            setattr(pos, "realized_proceeds_usd", totals.realized_proceeds_usd)
+        if hasattr(pos, "realized_cost_usd"):
+            setattr(pos, "realized_cost_usd", totals.realized_cost_usd)
+        if hasattr(pos, "realized_pnl_usd"):
+            setattr(pos, "realized_pnl_usd", totals.realized_pnl_usd)
     await session.commit()
     await session.refresh(pos)
     return pos
@@ -218,7 +371,8 @@ async def close_position_safe(
     closed_at_iso: Optional[str] = None,
 ) -> Optional[Position]:
     """
-    Cierra la posición y sella campos de cierre. Calcula pnl_pct si hay buy_price.
+    Cierra la posición y sella campos de cierre. Calcula el PnL total del trade,
+    incluyendo lo ya realizado en parciales si existe esa contabilidad.
     """
     pos = await session.get(Position, pos_id)
     if not pos:
@@ -235,26 +389,37 @@ async def close_position_safe(
     else:
         closed_at = datetime.now(timezone.utc)
 
-    # PnL
-    try:
-        bp = float(getattr(pos, "buy_price_usd", 0.0) or 0.0)
-    except Exception:
-        bp = 0.0
-    if bp > 0.0:
-        pnl_pct = ((float(close_price_usd) - bp) / bp) * 100.0
-    else:
-        pnl_pct = 0.0
+    remaining_qty = int(getattr(pos, "qty_lamports", 0) or 0)
+    totals = summarize_trade(
+        entry_qty=getattr(pos, "entry_qty", 0),
+        remaining_qty=remaining_qty,
+        buy_price_usd=getattr(pos, "buy_price_usd", 0.0),
+        entry_notional_usd=getattr(pos, "entry_notional_usd", None),
+        realized_qty=getattr(pos, "realized_qty", 0),
+        realized_proceeds_usd=getattr(pos, "realized_proceeds_usd", 0.0),
+        close_price_usd=close_price_usd,
+    )
 
     # aplica cambios
     pos.close_price_usd = float(close_price_usd)
-    pos.pnl_pct = float(pnl_pct)
     pos.exit_reason = str(exit_reason)
     pos.closed_at = closed_at
     pos.closed = True
+    if hasattr(pos, "entry_qty"):
+        pos.entry_qty = totals.entry_qty
+    if hasattr(pos, "realized_cost_usd"):
+        pos.realized_cost_usd = totals.realized_cost_usd
+    if hasattr(pos, "realized_pnl_usd"):
+        pos.realized_pnl_usd = totals.realized_pnl_usd
+    if hasattr(pos, "effective_exit_price_usd"):
+        pos.effective_exit_price_usd = totals.effective_exit_price_usd
+    if hasattr(pos, "total_pnl_usd"):
+        pos.total_pnl_usd = totals.total_pnl_usd
+    if hasattr(pos, "total_pnl_pct"):
+        pos.total_pnl_pct = totals.total_pnl_pct
     if price_source_close is not None and hasattr(pos, "price_source_close"):
         pos.price_source_close = price_source_close  # type: ignore[attr-defined]
 
-    # al cerrar, cantidad remanente a 0 (si existe el campo)
     if hasattr(pos, "qty_lamports"):
         pos.qty_lamports = 0
 

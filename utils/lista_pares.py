@@ -20,14 +20,24 @@ import logging
 import os
 import pathlib
 import time
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
+
+from utils.runtime_telemetry import log_queue_add, log_queue_drop, log_queue_requeue
 
 # ─── configuración ────────────────────────────────────────────
 INCOMPLETE_RETRIES = int(os.getenv("INCOMPLETE_RETRIES", "3"))  # ← nivel rápido (referencia)
 MAX_RETRIES        = int(os.getenv("MAX_RETRIES", "5"))         # ← re-queues permitidos
 MAX_QUEUE_SIZE     = int(os.getenv("MAX_QUEUE_SIZE", "300"))
 BACKOFF_SEC        = 120          # espera tras cada fallo (s)
-MAX_INCOMPLETE_SEC = 600          # 10 min sin datos → drop
+MAX_INCOMPLETE_SEC = int(os.getenv("MAX_INCOMPLETE_SEC", "600"))  # 10 min sin datos → drop
+NON_DECREMENT_REASON_PREFIXES = tuple(
+    prefix.strip()
+    for prefix in os.getenv(
+        "QUEUE_NON_DECREMENT_REASON_PREFIXES",
+        "strategy:confirm_snapshots,live_profit_gate:",
+    ).split(",")
+    if prefix.strip()
+)
 
 BASE_DIR   = pathlib.Path(__file__).resolve().parent.parent / "data"
 CACHE_FILE = BASE_DIR / "pares_procesados.txt"
@@ -56,12 +66,12 @@ def _persist(addr: str) -> None:
         log.warning("[lista_pares] No se pudo escribir cache: %s", exc)
 
 # ─── API pública ───────────────────────────────────────────────
-def agregar_si_nuevo(addr: str, retries: int | None = None) -> None:
+def agregar_si_nuevo(addr: str, retries: int | None = None) -> bool:
     """
     Mete *addr* en la cola si nunca se procesó y hay espacio.
     """
     if addr in _processed or addr in _pair_watch:
-        return
+        return False
 
     # cola llena → descarta más antiguo
     if len(_pair_watch) >= MAX_QUEUE_SIZE:
@@ -70,48 +80,94 @@ def agregar_si_nuevo(addr: str, retries: int | None = None) -> None:
             key=lambda it: (it[1]["retries"], it[1]["first_seen"]),
         )[0]
         log.debug("[lista_pares] Cola llena → drop %s", old[:6])
+        meta_old = _pair_watch.get(old) or {}
+        log_queue_drop(
+            old,
+            reason="queue_full",
+            attempts=int(meta_old.get("attempts", 0) or 0),
+            retries_left=int(meta_old.get("retries", 0) or 0),
+            first_seen_epoch_s=float(meta_old.get("first_seen", time.time()) or time.time()),
+        )
         eliminar_par(old)
 
     now = time.time()
+    retries_eff = retries if retries is not None else MAX_RETRIES
     _pair_watch[addr] = {
-        "retries": retries if retries is not None else MAX_RETRIES,
+        "retries": retries_eff,
         "first_seen": now,
         "next_try": now,      # inmediato
         "attempts": 0,        # veces re-encolado
         "reason": "",
     }
+    log_queue_add(addr, first_seen_epoch_s=now, retries=int(retries_eff))
+    return True
 
 def obtener_pares() -> list[str]:
     """Devuelve los pares listos para procesar (sin cooldown)."""
     now = time.time()
     return [a for a, meta in _pair_watch.items() if meta["next_try"] <= now]
 
-def requeue(addr: str, *, reason: str = "", backoff: int | None = None) -> None:
+
+def _preserve_retry_budget(reason: str) -> bool:
+    """Temporary waits should not consume the scarce queue retry budget."""
+    normalized = str(reason or "").strip()
+    return bool(normalized) and any(
+        normalized.startswith(prefix) for prefix in NON_DECREMENT_REASON_PREFIXES
+    )
+
+
+def requeue(addr: str, *, reason: str = "", backoff: int | None = None) -> bool:
     """
     Re-encola *addr* aplicando back-off y reduciendo `retries`.
     """
     meta = _pair_watch.get(addr)
     if not meta:
-        return
+        return False
 
-    meta["retries"]  -= 1
+    preserve_budget = _preserve_retry_budget(reason)
+    if not preserve_budget:
+        meta["retries"]  -= 1
     meta["attempts"]  = int(meta.get("attempts", 0)) + 1
     meta["reason"]    = reason or meta.get("reason", "")
     delay             = backoff or BACKOFF_SEC
     meta["next_try"]  = time.time() + delay
+
+    log_queue_requeue(
+        addr,
+        reason=str(meta["reason"] or ""),
+        attempts=int(meta.get("attempts", 0) or 0),
+        retries_left=int(meta.get("retries", 0) or 0),
+        backoff_s=int(delay),
+        first_seen_epoch_s=float(meta.get("first_seen", time.time()) or time.time()),
+    )
 
     log.debug("↩️  %s re-queue (%s, delay=%ss)", addr[:4], meta["reason"], delay)
 
     # sin re-queues restantes
     if meta["retries"] <= 0:
         log.debug("[lista_pares] Agota re-queues %s", addr[:6])
+        log_queue_drop(
+            addr,
+            reason="retries_exhausted",
+            attempts=int(meta.get("attempts", 0) or 0),
+            retries_left=int(meta.get("retries", 0) or 0),
+            first_seen_epoch_s=float(meta.get("first_seen", time.time()) or time.time()),
+        )
         eliminar_par(addr)
-        return
+        return True
 
     # timeout de incompleto
     if time.time() - meta["first_seen"] > MAX_INCOMPLETE_SEC:
         log.debug("[lista_pares] Timeout incompleto %s", addr[:6])
+        log_queue_drop(
+            addr,
+            reason="incomplete_timeout",
+            attempts=int(meta.get("attempts", 0) or 0),
+            retries_left=int(meta.get("retries", 0) or 0),
+            first_seen_epoch_s=float(meta.get("first_seen", time.time()) or time.time()),
+        )
         eliminar_par(addr)
+    return True
 
 def eliminar_par(addr: str) -> None:
     """Saca el mint de la cola y lo marca como procesado definitivamente."""
@@ -144,3 +200,50 @@ def stats() -> tuple[int, int, int]:
     requeued = sum(1 for m in _pair_watch.values() if m["attempts"] > 0)
     cooldown = sum(1 for m in _pair_watch.values() if m["next_try"] > now)
     return len(_pair_watch), requeued, cooldown
+
+
+def oldest_first_seen() -> float | None:
+    if not _pair_watch:
+        return None
+    try:
+        return min(float(meta.get("first_seen", 0.0) or 0.0) for meta in _pair_watch.values())
+    except Exception:
+        return None
+
+
+def snapshot(limit: int | None = None) -> list[dict[str, Any]]:
+    now = time.time()
+    items: list[dict[str, Any]] = []
+    for address, meta in _pair_watch.items():
+        first_seen = float(meta.get("first_seen", now) or now)
+        next_try = float(meta.get("next_try", now) or now)
+        attempts = int(meta.get("attempts", 0) or 0)
+        if next_try > now:
+            status = "cooldown"
+        elif attempts > 0:
+            status = "requeued"
+        else:
+            status = "pending"
+
+        items.append(
+            {
+                "address": address,
+                "status": status,
+                "attempts": attempts,
+                "retries_left": int(meta.get("retries", 0) or 0),
+                "first_seen": first_seen,
+                "next_try": next_try,
+                "reason": str(meta.get("reason", "") or ""),
+                "symbol": meta.get("symbol"),
+                "discovered_via": meta.get("discovered_via"),
+                "entry_regime": meta.get("entry_regime"),
+                "dex_id": meta.get("dex_id"),
+                "discovered_at": meta.get("discovered_at"),
+                "queue_age_minutes": max(0.0, (now - first_seen) / 60.0),
+            }
+        )
+
+    items.sort(key=lambda item: (float(item.get("first_seen", now) or now), str(item.get("address") or "")))
+    if limit is not None and int(limit) > 0:
+        return items[: int(limit)]
+    return items

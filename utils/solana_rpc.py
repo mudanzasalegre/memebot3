@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, Dict, Optional
 
 import aiohttp
@@ -21,7 +22,35 @@ from utils.simple_cache import cache_get, cache_set
 log = logging.getLogger("solana_rpc")
 
 # ───────── parámetros de red / retries ─────────
-_RPC_URL          = CFG.RPC_URL
+def _rpc_urls() -> list[str]:
+    primary = str(getattr(CFG, "RPC_URL", "") or "").strip()
+    private = str(getattr(CFG, "HELIUS_RPC_URL", "") or "").strip()
+    explicit = str(os.getenv("SOL_RPC_URL", "") or "").strip()
+    extra = [str(part).strip() for part in tuple(getattr(CFG, "SOL_RPC_FALLBACKS", ()) or ()) if str(part).strip()]
+    use_private_first = bool(getattr(CFG, "USE_PRIVATE_RPC_FIRST", True))
+
+    ordered: list[str] = []
+    if use_private_first and private:
+        ordered.append(private)
+    if explicit:
+        ordered.append(explicit)
+    if primary:
+        ordered.append(primary)
+    if private and private not in ordered:
+        ordered.append(private)
+    ordered.extend(extra)
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for url in ordered:
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        out.append(url)
+    return out or ["https://api.mainnet-beta.solana.com"]
+
+
+_RPC_URLS         = _rpc_urls()
 _TIMEOUT          = 8           # seg.
 _MAX_TRIES        = 3
 _BACKOFF_START    = 1           # seg.
@@ -33,28 +62,29 @@ _BALANCE_TTL      = 15          # seg.
 # ───────── RPC genérico con back-off ──────────
 async def _rpc(method: str, params: list[Any]) -> Optional[Dict]:
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
-    backoff = _BACKOFF_START
 
-    for attempt in range(_MAX_TRIES):
-        try:
-            async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=_TIMEOUT)
-            ) as s:
-                async with s.post(_RPC_URL, json=payload) as r:
-                    if r.status in {429, 500, 502, 503, 504}:
-                        raise aiohttp.ClientResponseError(
-                            r.request_info, (), status=r.status
-                        )
-                    if r.status != 200:
-                        log.debug("[RPC] %s %s", method, await r.text())
-                        return None
-                    data = await r.json()
-                    return data.get("result")
-        except Exception as exc:  # noqa: BLE001
-            log.debug("[RPC] %s (%s/%s) → %s", method, attempt + 1, _MAX_TRIES, exc)
-            if attempt < _MAX_TRIES - 1:
-                await asyncio.sleep(backoff)
-                backoff *= 2
+    for rpc_url in _RPC_URLS:
+        backoff = _BACKOFF_START
+        for attempt in range(_MAX_TRIES):
+            try:
+                async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=_TIMEOUT)
+                ) as s:
+                    async with s.post(rpc_url, json=payload) as r:
+                        if r.status in {429, 500, 502, 503, 504}:
+                            raise aiohttp.ClientResponseError(
+                                r.request_info, (), status=r.status
+                            )
+                        if r.status != 200:
+                            log.debug("[RPC] %s %s %s", method, rpc_url, await r.text())
+                            break
+                        data = await r.json()
+                        return data.get("result")
+            except Exception as exc:  # noqa: BLE001
+                log.debug("[RPC] %s %s (%s/%s) → %s", method, rpc_url, attempt + 1, _MAX_TRIES, exc)
+                if attempt < _MAX_TRIES - 1:
+                    await asyncio.sleep(backoff)
+                    backoff *= 2
     return None
 
 
