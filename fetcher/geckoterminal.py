@@ -90,11 +90,11 @@ class GTData(TypedDict, total=False):
 def _throttle_internal() -> None:
     """Pausa si no ha pasado el intervalo mínimo desde la última llamada."""
     global _last_call_ts
-    now = time.monotonic()
+    now = time.time()
     delta = now - _last_call_ts
     if delta < _min_interval_s:
         time.sleep(_min_interval_s - delta)
-    _last_call_ts = time.monotonic()
+    _last_call_ts = time.time()
 
 
 def _cooldown_remaining() -> float:
@@ -240,7 +240,10 @@ def _normalize_attributes(addr: str, attrs: dict) -> Dict[str, Any]:
         "symbol":         symbol,
         "created_at":     created_at,
         "price_usd":      _price_f if _price_f is not None else np.nan,
+        "fdv_usd":        _mcap_f  if _mcap_f  is not None else np.nan,
+        "total_reserve_in_usd": _liq_f if _liq_f is not None else np.nan,
         "liquidity_usd":  _liq_f   if _liq_f   is not None else np.nan,
+        "volume_usd_24h": _vol_f   if _vol_f   is not None else np.nan,
         "volume_24h_usd": _vol_f   if _vol_f   is not None else np.nan,
         "market_cap_usd": _mcap_f  if _mcap_f  is not None else np.nan,
     }
@@ -263,15 +266,18 @@ def get_token_data(
     # Normaliza el mint (quita 'pump', valida longitud/no-0x)
     addr = normalize_mint(address)
     if not addr:
-        logger.warning("[GT] address inválido (no mint SPL): %r", address)
-        return None
+        if str(address or "").strip().lower().startswith("0x"):
+            addr = str(address).strip()
+        else:
+            logger.warning("[GT] address inválido (no mint SPL): %r", address)
+            return None
 
     ck = f"gt:{network}:{addr}"
+    _wait_for_global_cooldown_sync()
     hit = cache_get(ck)
     if hit is not None:
         return None if hit is _SENTINEL_NIL else hit
 
-    _wait_for_global_cooldown_sync()
     _throttle_internal()
     _acquire_sync()
 
@@ -328,8 +334,11 @@ async def get_token_data_async(
     # Normaliza el mint (quita 'pump', valida longitud/no-0x)
     addr = normalize_mint(address)
     if not addr:
-        logger.warning("[GT] address inválido (no mint SPL): %r", address)
-        return None
+        if str(address or "").strip().lower().startswith("0x"):
+            addr = str(address).strip()
+        else:
+            logger.warning("[GT] address inválido (no mint SPL): %r", address)
+            return None
 
     ck = f"gt:{network}:{addr}"
     hit = cache_get(ck)

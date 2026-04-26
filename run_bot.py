@@ -151,6 +151,9 @@ import analytics.sizing as entry_sizing  # noqa: E402
 import analytics.exit_policy as exit_policy  # noqa: E402
 import analytics.strategy_runtime as strategy_runtime  # noqa: E402
 import analytics.research_runtime as research_runtime  # noqa: E402
+from analytics.ml_policy import decide_ml_action  # noqa: E402
+from analytics.risk_predict import predict_risk  # noqa: E402
+from analytics.ev_predict import predict_ev  # noqa: E402
 from analytics.post_partial_experiment import refresh_snapshot as refresh_post_partial_experiment_snapshot  # noqa: E402
 from analytics.reporting import (  # noqa: E402
     build_baseline_snapshot,
@@ -185,6 +188,7 @@ from utils.runtime_telemetry import (  # noqa: E402
     log_buy_event,
     log_execution_event,
     log_ml_decision_event,
+    log_ml_policy_decision_event,
     log_regime_health_event,
     log_strategy_decision_event,
 )
@@ -524,7 +528,7 @@ _apply_ai_threshold_override()
 
 def _ml_gate_state() -> dict[str, object]:
     raw_mode = str(getattr(CFG, "ML_GATE_MODE", "legacy") or "legacy").strip().lower()
-    if raw_mode not in {"legacy", "shadow", "enforce", "off"}:
+    if raw_mode not in {"legacy", "shadow", "enforce", "off", "lane_aware", "sizing_only", "risk_veto_only"}:
         raw_mode = "legacy"
 
     status = model_runtime_status()
@@ -537,6 +541,8 @@ def _ml_gate_state() -> dict[str, object]:
         enforce = False
     elif raw_mode == "enforce":
         enforce = activation_ready
+    elif raw_mode in {"lane_aware", "sizing_only", "risk_veto_only"}:
+        enforce = False
     else:
         enforce = True
 
@@ -820,6 +826,86 @@ _PAPER_COLD_START_SHADOW_PROBE_SIZE_MULTIPLIER = max(
     0.0,
     float(getattr(CFG, "PAPER_COLD_START_SHADOW_PROBE_SIZE_MULTIPLIER", 0.10) or 0.10),
 )
+_PAPER_AGGRESSIVE_TRADING_ENABLED = bool(getattr(CFG, "PAPER_AGGRESSIVE_TRADING_ENABLED", False))
+_PAPER_AGGRESSIVE_MIN_AGE_MIN = max(
+    0.0,
+    float(getattr(CFG, "PAPER_AGGRESSIVE_MIN_AGE_MIN", 0.05) or 0.0),
+)
+_PAPER_AGGRESSIVE_MIN_LIQUIDITY_USD = max(
+    0.0,
+    float(getattr(CFG, "PAPER_AGGRESSIVE_MIN_LIQUIDITY_USD", 1_500.0) or 1_500.0),
+)
+_PAPER_AGGRESSIVE_MIN_MARKET_CAP_USD = max(
+    0.0,
+    float(getattr(CFG, "PAPER_AGGRESSIVE_MIN_MARKET_CAP_USD", 2_000.0) or 2_000.0),
+)
+_PAPER_AGGRESSIVE_MAX_MARKET_CAP_USD = max(
+    0.0,
+    float(getattr(CFG, "PAPER_AGGRESSIVE_MAX_MARKET_CAP_USD", 500_000.0) or 500_000.0),
+)
+_PAPER_AGGRESSIVE_MIN_SCORE_TOTAL = max(
+    0,
+    int(getattr(CFG, "PAPER_AGGRESSIVE_MIN_SCORE_TOTAL", 30) or 30),
+)
+_PAPER_AGGRESSIVE_MIN_RANK_SCORE = max(
+    0.0,
+    float(getattr(CFG, "PAPER_AGGRESSIVE_MIN_RANK_SCORE", 35.0) or 35.0),
+)
+_PAPER_AGGRESSIVE_MIN_TXNS_5M = max(
+    0,
+    int(getattr(CFG, "PAPER_AGGRESSIVE_MIN_TXNS_5M", 3) or 3),
+)
+_PAPER_AGGRESSIVE_MAX_SNAPSHOT_MISSING_FIELDS = max(
+    0,
+    int(getattr(CFG, "PAPER_AGGRESSIVE_MAX_SNAPSHOT_MISSING_FIELDS", 5) or 5),
+)
+_PAPER_AGGRESSIVE_MAX_PRICE_IMPACT_PCT = max(
+    0.0,
+    float(getattr(CFG, "PAPER_AGGRESSIVE_MAX_PRICE_IMPACT_PCT", 20.0) or 20.0),
+)
+_PAPER_AGGRESSIVE_REQUIRE_ROUTE = bool(getattr(CFG, "PAPER_AGGRESSIVE_REQUIRE_ROUTE", True))
+_PAPER_AGGRESSIVE_REQUIRE_PRICE = bool(getattr(CFG, "PAPER_AGGRESSIVE_REQUIRE_PRICE", True))
+_PAPER_AGGRESSIVE_BUY_RESEARCH_LANES = bool(getattr(CFG, "PAPER_AGGRESSIVE_BUY_RESEARCH_LANES", True))
+_LIVE_AGGRESSIVE_TRADING_ENABLED = bool(getattr(CFG, "LIVE_AGGRESSIVE_TRADING_ENABLED", False))
+_LIVE_AGGRESSIVE_MIN_AGE_MIN = max(
+    0.0,
+    float(getattr(CFG, "LIVE_AGGRESSIVE_MIN_AGE_MIN", 0.05) or 0.0),
+)
+_LIVE_AGGRESSIVE_MIN_LIQUIDITY_USD = max(
+    0.0,
+    float(getattr(CFG, "LIVE_AGGRESSIVE_MIN_LIQUIDITY_USD", 1_500.0) or 1_500.0),
+)
+_LIVE_AGGRESSIVE_MIN_MARKET_CAP_USD = max(
+    0.0,
+    float(getattr(CFG, "LIVE_AGGRESSIVE_MIN_MARKET_CAP_USD", 2_000.0) or 2_000.0),
+)
+_LIVE_AGGRESSIVE_MAX_MARKET_CAP_USD = max(
+    0.0,
+    float(getattr(CFG, "LIVE_AGGRESSIVE_MAX_MARKET_CAP_USD", 500_000.0) or 500_000.0),
+)
+_LIVE_AGGRESSIVE_MIN_SCORE_TOTAL = max(
+    0,
+    int(getattr(CFG, "LIVE_AGGRESSIVE_MIN_SCORE_TOTAL", 30) or 30),
+)
+_LIVE_AGGRESSIVE_MIN_RANK_SCORE = max(
+    0.0,
+    float(getattr(CFG, "LIVE_AGGRESSIVE_MIN_RANK_SCORE", 35.0) or 35.0),
+)
+_LIVE_AGGRESSIVE_MIN_TXNS_5M = max(
+    0,
+    int(getattr(CFG, "LIVE_AGGRESSIVE_MIN_TXNS_5M", 3) or 3),
+)
+_LIVE_AGGRESSIVE_MAX_SNAPSHOT_MISSING_FIELDS = max(
+    0,
+    int(getattr(CFG, "LIVE_AGGRESSIVE_MAX_SNAPSHOT_MISSING_FIELDS", 5) or 5),
+)
+_LIVE_AGGRESSIVE_MAX_PRICE_IMPACT_PCT = max(
+    0.0,
+    float(getattr(CFG, "LIVE_AGGRESSIVE_MAX_PRICE_IMPACT_PCT", 20.0) or 20.0),
+)
+_LIVE_AGGRESSIVE_REQUIRE_ROUTE = bool(getattr(CFG, "LIVE_AGGRESSIVE_REQUIRE_ROUTE", True))
+_LIVE_AGGRESSIVE_REQUIRE_PRICE = bool(getattr(CFG, "LIVE_AGGRESSIVE_REQUIRE_PRICE", True))
+_LIVE_AGGRESSIVE_BUY_RESEARCH_LANES = bool(getattr(CFG, "LIVE_AGGRESSIVE_BUY_RESEARCH_LANES", True))
 _PUMP_EARLY_SNIPER_ENABLED = bool(getattr(CFG, "PUMP_EARLY_SNIPER_ENABLED", True))
 _PUMP_EARLY_SNIPER_MODE = str(getattr(CFG, "PUMP_EARLY_SNIPER_MODE", "canary_aggressive") or "canary_aggressive").strip().lower()
 _PUMP_EARLY_SNIPER_MIN_AGE_MIN = max(0.0, float(getattr(CFG, "PUMP_EARLY_SNIPER_MIN_AGE_MIN", 3.0) or 3.0))
@@ -889,11 +975,11 @@ _PUMP_EARLY_PROFIT_MAX_PRICE_IMPACT_PCT = max(
 )
 _PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD = max(
     0.0,
-    float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD", 25_000.0) or 25_000.0),
+    float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD", 0.0) or 0.0),
 )
 _PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD = max(
     0.0,
-    float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD", 50_000.0) or 50_000.0),
+    float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD", 0.0) or 0.0),
 )
 
 
@@ -914,9 +1000,31 @@ def _parse_float_ranges(raw: object) -> tuple[tuple[float, float], ...]:
 
 
 _PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES = _parse_float_ranges(
-    getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES", "0:25,50:100")
+    getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES", "25:999")
 )
-_PUMP_EARLY_METEOR_PRIME_ENABLED = bool(getattr(CFG, "PUMP_EARLY_METEOR_PRIME_ENABLED", True))
+_PUMP_EARLY_AGGRESSIVE_RESEARCH_GUARD_ENABLED = bool(
+    getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_GUARD_ENABLED", True)
+)
+_PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_PRICE5M_RANGES = _parse_float_ranges(
+    getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_PRICE5M_RANGES", "25:999")
+)
+_PUMP_EARLY_AGGRESSIVE_RESEARCH_DEX_ALLOWLIST = {
+    item.strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+    for item in str(getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_DEX_ALLOWLIST", "pumpswap") or "pumpswap").split(",")
+    if item.strip()
+}
+_PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_HIGH_MCAP_USD = max(
+    0.0,
+    float(getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_HIGH_MCAP_USD", 100_000.0) or 100_000.0),
+)
+_PUMP_EARLY_AGGRESSIVE_RESEARCH_HIGH_MCAP_ALLOW_MIN_TXNS_5M = max(
+    0,
+    int(getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_HIGH_MCAP_ALLOW_MIN_TXNS_5M", 1_200) or 1_200),
+)
+_PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_PROXY = bool(
+    getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_PROXY", True)
+)
+_PUMP_EARLY_METEOR_PRIME_ENABLED = bool(getattr(CFG, "PUMP_EARLY_METEOR_PRIME_ENABLED", False))
 _PUMP_EARLY_METEOR_PRIME_MIN_LIQUIDITY_USD = max(
     0.0,
     float(getattr(CFG, "PUMP_EARLY_METEOR_PRIME_MIN_LIQUIDITY_USD", 4_000.0) or 4_000.0),
@@ -963,6 +1071,65 @@ _PUMP_EARLY_METEOR_PRIME_MIN_VOLUME_USD_24H = max(
     0.0,
     float(getattr(CFG, "PUMP_EARLY_METEOR_PRIME_MIN_VOLUME_USD_24H", 8_000.0) or 8_000.0),
 )
+_PUMP_EARLY_BREAKOUT_PROBE_ENABLED = bool(getattr(CFG, "PUMP_EARLY_BREAKOUT_PROBE_ENABLED", True))
+_PUMP_EARLY_BREAKOUT_MIN_LIQUIDITY_USD = max(
+    0.0,
+    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_LIQUIDITY_USD", 5_000.0) or 5_000.0),
+)
+_PUMP_EARLY_BREAKOUT_MAX_LIQUIDITY_USD = max(
+    0.0,
+    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_LIQUIDITY_USD", 30_000.0) or 30_000.0),
+)
+_PUMP_EARLY_BREAKOUT_MIN_MARKET_CAP_USD = max(
+    0.0,
+    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_MARKET_CAP_USD", 5_000.0) or 5_000.0),
+)
+_PUMP_EARLY_BREAKOUT_MAX_MARKET_CAP_USD = max(
+    0.0,
+    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_MARKET_CAP_USD", 60_000.0) or 60_000.0),
+)
+_PUMP_EARLY_BREAKOUT_MIN_PRICE_PCT_5M = float(
+    getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_PRICE_PCT_5M", 25.0) or 25.0
+)
+_PUMP_EARLY_BREAKOUT_MAX_PRICE_PCT_5M = float(
+    getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_PRICE_PCT_5M", 120.0) or 120.0
+)
+_PUMP_EARLY_BREAKOUT_MIN_TXNS_5M = max(
+    0,
+    int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_TXNS_5M", 300) or 300),
+)
+_PUMP_EARLY_BREAKOUT_MIN_VOLUME_USD_24H = max(
+    0.0,
+    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_VOLUME_USD_24H", 20_000.0) or 20_000.0),
+)
+_PUMP_EARLY_BREAKOUT_MIN_SCORE_TOTAL = max(
+    0,
+    int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_SCORE_TOTAL", 35) or 35),
+)
+_PUMP_EARLY_BREAKOUT_MIN_RANK_SCORE = max(
+    0.0,
+    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_RANK_SCORE", 50.0) or 50.0),
+)
+_PUMP_EARLY_BREAKOUT_MIN_AGE_MIN = max(
+    0.0,
+    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_AGE_MIN", 2.0) or 2.0),
+)
+_PUMP_EARLY_BREAKOUT_MAX_AGE_MIN = max(
+    0.0,
+    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_AGE_MIN", 15.0) or 15.0),
+)
+_PUMP_EARLY_BREAKOUT_MAX_PRICE_IMPACT_PCT = max(
+    0.0,
+    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_PRICE_IMPACT_PCT", 8.0) or 8.0),
+)
+_PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER = max(
+    0,
+    int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1) or 1),
+)
+_PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY = max(
+    0,
+    int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY", 1) or 1),
+)
 _PUMP_EARLY_PROFIT_SHAPE_GUARD_ENABLED = bool(
     getattr(CFG, "PUMP_EARLY_PROFIT_SHAPE_GUARD_ENABLED", True)
 )
@@ -971,7 +1138,7 @@ _PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE = bool(
 )
 _PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD = max(
     0.0,
-    float(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD", 500_000.0) or 500_000.0),
+    float(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD", 200_000.0) or 200_000.0),
 )
 _PUMP_EARLY_PROFIT_DEEP_NEG_PRICE5M_PCT = float(
     getattr(CFG, "PUMP_EARLY_PROFIT_DEEP_NEG_PRICE5M_PCT", -40.0)
@@ -1119,7 +1286,10 @@ def _metric_float(token: dict, *keys: str) -> float:
         if raw is None:
             continue
         try:
-            return float(raw)
+            value = float(raw)
+            if value != value or value == float("inf") or value == float("-inf"):
+                continue
+            return value
         except Exception:
             continue
     return 0.0
@@ -1131,7 +1301,10 @@ def _metric_optional_float(token: dict, *keys: str) -> float | None:
         if raw is None or raw == "":
             continue
         try:
-            return float(raw)
+            value = float(raw)
+            if value != value or value == float("inf") or value == float("-inf"):
+                continue
+            return value
         except Exception:
             continue
     return None
@@ -1212,7 +1385,7 @@ def _sniper_rank_score(rank_info: dict[str, object] | None) -> float:
 def _evaluate_sniper_core(token: dict, rank_score: float) -> list[str]:
     failures: list[str] = []
     route_required = bool(token.get("require_jupiter_for_buy", True))
-    has_route = bool(int(token.get("has_jupiter_route") or 0))
+    has_route = bool(_metric_int(token, "has_jupiter_route"))
     if route_required and not has_route:
         failures.append("route_required")
 
@@ -1246,7 +1419,7 @@ def _evaluate_sniper_core(token: dict, rank_score: float) -> list[str]:
 def _evaluate_sniper_micro(token: dict, rank_score: float) -> list[str]:
     failures: list[str] = []
     route_required = bool(token.get("require_jupiter_for_buy", True))
-    has_route = bool(int(token.get("has_jupiter_route") or 0))
+    has_route = bool(_metric_int(token, "has_jupiter_route"))
     if route_required and not has_route:
         failures.append("route_required")
 
@@ -1320,17 +1493,7 @@ def _gate_dex_id(token: dict) -> str:
 
 
 def _is_liquidity_proxy(token: dict) -> bool:
-    try:
-        if int(token.get("liquidity_usd_is_proxy") or 0) != 0:
-            return True
-    except Exception:
-        pass
-    try:
-        if int(token.get("sniper_liquidity_proxy") or 0) != 0:
-            return True
-    except Exception:
-        pass
-    return False
+    return bool(_metric_int(token, "liquidity_usd_is_proxy") or _metric_int(token, "sniper_liquidity_proxy"))
 
 
 def _mcap_bucket(mcap: float) -> str:
@@ -1372,6 +1535,41 @@ def _price5m_blocked_bucket(value: float | None) -> str | None:
     return None
 
 
+def _aggressive_research_guard_failures(token: dict) -> list[str]:
+    if not _PUMP_EARLY_AGGRESSIVE_RESEARCH_GUARD_ENABLED:
+        return []
+    failures: list[str] = []
+    price_pct_5m = _metric_optional_float(token, "price_pct_5m")
+    mcap = _metric_float(token, "market_cap_usd")
+    txns_5m = _metric_int(token, "txns_last_5m")
+    dex_id = _gate_dex_id(token)
+
+    if _PUMP_EARLY_AGGRESSIVE_RESEARCH_DEX_ALLOWLIST and dex_id not in _PUMP_EARLY_AGGRESSIVE_RESEARCH_DEX_ALLOWLIST:
+        failures.append(f"research_dex!={','.join(sorted(_PUMP_EARLY_AGGRESSIVE_RESEARCH_DEX_ALLOWLIST))}")
+
+    if _PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_PROXY and _is_liquidity_proxy(token):
+        failures.append("research_liq_proxy")
+
+    if price_pct_5m is None:
+        failures.append("research_price5m_missing")
+    else:
+        for lo, hi in _PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_PRICE5M_RANGES:
+            if lo <= float(price_pct_5m) <= hi:
+                failures.append(f"research_price5m_{lo:g}_{hi:g}")
+                break
+
+    high_mcap_block = _PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_HIGH_MCAP_USD
+    if high_mcap_block > 0 and mcap >= high_mcap_block:
+        high_support_momentum = (
+            price_pct_5m is not None
+            and 25.0 <= float(price_pct_5m) < 50.0
+            and txns_5m >= _PUMP_EARLY_AGGRESSIVE_RESEARCH_HIGH_MCAP_ALLOW_MIN_TXNS_5M
+        )
+        if not high_support_momentum:
+            failures.append(f"research_mcap>={high_mcap_block:g}")
+    return failures
+
+
 def _meteor_prime_failures(token: dict) -> list[str]:
     failures: list[str] = []
     price_pct_5m = _metric_optional_float(token, "price_pct_5m")
@@ -1383,7 +1581,7 @@ def _meteor_prime_failures(token: dict) -> list[str]:
 
     if _gate_dex_id(token) != "pumpswap":
         failures.append("meteor_dex_not_pumpswap")
-    if not bool(int(token.get("has_jupiter_route") or 0)):
+    if not bool(_metric_int(token, "has_jupiter_route")):
         failures.append("meteor_route_required")
     if _is_liquidity_proxy(token):
         failures.append("meteor_liq_proxy")
@@ -1410,6 +1608,59 @@ def _meteor_prime_failures(token: dict) -> list[str]:
     return failures
 
 
+def _breakout_probe_failures(token: dict, rank_score: float) -> list[str]:
+    failures: list[str] = []
+    price_pct_5m = _metric_optional_float(token, "price_pct_5m")
+    txns_5m = float(_metric_int(token, "txns_last_5m"))
+    liquidity = _metric_float(token, "liquidity_usd")
+    mcap = _metric_float(token, "market_cap_usd")
+    volume_candidates = [
+        value
+        for value in (
+            _metric_optional_float(token, "volume_24h_usd"),
+            _metric_optional_float(token, "volume_usd_24h"),
+        )
+        if value is not None and value > 0
+    ]
+    volume_24h = max(volume_candidates) if volume_candidates else None
+    impact = max(0.0, _metric_float(token, "price_impact_pct"))
+    age_min = _candidate_age_minutes(token)
+
+    if _gate_dex_id(token) != "pumpswap":
+        failures.append("breakout_dex_not_pumpswap")
+    if not bool(_metric_int(token, "has_jupiter_route")):
+        failures.append("breakout_route_required")
+    if _is_liquidity_proxy(token):
+        failures.append("breakout_liq_proxy")
+    if _metric_float(token, "price_usd") <= 0:
+        failures.append("breakout_price_missing")
+    _add_min_failure(failures, "breakout_liq", liquidity, _PUMP_EARLY_BREAKOUT_MIN_LIQUIDITY_USD)
+    _add_max_failure(failures, "breakout_liq", liquidity, _PUMP_EARLY_BREAKOUT_MAX_LIQUIDITY_USD)
+    _add_min_failure(failures, "breakout_mcap", mcap, _PUMP_EARLY_BREAKOUT_MIN_MARKET_CAP_USD)
+    _add_max_failure(failures, "breakout_mcap", mcap, _PUMP_EARLY_BREAKOUT_MAX_MARKET_CAP_USD)
+    if price_pct_5m is None:
+        failures.append("breakout_price5m_missing")
+    else:
+        _add_min_failure(failures, "breakout_price5m", price_pct_5m, _PUMP_EARLY_BREAKOUT_MIN_PRICE_PCT_5M)
+        _add_max_failure(failures, "breakout_price5m", price_pct_5m, _PUMP_EARLY_BREAKOUT_MAX_PRICE_PCT_5M)
+    _add_min_failure(failures, "breakout_txns5m", txns_5m, float(_PUMP_EARLY_BREAKOUT_MIN_TXNS_5M))
+    if volume_24h is None:
+        failures.append("breakout_vol_missing")
+    else:
+        _add_min_failure(failures, "breakout_vol", volume_24h, _PUMP_EARLY_BREAKOUT_MIN_VOLUME_USD_24H)
+    _add_min_failure(
+        failures,
+        "breakout_score",
+        float(_metric_int(token, "score_total")),
+        float(_PUMP_EARLY_BREAKOUT_MIN_SCORE_TOTAL),
+    )
+    _add_min_failure(failures, "breakout_rank", rank_score, _PUMP_EARLY_BREAKOUT_MIN_RANK_SCORE)
+    _add_min_failure(failures, "breakout_age", age_min, _PUMP_EARLY_BREAKOUT_MIN_AGE_MIN)
+    _add_max_failure(failures, "breakout_age", age_min, _PUMP_EARLY_BREAKOUT_MAX_AGE_MIN)
+    _add_max_failure(failures, "breakout_impact", impact, _PUMP_EARLY_BREAKOUT_MAX_PRICE_IMPACT_PCT)
+    return failures
+
+
 def _profit_shape_guard_failures(token: dict, *, meteor_prime: bool) -> list[str]:
     if not _PUMP_EARLY_PROFIT_SHAPE_GUARD_ENABLED or meteor_prime:
         return []
@@ -1418,7 +1669,15 @@ def _profit_shape_guard_failures(token: dict, *, meteor_prime: bool) -> list[str
     txns_5m = _metric_int(token, "txns_last_5m")
     liquidity = _metric_float(token, "liquidity_usd")
     mcap = _metric_float(token, "market_cap_usd")
-    volume_24h = max(_metric_float(token, "volume_24h_usd"), _metric_float(token, "volume_usd_24h"))
+    volume_candidates = [
+        value
+        for value in (
+            _metric_optional_float(token, "volume_24h_usd"),
+            _metric_optional_float(token, "volume_usd_24h"),
+        )
+        if value is not None and value > 0
+    ]
+    volume_24h = max(volume_candidates) if volume_candidates else None
 
     if _PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD > 0 and mcap >= _PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD:
         failures.append(f"shape_mcap>={_PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD:g}")
@@ -1432,10 +1691,13 @@ def _profit_shape_guard_failures(token: dict, *, meteor_prime: bool) -> list[str
         price_pct_5m is not None
         and price_pct_5m <= _PUMP_EARLY_PROFIT_DEEP_NEG_PRICE5M_PCT
         and txns_5m < _PUMP_EARLY_PROFIT_DEEP_NEG_MIN_TXNS_5M
+        and volume_24h is not None
         and volume_24h < _PUMP_EARLY_PROFIT_DEEP_NEG_MIN_VOLUME_USD_24H
     ):
         failures.append("shape_deep_negative_price5m")
     if (
+        volume_24h is not None
+        and
         _PUMP_EARLY_PROFIT_DEAD_VOLUME_MIN_USD_24H
         <= volume_24h
         < _PUMP_EARLY_PROFIT_DEAD_VOLUME_MAX_USD_24H
@@ -1449,11 +1711,13 @@ def _profit_shape_guard_failures(token: dict, *, meteor_prime: bool) -> list[str
         and (
             liquidity < _PUMP_EARLY_PROFIT_HOT_MIN_LIQUIDITY_USD
             or txns_5m < _PUMP_EARLY_PROFIT_HOT_MIN_TXNS_5M
-            or volume_24h < _PUMP_EARLY_PROFIT_HOT_MIN_VOLUME_USD_24H
+            or (volume_24h is not None and volume_24h < _PUMP_EARLY_PROFIT_HOT_MIN_VOLUME_USD_24H)
         )
     ):
         failures.append("shape_hot_weak_support")
     if (
+        volume_24h is not None
+        and
         price_pct_5m is not None
         and volume_24h < _PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_VOLUME_USD_24H
         and txns_5m < _PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_TXNS_5M
@@ -1465,6 +1729,7 @@ def _profit_shape_guard_failures(token: dict, *, meteor_prime: bool) -> list[str
         and mcap < 25_000.0
         and 25.0 <= price_pct_5m < 50.0
         and txns_5m < _PUMP_EARLY_PROFIT_PRIME_MID_MOMENTUM_MIN_TXNS_5M
+        and volume_24h is not None
         and volume_24h < _PUMP_EARLY_PROFIT_PRIME_MID_MOMENTUM_MIN_VOLUME_USD_24H
     ):
         failures.append("shape_prime_mid_momentum_weak")
@@ -1521,7 +1786,7 @@ def _evaluate_pumpswap_profit_gate(
     failures: list[str] = []
     blocked_bucket: str | None = None
     dex_id = _gate_dex_id(token)
-    has_route = bool(int(token.get("has_jupiter_route") or 0))
+    has_route = bool(_metric_int(token, "has_jupiter_route"))
     liquidity = _metric_float(token, "liquidity_usd")
     mcap = _metric_float(token, "market_cap_usd")
     price = _metric_float(token, "price_usd")
@@ -1531,6 +1796,11 @@ def _evaluate_pumpswap_profit_gate(
     score_total = _metric_int(token, "score_total")
     liq_proxy = _is_liquidity_proxy(token)
     meteor_failures = _meteor_prime_failures(token) if _PUMP_EARLY_METEOR_PRIME_ENABLED else ["meteor_disabled"]
+    breakout_failures = (
+        _breakout_probe_failures(token, rank_score)
+        if _PUMP_EARLY_BREAKOUT_PROBE_ENABLED
+        else ["breakout_disabled"]
+    )
 
     if dex_id not in _PUMP_EARLY_PROFIT_DEX_ALLOWLIST:
         failures.append(f"dex!={','.join(sorted(_PUMP_EARLY_PROFIT_DEX_ALLOWLIST)) or 'pumpswap'}")
@@ -1572,9 +1842,10 @@ def _evaluate_pumpswap_profit_gate(
         blocked_bucket = shape_failures[0]
     standard_failures = list(failures)
     effective_failures = [*standard_failures, *shape_failures]
-    allowed = (not effective_failures) or meteor_prime
+    breakout_probe = not breakout_failures
+    allowed = (not effective_failures) or meteor_prime or breakout_probe
     prime = (
-        allowed
+        (not effective_failures)
         and mcap < 25_000
         and _PUMP_EARLY_PROFIT_MIN_LIQUIDITY_USD <= liquidity <= 25_000
         and not liq_proxy
@@ -1583,11 +1854,19 @@ def _evaluate_pumpswap_profit_gate(
     gate_profile = (
         "pumpswap_meteor_prime"
         if meteor_prime
+        else "pumpswap_breakout_probe"
+        if breakout_probe and effective_failures
         else "pumpswap_profit_prime"
         if prime
         else "pumpswap_profit_broad"
     )
-    entry_lane = "pump_early_pumpswap_profit" if allowed else "pump_early_sniper_research"
+    entry_lane = (
+        "pump_early_pumpswap_breakout_probe"
+        if allowed and gate_profile == "pumpswap_breakout_probe"
+        else "pump_early_pumpswap_profit"
+        if allowed
+        else "pump_early_sniper_research"
+    )
     context_failures = [] if allowed else effective_failures
     _set_profit_gate_context(
         token,
@@ -1601,10 +1880,16 @@ def _evaluate_pumpswap_profit_gate(
         token["profit_lane_tier"] = "pump_early_meteor_prime"
         token["meteor_prime_standard_failures"] = ",".join(standard_failures[:12])
         token["profit_shape_guard_failures"] = ""
+    elif gate_profile == "pumpswap_breakout_probe":
+        token["profit_lane_tier"] = "pump_early_pumpswap_breakout_probe"
+        token["breakout_standard_failures"] = ",".join(effective_failures[:12])
+        token["breakout_gate_failures"] = ""
+        token["profit_shape_guard_failures"] = ""
     elif prime:
         token["profit_lane_tier"] = "pump_early_pumpswap_prime"
         token["profit_shape_guard_failures"] = ""
     else:
+        token["breakout_gate_failures"] = ",".join(breakout_failures[:12])
         token["profit_shape_guard_failures"] = ",".join(shape_failures[:12])
     return {
         "allowed": bool(allowed),
@@ -1669,6 +1954,137 @@ def _tag_pump_sniper_gate(token: dict, rank_info: dict[str, object] | None = Non
     return False, f"live_profit_gate:{best_profile}:{','.join(best_failures[:4])}"
 
 
+def _aggressive_pump_gate(
+    token: dict,
+    rank_info: dict[str, object] | None,
+    *,
+    label: str,
+    min_age_min: float,
+    min_liquidity_usd: float,
+    min_market_cap_usd: float,
+    max_market_cap_usd: float,
+    min_score_total: int,
+    min_rank_score: float,
+    min_txns_5m: int,
+    max_snapshot_missing_fields: int,
+    max_price_impact_pct: float,
+    require_route: bool,
+    require_price: bool,
+) -> tuple[bool, str]:
+    failures: list[str] = []
+    has_route = bool(_metric_int(token, "has_jupiter_route"))
+    if require_route and not has_route:
+        failures.append("route_required")
+    if require_price and _metric_float(token, "price_usd") <= 0:
+        failures.append("price_missing")
+
+    _add_min_failure(failures, "age", _candidate_age_minutes(token), min_age_min)
+    _add_min_failure(failures, "liq", _metric_float(token, "liquidity_usd"), min_liquidity_usd)
+    _add_min_failure(failures, "mcap", _metric_float(token, "market_cap_usd"), min_market_cap_usd)
+    _add_max_failure(failures, "mcap", _metric_float(token, "market_cap_usd"), max_market_cap_usd)
+    _add_min_failure(
+        failures,
+        "score",
+        float(_metric_int(token, "score_total")),
+        float(min_score_total),
+    )
+    _add_min_failure(
+        failures,
+        "rank",
+        _sniper_rank_score(rank_info),
+        min_rank_score,
+    )
+    _add_min_failure(
+        failures,
+        "txns5m",
+        float(_metric_int(token, "txns_last_5m")),
+        float(min_txns_5m),
+    )
+    _add_max_failure(
+        failures,
+        "impact",
+        max(0.0, _metric_float(token, "price_impact_pct")),
+        max_price_impact_pct,
+    )
+    snapshot_missing = max(0, _metric_int(token, "snapshot_missing_fields"))
+    if snapshot_missing > max_snapshot_missing_fields:
+        failures.append(f"missing>{max_snapshot_missing_fields}")
+    failures.extend(_aggressive_research_guard_failures(token))
+
+    token[f"{label}_gate_failed_count"] = int(len(failures))
+    token[f"{label}_gate_failures"] = ",".join(failures[:8])
+    if failures:
+        token["entry_lane"] = "pump_early_sniper_research"
+        token["gate_profile"] = f"{label}_research_guard"
+        token["sniper_gate_profile"] = token.get("sniper_gate_profile") or label
+        token["live_profit_gate_profile"] = f"{label}_research_guard"
+        token["live_profit_gate_failed_count"] = int(len(failures))
+        token["live_profit_gate_failures"] = ",".join(failures[:8])
+        token["profit_gate_reject_reasons"] = ",".join(failures[:8])
+        token["mcap_bucket"] = _mcap_bucket(_metric_float(token, "market_cap_usd"))
+        token["price5m_bucket"] = _price5m_bucket(_metric_optional_float(token, "price_pct_5m"))
+        return False, f"{label}_gate:{','.join(failures[:4])}"
+
+    token["entry_lane"] = str(token.get("entry_lane") or "pump_early_sniper_research")
+    if token["entry_lane"] in {"pump_early_reject", "unknown", ""}:
+        token["entry_lane"] = "pump_early_sniper_research"
+    token["gate_profile"] = f"{label}_research_buy"
+    token["sniper_gate_profile"] = token.get("sniper_gate_profile") or label
+    token["live_profit_gate_profile"] = f"{label}_research_buy"
+    token["profit_lane_tier"] = token.get("profit_lane_tier") or label
+    token["live_profit_gate_failed_count"] = 0
+    token["live_profit_gate_failures"] = ""
+    token["blocked_bucket"] = None
+    token["mcap_bucket"] = _mcap_bucket(_metric_float(token, "market_cap_usd"))
+    token["price5m_bucket"] = _price5m_bucket(_metric_optional_float(token, "price_pct_5m"))
+    token["venue_is_pumpswap"] = int(_gate_dex_id(token) == "pumpswap")
+    token["liquidity_is_proxy"] = int(_is_liquidity_proxy(token))
+    token["impact_zero_flag"] = int(max(0.0, _metric_float(token, "price_impact_pct")) == 0.0)
+    return True, ""
+
+
+def _paper_aggressive_pump_gate(token: dict, rank_info: dict[str, object] | None = None) -> tuple[bool, str]:
+    if not (DRY_RUN and _PAPER_AGGRESSIVE_TRADING_ENABLED and _PAPER_AGGRESSIVE_BUY_RESEARCH_LANES):
+        return False, "paper_aggressive_disabled"
+    return _aggressive_pump_gate(
+        token,
+        rank_info,
+        label="paper_aggressive",
+        min_age_min=_PAPER_AGGRESSIVE_MIN_AGE_MIN,
+        min_liquidity_usd=_PAPER_AGGRESSIVE_MIN_LIQUIDITY_USD,
+        min_market_cap_usd=_PAPER_AGGRESSIVE_MIN_MARKET_CAP_USD,
+        max_market_cap_usd=_PAPER_AGGRESSIVE_MAX_MARKET_CAP_USD,
+        min_score_total=_PAPER_AGGRESSIVE_MIN_SCORE_TOTAL,
+        min_rank_score=_PAPER_AGGRESSIVE_MIN_RANK_SCORE,
+        min_txns_5m=_PAPER_AGGRESSIVE_MIN_TXNS_5M,
+        max_snapshot_missing_fields=_PAPER_AGGRESSIVE_MAX_SNAPSHOT_MISSING_FIELDS,
+        max_price_impact_pct=_PAPER_AGGRESSIVE_MAX_PRICE_IMPACT_PCT,
+        require_route=_PAPER_AGGRESSIVE_REQUIRE_ROUTE,
+        require_price=_PAPER_AGGRESSIVE_REQUIRE_PRICE,
+    )
+
+
+def _live_aggressive_pump_gate(token: dict, rank_info: dict[str, object] | None = None) -> tuple[bool, str]:
+    if not ((not DRY_RUN) and _LIVE_AGGRESSIVE_TRADING_ENABLED and _LIVE_AGGRESSIVE_BUY_RESEARCH_LANES):
+        return False, "live_aggressive_disabled"
+    return _aggressive_pump_gate(
+        token,
+        rank_info,
+        label="live_aggressive",
+        min_age_min=_LIVE_AGGRESSIVE_MIN_AGE_MIN,
+        min_liquidity_usd=_LIVE_AGGRESSIVE_MIN_LIQUIDITY_USD,
+        min_market_cap_usd=_LIVE_AGGRESSIVE_MIN_MARKET_CAP_USD,
+        max_market_cap_usd=_LIVE_AGGRESSIVE_MAX_MARKET_CAP_USD,
+        min_score_total=_LIVE_AGGRESSIVE_MIN_SCORE_TOTAL,
+        min_rank_score=_LIVE_AGGRESSIVE_MIN_RANK_SCORE,
+        min_txns_5m=_LIVE_AGGRESSIVE_MIN_TXNS_5M,
+        max_snapshot_missing_fields=_LIVE_AGGRESSIVE_MAX_SNAPSHOT_MISSING_FIELDS,
+        max_price_impact_pct=_LIVE_AGGRESSIVE_MAX_PRICE_IMPACT_PCT,
+        require_route=_LIVE_AGGRESSIVE_REQUIRE_ROUTE,
+        require_price=_LIVE_AGGRESSIVE_REQUIRE_PRICE,
+    )
+
+
 def _entry_quality_gate(
     token: dict,
     regime: str,
@@ -1678,11 +2094,24 @@ def _entry_quality_gate(
 ) -> tuple[bool, str]:
     if regime == "pump_early":
         if _PUMP_EARLY_SNIPER_ENABLED:
-            return _tag_pump_sniper_gate(token, rank_info)
+            ok, reason = _tag_pump_sniper_gate(token, rank_info)
+            if ok:
+                return True, ""
+            aggressive_ok, aggressive_reason = _paper_aggressive_pump_gate(token, rank_info)
+            if aggressive_ok:
+                return True, ""
+            live_aggressive_ok, live_aggressive_reason = _live_aggressive_pump_gate(token, rank_info)
+            if live_aggressive_ok:
+                return True, ""
+            if aggressive_reason and "research_" in str(aggressive_reason):
+                return False, aggressive_reason
+            if live_aggressive_reason and "research_" in str(live_aggressive_reason):
+                return False, live_aggressive_reason
+            return False, reason or aggressive_reason or live_aggressive_reason
 
         hard_failures: list[str] = []
         route_required = bool(token.get("require_jupiter_for_buy", True))
-        has_route = bool(int(token.get("has_jupiter_route") or 0))
+        has_route = bool(_metric_int(token, "has_jupiter_route"))
         use_paper_cold_start = (
             _paper_cold_start_active()
             if paper_cold_start_active is None
@@ -3135,7 +3564,10 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     ):
         if key in vec_payload and vec_payload.get(key) is not None:
             token[key] = vec_payload.get(key)
-    proba = should_buy(vec)
+    ml_gate_mode_raw = str(getattr(CFG, "ML_GATE_MODE", "legacy") or "legacy").strip().lower()
+    proba = None if ml_gate_mode_raw == "off" else should_buy(vec)
+    risk_proba = predict_risk(vec) if bool(getattr(CFG, "ML_RISK_MODEL_ENABLED", True)) else None
+    ev_pred_pct = predict_ev(vec) if bool(getattr(CFG, "ML_EV_MODEL_ENABLED", True)) else None
     ai_threshold_eff = filters.effective_ai_threshold(token, AI_THRESHOLD)
     rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
     _research_stage(
@@ -3151,27 +3583,42 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
         rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
     ml_gate = _ml_gate_state()
-    ml_pass = proba >= ai_threshold_eff
+    ml_decision = decide_ml_action(
+        token=token,
+        feature_row=vec_payload,
+        proba=proba,
+        base_rules_passed=True,
+        dry_run=DRY_RUN,
+        live=not DRY_RUN,
+        risk_proba=risk_proba,
+        ev_pred_pct=ev_pred_pct,
+    )
+    if ml_decision.threshold is not None:
+        ai_threshold_eff = float(ml_decision.threshold)
+        rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+    ml_pass = bool(proba is not None and proba >= ai_threshold_eff)
     log_ml_decision_event(
         addr,
-        proba=float(proba),
+        proba=float(proba or 0.0),
         threshold=float(ai_threshold_eff),
         passed=bool(ml_pass),
-        enforced=bool(ml_gate["enforce"]),
-        gate_mode=str(ml_gate["mode"]),
-        activation_ready=ml_gate.get("activation_ready"),
+        enforced=bool(ml_decision.enforce),
+        gate_mode=str(ml_decision.mode),
+        activation_ready=ml_decision.activation_ready,
         discovered_via=str(token.get("discovered_via") or "dex"),
         entry_regime=str(token.get("entry_regime") or ""),
-        score_total=int(token.get("score_total") or 0),
+        score_total=_metric_int(token, "score_total"),
     )
-    if bool(ml_gate["enforce"]) and not ml_pass:
+    log_ml_policy_decision_event(addr, ml_decision, base_rules_passed=True)
+    if not ml_decision.allow_buy:
         _stats["filtered_out"] += 1
-        _store_policy_reject(vec, already_vector=True, reason="ml_gate")
+        reject_reason = f"ml_policy:{ml_decision.reason}"
+        _store_policy_reject(vec, already_vector=True, reason=reject_reason)
         _research_decision(
             token,
             action="rejected",
-            reason="ml_gate",
-            stage="ml_gate",
+            reason=reject_reason,
+            stage="ml_policy",
             proba=proba,
             threshold=ai_threshold_eff,
             rank_info=rank_info,
@@ -3179,34 +3626,35 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         await _maybe_open_research_shadow(
             token,
             vec,
-            reason="ml_gate",
+            reason="ml_reject_shadow",
             proba=proba,
             threshold=ai_threshold_eff,
             rank_info=rank_info,
-            stage="ml_gate",
+            stage="ml_policy",
         )
         _requeue_or_cooldown_candidate(
             addr,
             token,
-            reason="ml_gate",
+            reason=reject_reason,
             backoff=_DEX_MATURE_QUALITY_BACKOFF_S,
         )
         return
+    proba = float(proba or 0.0)
 
     soft_score_min_eff = filters.effective_soft_score_min(token, BUY_SOFT_SCORE_MIN)
     sniper_gate_ok_preview = bool(
         _PUMP_EARLY_SNIPER_ENABLED
         and str(token.get("entry_lane") or "").strip().lower()
         in {"pump_early_sniper", "pump_early_pumpswap_profit"}
-        and int(token.get("live_profit_gate_failed_count") or 0) == 0
+        and _metric_int(token, "live_profit_gate_failed_count") == 0
     )
     if (
         not sniper_gate_ok_preview
         and soft_score_min_eff > 0
-        and int(token.get("score_total") or 0) < int(soft_score_min_eff)
+        and _metric_int(token, "score_total") < int(soft_score_min_eff)
     ):
         log.debug("🪫 Soft score gate: %s score_total=%d < %d",
-                  addr[:6], int(token.get("score_total") or 0), soft_score_min_eff)
+                  addr[:6], _metric_int(token, "score_total"), soft_score_min_eff)
         _stats["filtered_out"] += 1
         _store_policy_reject(vec, already_vector=True, reason="soft_score")
         _research_decision(
@@ -3421,6 +3869,29 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             dedup_ttl_s=600,
         )
         _requeue_with_stats(addr, reason=f"regime_cap:{size_decision.regime}", backoff=180, token=token)
+        return
+
+    lane_capacity_ok, lane_open, lane_cap = await _lane_capacity(ses, token.get("entry_lane"))
+    if not lane_capacity_ok:
+        lane = str(token.get("entry_lane") or "unknown")
+        log.info(
+            "Lane exposure gate: %s lane=%s open=%d cap=%d",
+            addr[:6],
+            lane,
+            lane_open,
+            lane_cap,
+        )
+        _research_decision(
+            token,
+            action="wait",
+            reason=f"lane_cap:{lane}",
+            stage="capacity",
+            proba=proba,
+            threshold=ai_threshold_eff,
+            rank_info=rank_info,
+            dedup_ttl_s=600,
+        )
+        _requeue_with_stats(addr, reason=f"lane_cap:{lane}", backoff=180, token=token)
         return
 
     # IMPORTANTE: no etiquetar 1 en T0; guardamos el vector para el cierre
@@ -3765,12 +4236,12 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         buy_amount_sol=float(amount_sol),
         entry_notional_usd=float(buy_resp.get("entry_notional_usd") or 0.0),
         entry_ai_proba=float(proba),
-        entry_score_total=int(token.get("score_total") or 0),
+        entry_score_total=_metric_int(token, "score_total"),
         entry_lane=str(token.get("entry_lane") or "") or None,
         gate_profile=str(token.get("gate_profile") or token.get("sniper_gate_profile") or "") or None,
         buy_dex_id=str(token.get("dex_id") or token.get("dexId") or "") or None,
         buy_price_pct_5m=token.get("price_pct_5m"),
-        buy_txns_last_5m=int(token.get("txns_last_5m") or 0),
+        buy_txns_last_5m=_metric_int(token, "txns_last_5m"),
         buy_liquidity_is_proxy=bool(_is_liquidity_proxy(token)),
         mcap_bucket=str(token.get("mcap_bucket") or "") or None,
         price5m_bucket=str(token.get("price5m_bucket") or "") or None,
@@ -3863,6 +4334,49 @@ async def _load_open_position_regimes(ses: SessionLocal) -> list[str]:
     return regimes
 
 
+async def _load_open_position_lanes(ses: SessionLocal) -> list[str]:
+    stmt = select(Position.entry_lane, Position.gate_profile, Position.size_bucket).where(Position.closed.is_(False))
+    rows = (await ses.execute(stmt)).all()
+    lanes: list[str] = []
+    for entry_lane, gate_profile, size_bucket in rows:
+        lane = str(entry_lane or "").strip().lower()
+        profile = str(gate_profile or "").strip().lower()
+        bucket = str(size_bucket or "").strip().lower()
+        if not lane and profile.startswith("pumpswap_breakout"):
+            lane = "pump_early_pumpswap_breakout_probe"
+        if not lane and bucket == "pumpswap_breakout":
+            lane = "pump_early_pumpswap_breakout_probe"
+        if not lane and (profile.startswith("pumpswap_profit") or profile.startswith("pumpswap_meteor")):
+            lane = "pump_early_pumpswap_profit"
+        if not lane and bucket in {"pumpswap_profit", "pumpswap_prime", "pumpswap_meteor"}:
+            lane = "pump_early_pumpswap_profit"
+        if lane:
+            lanes.append(lane)
+    return lanes
+
+
+async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[bool, int, int]:
+    lane = str(entry_lane or "").strip().lower()
+    if lane not in {"pump_early_pumpswap_profit", "pump_early_pumpswap_breakout_probe"}:
+        return True, 0, int(CFG.MAX_ACTIVE_POSITIONS)
+    open_lanes = await _load_open_position_lanes(ses)
+    current = sum(1 for value in open_lanes if value == lane)
+    if lane == "pump_early_pumpswap_breakout_probe":
+        limit = (
+            _PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER
+            if DRY_RUN
+            else _PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY
+        )
+    else:
+        limit = (
+            int(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2) or 2)
+            if DRY_RUN
+            else int(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY", 1) or 1)
+        )
+    limit = min(int(CFG.MAX_ACTIVE_POSITIONS), max(1, int(limit or 1)))
+    return current < limit, current, limit
+
+
 async def _regime_capacity(ses: SessionLocal, regime: str) -> tuple[bool, int, int]:
     open_regimes = await _load_open_position_regimes(ses)
     counts = entry_sizing.count_open_by_regime(open_regimes)
@@ -3871,10 +4385,18 @@ async def _regime_capacity(ses: SessionLocal, regime: str) -> tuple[bool, int, i
     if regime == "pump_early" and _PUMP_EARLY_SNIPER_ENABLED:
         if DRY_RUN:
             profit_cap = int(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2) or 2)
+            breakout_cap = int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1) or 1)
             fallback_cap = int(getattr(CFG, "PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 3) or 3)
             limit = min(
                 int(CFG.MAX_ACTIVE_POSITIONS),
-                max(1, profit_cap if _PUMP_EARLY_PROFIT_LANE_ENABLED else fallback_cap),
+                max(
+                    1,
+                    (profit_cap + breakout_cap)
+                    if _PUMP_EARLY_PROFIT_LANE_ENABLED and _PUMP_EARLY_BREAKOUT_PROBE_ENABLED
+                    else profit_cap
+                    if _PUMP_EARLY_PROFIT_LANE_ENABLED
+                    else fallback_cap,
+                ),
             )
         else:
             health = (strategy_runtime.describe_regime_health().get("pump_early") or {})
@@ -3903,6 +4425,8 @@ async def _regime_capacity(ses: SessionLocal, regime: str) -> tuple[bool, int, i
                     or 1
                 )
             )
+            if _PUMP_EARLY_PROFIT_LANE_ENABLED and _PUMP_EARLY_BREAKOUT_PROBE_ENABLED and not advanced_ready:
+                live_cap += int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY", 1) or 1)
             limit = min(int(CFG.MAX_ACTIVE_POSITIONS), max(1, live_cap))
     return current < limit, current, limit
 
@@ -3960,6 +4484,8 @@ def _entry_vector_for_close(vec: object, pos: Position) -> dict[str, object]:
         size_bucket = str(getattr(pos, "size_bucket", "") or "")
         if size_bucket == "pumpswap_meteor":
             payload["profit_lane_tier"] = "pump_early_meteor_prime"
+        elif size_bucket == "pumpswap_breakout":
+            payload["profit_lane_tier"] = "pump_early_pumpswap_breakout_probe"
         elif size_bucket == "pumpswap_prime":
             payload["profit_lane_tier"] = "pump_early_pumpswap_prime"
         elif str(getattr(pos, "entry_lane", "") or "") == "pump_early_pumpswap_profit":
@@ -4415,6 +4941,18 @@ async def _check_positions(ses: SessionLocal) -> None:
                 pnl_pct = None
 
         pos_exit_policy = exit_policy.effective_exit_policy(pos)
+        if (
+            getattr(pos_exit_policy, "runner_exit_profile", None)
+            and getattr(pos, "runner_exit_profile", None) != pos_exit_policy.runner_exit_profile
+        ):
+            pos.runner_exit_profile = pos_exit_policy.runner_exit_profile
+            try:
+                await ses.commit()
+            except Exception:
+                try:
+                    await ses.rollback()
+                except Exception:
+                    pass
 
         # ── Liquidity crush inmediato (manteniendo tu comportamiento) ────
         if (
@@ -4796,6 +5334,154 @@ async def _check_positions(ses: SessionLocal) -> None:
 
 
 async def _bootstrap_strategy_runtime(ses: SessionLocal) -> None:
+    def _hist_float(value: object) -> float | None:
+        if value is None:
+            return None
+        try:
+            parsed = float(value)
+            if parsed != parsed or parsed in (float("inf"), float("-inf")):
+                return None
+            return parsed
+        except Exception:
+            return None
+
+    def _historical_breakout_matches(
+        *,
+        buy_dex_id: object,
+        buy_liquidity_is_proxy: object,
+        buy_liquidity_usd: object,
+        buy_market_cap_usd: object,
+        buy_volume_24h_usd: object,
+        buy_price_pct_5m: object,
+        buy_txns_last_5m: object,
+        entry_score_total: object,
+    ) -> bool:
+        if not _PUMP_EARLY_BREAKOUT_PROBE_ENABLED:
+            return False
+        dex_id = str(buy_dex_id or "").strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+        liquidity = _hist_float(buy_liquidity_usd)
+        mcap = _hist_float(buy_market_cap_usd)
+        volume_24h = _hist_float(buy_volume_24h_usd)
+        price_pct_5m = _hist_float(buy_price_pct_5m)
+        txns_5m = int(_hist_float(buy_txns_last_5m) or 0)
+        score_total = int(_hist_float(entry_score_total) or 0)
+        liq_proxy = bool(buy_liquidity_is_proxy)
+        return (
+            dex_id == "pumpswap"
+            and not liq_proxy
+            and liquidity is not None
+            and _PUMP_EARLY_BREAKOUT_MIN_LIQUIDITY_USD <= liquidity <= _PUMP_EARLY_BREAKOUT_MAX_LIQUIDITY_USD
+            and mcap is not None
+            and _PUMP_EARLY_BREAKOUT_MIN_MARKET_CAP_USD <= mcap <= _PUMP_EARLY_BREAKOUT_MAX_MARKET_CAP_USD
+            and price_pct_5m is not None
+            and _PUMP_EARLY_BREAKOUT_MIN_PRICE_PCT_5M <= price_pct_5m <= _PUMP_EARLY_BREAKOUT_MAX_PRICE_PCT_5M
+            and txns_5m >= _PUMP_EARLY_BREAKOUT_MIN_TXNS_5M
+            and volume_24h is not None
+            and volume_24h >= _PUMP_EARLY_BREAKOUT_MIN_VOLUME_USD_24H
+            and score_total >= _PUMP_EARLY_BREAKOUT_MIN_SCORE_TOTAL
+        )
+
+    def _historical_trade_matches_current_profit_gate(
+        *,
+        regime: object,
+        buy_dex_id: object,
+        buy_liquidity_is_proxy: object,
+        buy_liquidity_usd: object,
+        buy_market_cap_usd: object,
+        buy_volume_24h_usd: object,
+        buy_price_pct_5m: object,
+        buy_txns_last_5m: object,
+        entry_score_total: object,
+        gate_profile: object,
+    ) -> bool:
+        if str(regime or "").strip().lower() != "pump_early":
+            return True
+        if not _PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE:
+            return True
+
+        dex_id = str(buy_dex_id or "").strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+        if dex_id not in _PUMP_EARLY_PROFIT_DEX_ALLOWLIST:
+            return False
+
+        liquidity = _hist_float(buy_liquidity_usd)
+        mcap = _hist_float(buy_market_cap_usd)
+        volume_24h = _hist_float(buy_volume_24h_usd)
+        price_pct_5m = _hist_float(buy_price_pct_5m)
+        txns_5m = int(_hist_float(buy_txns_last_5m) or 0)
+        score_total = int(_hist_float(entry_score_total) or 0)
+        liq_proxy = bool(buy_liquidity_is_proxy)
+
+        if liquidity is None or liquidity < _PUMP_EARLY_PROFIT_MIN_LIQUIDITY_USD:
+            return False
+        if _PUMP_EARLY_PROFIT_REQUIRE_REAL_LIQUIDITY and (liq_proxy or abs(float(liquidity) - 1_500.0) <= 1.0):
+            return False
+        if mcap is None or mcap <= 0:
+            return False
+        if score_total < _PUMP_EARLY_PROFIT_MIN_SCORE_TOTAL:
+            return False
+        breakout_match = _historical_breakout_matches(
+            buy_dex_id=buy_dex_id,
+            buy_liquidity_is_proxy=buy_liquidity_is_proxy,
+            buy_liquidity_usd=buy_liquidity_usd,
+            buy_market_cap_usd=buy_market_cap_usd,
+            buy_volume_24h_usd=buy_volume_24h_usd,
+            buy_price_pct_5m=buy_price_pct_5m,
+            buy_txns_last_5m=buy_txns_last_5m,
+            entry_score_total=entry_score_total,
+        )
+        if (
+            _PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD > 0
+            and _PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD > 0
+            and _PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD <= mcap <= _PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD
+        ):
+            return breakout_match
+        if _price5m_blocked_bucket(price_pct_5m):
+            return breakout_match
+
+        token = {
+            "dex_id": dex_id,
+            "liquidity_usd": liquidity,
+            "market_cap_usd": mcap,
+            "volume_24h_usd": volume_24h,
+            "price_pct_5m": price_pct_5m,
+            "txns_last_5m": txns_5m,
+            "score_total": score_total,
+            "liquidity_usd_is_proxy": int(liq_proxy),
+        }
+        historical_meteor = bool(
+            _PUMP_EARLY_METEOR_PRIME_ENABLED
+            and str(gate_profile or "").strip() == "pumpswap_meteor_prime"
+        )
+        return not bool(_profit_shape_guard_failures(token, meteor_prime=historical_meteor)) or breakout_match
+
+    def _historical_profit_gate_profile(
+        *,
+        buy_liquidity_usd: object,
+        buy_market_cap_usd: object,
+        buy_volume_24h_usd: object,
+        buy_price_pct_5m: object,
+        buy_txns_last_5m: object,
+        buy_liquidity_is_proxy: object,
+        buy_dex_id: object,
+        entry_score_total: object,
+    ) -> str:
+        if _historical_breakout_matches(
+            buy_dex_id=buy_dex_id,
+            buy_liquidity_is_proxy=buy_liquidity_is_proxy,
+            buy_liquidity_usd=buy_liquidity_usd,
+            buy_market_cap_usd=buy_market_cap_usd,
+            buy_volume_24h_usd=buy_volume_24h_usd,
+            buy_price_pct_5m=buy_price_pct_5m,
+            buy_txns_last_5m=buy_txns_last_5m,
+            entry_score_total=entry_score_total,
+        ):
+            return "pumpswap_breakout_probe"
+        liquidity = _hist_float(buy_liquidity_usd) or 0.0
+        mcap = _hist_float(buy_market_cap_usd) or 0.0
+        if 0.0 < mcap < 25_000.0 and _PUMP_EARLY_PROFIT_MIN_LIQUIDITY_USD <= liquidity <= 25_000.0:
+            return "pumpswap_profit_prime"
+        return "pumpswap_profit_broad"
+
     stmt = (
         select(
             Position.entry_regime,
@@ -4823,6 +5509,7 @@ async def _bootstrap_strategy_runtime(ses: SessionLocal) -> None:
     rows = (await ses.execute(stmt)).all()
     history: list[tuple[object, ...]] = []
     skipped_current_gate = 0
+    rebased_current_gate = 0
     for (
         regime,
         total_pnl_pct,
@@ -4842,28 +5529,40 @@ async def _bootstrap_strategy_runtime(ses: SessionLocal) -> None:
         buy_txns_last_5m,
         entry_score_total,
     ) in rows:
-        skipped_by_current_gate = False
-        if (
-            _PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE
-            and str(entry_lane or "").strip() == "pump_early_pumpswap_profit"
-        ):
-            historical_token = {
-                "dex_id": str(buy_dex_id) if buy_dex_id else None,
-                "liquidity_usd": buy_liquidity_usd,
-                "market_cap_usd": buy_market_cap_usd,
-                "volume_24h_usd": buy_volume_24h_usd,
-                "price_pct_5m": buy_price_pct_5m,
-                "txns_last_5m": buy_txns_last_5m,
-                "score_total": entry_score_total,
-                "liquidity_usd_is_proxy": int(bool(buy_liquidity_is_proxy)),
-            }
-            historical_meteor = str(gate_profile or "").strip() == "pumpswap_meteor_prime"
-            skipped_by_current_gate = bool(
-                _profit_shape_guard_failures(historical_token, meteor_prime=historical_meteor)
-            )
-        if skipped_by_current_gate:
+        matches_current_gate = _historical_trade_matches_current_profit_gate(
+            regime=regime,
+            buy_dex_id=buy_dex_id,
+            buy_liquidity_is_proxy=buy_liquidity_is_proxy,
+            buy_liquidity_usd=buy_liquidity_usd,
+            buy_market_cap_usd=buy_market_cap_usd,
+            buy_volume_24h_usd=buy_volume_24h_usd,
+            buy_price_pct_5m=buy_price_pct_5m,
+            buy_txns_last_5m=buy_txns_last_5m,
+            entry_score_total=entry_score_total,
+            gate_profile=gate_profile,
+        )
+        if not matches_current_gate:
             skipped_current_gate += 1
             continue
+        rebased_lane = str(entry_lane) if entry_lane else None
+        rebased_profile = str(gate_profile) if gate_profile else None
+        if _PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE and str(regime or "").strip().lower() == "pump_early":
+            rebased_current_gate += 1
+            rebased_profile = _historical_profit_gate_profile(
+                buy_dex_id=buy_dex_id,
+                buy_liquidity_is_proxy=buy_liquidity_is_proxy,
+                buy_liquidity_usd=buy_liquidity_usd,
+                buy_market_cap_usd=buy_market_cap_usd,
+                buy_volume_24h_usd=buy_volume_24h_usd,
+                buy_price_pct_5m=buy_price_pct_5m,
+                buy_txns_last_5m=buy_txns_last_5m,
+                entry_score_total=entry_score_total,
+            )
+            rebased_lane = (
+                "pump_early_pumpswap_breakout_probe"
+                if rebased_profile == "pumpswap_breakout_probe"
+                else "pump_early_pumpswap_profit"
+            )
         history.append(
             (
                 str(regime or "dex_mature"),
@@ -4871,18 +5570,19 @@ async def _bootstrap_strategy_runtime(ses: SessionLocal) -> None:
                 closed_at,
                 str(exit_reason) if exit_reason else None,
                 str(size_bucket) if size_bucket else None,
-                str(entry_lane) if entry_lane else None,
+                rebased_lane,
                 str(buy_dex_id) if buy_dex_id else None,
                 bool(buy_liquidity_is_proxy),
                 str(mcap_bucket) if mcap_bucket else None,
                 str(price5m_bucket) if price5m_bucket else None,
-                str(gate_profile) if gate_profile else None,
+                rebased_profile,
             )
         )
-    if skipped_current_gate:
+    if skipped_current_gate or rebased_current_gate:
         log.info(
-            "strategy_runtime bootstrap rebased current profit gate: skipped=%d kept=%d",
+            "strategy_runtime bootstrap rebased current profit gate: skipped=%d rebased=%d kept=%d",
             skipped_current_gate,
+            rebased_current_gate,
             len(history),
         )
     strategy_runtime.bootstrap_closed_trades(history)
@@ -5233,6 +5933,44 @@ async def main_loop() -> None:
             str(_PAPER_COLD_START_SHADOW_PROBE_ENABLED),
             _PAPER_COLD_START_SHADOW_PROBE_SIZE_MULTIPLIER,
         )
+    if _PAPER_AGGRESSIVE_TRADING_ENABLED:
+        log.info(
+            "Paper aggressive mode: dry_run_only=true Â· regimes=live Â· confirmations=%s Â· age>=%.2fm Â· liq>=%.0f Â· mcap=%.0f-%.0f Â· score>=%d Â· rank>=%.1f Â· txns5m>=%d Â· missing<=%d Â· impact<=%.1f",
+            getattr(CFG, "PAPER_AGGRESSIVE_CONFIRM_SNAPSHOTS", 1),
+            _PAPER_AGGRESSIVE_MIN_AGE_MIN,
+            _PAPER_AGGRESSIVE_MIN_LIQUIDITY_USD,
+            _PAPER_AGGRESSIVE_MIN_MARKET_CAP_USD,
+            _PAPER_AGGRESSIVE_MAX_MARKET_CAP_USD,
+            _PAPER_AGGRESSIVE_MIN_SCORE_TOTAL,
+            _PAPER_AGGRESSIVE_MIN_RANK_SCORE,
+            _PAPER_AGGRESSIVE_MIN_TXNS_5M,
+            _PAPER_AGGRESSIVE_MAX_SNAPSHOT_MISSING_FIELDS,
+            _PAPER_AGGRESSIVE_MAX_PRICE_IMPACT_PCT,
+        )
+        if _PUMP_EARLY_AGGRESSIVE_RESEARCH_GUARD_ENABLED:
+            log.info(
+                "Paper aggressive guard: dex_allowlist=%s · block_price5m=%s · high_mcap>=%.0f unless txns5m>=%d and price5m=25-50 · block_proxy=%s",
+                ",".join(sorted(_PUMP_EARLY_AGGRESSIVE_RESEARCH_DEX_ALLOWLIST)) or "*",
+                getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_PRICE5M_RANGES", "25:999"),
+                _PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_HIGH_MCAP_USD,
+                _PUMP_EARLY_AGGRESSIVE_RESEARCH_HIGH_MCAP_ALLOW_MIN_TXNS_5M,
+                str(_PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_PROXY),
+            )
+    if _LIVE_AGGRESSIVE_TRADING_ENABLED:
+        log.info(
+            "Live aggressive mode: dry_run_only=false Â· regimes=live Â· confirmations=%s Â· age>=%.2fm Â· liq>=%.0f Â· mcap=%.0f-%.0f Â· score>=%d Â· rank>=%.1f Â· txns5m>=%d Â· missing<=%d Â· impact<=%.1f Â· health_continue=%s",
+            getattr(CFG, "LIVE_AGGRESSIVE_CONFIRM_SNAPSHOTS", 1),
+            _LIVE_AGGRESSIVE_MIN_AGE_MIN,
+            _LIVE_AGGRESSIVE_MIN_LIQUIDITY_USD,
+            _LIVE_AGGRESSIVE_MIN_MARKET_CAP_USD,
+            _LIVE_AGGRESSIVE_MAX_MARKET_CAP_USD,
+            _LIVE_AGGRESSIVE_MIN_SCORE_TOTAL,
+            _LIVE_AGGRESSIVE_MIN_RANK_SCORE,
+            _LIVE_AGGRESSIVE_MIN_TXNS_5M,
+            _LIVE_AGGRESSIVE_MAX_SNAPSHOT_MISSING_FIELDS,
+            _LIVE_AGGRESSIVE_MAX_PRICE_IMPACT_PCT,
+            str(bool(getattr(CFG, "LIVE_AGGRESSIVE_CONTINUE_ON_HEALTH", True))),
+        )
     strategy_policy = strategy_runtime.describe_strategy_policy()
     log.info(
         "⚙️  Strategy policy: pump=%s/%sx@%sm · dex=%s/%sx@%sm · revival=%s/%sx@%sm",
@@ -5407,13 +6145,17 @@ async def _runner() -> None:
     await async_init_db()
     _runtime_process_state = "starting"
     try:
-        await asyncio.gather(
+        tasks = [
             main_loop(),
-            retrain_loop(),
             _periodic_labeler(),
             control_command_loop(),
             runtime_state_loop(),
-        )
+        ]
+        if bool(getattr(CFG, "ML_RETRAIN_IN_MAIN_LOOP", False)):
+            tasks.append(retrain_loop())
+        else:
+            log.info("Retrain-loop omitido: ML_RETRAIN_IN_MAIN_LOOP=false")
+        await asyncio.gather(*tasks)
     except Exception as exc:
         _runtime_process_state = "stopped"
         _note_runtime_error("runner", exc)

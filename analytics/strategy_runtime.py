@@ -223,7 +223,8 @@ def _row_float(row: dict[str, Any], *keys: str) -> float | None:
     return None
 
 
-def _value_in_ranges(value: float, spec: Any) -> bool:
+def _range_spec(spec: Any) -> list[tuple[float, float]]:
+    ranges: list[tuple[float, float]] = []
     for raw in str(spec or "").split(","):
         chunk = raw.strip()
         if not chunk:
@@ -234,18 +235,43 @@ def _value_in_ranges(value: float, spec: Any) -> bool:
             hi = float(hi_raw)
         except Exception:
             continue
+        ranges.append((min(lo, hi), max(lo, hi)))
+    return ranges
+
+
+def _value_in_ranges(value: float, spec: Any) -> bool:
+    for lo, hi in _range_spec(spec):
         if lo <= value <= hi:
+            return True
+    return False
+
+
+def _bucket_intersects_ranges(bucket: str, spec: Any) -> bool:
+    intervals = {
+        "<0": (-1_000_000.0, 0.0),
+        "0_25": (0.0, 25.0),
+        "25_50": (25.0, 50.0),
+        "50_100": (50.0, 100.0),
+        "100_180": (100.0, 180.0),
+        ">=180": (180.0, 1_000_000.0),
+    }
+    normalized = bucket.strip().lower().replace("price5m_", "")
+    if normalized not in intervals:
+        return False
+    lo, hi = intervals[normalized]
+    for block_lo, block_hi in _range_spec(spec):
+        if max(lo, block_lo) <= min(hi, block_hi):
             return True
     return False
 
 
 def _shadow_price5m_bucket_blocked(row: dict[str, Any]) -> bool:
     price_pct_5m = _row_float(row, "price_pct_5m", "buy_price_pct_5m")
-    ranges = getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES", "0:25,50:100")
+    ranges = getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES", "25:999")
     if price_pct_5m is not None and _value_in_ranges(price_pct_5m, ranges):
         return True
     bucket = str(row.get("price5m_bucket") or row.get("buy_price5m_bucket") or "").strip().lower()
-    return bucket in {"0_25", "50_100", "price5m_0_25", "price5m_50_100"}
+    return _bucket_intersects_ranges(bucket, ranges)
 
 
 def _shadow_row_matches_current_profit_gate(row: dict[str, Any]) -> bool:
@@ -293,15 +319,15 @@ def _shadow_row_matches_current_profit_gate(row: dict[str, Any]) -> bool:
     if impact is not None and impact > _cfg_float("PUMP_EARLY_PROFIT_MAX_PRICE_IMPACT_PCT", 10.0):
         return False
 
-    block_min = _cfg_float("PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD", 25_000.0)
-    block_max = _cfg_float("PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD", 50_000.0)
+    block_min = _cfg_float("PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD", 0.0)
+    block_max = _cfg_float("PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD", 0.0)
     if block_min > 0 and block_max > 0 and block_min <= market_cap <= block_max:
         return False
 
     if _shadow_price5m_bucket_blocked(row):
         return False
 
-    max_mcap = _cfg_float("PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD", 500_000.0)
+    max_mcap = _cfg_float("PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD", 200_000.0)
     if bool(getattr(CFG, "PUMP_EARLY_PROFIT_SHAPE_GUARD_ENABLED", True)) and max_mcap > 0 and market_cap >= max_mcap:
         return False
 
@@ -605,6 +631,11 @@ def _policy_for_regime(regime: str) -> dict[str, float | int | str | bool]:
     regime_key = _normalize_regime(regime)
     default_mode = _normalize_mode(getattr(CFG, "STRATEGY_REGIME_MODE_DEFAULT", "shadow"), "shadow")
 
+    if _paper_aggressive_enabled():
+        return _paper_aggressive_policy(regime_key)
+    if _live_aggressive_enabled():
+        return _live_aggressive_policy(regime_key)
+
     if regime_key == "pump_early":
         return {
             "mode": _normalize_mode(getattr(CFG, "PUMP_EARLY_EXECUTION_MODE", default_mode), default_mode),
@@ -657,6 +688,65 @@ def _sniper_paper_recovery_cap() -> float:
         return max(0.0, float(getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_RECOVERY_SIZE_CAP", 0.20) or 0.20))
     except Exception:
         return 0.20
+
+
+def _paper_aggressive_enabled() -> bool:
+    return bool(getattr(CFG, "DRY_RUN", False)) and bool(
+        getattr(CFG, "PAPER_AGGRESSIVE_TRADING_ENABLED", False)
+    )
+
+
+def _live_aggressive_enabled() -> bool:
+    return (not bool(getattr(CFG, "DRY_RUN", False))) and bool(
+        getattr(CFG, "LIVE_AGGRESSIVE_TRADING_ENABLED", False)
+    )
+
+
+def _live_aggressive_recovery_cap() -> float:
+    try:
+        return max(0.0, float(getattr(CFG, "LIVE_AGGRESSIVE_HEALTH_SIZE_CAP_MULTIPLIER", 0.10) or 0.10))
+    except Exception:
+        return 0.10
+
+
+def _live_aggressive_continue_on_health(regime: str) -> bool:
+    _ = regime
+    return (
+        _live_aggressive_enabled()
+        and bool(getattr(CFG, "LIVE_AGGRESSIVE_CONTINUE_ON_HEALTH", True))
+    )
+
+
+def _paper_aggressive_policy(regime_key: str) -> dict[str, float | int | str | bool]:
+    if regime_key == "pump_early":
+        recovery_cap = float(getattr(CFG, "PUMP_EARLY_RECOVERY_MAX_SIZE_MULTIPLIER", 0.20) or 0.20)
+    elif regime_key == "revival":
+        recovery_cap = float(getattr(CFG, "REVIVAL_RECOVERY_MAX_SIZE_MULTIPLIER", 0.30) or 0.30)
+    else:
+        recovery_cap = float(getattr(CFG, "DEX_MATURE_RECOVERY_MAX_SIZE_MULTIPLIER", 0.50) or 0.50)
+    return {
+        "mode": "live",
+        "confirmations": max(1, int(getattr(CFG, "PAPER_AGGRESSIVE_CONFIRM_SNAPSHOTS", 1) or 1)),
+        "backoff_s": max(5, int(getattr(CFG, "PAPER_AGGRESSIVE_CONFIRM_BACKOFF_S", 10) or 10)),
+        "min_age_min": max(0.0, float(getattr(CFG, "PAPER_AGGRESSIVE_MIN_AGE_MIN", 0.05) or 0.0)),
+        "recovery_cap": max(0.0, recovery_cap),
+    }
+
+
+def _live_aggressive_policy(regime_key: str) -> dict[str, float | int | str | bool]:
+    if regime_key == "pump_early":
+        recovery_cap = _live_aggressive_recovery_cap()
+    elif regime_key == "revival":
+        recovery_cap = float(getattr(CFG, "REVIVAL_RECOVERY_MAX_SIZE_MULTIPLIER", 0.30) or 0.30)
+    else:
+        recovery_cap = float(getattr(CFG, "DEX_MATURE_RECOVERY_MAX_SIZE_MULTIPLIER", 0.50) or 0.50)
+    return {
+        "mode": "live",
+        "confirmations": max(1, int(getattr(CFG, "LIVE_AGGRESSIVE_CONFIRM_SNAPSHOTS", 1) or 1)),
+        "backoff_s": max(5, int(getattr(CFG, "LIVE_AGGRESSIVE_CONFIRM_BACKOFF_S", 10) or 10)),
+        "min_age_min": max(0.0, float(getattr(CFG, "LIVE_AGGRESSIVE_MIN_AGE_MIN", 0.05) or 0.0)),
+        "recovery_cap": max(0.0, recovery_cap),
+    }
 
 
 def _to_int(value: Any) -> int | None:
@@ -730,6 +820,17 @@ def _bucket_key_from_token(token: dict[str, Any], regime: str) -> str:
 def _is_severe_exit(exit_reason: str | None, pnl_pct: float) -> bool:
     reason = str(exit_reason or "").strip().upper()
     return reason in _SEVERE_EXIT_REASONS or float(pnl_pct) <= -25.0
+
+
+def _is_breakout_lane(entry_lane: Any = None, gate_profile: Any = None, size_bucket: Any = None) -> bool:
+    lane = str(entry_lane or "").strip().lower()
+    profile = str(gate_profile or "").strip().lower()
+    bucket = str(size_bucket or "").strip().lower()
+    return (
+        lane == "pump_early_pumpswap_breakout_probe"
+        or profile.startswith("pumpswap_breakout")
+        or bucket == "pumpswap_breakout"
+    )
 
 
 def _record_bucket_close(
@@ -1038,6 +1139,7 @@ def evaluate_candidate(
     size_cap_multiplier: float | None = None
     mode_override_reason: str | None = None
     paper_continue = _sniper_paper_continue_on_health(resolved_regime)
+    live_aggressive_continue = _live_aggressive_continue_on_health(resolved_regime)
     bucket_disable_reason = _bucket_disable_reason(token, resolved_regime, now)
 
     if requested_mode == "live":
@@ -1056,6 +1158,11 @@ def evaluate_candidate(
                 effective_execution_state = "paper_recovery"
                 size_cap_multiplier = _sniper_paper_recovery_cap()
                 mode_override_reason = "paper_scorecard_negative"
+            elif live_aggressive_continue:
+                effective_mode = "live"
+                effective_execution_state = "live_aggressive_recovery"
+                size_cap_multiplier = _live_aggressive_recovery_cap()
+                mode_override_reason = "live_aggressive_scorecard_negative"
             else:
                 effective_mode = "shadow"
                 effective_execution_state = "shadow"
@@ -1066,6 +1173,11 @@ def evaluate_candidate(
                 effective_execution_state = "paper_recovery"
                 size_cap_multiplier = _sniper_paper_recovery_cap()
                 mode_override_reason = f"paper_{mode_override_reason}"
+            elif live_aggressive_continue:
+                effective_mode = "live"
+                effective_execution_state = "live_aggressive_recovery"
+                size_cap_multiplier = _live_aggressive_recovery_cap()
+                mode_override_reason = f"live_aggressive_{mode_override_reason}"
             else:
                 effective_mode = "shadow"
                 effective_execution_state = "shadow"
@@ -1076,6 +1188,11 @@ def evaluate_candidate(
                 effective_execution_state = "paper_recovery"
                 size_cap_multiplier = _sniper_paper_recovery_cap()
                 mode_override_reason = "paper_recovery_not_ready"
+            elif live_aggressive_continue:
+                effective_mode = "live"
+                effective_execution_state = "live_aggressive_recovery"
+                size_cap_multiplier = _live_aggressive_recovery_cap()
+                mode_override_reason = "live_aggressive_recovery_not_ready"
             else:
                 effective_mode = "shadow"
                 effective_execution_state = "shadow"
@@ -1274,16 +1391,7 @@ def record_trade_close(
     if total_pnl_pct is None:
         return
     resolved_regime = _normalize_regime(regime)
-    health = _HEALTH[resolved_regime]
     pnl_pct = float(total_pnl_pct)
-    health.trade_pnls_pct.append(pnl_pct)
-    won = pnl_pct > 0.0
-    health.trade_wins.append(won)
-    health.consecutive_losses = 0 if won else (health.consecutive_losses + 1)
-    severe_exit = _is_severe_exit(exit_reason, pnl_pct)
-    liq_crush_exit = str(exit_reason or "").strip().upper() == "LIQUIDITY_CRUSH"
-    health.severe_exits.append(bool(severe_exit))
-    health.liq_crush_exits.append(bool(liq_crush_exit))
     _record_bucket_close(
         regime=resolved_regime,
         pnl_pct=pnl_pct,
@@ -1295,6 +1403,22 @@ def record_trade_close(
         price5m_bucket=price5m_bucket,
         gate_profile=gate_profile,
     )
+    if (
+        resolved_regime == "pump_early"
+        and bool(getattr(CFG, "PUMP_EARLY_BREAKOUT_HEALTH_ISOLATED", True))
+        and _is_breakout_lane(entry_lane=entry_lane, gate_profile=gate_profile)
+    ):
+        return
+
+    health = _HEALTH[resolved_regime]
+    health.trade_pnls_pct.append(pnl_pct)
+    won = pnl_pct > 0.0
+    health.trade_wins.append(won)
+    health.consecutive_losses = 0 if won else (health.consecutive_losses + 1)
+    severe_exit = _is_severe_exit(exit_reason, pnl_pct)
+    liq_crush_exit = str(exit_reason or "").strip().upper() == "LIQUIDITY_CRUSH"
+    health.severe_exits.append(bool(severe_exit))
+    health.liq_crush_exits.append(bool(liq_crush_exit))
 
     if str(execution_state or "").strip().lower() in {"recovery", "paper_recovery"}:
         health.recovery_trade_pnls_pct.append(pnl_pct)
@@ -1352,11 +1476,15 @@ def bootstrap_closed_trades(rows: list[tuple[Any, ...]]) -> None:
         execution_state = "recovery" if str(size_bucket or "").strip().lower() == "recovery" else None
         bucket = str(size_bucket or "").strip().lower()
         entry_lane = entry_lane or (
+            "pump_early_pumpswap_breakout_probe"
+            if bucket == "pumpswap_breakout"
+            else
             "pump_early_pumpswap_profit"
             if bucket in {"pumpswap_profit", "pumpswap_prime", "pumpswap_meteor"}
             else None
         )
         gate_profile = gate_profile or (
+            "pumpswap_breakout_probe" if bucket == "pumpswap_breakout" else
             "pumpswap_meteor_prime" if bucket == "pumpswap_meteor" else
             "pumpswap_profit_prime" if bucket == "pumpswap_prime" else "pumpswap_profit_broad" if bucket == "pumpswap_profit" else None
         )
@@ -1422,6 +1550,8 @@ def describe_regime_health(now: dt.datetime | None = None) -> dict[str, dict[str
             effective_execution_state = "shadow"
         elif _sniper_paper_continue_on_health(regime) and snap["state"] in {"cooldown", "shadow_wait", "recovery"}:
             effective_execution_state = "paper_recovery"
+        elif _live_aggressive_continue_on_health(regime) and snap["state"] in {"cooldown", "shadow_wait", "recovery"}:
+            effective_execution_state = "live_aggressive_recovery"
         elif snap["state"] == "recovery":
             effective_execution_state = "recovery"
         elif snap["state"] in {"cooldown", "shadow_wait"}:

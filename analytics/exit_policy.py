@@ -18,7 +18,10 @@ def _to_float(value: Any, default: float = 0.0) -> float:
     try:
         if value is None:
             return float(default)
-        return float(value)
+        out = float(value)
+        if out != out or out == float("inf") or out == float("-inf"):
+            return float(default)
+        return out
     except Exception:
         return float(default)
 
@@ -226,11 +229,15 @@ def _profit_runner_profiles() -> dict[str, dict[str, float]]:
     return {
         "broad_runner": {
             "lock_floor_pct": float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_BROAD_LOCK_FLOOR_PCT", 20.0) or 20.0),
+            "partial_fraction": float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_BROAD_PARTIAL_FRACTION", 0.80) or 0.80),
             "max_giveback_pct": float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_BROAD_MAX_GIVEBACK_PCT", 5.0) or 5.0),
         },
         "prime_runner": {
             "base_lock_floor_pct": float(
                 getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_PRIME_BASE_LOCK_FLOOR_PCT", 25.0) or 25.0
+            ),
+            "partial_fraction": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_PRIME_PARTIAL_FRACTION", 0.65) or 0.65
             ),
             "base_max_giveback_pct": float(
                 getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_PRIME_BASE_MAX_GIVEBACK_PCT", 10.0) or 10.0
@@ -246,6 +253,9 @@ def _profit_runner_profiles() -> dict[str, dict[str, float]]:
         "meteor_runner": {
             "base_lock_floor_pct": float(
                 getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_METEOR_BASE_LOCK_FLOOR_PCT", 25.0) or 25.0
+            ),
+            "partial_fraction": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_METEOR_PARTIAL_FRACTION", 0.50) or 0.50
             ),
             "base_max_giveback_pct": float(
                 getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_METEOR_BASE_MAX_GIVEBACK_PCT", 15.0) or 15.0
@@ -279,13 +289,36 @@ def _subject_real_liquidity(subject: Any) -> bool:
     )
 
 
+def _subject_dex_id(subject: Any) -> str:
+    raw = _get(subject, "buy_dex_id") or _get(subject, "dex_id") or _get(subject, "dexId")
+    return str(raw or "").strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+
+
+def _is_aggressive_research_subject(subject: Any) -> bool:
+    lane = str(_get(subject, "entry_lane", "") or "").strip().lower()
+    profile = str(_get(subject, "gate_profile", "") or _get(subject, "sniper_gate_profile", "") or "").strip().lower()
+    return lane == "pump_early_sniper_research" or profile in {
+        "paper_aggressive_research_buy",
+        "live_aggressive_research_buy",
+    }
+
+
+def _resolve_aggressive_research_runner_profile(subject: Any) -> str:
+    _ = subject
+    # Research/aggressive buys are not validated productively; keep the runner small and defensive.
+    return "broad_runner"
+
+
 def resolve_runner_exit_profile(subject: Any) -> str | None:
     explicit = str(_get(subject, "runner_exit_profile", "") or "").strip().lower()
     if explicit in {"broad_runner", "prime_runner", "meteor_runner"}:
         return explicit
+    if _is_aggressive_research_subject(subject):
+        return _resolve_aggressive_research_runner_profile(subject)
     if not _is_pumpswap_profit_subject(subject):
         return None
 
+    lane = str(_get(subject, "entry_lane", "") or "").strip().lower()
     profile = str(_get(subject, "gate_profile", "") or _get(subject, "sniper_gate_profile", "") or "").strip().lower()
     mcap = _to_float(_get(subject, "buy_market_cap_usd"))
     if mcap <= 0:
@@ -298,6 +331,8 @@ def resolve_runner_exit_profile(subject: Any) -> str | None:
         txns_5m = _to_float(_get(subject, "txns_last_5m"), 0.0)
 
     if profile.startswith("pumpswap_meteor"):
+        return "meteor_runner"
+    if profile.startswith("pumpswap_breakout") or lane == "pump_early_pumpswap_breakout_probe":
         return "meteor_runner"
     if profile.startswith("pumpswap_profit_prime"):
         if (
@@ -358,9 +393,12 @@ def _is_pumpswap_profit_subject(subject: Any) -> bool:
     bucket = str(_get(subject, "size_bucket", "") or "").strip().lower()
     return (
         lane == "pump_early_pumpswap_profit"
+        or lane == "pump_early_pumpswap_breakout_probe"
+        or _is_aggressive_research_subject(subject)
         or profile.startswith("pumpswap_profit")
         or profile.startswith("pumpswap_meteor")
-        or bucket in {"pumpswap_profit", "pumpswap_prime", "pumpswap_meteor"}
+        or profile.startswith("pumpswap_breakout")
+        or bucket in {"pumpswap_profit", "pumpswap_prime", "pumpswap_meteor", "pumpswap_breakout"}
     )
 
 
@@ -385,6 +423,15 @@ def effective_exit_policy(subject: Any) -> ExitPolicy:
         base_lock_floor_pct = max(0.0, float(runner_lock_floor_pct))
     if runner_max_giveback_pct is not None:
         base_max_giveback_pct = max(0.0, float(runner_max_giveback_pct))
+    tp_partial_fraction = min(
+        max(_override_value(regime, "tp_partial_fraction", float(CFG.TP_PARTIAL_FRACTION)), 0.05),
+        0.95,
+    )
+    if runner_exit_profile:
+        runner_partial = _profit_runner_profiles().get(runner_exit_profile, {}).get("partial_fraction")
+        if runner_partial is not None:
+            tp_partial_fraction = min(max(float(runner_partial), 0.05), 0.95)
+
     return ExitPolicy(
         regime=regime,
         take_profit_pct=_override_value(regime, "take_profit_pct", float(CFG.TAKE_PROFIT_PCT)),
@@ -394,7 +441,7 @@ def effective_exit_policy(subject: Any) -> ExitPolicy:
         max_hard_hold_h=max(0.0, _override_value(regime, "max_hard_hold_h", float(CFG.MAX_HARD_HOLD_H))),
         tp_partial_enabled=bool(CFG.TP_PARTIAL_ENABLED),
         tp_partial_trigger_pct=_override_value(regime, "tp_partial_trigger_pct", float(CFG.TP_PARTIAL_TRIGGER_PCT)),
-        tp_partial_fraction=min(max(_override_value(regime, "tp_partial_fraction", float(CFG.TP_PARTIAL_FRACTION)), 0.05), 0.95),
+        tp_partial_fraction=tp_partial_fraction,
         post_partial_stop_pct=_override_value(regime, "post_partial_stop_pct", float(CFG.POST_PARTIAL_STOP_PCT)),
         post_partial_trailing_pct=max(0.0, _override_value(regime, "post_partial_trailing_pct", float(CFG.POST_PARTIAL_TRAILING_PCT))),
         post_partial_protection_enabled=_override_bool(

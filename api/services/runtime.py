@@ -207,6 +207,7 @@ def _strategy_health_events_status(
 
 def _sniper_runtime_rollups(settings: APISettings) -> dict[str, Any]:
     rows = load_jsonl_rows(settings.research_events_path)
+    productive_lanes = {"pump_early_pumpswap_profit", "pump_early_pumpswap_breakout_probe"}
     lane_counts: dict[str, int] = {}
     reject_reasons: dict[str, int] = {}
     productive_pnls: list[float] = []
@@ -220,7 +221,7 @@ def _sniper_runtime_rollups(settings: APISettings) -> dict[str, Any]:
         reason = str(row.get("reason") or "").strip()
         if reason.startswith("live_profit_gate:"):
             reject_reasons[reason] = reject_reasons.get(reason, 0) + 1
-        if str(row.get("event_type") or "") == "candidate_outcome" and lane == "pump_early_pumpswap_profit":
+        if str(row.get("event_type") or "") == "candidate_outcome" and lane in productive_lanes:
             try:
                 pnl = float(row.get("pnl_pct"))
             except Exception:

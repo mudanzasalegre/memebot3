@@ -6,6 +6,12 @@ from typing import Any, Dict, Iterable
 import numpy as np
 import pandas as pd
 
+from ml.data_contract import (
+    normalize_dex_id as contract_normalize_dex_id,
+    normalize_entry_regime as contract_normalize_entry_regime,
+    normalize_price_source,
+    reconstruct_entry_lane,
+)
 from utils.data_utils import (
     is_incomplete as token_is_incomplete,
     is_missing_value,
@@ -180,6 +186,7 @@ ALLOWED_FEATURES: set[str] = {
 FORBIDDEN_FEATURES: set[str] = set()
 _FORBIDDEN_SUBSTR: tuple[str, ...] = (
     "pnl",
+    "future",
     "close_price",
     "_at_close",
     "_after_",
@@ -221,17 +228,11 @@ def _normalize_discovery(value: Any) -> str:
 
 
 def _normalize_entry_regime(value: Any) -> str:
-    raw = str(value or "").strip().lower()
-    if raw in {"pump_early", "pump-early", "pumpfun"}:
-        return "pump_early"
-    if raw in {"revival", "revive", "revived"}:
-        return "revival"
-    return "dex_mature"
+    return contract_normalize_entry_regime(value)
 
 
 def _normalize_dex_id(value: Any) -> str:
-    raw = str(value or "").strip().lower().replace("_", "").replace("-", "").replace(" ", "")
-    return raw or "unknown"
+    return contract_normalize_dex_id(value)
 
 
 def _mcap_bucket(value: Any) -> tuple[str, int]:
@@ -363,8 +364,9 @@ def build_feature_vector(tok: Dict[str, Any]) -> pd.Series:
     age_min = _coerce_age_minutes(tok, now)
 
     discovered_via = _normalize_discovery(tok.get("discovered_via", "dex"))
-    entry_regime = _normalize_entry_regime(tok.get("entry_regime"))
+    entry_regime = _normalize_entry_regime(tok.get("entry_regime") or tok.get("discovered_via"))
     dex_id = _normalize_dex_id(tok.get("dex_id") or tok.get("dexId"))
+    entry_lane = reconstruct_entry_lane(tok)
     mcap_bucket, mcap_bucket_code = _mcap_bucket(tok.get("market_cap_usd"))
     price5m_bucket, price5m_bucket_code = _price5m_bucket(tok.get("price_pct_5m"))
     missing_flags = _missing_flags(tok)
@@ -377,12 +379,12 @@ def build_feature_vector(tok: Dict[str, Any]) -> pd.Series:
         "discovered_via_code": int(_DISCOVERY_CODE.get(discovered_via, 0)),
         "entry_regime": entry_regime,
         "entry_regime_code": int(_ENTRY_REGIME_CODE.get(entry_regime, 0)),
-        "entry_lane": str(tok.get("entry_lane") or "").strip() or None,
+        "entry_lane": entry_lane,
         "gate_profile": str(tok.get("gate_profile") or tok.get("sniper_gate_profile") or "").strip() or None,
         "profit_lane_tier": str(tok.get("profit_lane_tier") or "").strip() or None,
         "dex_id": dex_id,
         "dex_id_code": int(_DEX_ID_CODE.get(dex_id, 0)),
-        "price_source": str(tok.get("price_source") or "").strip().lower() or "unknown",
+        "price_source": normalize_price_source(tok.get("price_source")),
         "price_source_quality": _price_source_quality(tok.get("price_source")),
         "age_minutes": age_min,
         "liquidity_is_proxy": _as_bool_int(tok.get("liquidity_is_proxy") or tok.get("liquidity_usd_is_proxy")),

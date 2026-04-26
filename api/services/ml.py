@@ -273,7 +273,9 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
     gate["live_threshold_origin"] = gate.get("live_threshold_origin") or "ml_shadow_not_live"
     gate["live_uses_rank_score"] = False
     gate["live_uses_heuristic_only"] = True
+    productive_lanes = {"pump_early_pumpswap_profit", "pump_early_pumpswap_breakout_probe"}
     gate["productive_gate"] = "pump_early_pumpswap_profit"
+    gate["productive_gates"] = sorted(productive_lanes)
     gate["sniper_lane_enabled"] = bool(getattr(CFG, "PUMP_EARLY_SNIPER_ENABLED", True))
     gate["sniper_mode"] = str(getattr(CFG, "PUMP_EARLY_SNIPER_MODE", "canary_aggressive") or "canary_aggressive")
 
@@ -318,6 +320,7 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
             or str(row.get("entry_lane") or "").startswith("pump_early_pumpswap")
             or str(row.get("sniper_gate_profile") or "").startswith("sniper")
             or str(row.get("sniper_gate_profile") or "").startswith("pumpswap_profit")
+            or str(row.get("sniper_gate_profile") or "").startswith("pumpswap_breakout")
         )
     ]
     pump_closes = [
@@ -328,30 +331,25 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
     profit_closes = [
         row
         for row in productive_events
-        if str(row.get("entry_lane") or "") == "pump_early_pumpswap_profit"
+        if str(row.get("entry_lane") or "") in productive_lanes
+    ]
+    breakout_closes = [
+        row
+        for row in productive_events
+        if str(row.get("entry_lane") or "") == "pump_early_pumpswap_breakout_probe"
     ]
     research_profit_like = [
         row
         for row in outcome_events
         if id(row) not in productive_event_ids
         and (
-            str(row.get("entry_lane") or "") == "pump_early_pumpswap_profit"
+            str(row.get("entry_lane") or "") in productive_lanes
             or str(row.get("gate_profile") or row.get("sniper_gate_profile") or "").startswith("pumpswap_profit")
+            or str(row.get("gate_profile") or row.get("sniper_gate_profile") or "").startswith("pumpswap_breakout")
         )
     ]
-    profit_positive = 0
-    for row in profit_closes:
-        raw_pnl = (
-            row.get("realized_pnl_pct")
-            if row.get("realized_pnl_pct") is not None
-            else row.get("target_total_pnl_pct", row.get("total_pnl_pct", row.get("pnl_pct")))
-        )
-        try:
-            if float(raw_pnl) > 0:
-                profit_positive += 1
-        except Exception:
-            continue
     profit_metrics = _profit_outcome_metrics(profit_closes)
+    breakout_metrics = _profit_outcome_metrics(breakout_closes)
     promotion = _promotion_readiness(runtime, profit_metrics)
     blocker = runtime.get("blocker") or (",".join(promotion["blockers"]) if promotion["blockers"] else None)
 
@@ -362,9 +360,15 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
             "pump_early_outcomes": len(pump_closes),
             "pump_early_sniper_outcomes": len(sniper_closes),
             "pump_early_pumpswap_profit_outcomes": len(profit_closes),
-            "pump_early_pumpswap_profit_positives": profit_positive,
+            "pump_early_pumpswap_profit_positives": profit_metrics.get("positives"),
             "pump_early_pumpswap_profit_avg_realized_pnl_pct": profit_metrics.get("avg_realized_pnl_pct"),
             "pump_early_pumpswap_profit_win_rate_pct": profit_metrics.get("win_rate_pct"),
+            "productive_profit_lane_outcomes": len(profit_closes),
+            "productive_profit_lane_positives": profit_metrics.get("positives"),
+            "pump_early_pumpswap_breakout_probe_outcomes": len(breakout_closes),
+            "pump_early_pumpswap_breakout_probe_positives": breakout_metrics.get("positives"),
+            "pump_early_pumpswap_breakout_probe_avg_realized_pnl_pct": breakout_metrics.get("avg_realized_pnl_pct"),
+            "pump_early_pumpswap_breakout_probe_win_rate_pct": breakout_metrics.get("win_rate_pct"),
             "outcomes_by_lane": productive_lane_counts,
             "outcomes_by_dex": productive_dex_counts,
             "all_outcomes_by_lane": lane_counts,
@@ -377,7 +381,11 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
             "required_positive_outcomes": 35,
             "training_filters": {
                 "entry_lane_allowlist": str(
-                    getattr(CFG, "ML_TRAIN_ENTRY_LANE_ALLOWLIST", "pump_early_pumpswap_profit,pump_early_pumpswap_prime")
+                    getattr(
+                        CFG,
+                        "ML_TRAIN_ENTRY_LANE_ALLOWLIST",
+                        "pump_early_pumpswap_profit,pump_early_pumpswap_prime,pump_early_pumpswap_breakout_probe",
+                    )
                     or ""
                 ),
                 "dex_allowlist": str(getattr(CFG, "ML_TRAIN_DEX_ALLOWLIST", "pumpswap") or ""),

@@ -165,6 +165,17 @@ def log_ml_decision_event(
     record_runtime_event("ml_decision", address, **payload)
 
 
+def log_ml_policy_decision_event(address: str, decision: Any, **payload: Any) -> None:
+    if hasattr(decision, "to_dict"):
+        data = decision.to_dict()
+    elif isinstance(decision, dict):
+        data = dict(decision)
+    else:
+        data = {"decision": str(decision)}
+    data.update(payload)
+    record_runtime_event("ml_policy_decision", address, **data)
+
+
 def log_strategy_decision_event(
     address: str,
     *,
@@ -229,6 +240,7 @@ __all__ = [
     "log_queue_drop",
     "log_buy_event",
     "log_ml_decision_event",
+    "log_ml_policy_decision_event",
     "log_strategy_decision_event",
     "log_regime_health_event",
     "log_execution_event",

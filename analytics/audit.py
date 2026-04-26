@@ -408,20 +408,25 @@ def _entry_filter_sweeps(positions: pd.DataFrame) -> dict[str, Any]:
     if pump.empty:
         return {"baseline": baseline, "best": None, "top_candidates": []}
 
+    def _numeric_filter_col(frame: pd.DataFrame, column: str, fill: float) -> pd.Series:
+        if column not in frame.columns:
+            return pd.Series(fill, index=frame.index, dtype="float64")
+        return pd.to_numeric(frame[column], errors="coerce").fillna(fill)
+
     candidates: list[dict[str, Any]] = []
     for min_liq in (0.0, 2_000.0, 5_000.0, 10_000.0, 15_000.0):
         for min_vol in (0.0, 10_000.0, 25_000.0, 50_000.0, 100_000.0):
             for max_impact in (None, 10.0, 7.5, 5.0, 2.5):
-                for max_missing in (None, 2.0, 1.0, 0.0):
-                    subset = pump.copy()
-                    if min_liq > 0:
-                        subset = subset[pd.to_numeric(subset.get("liquidity_usd"), errors="coerce").fillna(0.0) >= min_liq]
-                    if min_vol > 0:
-                        subset = subset[pd.to_numeric(subset.get("volume_24h_usd"), errors="coerce").fillna(0.0) >= min_vol]
-                    if max_impact is not None:
-                        subset = subset[pd.to_numeric(subset.get("price_impact_pct"), errors="coerce").fillna(float("inf")) <= float(max_impact)]
-                    if max_missing is not None:
-                        subset = subset[pd.to_numeric(subset.get("snapshot_missing_fields"), errors="coerce").fillna(float("inf")) <= float(max_missing)]
+                    for max_missing in (None, 2.0, 1.0, 0.0):
+                        subset = pump.copy()
+                        if min_liq > 0:
+                            subset = subset[_numeric_filter_col(subset, "liquidity_usd", 0.0) >= min_liq]
+                        if min_vol > 0:
+                            subset = subset[_numeric_filter_col(subset, "volume_24h_usd", 0.0) >= min_vol]
+                        if max_impact is not None:
+                            subset = subset[_numeric_filter_col(subset, "price_impact_pct", float("inf")) <= float(max_impact)]
+                        if max_missing is not None:
+                            subset = subset[_numeric_filter_col(subset, "snapshot_missing_fields", float("inf")) <= float(max_missing)]
                     if len(subset) < 20:
                         continue
                     metrics = _trade_subset_metrics(subset)

@@ -126,3 +126,59 @@ def test_meteor_runner_uses_highest_lock_floor_after_big_peak() -> None:
     assert policy.runner_profile_state == "step2"
     assert policy.post_partial_lock_floor_pct == 120.0
     assert policy.post_partial_max_giveback_pct == 20.0
+
+
+def test_breakout_probe_uses_meteor_runner_profile() -> None:
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_pumpswap_breakout_probe",
+        "gate_profile": "pumpswap_breakout_probe",
+        "highest_pnl_pct": 140.0,
+        "partial_taken": True,
+    }
+
+    policy = exit_policy.effective_exit_policy(subject)
+
+    assert policy.runner_exit_profile == "meteor_runner"
+    assert policy.runner_profile_state == "step1"
+    assert policy.post_partial_lock_floor_pct == 70.0
+    assert policy.post_partial_max_giveback_pct == 20.0
+    assert exit_policy.partial_fraction(subject) == 0.50
+
+
+def test_aggressive_research_hot_low_mcap_stays_broad_runner_fraction() -> None:
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_sniper_research",
+        "gate_profile": "paper_aggressive_research_buy",
+        "buy_dex_id": "pumpfun",
+        "buy_market_cap_usd": 9_500.0,
+        "buy_price_pct_5m": 220.0,
+        "buy_txns_last_5m": 180.0,
+        "highest_pnl_pct": 120.0,
+        "partial_taken": False,
+    }
+
+    policy = exit_policy.effective_exit_policy(subject)
+
+    assert policy.runner_exit_profile == "broad_runner"
+    assert exit_policy.partial_fraction(subject) == 0.80
+
+
+def test_aggressive_research_low_mcap_stays_broad_runner_fraction() -> None:
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_sniper_research",
+        "gate_profile": "live_aggressive_research_buy",
+        "buy_dex_id": "pumpfun",
+        "buy_market_cap_usd": 12_000.0,
+        "buy_price_pct_5m": -15.0,
+        "buy_txns_last_5m": 40.0,
+        "highest_pnl_pct": 20.0,
+        "partial_taken": False,
+    }
+
+    policy = exit_policy.effective_exit_policy(subject)
+
+    assert policy.runner_exit_profile == "broad_runner"
+    assert exit_policy.partial_fraction(subject) == 0.80

@@ -35,3 +35,5 @@ typing-extensions>=4.11
 
 # ─── Notebook / exploración (opcional, no requerido en prod) ──
 jupyterlab>=4.2          # sólo para EDA offline
+pytest>=8.0
+pytest-asyncio>=0.23

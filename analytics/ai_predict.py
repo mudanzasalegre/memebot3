@@ -76,6 +76,8 @@ def _resolve_meta_path(mp: Path) -> Path:
 
 _META_PATH: Path = _resolve_meta_path(_MODEL_PATH)
 _TRAIN_STATUS_PATH: Path = (PROJECT_ROOT / "data" / "metrics" / "train_status.json").resolve()
+_THRESHOLDS_BY_LANE_PATH: Path = (PROJECT_ROOT / "data" / "metrics" / "recommended_thresholds.by_lane.json").resolve()
+_LEGACY_THRESHOLD_PATH: Path = (PROJECT_ROOT / "data" / "metrics" / "recommended_threshold.json").resolve()
 
 # ──────────────────── estado global ───────────────────────────
 _model_lock = threading.Lock()
@@ -167,6 +169,17 @@ def _load_train_status() -> dict[str, Any]:
         payload = json.loads(_TRAIN_STATUS_PATH.read_text(encoding="utf-8"))
     except Exception as exc:
         log.warning("No se pudo leer train_status %s: %s", _TRAIN_STATUS_PATH, exc)
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _load_json_file(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        log.warning("No se pudo leer %s: %s", path, exc)
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -316,4 +329,28 @@ def model_runtime_status() -> dict[str, Any]:
     }
 
 
-__all__ = ["should_buy", "reload_model", "model_runtime_status"]
+def threshold_runtime_metadata() -> dict[str, Any]:
+    """Threshold metadata with by-lane support and legacy fallback."""
+    by_lane = _load_json_file(_THRESHOLDS_BY_LANE_PATH)
+    if by_lane:
+        return {
+            "source": "by_lane",
+            "path": str(_THRESHOLDS_BY_LANE_PATH),
+            "global": by_lane.get("global") or {},
+            "by_lane": by_lane.get("by_lane") or {},
+        }
+    legacy = _load_json_file(_LEGACY_THRESHOLD_PATH)
+    return {
+        "source": "legacy",
+        "path": str(_LEGACY_THRESHOLD_PATH),
+        "global": {
+            "threshold": legacy.get("picked"),
+            "activation_ready": legacy.get("activation_ready"),
+            "mode_recommended": "shadow" if not legacy.get("activation_ready") else "enforce",
+            "reason": legacy.get("activation_reason"),
+        },
+        "by_lane": {},
+    }
+
+
+__all__ = ["should_buy", "reload_model", "model_runtime_status", "threshold_runtime_metadata"]

@@ -46,6 +46,11 @@ async def _fetch_closes(address: str) -> List[float]:
             ) as sess, sess.get(url) as resp:
                 if resp.status == 404:
                     if attempt == 1:
+                        from fetcher import dexscreener
+
+                        pair = await dexscreener.get_pair(address)
+                        if pair:
+                            return []
                         raise Trend404Retry("DexScreener 404 - sin velas todavia")
                     log.debug("Trend 404 repetido - sigo sin trend")
                     return []

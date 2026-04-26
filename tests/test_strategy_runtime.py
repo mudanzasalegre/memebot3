@@ -96,6 +96,16 @@ def _make_cfg(**overrides: object) -> SimpleNamespace:
         "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH": True,
         "PUMP_EARLY_SNIPER_PAPER_RECOVERY_SIZE_CAP": 0.20,
         "PAPER_PNL_STRICT_HEALTH": True,
+        "PAPER_AGGRESSIVE_TRADING_ENABLED": False,
+        "PAPER_AGGRESSIVE_CONFIRM_SNAPSHOTS": 1,
+        "PAPER_AGGRESSIVE_CONFIRM_BACKOFF_S": 10,
+        "PAPER_AGGRESSIVE_MIN_AGE_MIN": 0.05,
+        "LIVE_AGGRESSIVE_TRADING_ENABLED": False,
+        "LIVE_AGGRESSIVE_CONFIRM_SNAPSHOTS": 1,
+        "LIVE_AGGRESSIVE_CONFIRM_BACKOFF_S": 10,
+        "LIVE_AGGRESSIVE_MIN_AGE_MIN": 0.05,
+        "LIVE_AGGRESSIVE_CONTINUE_ON_HEALTH": True,
+        "LIVE_AGGRESSIVE_HEALTH_SIZE_CAP_MULTIPLIER": 0.10,
         "PUMP_EARLY_RECOVERY_RECENT_OVERRIDE_ENABLED": True,
         "PUMP_EARLY_RECOVERY_RECENT_IGNORE_OLD_LIQ_CRUSH": True,
         "PUMP_EARLY_SHADOW_RECOVERY_ENABLED": False,
@@ -233,6 +243,62 @@ def test_negative_scorecard_demotes_live_pump_to_shadow(tmp_path: Path, monkeypa
     assert decision.reason == "scorecard_negative"
 
 
+def test_paper_aggressive_forces_shadow_regimes_to_live(monkeypatch) -> None:
+    now = dt.datetime(2026, 4, 6, 13, 0, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(
+        strategy_runtime,
+        "CFG",
+        _make_cfg(
+            DRY_RUN=True,
+            PAPER_AGGRESSIVE_TRADING_ENABLED=True,
+            DEX_MATURE_EXECUTION_MODE="shadow",
+            DEX_MATURE_CONFIRM_SNAPSHOTS=4,
+            DEX_MATURE_CONFIRM_MIN_AGE_MIN=12.0,
+        ),
+    )
+    _reset_strategy_state()
+
+    decision = strategy_runtime.evaluate_candidate(
+        {"address": "dex-1", "age_min": 0.1, "liquidity_usd": 2_000.0},
+        regime="dex_mature",
+        has_route=True,
+        now=now,
+    )
+
+    assert decision.requested_mode == "live"
+    assert decision.effective_mode == "live"
+    assert decision.action == "live"
+    assert decision.confirmations_required == 1
+
+
+def test_live_aggressive_forces_shadow_regimes_to_live(monkeypatch) -> None:
+    now = dt.datetime(2026, 4, 6, 13, 0, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(
+        strategy_runtime,
+        "CFG",
+        _make_cfg(
+            DRY_RUN=False,
+            LIVE_AGGRESSIVE_TRADING_ENABLED=True,
+            DEX_MATURE_EXECUTION_MODE="shadow",
+            DEX_MATURE_CONFIRM_SNAPSHOTS=4,
+            DEX_MATURE_CONFIRM_MIN_AGE_MIN=12.0,
+        ),
+    )
+    _reset_strategy_state()
+
+    decision = strategy_runtime.evaluate_candidate(
+        {"address": "dex-live-1", "age_min": 0.1, "liquidity_usd": 2_000.0},
+        regime="dex_mature",
+        has_route=True,
+        now=now,
+    )
+
+    assert decision.requested_mode == "live"
+    assert decision.effective_mode == "live"
+    assert decision.action == "live"
+    assert decision.confirmations_required == 1
+
+
 def test_stale_scorecard_is_ignored(tmp_path: Path, monkeypatch) -> None:
     now = dt.datetime(2026, 4, 6, 13, 0, tzinfo=dt.timezone.utc)
     scorecard_path = tmp_path / "research_scorecard.json"
@@ -350,6 +416,40 @@ def test_sniper_paper_continues_after_health_demote(monkeypatch, tmp_path: Path)
     assert decision.action == "live"
     assert decision.size_cap_multiplier == 0.20
     assert "paper_" in decision.reason
+
+
+def test_live_aggressive_continues_after_health_demote(monkeypatch, tmp_path: Path) -> None:
+    now = dt.datetime(2026, 4, 6, 13, 0, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(
+        strategy_runtime,
+        "CFG",
+        _make_cfg(
+            PUMP_EARLY_SNIPER_ENABLED=True,
+            DRY_RUN=False,
+            LIVE_AGGRESSIVE_TRADING_ENABLED=True,
+            LIVE_AGGRESSIVE_CONTINUE_ON_HEALTH=True,
+            LIVE_AGGRESSIVE_HEALTH_SIZE_CAP_MULTIPLIER=0.10,
+        ),
+    )
+    monkeypatch.setattr(strategy_runtime, "_SCORECARD_PATH", tmp_path / "missing_scorecard.json")
+    monkeypatch.setattr(strategy_runtime.research_runtime, "load_live_rank_gate", lambda *args, **kwargs: _rank_gate())
+    _reset_strategy_state()
+
+    for pnl in (-2.0, -3.0, -1.0, -4.0):
+        strategy_runtime.record_trade_close("pump_early", pnl, exit_reason="STOP_LOSS", execution_state="live")
+
+    decision = strategy_runtime.evaluate_candidate(
+        {"address": "pump-live-aggressive-after", "age_min": 6.0, "liquidity_usd": 12_000.0},
+        regime="pump_early",
+        has_route=True,
+        now=now,
+    )
+
+    assert decision.effective_mode == "live"
+    assert decision.effective_execution_state == "live_aggressive_recovery"
+    assert decision.action == "live"
+    assert decision.size_cap_multiplier == 0.10
+    assert "live_aggressive_" in decision.reason
 
 
 def test_strict_paper_health_demotes_productive_lane_to_shadow(monkeypatch, tmp_path: Path) -> None:

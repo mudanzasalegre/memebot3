@@ -36,6 +36,13 @@ import pyarrow.parquet as pq
 
 from config.config import CFG
 from features.builder import COLUMNS as _FEAT_COLS
+from ml.data_contract import (
+    normalize_dex_id,
+    normalize_entry_lane,
+    normalize_entry_regime,
+    normalize_price_source,
+    normalize_sample_type,
+)
 
 log = logging.getLogger("features")
 
@@ -218,9 +225,14 @@ def append(
     for c in _FEAT_COLS:
         row[c] = _normalize_scalar(vec.get(c, None))
 
+    row["entry_regime"] = normalize_entry_regime(row.get("entry_regime"))
+    row["entry_lane"] = normalize_entry_lane(row.get("entry_lane"))
+    row["dex_id"] = normalize_dex_id(row.get("dex_id"))
+    row["price_source"] = normalize_price_source(row.get("price_source"))
+
     row["label"] = int(label)
     row["target_total_pnl_pct"] = _normalize_scalar(target_total_pnl_pct)
-    row["sample_type"] = _normalize_scalar(sample_type)
+    row["sample_type"] = normalize_sample_type(sample_type)
     row["ts"] = dt.datetime.now(dt.timezone.utc)
 
     pa_table = pa.Table.from_pydict({k: [v] for k, v in row.items()})

@@ -405,6 +405,13 @@ def main() -> int:
         source_csv=str(csv_path),
     )
     write_threshold_result(result, out_path=Path(args.out), meta_path=META_PATH)
+    try:
+        from ml.segment_report import build_segment_report, load_feature_history, write_segment_outputs
+
+        segment_report = build_segment_report(df, features=load_feature_history(), threshold=result.get("picked"))
+        write_segment_outputs(segment_report)
+    except Exception as exc:
+        print(f"[tune_threshold] segment_report omitido: {exc}")
     print(
         "[tune_threshold] picked={picked:.3f} objective={objective_applied} "
         "P={precision_at_picked} R={recall_at_picked} avg_realized_pnl={avg_realized_pnl_pct_at_picked} "

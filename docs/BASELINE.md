@@ -1,0 +1,262 @@
+# Baseline
+
+- Project root: `D:\Dev\Python\memebot3`
+
+## Config efectiva
+
+- `DRY_RUN`: `True`
+- `TRADE_AMOUNT_SOL`: `0.05`
+- `AI_THRESHOLD`: `0.0`
+- `BUY_SOFT_SCORE_MIN`: `0`
+- `MIN_AGE_MIN`: `0.05`
+- `MIN_HOLDERS`: `0`
+- `MIN_LIQUIDITY_USD`: `1000.0`
+- `MIN_VOL_USD_24H`: `2000.0`
+- `MIN_MARKET_CAP_USD`: `2000.0`
+- `MAX_MARKET_CAP_USD`: `8000000.0`
+- `FILTER_PROFILE_BY_DISCOVERY`: `True`
+- `SNAPSHOT_QUALITY_FILTER_ENABLED`: `True`
+- `SNAPSHOT_MAX_MISSING_FIELDS`: `4`
+- `SNAPSHOT_REQUIRE_ACTIVITY_SIGNAL`: `False`
+- `SNAPSHOT_REQUIRE_SOCIAL_OR_TREND`: `False`
+- `SNAPSHOT_REQUIRE_RUG_SCORE`: `False`
+- `SNAPSHOT_ALLOWED_PRICE_SOURCES`: `('jupiter', 'birdeye', 'dexscreener')`
+- `MAX_ACTIVE_POSITIONS`: `4`
+- `REGIME_PUMP_EARLY_MAX_AGE_MIN`: `30.0`
+- `DYNAMIC_SIZING_ENABLED`: `True`
+- `AI_SIZING_ENABLED`: `False`
+- `PUMP_EARLY_EXECUTION_MODE`: `live`
+- `DEX_MATURE_EXECUTION_MODE`: `shadow`
+- `REVIVAL_EXECUTION_MODE`: `shadow`
+- `PUMP_EARLY_QUALITY_MIN_POINTS`: `4`
+- `PUMP_EARLY_QUALITY_MIN_AGE_MIN`: `3.0`
+- `PUMP_EARLY_QUALITY_MIN_LIQUIDITY_USD`: `8000.0`
+- `PUMP_EARLY_QUALITY_MIN_VOLUME_USD_24H`: `60000.0`
+- `PUMP_EARLY_QUALITY_MIN_MARKET_CAP_USD`: `20000.0`
+- `PUMP_EARLY_QUALITY_MIN_HOLDERS`: `15`
+- `PUMP_EARLY_QUALITY_MIN_SCORE_TOTAL`: `50`
+- `PUMP_EARLY_QUALITY_MAX_PRICE_IMPACT_PCT`: `8.0`
+- `SIZE_MIN_MULTIPLIER`: `0.1`
+- `SIZE_MID_MULTIPLIER`: `0.2`
+- `SIZE_MAX_MULTIPLIER`: `0.3`
+- `PUMP_EARLY_LIVE_HARD_MAX_MARKET_CAP_USD`: `125000.0`
+- `PUMP_EARLY_LIVE_HARD_MAX_PRICE_IMPACT_PCT`: `10.0`
+- `PUMP_EARLY_LIVE_MAX_SNAPSHOT_MISSING_FIELDS`: `3`
+- `PUMP_EARLY_SNIPER_ENABLED`: `True`
+- `PUMP_EARLY_SNIPER_MODE`: `canary_aggressive`
+- `PUMP_EARLY_SNIPER_MIN_LIQUIDITY_USD`: `1500.0`
+- `PUMP_EARLY_SNIPER_MIN_MARKET_CAP_USD`: `2000.0`
+- `PUMP_EARLY_SNIPER_MIN_SCORE_TOTAL`: `30`
+- `PUMP_EARLY_SNIPER_MIN_RANK_SCORE`: `40.0`
+- `PUMP_EARLY_SNIPER_MIN_TXNS_5M`: `15`
+- `PUMP_EARLY_SNIPER_MIN_PRICE_PCT_5M`: `-20.0`
+- `PUMP_EARLY_SNIPER_MAX_PRICE_PCT_5M`: `240.0`
+- `PUMP_EARLY_SNIPER_MAX_PRICE_IMPACT_PCT`: `20.0`
+- `PUMP_EARLY_SNIPER_MAX_SNAPSHOT_MISSING_FIELDS`: `5`
+- `PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH`: `True`
+- `PUMP_EARLY_SNIPER_PAPER_RECOVERY_SIZE_CAP`: `0.2`
+- `PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_ENABLED`: `True`
+- `LIVE_RANK_SCORE_FALLBACK_MIN`: `12.5`
+- `SIZE_ACCEPTABLE_MIN_POINTS`: `3`
+- `SIZE_PREMIUM_MIN_POINTS`: `7`
+- `PUMP_EARLY_MAX_SIZE_MULTIPLIER`: `0.3`
+- `DEX_MATURE_MAX_SIZE_MULTIPLIER`: `0.2`
+- `REVIVAL_MAX_SIZE_MULTIPLIER`: `0.25`
+- `MAX_ACTIVE_POSITIONS_PER_REGIME`: `2`
+- `PUMP_EARLY_MAX_ACTIVE_POSITIONS`: `3`
+- `DEX_MATURE_MAX_ACTIVE_POSITIONS`: `1`
+- `REVIVAL_MAX_ACTIVE_POSITIONS`: `2`
+- `REQUIRE_JUPITER_FOR_BUY`: `True`
+- `EXIT_PROFILE_BY_REGIME`: `True`
+- `TP_PARTIAL_ENABLED`: `True`
+- `TP_PARTIAL_TRIGGER_PCT`: `6.0`
+- `TP_PARTIAL_FRACTION`: `0.8`
+- `POST_PARTIAL_STOP_PCT`: `2.0`
+- `POST_PARTIAL_TRAILING_PCT`: `5.0`
+- `POST_PARTIAL_PROTECTION_ENABLED`: `True`
+- `POST_PARTIAL_LOCK_FLOOR_PCT`: `20.0`
+- `POST_PARTIAL_MAX_GIVEBACK_PCT`: `5.0`
+- `PRE_PARTIAL_TIME_STOP_MIN`: `0.0`
+- `PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT`: `0.0`
+- `PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT`: `0.0`
+- `PRE_PARTIAL_RETRACE_TRIGGER_PCT`: `0.0`
+- `PRE_PARTIAL_RETRACE_GIVEBACK_PCT`: `0.0`
+- `PRE_PARTIAL_RETRACE_FLOOR_PCT`: `0.0`
+- `NO_PUMP_WINDOW_MIN`: `10.0`
+- `NO_PUMP_MIN_PNL_PCT`: `2.0`
+- `NO_PUMP_MAX_PNL_PCT`: `None`
+- `TIME_STOP_MIN`: `12.0`
+- `TIME_STOP_MAX_PNL_PCT`: `0.0`
+- `TIME_STOP_MIN_PEAK_PCT`: `4.0`
+- `PUMP_EARLY_TRAILING_PCT`: `7.0`
+- `PUMP_EARLY_MAX_HOLDING_H`: `1.0`
+- `PUMP_EARLY_TP_PARTIAL_TRIGGER_PCT`: `4.0`
+- `PUMP_EARLY_TP_PARTIAL_FRACTION`: `0.8`
+- `PUMP_EARLY_POST_PARTIAL_STOP_PCT`: `2.0`
+- `PUMP_EARLY_POST_PARTIAL_TRAILING_PCT`: `3.0`
+- `PUMP_EARLY_POST_PARTIAL_PROTECTION_ENABLED`: `True`
+- `PUMP_EARLY_POST_PARTIAL_LOCK_FLOOR_PCT`: `20.0`
+- `PUMP_EARLY_POST_PARTIAL_MAX_GIVEBACK_PCT`: `5.0`
+- `PUMP_EARLY_PRE_PARTIAL_TIME_STOP_MIN`: `3.0`
+- `PUMP_EARLY_PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT`: `-2.0`
+- `PUMP_EARLY_PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT`: `3.0`
+- `PUMP_EARLY_PRE_PARTIAL_RETRACE_TRIGGER_PCT`: `5.0`
+- `PUMP_EARLY_PRE_PARTIAL_RETRACE_GIVEBACK_PCT`: `6.0`
+- `PUMP_EARLY_PRE_PARTIAL_RETRACE_FLOOR_PCT`: `-1.5`
+- `PUMP_EARLY_NO_PUMP_WINDOW_MIN`: `4.0`
+- `PUMP_EARLY_NO_PUMP_MIN_PNL_PCT`: `3.0`
+- `PUMP_EARLY_NO_PUMP_MAX_PNL_PCT`: `0.0`
+- `PUMP_EARLY_TIME_STOP_MIN`: `8.0`
+- `PUMP_EARLY_TIME_STOP_MAX_PNL_PCT`: `0.0`
+- `PUMP_EARLY_TIME_STOP_MIN_PEAK_PCT`: `3.0`
+- `DEX_MATURE_TRAILING_PCT`: `9.0`
+- `DEX_MATURE_MAX_HOLDING_H`: `2.5`
+- `DEX_MATURE_TP_PARTIAL_TRIGGER_PCT`: `10.0`
+- `DEX_MATURE_TP_PARTIAL_FRACTION`: `0.65`
+- `DEX_MATURE_POST_PARTIAL_STOP_PCT`: `2.0`
+- `DEX_MATURE_POST_PARTIAL_TRAILING_PCT`: `5.0`
+- `DEX_MATURE_POST_PARTIAL_PROTECTION_ENABLED`: `None`
+- `DEX_MATURE_POST_PARTIAL_LOCK_FLOOR_PCT`: `None`
+- `DEX_MATURE_POST_PARTIAL_MAX_GIVEBACK_PCT`: `None`
+- `DEX_MATURE_PRE_PARTIAL_TIME_STOP_MIN`: `None`
+- `DEX_MATURE_PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT`: `None`
+- `DEX_MATURE_PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT`: `None`
+- `DEX_MATURE_PRE_PARTIAL_RETRACE_TRIGGER_PCT`: `None`
+- `DEX_MATURE_PRE_PARTIAL_RETRACE_GIVEBACK_PCT`: `None`
+- `DEX_MATURE_PRE_PARTIAL_RETRACE_FLOOR_PCT`: `None`
+- `DEX_MATURE_NO_PUMP_WINDOW_MIN`: `10.0`
+- `DEX_MATURE_NO_PUMP_MIN_PNL_PCT`: `2.0`
+- `DEX_MATURE_NO_PUMP_MAX_PNL_PCT`: `None`
+- `DEX_MATURE_TIME_STOP_MIN`: `12.0`
+- `DEX_MATURE_TIME_STOP_MAX_PNL_PCT`: `0.0`
+- `DEX_MATURE_TIME_STOP_MIN_PEAK_PCT`: `4.0`
+- `REVIVAL_TRAILING_PCT`: `14.0`
+- `REVIVAL_MAX_HOLDING_H`: `2.0`
+- `REVIVAL_TP_PARTIAL_TRIGGER_PCT`: `18.0`
+- `REVIVAL_TP_PARTIAL_FRACTION`: `0.4`
+- `REVIVAL_POST_PARTIAL_STOP_PCT`: `5.0`
+- `REVIVAL_POST_PARTIAL_TRAILING_PCT`: `10.0`
+- `REVIVAL_POST_PARTIAL_PROTECTION_ENABLED`: `None`
+- `REVIVAL_POST_PARTIAL_LOCK_FLOOR_PCT`: `None`
+- `REVIVAL_POST_PARTIAL_MAX_GIVEBACK_PCT`: `None`
+- `REVIVAL_PRE_PARTIAL_TIME_STOP_MIN`: `None`
+- `REVIVAL_PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT`: `None`
+- `REVIVAL_PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT`: `None`
+- `REVIVAL_PRE_PARTIAL_RETRACE_TRIGGER_PCT`: `None`
+- `REVIVAL_PRE_PARTIAL_RETRACE_GIVEBACK_PCT`: `None`
+- `REVIVAL_PRE_PARTIAL_RETRACE_FLOOR_PCT`: `None`
+- `REVIVAL_NO_PUMP_WINDOW_MIN`: `18.0`
+- `REVIVAL_NO_PUMP_MIN_PNL_PCT`: `6.0`
+- `REVIVAL_NO_PUMP_MAX_PNL_PCT`: `None`
+- `REVIVAL_TIME_STOP_MIN`: `30.0`
+- `REVIVAL_TIME_STOP_MAX_PNL_PCT`: `1.0`
+- `REVIVAL_TIME_STOP_MIN_PEAK_PCT`: `8.0`
+- `DISCOVERY_INTERVAL`: `60`
+- `VALIDATION_BATCH_SIZE`: `18`
+- `TRAIN_FORWARD_HOLDOUT_DAYS`: `3`
+- `TRAIN_FORWARD_HOLDOUT_PCT`: `0.0`
+- `TRAINING_WINDOW_DAYS`: `28`
+- `MIN_THRESHOLD_CHANGE`: `0.01`
+- `PRECISION_AT_K_PCT`: `0.1`
+- `ML_GATE_MODE`: `shadow`
+- `ML_MIN_DATASET_ROWS`: `190`
+- `ML_MIN_POSITIVES`: `40`
+- `ML_MIN_UNIQUE_TOKENS`: `190`
+- `ML_MIN_REALIZED_RETURN_ROWS`: `50`
+- `ML_MIN_HOLDOUT_ROWS`: `40`
+- `ML_MIN_HOLDOUT_POSITIVES`: `8`
+- `ML_MIN_NON_CONSTANT_FEATURES`: `12`
+- `ML_TUNE_OBJECTIVE`: `expected_pnl_precision_floor`
+- `ML_TUNE_PRECISION_FLOOR`: `0.6`
+- `ML_TUNE_MIN_SELECTED`: `10`
+- `ML_TUNE_MIN_REALIZED_SELECTED`: `5`
+- `ML_SELECTION_MIN_DELTA`: `0.25`
+- `TAKE_PROFIT_PCT`: `12.0`
+- `STOP_LOSS_PCT`: `8.0`
+- `TRAILING_PCT`: `10.0`
+- `WIN_PCT`: `0.33`
+- `ML_POSITIVE_PNL_PCT`: `5.0`
+
+## DB de posiciones
+
+- Filas totales: `357`
+- Cerradas: `357`
+- Abiertas: `0`
+- Win rate simple: `32.493`
+- PnL medio (%): `-4.592`
+- PnL mediano (%): `-6.817`
+- Hold medio (min): `6.77`
+- Giveback medio (%): `43.044`
+- Max drawdown simple (p.p.): `-1754.894`
+
+### Breakdown por exit_reason
+
+- `NO_PUMP_EXIT`: count=`109`, avg_pnl=`-22.939`, median_pnl=`-15.686`, avg_giveback=`23.063`
+- `POST_PARTIAL_TRAILING`: count=`85`, avg_pnl=`48.054`, median_pnl=`28.219`, avg_giveback=`104.392`
+- `STOP_LOSS`: count=`61`, avg_pnl=`-27.784`, median_pnl=`-21.338`, avg_giveback=`28.017`
+- `POST_PARTIAL_STOP`: count=`31`, avg_pnl=`6.512`, median_pnl=`3.74`, avg_giveback=`7.149`
+- `PRE_PARTIAL_TIME_STOP`: count=`27`, avg_pnl=`-22.151`, median_pnl=`-12.516`, avg_giveback=`22.151`
+- `EARLY_DROP`: count=`23`, avg_pnl=`-28.632`, median_pnl=`-20.76`, avg_giveback=`28.632`
+- `LIQUIDITY_CRUSH`: count=`19`, avg_pnl=`-25.1`, median_pnl=`-15.403`, avg_giveback=`41.688`
+- `TIMEOUT`: count=`2`, avg_pnl=`1.418`, median_pnl=`1.418`, avg_giveback=`0.015`
+
+### Breakdown por parcial
+
+- `partial_taken=True`: count=`119`, avg_pnl=`36.826`, median_pnl=`20.926`
+- `partial_taken=False`: count=`238`, avg_pnl=`-25.301`, median_pnl=`-18.759`
+
+## Dataset
+
+- Ficheros parquet: `1`
+- Filas: `2083`
+- Positivos: `148`
+- Tokens unicos: `1703`
+- Columnas constantes: `holders, rug_score, mint_auth_renounced, price_pct_1m, volume_pct_5m, social_ok, twitter_followers, discord_members, trend, require_jupiter_for_buy, missing_holders, missing_rug_score, missing_socials, missing_trend, is_incomplete`
+
+### Nulos por columna (%)
+
+- `address`: `0.0`
+- `age_minutes`: `0.0`
+- `cluster_bad`: `5.905`
+- `coverage_core_fields`: `0.0`
+- `discord_members`: `100.0`
+- `discovered_via`: `0.0`
+- `discovered_via_code`: `0.0`
+- `entry_regime`: `0.0`
+- `entry_regime_code`: `0.0`
+- `has_jupiter_route`: `8.497`
+- `holders`: `100.0`
+- `is_incomplete`: `0.0`
+- `label`: `0.0`
+- `liquidity_usd`: `10.85`
+- `market_cap_usd`: `0.384`
+- `mint_auth_renounced`: `5.905`
+- `missing_holders`: `0.0`
+- `missing_liquidity`: `0.0`
+- `missing_rug_score`: `0.0`
+- `missing_socials`: `0.0`
+- `missing_trend`: `0.0`
+- `missing_volume`: `0.0`
+- `price_impact_pct`: `0.576`
+- `price_pct_1m`: `100.0`
+- `price_pct_5m`: `12.674`
+- `price_source`: `0.0`
+- `price_source_quality`: `0.0`
+- `queue_age_minutes`: `0.0`
+- `queue_attempts`: `0.0`
+- `require_jupiter_for_buy`: `0.0`
+- `rug_score`: `100.0`
+- `sample_type`: `0.0`
+- `score_total`: `5.905`
+- `snapshot_missing_fields`: `0.0`
+- `social_ok`: `100.0`
+- `target_total_pnl_pct`: `72.588`
+- `timestamp`: `0.0`
+- `trend`: `100.0`
+- `ts`: `0.0`
+- `twitter_followers`: `100.0`
+- `txns_last_5m`: `4.993`
+- `txns_last_5m_buys`: `6.817`
+- `txns_last_5m_sells`: `6.097`
+- `volume_24h_usd`: `0.24`
+- `volume_pct_5m`: `100.0`

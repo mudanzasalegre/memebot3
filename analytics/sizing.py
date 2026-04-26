@@ -195,10 +195,14 @@ def compute_entry_sizing(
     sniper_profile = str(token.get("gate_profile") or token.get("sniper_gate_profile") or "").strip().lower()
     entry_lane = str(token.get("entry_lane") or "").strip().lower()
     if regime == "pump_early" and (
-        entry_lane == "pump_early_pumpswap_profit" or sniper_profile.startswith("pumpswap_profit")
+        entry_lane in {"pump_early_pumpswap_profit", "pump_early_pumpswap_breakout_probe"}
+        or sniper_profile.startswith("pumpswap_profit")
         or sniper_profile.startswith("pumpswap_meteor")
+        or sniper_profile.startswith("pumpswap_breakout")
     ):
-        if sniper_profile == "pumpswap_meteor_prime":
+        if entry_lane == "pump_early_pumpswap_breakout_probe" or sniper_profile.startswith("pumpswap_breakout"):
+            bucket = "pumpswap_breakout"
+        elif sniper_profile == "pumpswap_meteor_prime":
             bucket = "pumpswap_meteor"
         else:
             bucket = "pumpswap_prime" if sniper_profile == "pumpswap_profit_prime" else "pumpswap_profit"
@@ -263,6 +267,7 @@ def describe_sizing_policy() -> dict[str, Any]:
             "pumpswap_profit": float(getattr(CFG, "PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER", 0.20) or 0.20),
             "pumpswap_prime": float(getattr(CFG, "PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER", 0.20) or 0.20),
             "pumpswap_meteor": float(getattr(CFG, "PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER", 0.20) or 0.20),
+            "pumpswap_breakout": float(getattr(CFG, "PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER", 0.20) or 0.20),
         },
         "regime_size_caps": {
             "pump_early": float(PUMP_EARLY_MAX_SIZE_MULTIPLIER),

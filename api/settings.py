@@ -105,7 +105,6 @@ class APISettings:
     research_events_path: Path
     research_scorecard_json: Path
     research_thresholds_json: Path
-    post_partial_experiment_json: Path
     recommended_threshold_json: Path
     train_status_json: Path
     dataset_quality_json: Path
@@ -119,6 +118,7 @@ class APISettings:
     session_cookie_secure: bool
     local_auth_users: tuple[LocalAuthUserConfig, ...]
     using_default_local_auth_users: bool
+    post_partial_experiment_json: Path | None = None
 
 
 @lru_cache(maxsize=1)

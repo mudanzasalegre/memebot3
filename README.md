@@ -706,3 +706,18 @@ npm run build
 ## License
 
 MIT © 2025 [mudanzasalegre](https://github.com/mudanzasalegre)
+# ML lane-aware rollout
+
+The bot supports a conservative lane-aware ML policy. Use `ML_GATE_MODE=lane_aware`
+with live profit lanes in `sizing_only`; do not enable live `enforce` until
+`data/metrics/segment_report.json` and `lane_promotion_status.json` show that
+the model improves realized PnL for that lane without losing jackpots.
+
+Useful commands:
+
+```bash
+python tools/audit_ml_baseline.py
+python -m ml.segment_report
+python tools/ml_status.py
+python backtest/replay.py --policy lane_aware
+```

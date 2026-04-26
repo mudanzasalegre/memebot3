@@ -24,7 +24,15 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from config.config import CFG
+from ml.data_contract import (
+    apply_data_contract,
+    normalize_dex_id as contract_normalize_dex_id,
+    normalize_entry_regime as contract_normalize_entry_regime,
+    normalize_sample_type,
+)
 from ml.feature_matrix import coerce_feature_frame
+from ml.model_registry import promote_candidate, write_candidate
+from ml.segment_report import SEGMENT_JSON, build_segment_report, write_segment_outputs
 from ml.tune_threshold import tune_from_frame, write_threshold_result
 
 DATA_DIR: pathlib.Path = CFG.FEATURES_DIR
@@ -45,11 +53,15 @@ OUTCOME_SAMPLE_TYPES = ("trade_close", "shadow_close")
 
 _FORBIDDEN_SUBSTR = (
     "pnl",
+    "future",
     "close_price",
     "_at_close",
     "_after_",
     "outcome",
     "result",
+    "exit",
+    "tp_",
+    "sl_",
 )
 _META_COLS = (
     "label",
@@ -220,6 +232,8 @@ def _load_dataset() -> pd.DataFrame:
         else:
             df["mint"] = df.get("token_address", pd.Series(index=df.index, dtype="object"))
     df["mint"] = df["mint"].astype("string")
+    df = apply_data_contract(df)
+    df["mint"] = df["mint"].astype("string")
     return df
 
 
@@ -242,16 +256,11 @@ def _resolve_return_col(df: pd.DataFrame) -> str | None:
 def _sample_type_series(df: pd.DataFrame) -> pd.Series:
     if "sample_type" not in df.columns:
         return pd.Series(pd.NA, index=df.index, dtype="string")
-    return df["sample_type"].astype("string")
+    return df["sample_type"].map(normalize_sample_type).astype("string")
 
 
 def _normalize_regime(value: Any) -> str:
-    raw = str(value or "").strip().lower()
-    if raw in {"pump_early", "pumpfun", "pump", "pump_fun"}:
-        return "pump_early"
-    if raw in {"revival", "revive", "revived"}:
-        return "revival"
-    return "dex_mature"
+    return contract_normalize_entry_regime(value)
 
 
 def _csv_allowlist(value: Any) -> set[str]:
@@ -263,7 +272,7 @@ def _csv_allowlist(value: Any) -> set[str]:
 
 
 def _normalize_dex_id(value: Any) -> str:
-    return str(value or "").strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+    return contract_normalize_dex_id(value)
 
 
 def _coalesced_string_series(df: pd.DataFrame, columns: Sequence[str]) -> pd.Series:
@@ -304,7 +313,7 @@ def _bool_like_series(df: pd.DataFrame, columns: Sequence[str]) -> pd.Series:
 
 def _parse_price5m_ranges() -> list[tuple[float, float]]:
     ranges: list[tuple[float, float]] = []
-    raw = str(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES", "0:25,50:100") or "0:25,50:100")
+    raw = str(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES", "25:999") or "25:999")
     for item in raw.split(","):
         if ":" not in item:
             continue
@@ -358,7 +367,7 @@ def _profit_shape_guard_mask(df: pd.DataFrame) -> pd.Series:
     volume24h = _numeric_series(df, "volume_24h_usd").fillna(_numeric_series(df, "volume_usd_24h"))
 
     ok = pd.Series(True, index=df.index)
-    ok &= mcap.lt(float(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD", 500_000.0) or 500_000.0))
+    ok &= mcap.lt(float(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD", 200_000.0) or 200_000.0))
     ok &= ~(
         price5m.ge(float(getattr(CFG, "PUMP_EARLY_PROFIT_EXTREME_PRICE5M_PCT", 300.0) or 300.0))
         & mcap.ge(float(getattr(CFG, "PUMP_EARLY_PROFIT_EXTREME_PRICE5M_MIN_MCAP_USD", 100_000.0) or 100_000.0))
@@ -383,10 +392,12 @@ def _profit_shape_guard_mask(df: pd.DataFrame) -> pd.Series:
             | volume24h.lt(float(getattr(CFG, "PUMP_EARLY_PROFIT_HOT_MIN_VOLUME_USD_24H", 50_000.0) or 50_000.0))
         )
     )
+    low_volume_no_momentum_max = float(
+        getattr(CFG, "PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_VOLUME_USD_24H", 0.0) or 0.0
+    )
     ok &= ~(
-        volume24h.lt(
-            float(getattr(CFG, "PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_VOLUME_USD_24H", 15_000.0) or 15_000.0)
-        )
+        (low_volume_no_momentum_max > 0.0)
+        & volume24h.lt(low_volume_no_momentum_max)
         & txns_5m.lt(float(getattr(CFG, "PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_TXNS_5M", 500) or 500))
         & price5m.lt(
             float(getattr(CFG, "PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_PRICE5M_PCT", 50.0) or 50.0)
@@ -415,6 +426,7 @@ def _productive_lane_fallback_mask(df: pd.DataFrame) -> tuple[pd.Series, dict[st
     impact = _numeric_series(df, "price_impact_pct")
     mcap = _numeric_series(df, "market_cap_usd")
     price5m = _numeric_series(df, "price_pct_5m")
+    txns_5m = _numeric_series(df, "txns_last_5m")
     has_route = _bool_like_series(df, ("has_jupiter_route",))
     proxy_liquidity = _bool_like_series(df, ("liquidity_is_proxy", "liquidity_usd_is_proxy"))
 
@@ -433,23 +445,48 @@ def _productive_lane_fallback_mask(df: pd.DataFrame) -> tuple[pd.Series, dict[st
         & age.le(float(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_AGE_MIN", 30.0) or 30.0))
         & impact.le(float(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_PRICE_IMPACT_PCT", 10.0) or 10.0))
         & ~(
-            mcap.ge(float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD", 25_000.0) or 25_000.0))
-            & mcap.le(float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD", 50_000.0) or 50_000.0))
+            (float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD", 0.0) or 0.0) > 0.0)
+            & (float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD", 0.0) or 0.0) > 0.0)
+            & mcap.ge(float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD", 0.0) or 0.0))
+            & mcap.le(float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD", 0.0) or 0.0))
         )
         & (~blocked_price5m)
         & _profit_shape_guard_mask(df)
     )
-    meteor_enabled = bool(getattr(CFG, "PUMP_EARLY_METEOR_PRIME_ENABLED", True))
+    meteor_enabled = bool(getattr(CFG, "PUMP_EARLY_METEOR_PRIME_ENABLED", False))
     meteor_mask = (
         _meteor_prime_mask(df) & dex_series.eq("pumpswap") & has_route & (~proxy_liquidity)
         if meteor_enabled
         else pd.Series(False, index=df.index)
     )
-    fallback = standard_mask | meteor_mask
+    volume24h = _numeric_series(df, "volume_24h_usd").fillna(_numeric_series(df, "volume_usd_24h"))
+    breakout_mask = (
+        pd.Series(False, index=df.index)
+        if not bool(getattr(CFG, "PUMP_EARLY_BREAKOUT_PROBE_ENABLED", True))
+        else (
+            dex_series.eq("pumpswap")
+            & has_route
+            & (~proxy_liquidity)
+            & liquidity.ge(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_LIQUIDITY_USD", 5_000.0) or 5_000.0))
+            & liquidity.le(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_LIQUIDITY_USD", 30_000.0) or 30_000.0))
+            & mcap.ge(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_MARKET_CAP_USD", 5_000.0) or 5_000.0))
+            & mcap.le(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_MARKET_CAP_USD", 60_000.0) or 60_000.0))
+            & price5m.ge(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_PRICE_PCT_5M", 25.0) or 25.0))
+            & price5m.le(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_PRICE_PCT_5M", 120.0) or 120.0))
+            & txns_5m.ge(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_TXNS_5M", 300) or 300))
+            & volume24h.ge(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_VOLUME_USD_24H", 20_000.0) or 20_000.0))
+            & score_total.ge(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_SCORE_TOTAL", 35) or 35))
+            & age.ge(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_AGE_MIN", 2.0) or 2.0))
+            & age.le(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_AGE_MIN", 15.0) or 15.0))
+            & impact.le(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_PRICE_IMPACT_PCT", 8.0) or 8.0))
+        )
+    )
+    fallback = standard_mask | meteor_mask | breakout_mask
     return fallback, {
         "fallback_rows": int(fallback.sum()),
         "fallback_standard_rows": int(standard_mask.sum()),
         "fallback_meteor_rows": int(meteor_mask.sum()) if isinstance(meteor_mask, pd.Series) else 0,
+        "fallback_breakout_rows": int(breakout_mask.sum()) if isinstance(breakout_mask, pd.Series) else 0,
     }
 
 
@@ -528,7 +565,7 @@ def _filter_outcome_training_rows(
         realized_mask = pd.Series(False, index=df.index)
 
     allowed_mask = sample_type.isin(OUTCOME_SAMPLE_TYPES)
-    legacy_outcome_mask = sample_type.isna() & realized_mask
+    legacy_outcome_mask = (sample_type.isna() | sample_type.eq("unknown")) & realized_mask
     regime_mask = _productive_regime_mask(df)
     lane_mask, lane_meta = _productive_lane_mask(
         df,
@@ -1021,6 +1058,27 @@ def _candidate_builders() -> list[tuple[str, str, Callable[[pd.DataFrame, list[s
     ]
 
 
+def _attach_validation_context(fold_df: pd.DataFrame, source_df: pd.DataFrame) -> pd.DataFrame:
+    """Add non-feature context columns to validation predictions for segment reports."""
+    out = fold_df.copy()
+    for col in (
+        "sample_type",
+        "entry_lane",
+        "entry_regime",
+        "dex_id",
+        "price_source",
+        "mcap_bucket",
+        "price5m_bucket",
+        "market_cap_usd",
+        "price_pct_5m",
+    ):
+        if col in source_df.columns and col not in out.columns:
+            out[col] = source_df[col].values
+    if "sample_type" in out.columns:
+        out["sample_type"] = out["sample_type"].map(normalize_sample_type).astype("string")
+    return out
+
+
 def _evaluate_candidate(
     *,
     name: str,
@@ -1067,8 +1125,7 @@ def _evaluate_candidate(
         return_col = _resolve_return_col(te_df)
         if return_col:
             fold_df["target_total_pnl_pct"] = pd.to_numeric(te_df[return_col], errors="coerce").values
-        if "sample_type" in te_df.columns:
-            fold_df["sample_type"] = te_df["sample_type"].astype("string").values
+        fold_df = _attach_validation_context(fold_df, te_df)
         val_preds_rows.append(fold_df)
     else:
         assert full_df is not None and cv_splits is not None
@@ -1107,8 +1164,7 @@ def _evaluate_candidate(
             return_col = _resolve_return_col(fold_val)
             if return_col:
                 fold_df["target_total_pnl_pct"] = pd.to_numeric(fold_val[return_col], errors="coerce").values
-            if "sample_type" in fold_val.columns:
-                fold_df["sample_type"] = fold_val["sample_type"].astype("string").values
+            fold_df = _attach_validation_context(fold_df, fold_val)
             val_preds_rows.append(fold_df)
 
         if not val_preds_rows:
@@ -1116,7 +1172,24 @@ def _evaluate_candidate(
 
     val_preds = pd.concat(val_preds_rows, ignore_index=True)
     val_preds["hour"] = pd.to_datetime(val_preds["timestamp"], utc=True, errors="coerce").dt.hour
-    ordered = ["mint", "y_true", "y_prob", "target_total_pnl_pct", "sample_type", "timestamp", "hour", "fold"]
+    ordered = [
+        "mint",
+        "y_true",
+        "y_prob",
+        "target_total_pnl_pct",
+        "sample_type",
+        "entry_lane",
+        "entry_regime",
+        "dex_id",
+        "price_source",
+        "mcap_bucket",
+        "price5m_bucket",
+        "market_cap_usd",
+        "price_pct_5m",
+        "timestamp",
+        "hour",
+        "fold",
+    ]
     ordered = [col for col in ordered if col in val_preds.columns]
     val_preds = val_preds[ordered]
 
@@ -1342,7 +1415,6 @@ def train_and_save() -> TrainResult:
     print(f"[ML] Predicciones de validacion -> {VAL_PREDS_CSV} (rows={len(selected.val_preds)})")
 
     final_model = candidate_builders[selected.name](df_trainable, x_cols)
-    _save_model(final_model)
     final_feature_signal = _extract_feature_signal(final_model, x_cols)
 
     if final_feature_signal:
@@ -1389,7 +1461,21 @@ def train_and_save() -> TrainResult:
         "outcome_sample_types": list(OUTCOME_SAMPLE_TYPES),
         "feature_signal_top": final_feature_signal[:15],
     }
-    _write_json(META_PATH, meta_payload)
+    lane_thresholds = None
+    try:
+        segment_report = build_segment_report(selected.val_preds, threshold=tune_result.get("picked"))
+        lane_thresholds = write_segment_outputs(segment_report)
+        meta_payload["thresholds_by_lane"] = lane_thresholds
+    except Exception as exc:
+        print(f"[SEG] segment_report omitido: {exc}")
+    artifact = write_candidate(
+        model=final_model,
+        meta=meta_payload,
+        thresholds=lane_thresholds,
+        val_preds_path=VAL_PREDS_CSV,
+        segment_report_path=SEGMENT_JSON,
+    )
+    promote_candidate(artifact, active_model_path=MODEL_PATH)
     write_threshold_result(tune_result, out_path=RECOMMENDED_JSON, meta_path=META_PATH)
 
     train_status = _status_payload(

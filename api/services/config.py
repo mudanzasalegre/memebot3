@@ -170,6 +170,10 @@ def _profit_lane() -> dict[str, object]:
                 "default_profile": "meteor_runner",
                 "profiles": runner_profiles,
             },
+            "pump_early_pumpswap_breakout_probe": {
+                "default_profile": "meteor_runner",
+                "profiles": runner_profiles,
+            },
         },
         "profiles": {
             "pumpswap_profit_broad": {
@@ -186,11 +190,11 @@ def _profit_lane() -> dict[str, object]:
                     getattr(CFG, "PUMP_EARLY_PROFIT_MAX_PRICE_IMPACT_PCT", 10.0) or 10.0
                 ),
                 "blocked_market_cap_usd_range": [
-                    float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD", 25_000.0) or 25_000.0),
-                    float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD", 50_000.0) or 50_000.0),
+                    float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD", 0.0) or 0.0),
+                    float(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD", 0.0) or 0.0),
                 ],
                 "blocked_price_pct_5m_ranges": str(
-                    getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES", "0:25,50:100") or "0:25,50:100"
+                    getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES", "25:999") or "25:999"
                 ),
                 "size_multiplier": float(getattr(CFG, "PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER", 0.20) or 0.20),
                 "effective_trade_amount_sol": float(getattr(CFG, "TRADE_AMOUNT_SOL", 0.1) or 0.1),
@@ -206,7 +210,7 @@ def _profit_lane() -> dict[str, object]:
                 "no_size_promotion_yet": True,
             },
             "pumpswap_meteor_prime": {
-                "enabled": bool(getattr(CFG, "PUMP_EARLY_METEOR_PRIME_ENABLED", True)),
+                "enabled": bool(getattr(CFG, "PUMP_EARLY_METEOR_PRIME_ENABLED", False)),
                 "purpose": "METEOR-like low-mcap high-velocity pumpswap breakouts",
                 "dex_allowlist": "pumpswap",
                 "require_jupiter_route": True,
@@ -238,13 +242,50 @@ def _profit_lane() -> dict[str, object]:
                 "size_bucket": "pumpswap_meteor",
                 "effective_trade_amount_sol": float(getattr(CFG, "TRADE_AMOUNT_SOL", 0.1) or 0.1),
             },
+            "pumpswap_breakout_probe": {
+                "enabled": bool(getattr(CFG, "PUMP_EARLY_BREAKOUT_PROBE_ENABLED", True)),
+                "purpose": "controlled high-momentum low-mcap pumpswap probes for early runners",
+                "entry_lane": "pump_early_pumpswap_breakout_probe",
+                "runner_exit_profile": "meteor_runner",
+                "dex_allowlist": "pumpswap",
+                "require_jupiter_route": True,
+                "require_real_liquidity": True,
+                "liquidity_usd_range": [
+                    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_LIQUIDITY_USD", 5_000.0) or 5_000.0),
+                    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_LIQUIDITY_USD", 30_000.0) or 30_000.0),
+                ],
+                "market_cap_usd_range": [
+                    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_MARKET_CAP_USD", 5_000.0) or 5_000.0),
+                    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_MARKET_CAP_USD", 60_000.0) or 60_000.0),
+                ],
+                "price_pct_5m_range": [
+                    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_PRICE_PCT_5M", 25.0) or 25.0),
+                    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_PRICE_PCT_5M", 120.0) or 120.0),
+                ],
+                "min_txns_last_5m": int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_TXNS_5M", 300) or 300),
+                "min_volume_24h_usd": float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_VOLUME_USD_24H", 20_000.0) or 20_000.0),
+                "min_score_total": int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_SCORE_TOTAL", 35) or 35),
+                "min_rank_score": float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_RANK_SCORE", 50.0) or 50.0),
+                "age_minutes_range": [
+                    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MIN_AGE_MIN", 2.0) or 2.0),
+                    float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_AGE_MIN", 15.0) or 15.0),
+                ],
+                "max_price_impact_pct": float(
+                    getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_PRICE_IMPACT_PCT", 8.0) or 8.0
+                ),
+                "size_bucket": "pumpswap_breakout",
+                "effective_trade_amount_sol": float(getattr(CFG, "TRADE_AMOUNT_SOL", 0.1) or 0.1),
+                "max_open_paper": int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1) or 1),
+                "max_open_live_canary": int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY", 1) or 1),
+                "health_isolated": bool(getattr(CFG, "PUMP_EARLY_BREAKOUT_HEALTH_ISOLATED", True)),
+            },
         },
         "shape_guard": {
             "enabled": bool(getattr(CFG, "PUMP_EARLY_PROFIT_SHAPE_GUARD_ENABLED", True)),
             "health_rebase_current_gate": bool(
                 getattr(CFG, "PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE", True)
             ),
-            "max_market_cap_usd": float(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD", 500_000.0) or 500_000.0),
+            "max_market_cap_usd": float(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD", 200_000.0) or 200_000.0),
             "deep_negative_price5m": {
                 "price_pct_5m_lte": float(getattr(CFG, "PUMP_EARLY_PROFIT_DEEP_NEG_PRICE5M_PCT", -40.0)),
                 "unless_txns_last_5m_gte": int(
@@ -287,8 +328,8 @@ def _profit_lane() -> dict[str, object]:
             },
             "low_volume_no_momentum": {
                 "volume_24h_usd_lt": float(
-                    getattr(CFG, "PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_VOLUME_USD_24H", 15_000.0)
-                    or 15_000.0
+                    getattr(CFG, "PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_VOLUME_USD_24H", 0.0)
+                    or 0.0
                 ),
                 "txns_last_5m_lt": int(
                     getattr(CFG, "PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_TXNS_5M", 500) or 500
@@ -322,6 +363,28 @@ def _profit_lane() -> dict[str, object]:
         "capacity": {
             "paper": int(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2) or 2),
             "live_canary": int(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY", 1) or 1),
+        },
+        "aggressive_research_guard": {
+            "enabled": bool(getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_GUARD_ENABLED", True)),
+            "dex_allowlist": str(
+                getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_DEX_ALLOWLIST", "pumpswap") or "pumpswap"
+            ),
+            "block_price5m_ranges": str(
+                getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_PRICE5M_RANGES", "25:999") or "25:999"
+            ),
+            "block_high_mcap_usd": float(
+                getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_HIGH_MCAP_USD", 100_000.0) or 100_000.0
+            ),
+            "high_mcap_allow_min_txns_last_5m": int(
+                getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_HIGH_MCAP_ALLOW_MIN_TXNS_5M", 1_200) or 1_200
+            ),
+            "block_proxy_liquidity": bool(getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_PROXY", True)),
+            "hot_runner_price5m_min_pct": float(
+                getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_HOT_PRICE5M_MIN_PCT", 180.0) or 180.0
+            ),
+            "hot_runner_min_txns_last_5m": int(
+                getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_HOT_MIN_TXNS_5M", 150) or 150
+            ),
         },
         "exits": {
             "adverse_tick_after_s": int(getattr(CFG, "PUMP_EARLY_PROFIT_ADVERSE_TICK_AFTER_S", 75) or 75),
@@ -440,6 +503,10 @@ def _paper_validation() -> dict[str, object]:
     return {
         "strict_health": bool(getattr(CFG, "PAPER_PNL_STRICT_HEALTH", True)),
         "productive_portfolio_lane": "pump_early_pumpswap_profit",
+        "productive_portfolio_lanes": [
+            "pump_early_pumpswap_profit",
+            "pump_early_pumpswap_breakout_probe",
+        ],
         "research_shadow_separate": True,
         "paper_continue_on_health": bool(getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH", True)),
         "effective_continue_on_health": bool(
