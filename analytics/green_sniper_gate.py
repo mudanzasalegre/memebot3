@@ -6,6 +6,7 @@ from typing import Any
 
 from config.config import CFG
 from analytics.green_sniper_score import score_green_sniper
+from analytics.late_momentum_watch import evaluate_late_momentum_watch
 from analytics.social_signal import (
     SOCIAL_STATUS_PRESENT,
     SOCIAL_STATUS_SUSPICIOUS,
@@ -29,6 +30,7 @@ class GreenSniperDecision:
     social_bonus_applied: float = 0.0
     social_risk_flags: tuple[str, ...] = ()
     paper_birth_probe: bool = False
+    gate_profile: str = "green_sniper"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -227,7 +229,23 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
         failures.append("missing_price_pct_5m")
     else:
         if bool(getattr(CFG, "LATE_MOMENTUM_WATCH_ENABLED", True)) and price5m >= float(getattr(CFG, "LATE_MOMENTUM_WATCH_MIN_PRICE5M", 300.0) or 300.0):
-            failures.append("late_momentum_watch")
+            late = evaluate_late_momentum_watch(token, dry_run=dry_run, live=live)
+            social = social_signal_from_token(token)
+            return GreenSniperDecision(
+                action=late.action,
+                lane=late.lane,
+                reason=late.reason,
+                score=late.score,
+                size_hint="micro",
+                runner_profile="green_sniper_runner",
+                reject_reasons=late.reject_reasons,
+                route_required=route_required,
+                proxy_liquidity_used=proxy_liq,
+                social_status=social.status,
+                social_bonus_applied=0.0,
+                social_risk_flags=tuple(social.risk_flags),
+                gate_profile="late_momentum_watch",
+            )
         if price5m < float(getattr(CFG, "GREEN_SNIPER_MIN_PRICE_PCT_5M", 20.0)):
             failures.append("low_green_momentum")
         if price5m > float(getattr(CFG, "GREEN_SNIPER_MAX_PRICE_PCT_5M", 280.0)):
@@ -322,7 +340,7 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
 
 def apply_green_sniper_context(token: dict[str, Any], decision: GreenSniperDecision) -> dict[str, Any]:
     token["entry_lane"] = decision.lane
-    token["gate_profile"] = "green_sniper_birth_probe" if decision.paper_birth_probe else "green_sniper"
+    token["gate_profile"] = "green_sniper_birth_probe" if decision.paper_birth_probe else decision.gate_profile
     token["sniper_gate_profile"] = token["gate_profile"]
     token["profit_lane_tier"] = decision.lane
     token["runner_exit_profile"] = decision.runner_profile

@@ -58,8 +58,9 @@ def test_hot_green_token_passes(monkeypatch) -> None:
 def test_late_500_pct_rejects(monkeypatch) -> None:
     monkeypatch.setattr(gate, "CFG", _cfg())
     decision = gate.evaluate_green_sniper(_load("late_green_500pct.json"), dry_run=True, live=False)
-    assert decision.action == "reject"
-    assert "too_late_momentum" in decision.reject_reasons
+    assert decision.action == "shadow"
+    assert decision.gate_profile == "late_momentum_watch"
+    assert "mcap_out_of_band" in decision.reject_reasons
 
 
 def test_no_route_paper_can_buy(monkeypatch) -> None:

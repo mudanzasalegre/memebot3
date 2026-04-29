@@ -7,6 +7,7 @@ from config.config import CFG
 from ml.lane_taxonomy import (
     LANE_PUMP_EARLY_BREAKOUT,
     LANE_PUMP_EARLY_GREEN_SNIPER,
+    LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
     LANE_PUMP_EARLY_PROFIT,
     LANE_RESEARCH_RANK_CANARY,
     LANE_RESEARCH_SNIPER,
@@ -32,6 +33,10 @@ def _cap_for_lane(lane: str, *, dry_run: bool, live: bool) -> int:
         if live:
             return int(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_OPEN", 1) or 1)
         return int(getattr(CFG, "GREEN_SNIPER_MAX_OPEN_PAPER", getattr(CFG, "PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 6)) or 6)
+    if lane == LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH:
+        if live:
+            return int(getattr(CFG, "LATE_MOMENTUM_WATCH_MAX_OPEN_LIVE", 0) or 0)
+        return int(getattr(CFG, "LATE_MOMENTUM_WATCH_MAX_OPEN_PAPER", 1) or 1)
     if lane == LANE_PUMP_EARLY_BREAKOUT:
         return int(
             getattr(
@@ -103,6 +108,10 @@ def describe_position_limits() -> dict[str, Any]:
         "research_rank_canary": {
             "paper": _cap_for_lane(LANE_RESEARCH_RANK_CANARY, dry_run=True, live=False),
             "live": _cap_for_lane(LANE_RESEARCH_RANK_CANARY, dry_run=False, live=True),
+        },
+        "late_momentum_watch": {
+            "paper": _cap_for_lane(LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, dry_run=True, live=False),
+            "live": _cap_for_lane(LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, dry_run=False, live=True),
         },
     }
 

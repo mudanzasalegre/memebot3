@@ -3863,7 +3863,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     sniper_gate_ok_preview = bool(
         _PUMP_EARLY_SNIPER_ENABLED
         and str(token.get("entry_lane") or "").strip().lower()
-        in {"pump_early_sniper", "pump_early_pumpswap_profit", "pump_early_green_candle_sniper", "pump_early_research_rank_canary"}
+        in {"pump_early_sniper", "pump_early_pumpswap_profit", "pump_early_green_candle_sniper", "pump_early_research_rank_canary", "pump_early_late_momentum_watch"}
         and _metric_int(token, "live_profit_gate_failed_count") == 0
     )
     if (
@@ -3912,7 +3912,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         ai_threshold=ai_threshold_eff,
     )
     green_size_decision = None
-    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_green_candle_sniper":
+    if str(token.get("entry_lane") or "").strip().lower() in {"pump_early_green_candle_sniper", "pump_early_late_momentum_watch"}:
         green_size_decision = compute_green_sniper_sizing(
             token,
             dry_run=DRY_RUN,
@@ -4648,10 +4648,11 @@ async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[boo
         "pump_early_pumpswap_breakout_probe",
         "pump_early_green_candle_sniper",
         "pump_early_research_rank_canary",
+        "pump_early_late_momentum_watch",
     }:
         return True, 0, int(CFG.MAX_ACTIVE_POSITIONS)
     open_lanes = await _load_open_position_lanes(ses)
-    if lane in {"pump_early_green_candle_sniper", "pump_early_research_rank_canary"}:
+    if lane in {"pump_early_green_candle_sniper", "pump_early_research_rank_canary", "pump_early_late_momentum_watch"}:
         decision = evaluate_lane_position_limit(
             lane,
             [{"entry_lane": value} for value in open_lanes],
