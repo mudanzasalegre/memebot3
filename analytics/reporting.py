@@ -98,6 +98,14 @@ _CONFIG_KEYS = [
     "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH",
     "PUMP_EARLY_SNIPER_PAPER_RECOVERY_SIZE_CAP",
     "PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_ENABLED",
+    "GREEN_SNIPER_ALLOW_PROXY_LIQUIDITY_PAPER",
+    "GREEN_SNIPER_RANK_GUARD_ENABLED",
+    "GREEN_SNIPER_RANK_GUARD_MIN_SCORE",
+    "GREEN_SNIPER_RANK_GUARD_BYPASS_PAPER_BIRTH_PROBE",
+    "GREEN_SNIPER_PAPER_BIRTH_PROBE_ENABLED",
+    "GREEN_SNIPER_PAPER_BIRTH_PROBE_MAX_AGE_MIN",
+    "GREEN_SNIPER_PAPER_BIRTH_PROBE_MIN_LIQUIDITY_USD",
+    "GREEN_SNIPER_PAPER_BIRTH_PROBE_MAX_PRICE_IMPACT_PCT",
     "PUMP_EARLY_PROFIT_LANE_ENABLED",
     "PUMP_EARLY_PROFIT_DEX_ALLOWLIST",
     "PUMP_EARLY_PROFIT_REQUIRE_REAL_LIQUIDITY",
@@ -164,6 +172,12 @@ _CONFIG_KEYS = [
     "PUMP_EARLY_PROFIT_HIGH_MCAP_MID_PRICE5M_MIN_PCT",
     "PUMP_EARLY_PROFIT_HIGH_MCAP_MID_PRICE5M_MAX_PCT",
     "PUMP_EARLY_PROFIT_HIGH_MCAP_MID_MIN_MCAP_USD",
+    "PUMP_EARLY_PROFIT_PNL_GUARD_ENABLED",
+    "PUMP_EARLY_PROFIT_PNL_GUARD_JACKPOT_PRICE5M_MIN",
+    "PUMP_EARLY_PROFIT_PNL_GUARD_50K_100K_WEAK_PRICE5M_MAX",
+    "PUMP_EARLY_PROFIT_PNL_GUARD_50K_100K_WEAK_MIN_TXNS_5M",
+    "PUMP_EARLY_PROFIT_PNL_GUARD_LOCAL_TOP_MIN_MCAP_USD",
+    "PUMP_EARLY_PROFIT_PNL_GUARD_MID_MOMENTUM_MIN_MCAP_USD",
     "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER",
     "PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY",
     "PUMP_EARLY_AGGRESSIVE_RESEARCH_GUARD_ENABLED",
@@ -191,6 +205,8 @@ _CONFIG_KEYS = [
     "PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP1_MAX_GIVEBACK_PCT",
     "PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP2_PEAK_PCT",
     "PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP2_LOCK_FLOOR_PCT",
+    "PUMP_EARLY_PROFIT_RUNNER_METEOR_MOMENTUM_PRICE5M_PCT",
+    "PUMP_EARLY_PROFIT_RUNNER_METEOR_MOMENTUM_MIN_TXNS_5M",
     "PUMP_EARLY_PROFIT_RECOVERY_RECENT_TRADES",
     "PUMP_EARLY_PROFIT_RECOVERY_RECENT_MIN_AVG_PNL_PCT",
     "PUMP_EARLY_PROFIT_RECOVERY_RECENT_MAX_CONSECUTIVE_LOSSES",
@@ -342,6 +358,22 @@ _CONFIG_KEYS = [
     "TRAILING_PCT",
     "WIN_PCT",
     "ML_POSITIVE_PNL_PCT",
+    "SOCIALS_ENABLED",
+    "SOCIALS_ASYNC_ONLY",
+    "SOCIALS_HOT_PATH_BLOCKING",
+    "SOCIALS_TIMEOUT_S",
+    "SOCIALS_CACHE_TTL_S",
+    "SOCIALS_MAX_CONCURRENT",
+    "SOCIALS_SUSPICIOUS_ENABLED",
+    "GREEN_SNIPER_REQUIRE_SOCIALS",
+    "GREEN_SNIPER_SOCIALS_BONUS_ENABLED",
+    "GREEN_SNIPER_SOCIALS_SCORE_BONUS",
+    "GREEN_SNIPER_SOCIALS_RISK_PENALTY",
+    "GREEN_SNIPER_SOCIALS_CAN_INCREASE_SIZE_PAPER",
+    "GREEN_SNIPER_SOCIALS_CAN_INCREASE_SIZE_LIVE",
+    "GREEN_SNIPER_SOCIALS_CAN_DECREASE_SIZE",
+    "GREEN_SNIPER_SOCIALS_SUSPICIOUS_CAN_BLOCK",
+    "GREEN_SNIPER_SOCIALS_SUSPICIOUS_CAN_REDUCE_SIZE",
 ]
 
 
@@ -782,6 +814,9 @@ def _build_trade_context(
             "holders": "feat_holders",
             "rug_score": "feat_rug_score",
             "social_ok": "feat_social_ok",
+            "social_status": "feat_social_status",
+            "social_link_count": "feat_social_link_count",
+            "social_risk_flags": "feat_social_risk_flags",
             "trend": "feat_trend",
             "score_total": "feat_score_total",
             "missing_liquidity": "feat_missing_liquidity",
@@ -813,7 +848,18 @@ def _build_trade_context(
         }
     )
     frame["report_entry_regime"] = frame["report_entry_regime"].fillna(fallback_regime).fillna("unknown")
-    frame["report_dex_id"] = _coalesce(frame, "token_dex_id").astype("string").fillna("unknown")
+    frame["report_entry_lane"] = _coalesce(frame, "entry_lane").astype("string").fillna("unknown")
+    frame["report_gate_profile"] = _coalesce(frame, "gate_profile").astype("string").fillna("unknown")
+    frame["report_dex_id"] = _coalesce(frame, "buy_dex_id", "token_dex_id").astype("string").fillna("unknown")
+    frame["report_buy_dex_id"] = _coalesce(frame, "buy_dex_id", "token_dex_id").astype("string").fillna("unknown")
+    proxy_series = pd.to_numeric(
+        frame.get("buy_liquidity_is_proxy", pd.Series(pd.NA, index=frame.index)),
+        errors="coerce",
+    )
+    frame["liquidity_proxy_bucket"] = proxy_series.map({0.0: "real", 1.0: "proxy"}).astype("string").fillna("unknown")
+    frame["report_runner_exit_profile"] = _coalesce(frame, "runner_exit_profile", "exit_profile").astype("string").fillna("unknown")
+    frame["report_social_status"] = _coalesce(frame, "feat_social_status", "token_social_ok").astype("string").fillna("unknown")
+    frame["report_social_status"] = frame["report_social_status"].replace({"True": "present", "False": "missing", "1": "present", "0": "missing"})
     frame["report_score_total"] = pd.to_numeric(_coalesce(frame, "token_score_total", "feat_score_total"), errors="coerce")
     frame["report_size_bucket"] = _coalesce(frame, "size_bucket").astype("string").fillna("unknown")
     frame["report_size_multiplier"] = pd.to_numeric(_coalesce(frame, "size_multiplier"), errors="coerce")
@@ -842,6 +888,16 @@ def _build_trade_context(
         frame.get("buy_market_cap_usd", pd.Series(pd.NA, index=frame.index)),
         [0.0, 10_000.0, 25_000.0, 50_000.0, 100_000.0, 250_000.0, float("inf")],
         ["0-10k", "10k-25k", "25k-50k", "50k-100k", "100k-250k", "250k+"],
+    )
+    frame["price5m_bucket"] = _bucket_numeric(
+        frame.get("buy_price_pct_5m", pd.Series(pd.NA, index=frame.index)),
+        [-float("inf"), 0.0, 25.0, 50.0, 100.0, 180.0, 300.0, float("inf")],
+        ["<0", "0-25", "25-50", "50-100", "100-180", "180-300", "300+"],
+    )
+    frame["txns5m_bucket"] = _bucket_numeric(
+        frame.get("buy_txns_last_5m", pd.Series(pd.NA, index=frame.index)),
+        [0.0, 35.0, 80.0, 150.0, 300.0, 600.0, float("inf")],
+        ["0-34", "35-79", "80-149", "150-299", "300-599", "600+"],
     )
     frame["score_bucket"] = _bucket_numeric(
         frame["report_score_total"],
@@ -989,11 +1045,19 @@ def summarize_edge(
         "regimes": {
             "discovered_via": _group_trade_stats(trades, "report_discovered_via"),
             "entry_regime": _group_trade_stats(trades, "report_entry_regime"),
+            "entry_lane": _group_trade_stats(trades, "report_entry_lane"),
+            "gate_profile": _group_trade_stats(trades, "report_gate_profile"),
             "dex_id": _group_trade_stats(trades, "report_dex_id"),
+            "buy_dex_id": _group_trade_stats(trades, "report_buy_dex_id"),
+            "liquidity_proxy": _group_trade_stats(trades, "liquidity_proxy_bucket"),
             "age_bucket": _group_trade_stats(trades, "age_bucket"),
             "liquidity_bucket": _group_trade_stats(trades, "liquidity_bucket"),
             "market_cap_bucket": _group_trade_stats(trades, "market_cap_bucket"),
+            "price5m_bucket": _group_trade_stats(trades, "price5m_bucket"),
+            "txns5m_bucket": _group_trade_stats(trades, "txns5m_bucket"),
             "score_bucket": _group_trade_stats(trades, "score_bucket"),
+            "runner_exit_profile": _group_trade_stats(trades, "report_runner_exit_profile"),
+            "social_status": _group_trade_stats(trades, "report_social_status"),
         },
         "sizing": {
             "size_bucket": _group_trade_stats(trades, "report_size_bucket"),
@@ -1053,16 +1117,28 @@ def render_edge_markdown(snapshot: Dict[str, Any]) -> str:
     _append_group_rows(snapshot["regimes"]["discovered_via"])
     lines.extend(["### entry_regime", ""])
     _append_group_rows(snapshot["regimes"]["entry_regime"])
+    lines.extend(["### entry_lane", ""])
+    _append_group_rows(snapshot["regimes"].get("entry_lane", []))
+    lines.extend(["### gate_profile", ""])
+    _append_group_rows(snapshot["regimes"].get("gate_profile", []))
     lines.extend(["### dex_id", ""])
     _append_group_rows(snapshot["regimes"]["dex_id"])
+    lines.extend(["### liquidity_proxy", ""])
+    _append_group_rows(snapshot["regimes"].get("liquidity_proxy", []))
     lines.extend(["### age_bucket", ""])
     _append_group_rows(snapshot["regimes"]["age_bucket"])
     lines.extend(["### liquidity_bucket", ""])
     _append_group_rows(snapshot["regimes"]["liquidity_bucket"])
     lines.extend(["### market_cap_bucket", ""])
     _append_group_rows(snapshot["regimes"]["market_cap_bucket"])
+    lines.extend(["### price5m_bucket", ""])
+    _append_group_rows(snapshot["regimes"].get("price5m_bucket", []))
+    lines.extend(["### txns5m_bucket", ""])
+    _append_group_rows(snapshot["regimes"].get("txns5m_bucket", []))
     lines.extend(["### score_bucket", ""])
     _append_group_rows(snapshot["regimes"]["score_bucket"])
+    lines.extend(["### runner_exit_profile", ""])
+    _append_group_rows(snapshot["regimes"].get("runner_exit_profile", []))
 
     lines.extend(["## Sizing", "", "### size_bucket", ""])
     _append_group_rows(snapshot["sizing"]["size_bucket"])

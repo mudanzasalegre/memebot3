@@ -12,6 +12,7 @@ import { OverviewPage } from "../pages/OverviewPage";
 import { PositionsPage } from "../pages/PositionsPage";
 import { QueuePage } from "../pages/QueuePage";
 import { RuntimePage } from "../pages/RuntimePage";
+import { SniperPage } from "../pages/SniperPage";
 import { TradeReplayPage } from "../pages/TradeReplayPage";
 import { TradesPage } from "../pages/TradesPage";
 
@@ -36,6 +37,10 @@ export const router = createBrowserRouter([
       {
         path: "runtime",
         element: <RuntimePage />,
+      },
+      {
+        path: "sniper",
+        element: <SniperPage />,
       },
       {
         path: "discovery",

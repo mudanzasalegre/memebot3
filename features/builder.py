@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterable
 import numpy as np
 import pandas as pd
 
+from analytics.social_signal import social_signal_from_token
 from ml.data_contract import (
     normalize_dex_id as contract_normalize_dex_id,
     normalize_entry_regime as contract_normalize_entry_regime,
@@ -52,10 +53,24 @@ COLUMNS: list[str] = [
     "price_pct_5m",
     "price5m_bucket",
     "price5m_bucket_code",
+    "green_sniper_score",
+    "green_sniper_action",
+    "green_sniper_reason",
+    "green_sniper_paper_birth_probe",
+    "profit_pnl_guard_failures",
     "volume_pct_5m",
     "price_impact_pct",
     "impact_zero_flag",
     "social_ok",
+    "social_status",
+    "twitter_present",
+    "telegram_present",
+    "discord_present",
+    "website_present",
+    "social_link_count",
+    "social_confidence_bonus",
+    "social_risk_flags",
+    "social_latency_ms",
     "twitter_followers",
     "discord_members",
     "score_total",
@@ -72,6 +87,10 @@ COLUMNS: list[str] = [
     "missing_rug_score",
     "missing_socials",
     "missing_trend",
+    "strategy_version",
+    "experiment_id",
+    "exit_profile",
+    "config_hash",
     "is_incomplete",
 ]
 
@@ -79,6 +98,10 @@ _BOOL_COLS = {
     "cluster_bad",
     "mint_auth_renounced",
     "social_ok",
+    "twitter_present",
+    "telegram_present",
+    "discord_present",
+    "website_present",
     "has_jupiter_route",
     "require_jupiter_for_buy",
     "liquidity_is_proxy",
@@ -162,10 +185,24 @@ ALLOWED_FEATURES: set[str] = {
     "price_pct_5m",
     "price5m_bucket",
     "price5m_bucket_code",
+    "green_sniper_score",
+    "green_sniper_action",
+    "green_sniper_reason",
+    "green_sniper_paper_birth_probe",
+    "profit_pnl_guard_failures",
     "volume_pct_5m",
     "price_impact_pct",
     "impact_zero_flag",
     "social_ok",
+    "social_status",
+    "twitter_present",
+    "telegram_present",
+    "discord_present",
+    "website_present",
+    "social_link_count",
+    "social_confidence_bonus",
+    "social_risk_flags",
+    "social_latency_ms",
     "twitter_followers",
     "discord_members",
     "score_total",
@@ -182,6 +219,10 @@ ALLOWED_FEATURES: set[str] = {
     "missing_rug_score",
     "missing_socials",
     "missing_trend",
+    "strategy_version",
+    "experiment_id",
+    "exit_profile",
+    "config_hash",
 }
 FORBIDDEN_FEATURES: set[str] = set()
 _FORBIDDEN_SUBSTR: tuple[str, ...] = (
@@ -198,6 +239,11 @@ _FORBIDDEN_SUBSTR: tuple[str, ...] = (
 )
 
 _SAFE_T0_PREFIXES: tuple[str, ...] = ("txns_last_",)
+_SAFE_T0_METADATA_KEYS: set[str] = {
+    "exit_profile",
+    "profit_pnl_guard_failures",
+    "runner_exit_profile",
+}
 
 
 def _has_forbidden_keys(
@@ -209,6 +255,8 @@ def _has_forbidden_keys(
     for k in d.keys():
         lk = str(k).lower()
         if lk.startswith(_SAFE_T0_PREFIXES):
+            continue
+        if lk in _SAFE_T0_METADATA_KEYS:
             continue
         if k in forbidden_exact:
             keys.append(k)
@@ -371,6 +419,7 @@ def build_feature_vector(tok: Dict[str, Any]) -> pd.Series:
     price5m_bucket, price5m_bucket_code = _price5m_bucket(tok.get("price_pct_5m"))
     missing_flags = _missing_flags(tok)
     coverage = _coverage_metrics(tok, missing_flags)
+    social = social_signal_from_token(tok)
 
     values: Dict[str, Any] = {
         "address": tok.get("address"),
@@ -393,7 +442,26 @@ def build_feature_vector(tok: Dict[str, Any]) -> pd.Series:
         "mcap_bucket_code": int(mcap_bucket_code),
         "price5m_bucket": str(tok.get("price5m_bucket") or price5m_bucket),
         "price5m_bucket_code": int(price5m_bucket_code),
+        "green_sniper_score": tok.get("green_sniper_score"),
+        "green_sniper_action": tok.get("green_sniper_action"),
+        "green_sniper_reason": tok.get("green_sniper_reason"),
+        "green_sniper_paper_birth_probe": _as_bool_int(tok.get("green_sniper_paper_birth_probe")),
+        "profit_pnl_guard_failures": tok.get("profit_pnl_guard_failures"),
         "impact_zero_flag": int(float(tok.get("price_impact_pct") or 0.0) == 0.0),
+        "social_status": social.status,
+        "social_ok": social.social_ok,
+        "twitter_present": int(social.twitter_present),
+        "telegram_present": int(social.telegram_present),
+        "discord_present": int(social.discord_present),
+        "website_present": int(social.website_present),
+        "social_link_count": int(social.link_count),
+        "social_confidence_bonus": float(social.confidence_bonus),
+        "social_risk_flags": ",".join(social.risk_flags),
+        "social_latency_ms": social.latency_ms,
+        "strategy_version": tok.get("strategy_version"),
+        "experiment_id": tok.get("experiment_id"),
+        "exit_profile": tok.get("exit_profile") or tok.get("runner_exit_profile"),
+        "config_hash": tok.get("config_hash"),
     }
     values.update(missing_flags)
     values.update(coverage)

@@ -887,3 +887,83 @@ def test_shadow_productive_recovery_unsticks_recovery_not_ready(monkeypatch, tmp
     assert regime_health["recovery_ready"] is True
     assert regime_health["recovery_basis"]["source"] == "shadow_productive_recovery"
     assert regime_health["current_gate_rebased"] is True
+
+
+def test_recovery_canary_does_not_re_demote_from_old_bad_window(monkeypatch, tmp_path: Path) -> None:
+    now = dt.datetime(2026, 4, 27, 19, 24, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(
+        strategy_runtime,
+        "CFG",
+        _make_cfg(
+            PUMP_EARLY_SNIPER_ENABLED=True,
+            DRY_RUN=False,
+            PUMP_EARLY_RECOVERY_DEMOTE_MIN_TRADES=3,
+        ),
+    )
+    monkeypatch.setattr(strategy_runtime, "_SCORECARD_PATH", tmp_path / "missing_scorecard.json")
+    monkeypatch.setattr(strategy_runtime.research_runtime, "load_live_rank_gate", lambda *args, **kwargs: _rank_gate())
+    _reset_strategy_state()
+
+    health = strategy_runtime._HEALTH["pump_early"]
+    for pnl in (-8.0, -9.0, -7.0, -10.0, -6.0, -8.0, -11.0, -9.0):
+        health.trade_pnls_pct.append(pnl)
+        health.trade_wins.append(False)
+        health.severe_exits.append(False)
+        health.liq_crush_exits.append(False)
+    health.recovery_armed = True
+    health.canary_active = True
+    health.last_auto_recover_at = now - dt.timedelta(seconds=5)
+
+    decision = strategy_runtime.evaluate_candidate(
+        {"address": "green-recovery", "age_min": 6.0, "liquidity_usd": 12_000.0},
+        regime="pump_early",
+        has_route=True,
+        now=now,
+    )
+
+    assert decision.effective_mode == "live"
+    assert decision.effective_execution_state == "recovery"
+    assert decision.action == "live"
+    assert decision.health_state == "recovery"
+
+
+def test_paper_sniper_green_ignores_regime_cooldown_even_when_strict_health(monkeypatch, tmp_path: Path) -> None:
+    now = dt.datetime(2026, 4, 27, 19, 24, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(
+        strategy_runtime,
+        "CFG",
+        _make_cfg(
+            PUMP_EARLY_SNIPER_ENABLED=True,
+            PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH=False,
+            PAPER_PNL_STRICT_HEALTH=True,
+            DRY_RUN=True,
+            PAPER_SNIPER_MODE=True,
+            PAPER_SNIPER_CONTINUE_ON_HEALTH=True,
+            PAPER_SNIPER_IGNORE_REGIME_COOLDOWN=True,
+        ),
+    )
+    monkeypatch.setattr(strategy_runtime, "_SCORECARD_PATH", tmp_path / "missing_scorecard.json")
+    monkeypatch.setattr(strategy_runtime.research_runtime, "load_live_rank_gate", lambda *args, **kwargs: _rank_gate())
+    _reset_strategy_state()
+
+    health = strategy_runtime._HEALTH["pump_early"]
+    health.cooldown_until = now + dt.timedelta(minutes=15)
+    health.last_disable_reason = "expectancy_8"
+
+    decision = strategy_runtime.evaluate_candidate(
+        {
+            "address": "green-paper",
+            "entry_lane": "pump_early_green_candle_sniper",
+            "gate_profile": "green_sniper",
+            "age_min": 1.0,
+            "liquidity_usd": 5_000.0,
+        },
+        regime="pump_early",
+        has_route=True,
+        now=now,
+    )
+
+    assert decision.effective_mode == "live"
+    assert decision.effective_execution_state == "paper_recovery"
+    assert decision.action == "live"
+    assert decision.reason == "paper_expectancy_8"

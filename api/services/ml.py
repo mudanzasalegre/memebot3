@@ -271,13 +271,25 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
             "last_auto_recover_at"
         )
     gate["live_threshold_origin"] = gate.get("live_threshold_origin") or "ml_shadow_not_live"
-    gate["live_uses_rank_score"] = False
-    gate["live_uses_heuristic_only"] = True
-    productive_lanes = {"pump_early_pumpswap_profit", "pump_early_pumpswap_breakout_probe"}
+    green_rank_guard = {
+        "enabled": bool(getattr(CFG, "GREEN_SNIPER_RANK_GUARD_ENABLED", True)),
+        "min_score": float(getattr(CFG, "GREEN_SNIPER_RANK_GUARD_MIN_SCORE", 60.0) or 60.0),
+        "lane": "pump_early_green_candle_sniper",
+    }
+    gate["green_sniper_rank_guard"] = green_rank_guard
+    gate["live_uses_rank_score"] = bool(gate.get("live_uses_rank_score")) or bool(green_rank_guard["enabled"])
+    gate["live_uses_heuristic_only"] = not bool(gate["live_uses_rank_score"])
+    productive_lanes = {
+        "pump_early_pumpswap_profit",
+        "pump_early_pumpswap_breakout_probe",
+        "pump_early_green_candle_sniper",
+    }
     gate["productive_gate"] = "pump_early_pumpswap_profit"
     gate["productive_gates"] = sorted(productive_lanes)
     gate["sniper_lane_enabled"] = bool(getattr(CFG, "PUMP_EARLY_SNIPER_ENABLED", True))
     gate["sniper_mode"] = str(getattr(CFG, "PUMP_EARLY_SNIPER_MODE", "canary_aggressive") or "canary_aggressive")
+    gate["green_sniper_ml_mode"] = str(getattr(CFG, "GREEN_SNIPER_ML_MODE", "sizing_only") or "sizing_only")
+    gate["green_sniper_ml_blocks"] = bool(getattr(CFG, "GREEN_SNIPER_ML_BLOCK_ENABLED", False))
 
     research_rows = load_jsonl_rows(settings.research_events_path)
     outcome_events = [
@@ -318,7 +330,9 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
         if (
             str(row.get("entry_lane") or "").startswith("pump_early_sniper")
             or str(row.get("entry_lane") or "").startswith("pump_early_pumpswap")
+            or str(row.get("entry_lane") or "") == "pump_early_green_candle_sniper"
             or str(row.get("sniper_gate_profile") or "").startswith("sniper")
+            or str(row.get("sniper_gate_profile") or "").startswith("green_sniper")
             or str(row.get("sniper_gate_profile") or "").startswith("pumpswap_profit")
             or str(row.get("sniper_gate_profile") or "").startswith("pumpswap_breakout")
         )
@@ -338,6 +352,12 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
         for row in productive_events
         if str(row.get("entry_lane") or "") == "pump_early_pumpswap_breakout_probe"
     ]
+    green_closes = [
+        row
+        for row in productive_events
+        if str(row.get("entry_lane") or "") == "pump_early_green_candle_sniper"
+        or str(row.get("gate_profile") or row.get("sniper_gate_profile") or "").startswith("green_sniper")
+    ]
     research_profit_like = [
         row
         for row in outcome_events
@@ -350,6 +370,7 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
     ]
     profit_metrics = _profit_outcome_metrics(profit_closes)
     breakout_metrics = _profit_outcome_metrics(breakout_closes)
+    green_metrics = _profit_outcome_metrics(green_closes)
     promotion = _promotion_readiness(runtime, profit_metrics)
     blocker = runtime.get("blocker") or (",".join(promotion["blockers"]) if promotion["blockers"] else None)
 
@@ -369,6 +390,10 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
             "pump_early_pumpswap_breakout_probe_positives": breakout_metrics.get("positives"),
             "pump_early_pumpswap_breakout_probe_avg_realized_pnl_pct": breakout_metrics.get("avg_realized_pnl_pct"),
             "pump_early_pumpswap_breakout_probe_win_rate_pct": breakout_metrics.get("win_rate_pct"),
+            "pump_early_green_candle_sniper_outcomes": len(green_closes),
+            "pump_early_green_candle_sniper_positives": green_metrics.get("positives"),
+            "pump_early_green_candle_sniper_avg_realized_pnl_pct": green_metrics.get("avg_realized_pnl_pct"),
+            "pump_early_green_candle_sniper_win_rate_pct": green_metrics.get("win_rate_pct"),
             "outcomes_by_lane": productive_lane_counts,
             "outcomes_by_dex": productive_dex_counts,
             "all_outcomes_by_lane": lane_counts,

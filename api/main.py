@@ -19,6 +19,8 @@ from api.routes.queue import router as queue_router
 from api.routes.runtime import router as runtime_router
 from api.routes.positions import router as positions_router
 from api.routes.saved_views import router as saved_views_router
+from api.routes.sniper import router as sniper_router
+from api.routes.socials import router as socials_router
 from api.routes.sources import router as sources_router
 from api.routes.trades import router as trades_router
 from api.settings import get_settings
@@ -62,6 +64,8 @@ def create_app() -> FastAPI:
     app.include_router(ml_router, prefix="/api/v1", dependencies=protected)
     app.include_router(logs_router, prefix="/api/v1", dependencies=protected)
     app.include_router(events_router, prefix="/api/v1", dependencies=protected)
+    app.include_router(sniper_router, prefix="/api/v1", dependencies=protected)
+    app.include_router(socials_router, prefix="/api/v1", dependencies=protected)
     return app
 
 

@@ -1,0 +1,357 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+import datetime as dt
+from typing import Any
+
+from config.config import CFG
+from analytics.social_signal import (
+    SOCIAL_STATUS_PRESENT,
+    SOCIAL_STATUS_SUSPICIOUS,
+    social_signal_from_token,
+)
+from ml.lane_taxonomy import LANE_PUMP_EARLY_GREEN_SNIPER
+
+
+@dataclass(frozen=True)
+class GreenSniperDecision:
+    action: str  # buy, shadow, delay, reject
+    lane: str
+    reason: str
+    score: float
+    size_hint: str
+    runner_profile: str
+    reject_reasons: tuple[str, ...] = ()
+    route_required: bool = False
+    proxy_liquidity_used: bool = False
+    social_status: str = "unknown"
+    social_bonus_applied: float = 0.0
+    social_risk_flags: tuple[str, ...] = ()
+    paper_birth_probe: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _to_float(value: Any, default: float | None = 0.0) -> float | None:
+    try:
+        if value is None:
+            return default
+        out = float(value)
+        if out != out:
+            return default
+        return out
+    except Exception:
+        return default
+
+
+def _to_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(float(value))
+    except Exception:
+        return default
+
+
+def _to_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    raw = str(value or "").strip().lower()
+    if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    if raw in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _age_minutes(token: dict[str, Any]) -> float:
+    created = token.get("created_at") or token.get("createdAt")
+    if isinstance(created, str):
+        try:
+            created = dt.datetime.fromisoformat(created.replace("Z", "+00:00"))
+        except Exception:
+            created = None
+    if isinstance(created, dt.datetime):
+        now = dt.datetime.now(dt.timezone.utc)
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=dt.timezone.utc)
+        return max(0.0, (now - created.astimezone(dt.timezone.utc)).total_seconds() / 60.0)
+
+    for key in ("age_minutes", "age_min", "queue_age_minutes"):
+        if key not in token:
+            continue
+        value = _to_float(token.get(key), None)
+        if value is not None:
+            return max(0.0, float(value))
+    return 0.0
+
+
+def _norm_source(value: Any) -> str:
+    return str(value or "").strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+
+
+def _buy_sell_ratio(token: dict[str, Any]) -> float:
+    buys = _to_float(token.get("txns_last_5m_buys"), None)
+    sells = _to_float(token.get("txns_last_5m_sells"), None)
+    if buys is None or sells is None:
+        return 1.0
+    return float(buys) / max(float(sells), 1.0)
+
+
+def _score(token: dict[str, Any], *, live: bool, has_route: bool, proxy_liquidity: bool) -> float:
+    price5m = float(_to_float(token.get("price_pct_5m"), 0.0) or 0.0)
+    txns = float(_to_int(token.get("txns_last_5m"), 0))
+    age = _age_minutes(token)
+    impact = float(_to_float(token.get("price_impact_pct"), 0.0) or 0.0)
+    liq = float(_to_float(token.get("liquidity_usd"), 0.0) or 0.0)
+    ratio = _buy_sell_ratio(token)
+
+    score = 0.0
+    score += min(max(price5m, 0.0), 180.0) / 4.0
+    score += min(txns, 200.0) / 4.0
+    score += min(ratio, 3.0) * 8.0
+    score += min(liq / 500.0, 20.0)
+    if age <= 2.0:
+        score += 12.0
+    elif age <= 5.0:
+        score += 8.0
+    if has_route:
+        score += 8.0
+    if proxy_liquidity:
+        score -= 8.0 if live else 2.0
+    if impact > 0:
+        score -= max(0.0, impact - 8.0)
+    social = social_signal_from_token(token)
+    if bool(getattr(CFG, "GREEN_SNIPER_SOCIALS_BONUS_ENABLED", True)):
+        if social.status == SOCIAL_STATUS_PRESENT:
+            score += float(getattr(CFG, "GREEN_SNIPER_SOCIALS_SCORE_BONUS", 5.0) or 5.0)
+        elif social.status == SOCIAL_STATUS_SUSPICIOUS:
+            score -= float(getattr(CFG, "GREEN_SNIPER_SOCIALS_RISK_PENALTY", 5.0) or 5.0)
+    return round(max(0.0, score), 3)
+
+
+def _size_hint(token: dict[str, Any], score: float) -> str:
+    price5m = float(_to_float(token.get("price_pct_5m"), 0.0) or 0.0)
+    txns = _to_int(token.get("txns_last_5m"), 0)
+    age = _age_minutes(token)
+    if score >= 78.0 and txns >= int(getattr(CFG, "GREEN_SNIPER_HOT_MIN_TXNS_5M", 80) or 80) and 20.0 <= price5m <= 180.0 and age <= 3.0:
+        return "hot"
+    if score >= 55.0:
+        return "core"
+    return "micro"
+
+
+def _runner_profile(size_hint: str, token: dict[str, Any]) -> str:
+    _ = token
+    if size_hint == "hot":
+        return "green_sniper_runner"
+    return "green_sniper_runner"
+
+
+def _paper_birth_probe_allowed(
+    failures: list[str],
+    *,
+    dry_run: bool,
+    live: bool,
+    source: str,
+    age: float,
+    liq: float,
+    impact: float,
+    mcap: float,
+) -> bool:
+    if live or not dry_run:
+        return False
+    if not bool(getattr(CFG, "PAPER_SNIPER_MODE", False)):
+        return False
+    if not bool(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_ENABLED", True)):
+        return False
+    if source not in {"pumpfun", "pumpportal"}:
+        return False
+
+    max_age = float(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_MAX_AGE_MIN", 3.0) or 3.0)
+    min_liq = float(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_MIN_LIQUIDITY_USD", 1000.0) or 1000.0)
+    max_impact = float(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_MAX_PRICE_IMPACT_PCT", 25.0) or 25.0)
+    if age > max_age or liq < min_liq or impact > max_impact:
+        return False
+    if mcap > 0 and mcap > float(getattr(CFG, "GREEN_SNIPER_MAX_MARKET_CAP_USD", 180000.0) or 180000.0):
+        return False
+
+    allowed_missing = {
+        "missing_price_pct_5m",
+        "missing_price",
+        "missing_mcap",
+        "proxy_liquidity_paper_disabled",
+        "low_txns_5m",
+        "weak_buy_sell_ratio",
+        "low_green_momentum",
+    }
+    hard_failures = {
+        "too_young",
+        "too_old",
+        "too_late_momentum",
+        "high_mcap",
+        "proxy_liquidity_live",
+        "high_impact",
+        "snapshot_missing",
+        "no_route",
+        "live_disabled",
+    }
+    return bool(failures) and all(item in allowed_missing for item in failures) and not any(
+        item in hard_failures for item in failures
+    )
+
+
+def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -> GreenSniperDecision:
+    if not bool(getattr(CFG, "GREEN_SNIPER_ENABLED", True)):
+        return GreenSniperDecision(
+            action="reject",
+            lane=LANE_PUMP_EARLY_GREEN_SNIPER,
+            reason="disabled",
+            score=0.0,
+            size_hint="none",
+            runner_profile="",
+            reject_reasons=("disabled",),
+        )
+
+    failures: list[str] = []
+    age = _age_minutes(token)
+    liq = float(_to_float(token.get("liquidity_usd"), 0.0) or 0.0)
+    mcap = float(_to_float(token.get("market_cap_usd"), 0.0) or 0.0)
+    price5m = _to_float(token.get("price_pct_5m"), None)
+    txns = _to_int(token.get("txns_last_5m"), 0)
+    impact = float(_to_float(token.get("price_impact_pct"), 0.0) or 0.0)
+    missing = _to_int(token.get("snapshot_missing_fields"), 0)
+    has_price = bool(_to_float(token.get("price_usd"), None) or price5m is not None)
+    has_route = _to_bool(token.get("has_jupiter_route"), False)
+    proxy_liq = _to_bool(token.get("liquidity_is_proxy") or token.get("liquidity_usd_is_proxy"), False)
+    source = _norm_source(token.get("discovered_via") or token.get("source"))
+
+    min_age = float(getattr(CFG, "GREEN_SNIPER_LIVE_MIN_AGE_MIN", 0.35) if live else getattr(CFG, "GREEN_SNIPER_MIN_AGE_MIN", 0.15))
+    max_age = float(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_AGE_MIN", 6.0) if live else getattr(CFG, "GREEN_SNIPER_MAX_AGE_MIN", 8.0))
+    min_liq = float(getattr(CFG, "GREEN_SNIPER_LIVE_MIN_LIQUIDITY_USD", 2500.0) if live else getattr(CFG, "GREEN_SNIPER_MIN_LIQUIDITY_USD", 1200.0))
+    max_impact = float(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_PRICE_IMPACT_PCT", 12.0) if live else getattr(CFG, "GREEN_SNIPER_MAX_PRICE_IMPACT_PCT", 20.0))
+    min_txns = int(getattr(CFG, "GREEN_SNIPER_LIVE_MIN_TXNS_5M", 60) if live else getattr(CFG, "GREEN_SNIPER_MIN_TXNS_5M", 35))
+    route_required = bool(getattr(CFG, "GREEN_SNIPER_REQUIRE_ROUTE_LIVE", True) if live else getattr(CFG, "GREEN_SNIPER_REQUIRE_ROUTE_PAPER", False))
+
+    if live and not bool(getattr(CFG, "GREEN_SNIPER_LIVE_ENABLED", False)):
+        failures.append("live_disabled")
+    if age < min_age:
+        failures.append("too_young")
+    if max_age > 0 and age > max_age:
+        failures.append("too_old")
+    if price5m is None:
+        failures.append("missing_price_pct_5m")
+    else:
+        if price5m < float(getattr(CFG, "GREEN_SNIPER_MIN_PRICE_PCT_5M", 20.0)):
+            failures.append("low_green_momentum")
+        if price5m > float(getattr(CFG, "GREEN_SNIPER_MAX_PRICE_PCT_5M", 280.0)):
+            failures.append("too_late_momentum")
+    if not has_price:
+        failures.append("missing_price")
+    if mcap <= 0:
+        failures.append("missing_mcap")
+    elif mcap < float(getattr(CFG, "GREEN_SNIPER_MIN_MARKET_CAP_USD", 2000.0)):
+        failures.append("low_mcap")
+    elif mcap > float(getattr(CFG, "GREEN_SNIPER_MAX_MARKET_CAP_USD", 180000.0)):
+        failures.append("high_mcap")
+    if liq < min_liq:
+        failures.append("low_liquidity")
+    if live and proxy_liq:
+        failures.append("proxy_liquidity_live")
+    if dry_run and proxy_liq and not bool(getattr(CFG, "GREEN_SNIPER_ALLOW_PROXY_LIQUIDITY_PAPER", False)):
+        failures.append("proxy_liquidity_paper_disabled")
+    if txns < min_txns:
+        failures.append("low_txns_5m")
+    if _buy_sell_ratio(token) < float(getattr(CFG, "GREEN_SNIPER_MIN_BUY_SELL_RATIO", 1.15)):
+        failures.append("weak_buy_sell_ratio")
+    if impact > max_impact:
+        failures.append("high_impact")
+    if missing > int(getattr(CFG, "GREEN_SNIPER_MAX_SNAPSHOT_MISSING_FIELDS", 6)):
+        failures.append("snapshot_missing")
+    if route_required and not has_route:
+        failures.append("no_route")
+
+    terminal = {
+        "too_old",
+        "too_late_momentum",
+        "high_mcap",
+        "missing_price",
+        "proxy_liquidity_live",
+        "high_impact",
+    }
+    score = _score(token, live=live, has_route=has_route, proxy_liquidity=proxy_liq)
+    social = social_signal_from_token(token)
+    if social.status == SOCIAL_STATUS_PRESENT and bool(getattr(CFG, "GREEN_SNIPER_SOCIALS_BONUS_ENABLED", True)):
+        social_bonus = float(getattr(CFG, "GREEN_SNIPER_SOCIALS_SCORE_BONUS", 5.0) or 5.0)
+    elif social.status == SOCIAL_STATUS_SUSPICIOUS:
+        social_bonus = -float(getattr(CFG, "GREEN_SNIPER_SOCIALS_RISK_PENALTY", 5.0) or 5.0)
+    else:
+        social_bonus = 0.0
+    size_hint = _size_hint(token, score)
+    runner_profile = _runner_profile(size_hint, token)
+    paper_birth_probe = _paper_birth_probe_allowed(
+        failures,
+        dry_run=dry_run,
+        live=live,
+        source=source,
+        age=age,
+        liq=liq,
+        impact=impact,
+        mcap=mcap,
+    )
+
+    if paper_birth_probe:
+        action = "buy"
+        reason = "paper_birth_probe:" + ",".join(failures[:8])
+        size_hint = "micro"
+    elif not failures:
+        action = "buy"
+        reason = "green_sniper_pass"
+    elif source in {"pumpfun", "pumpportal"} or (price5m is not None and price5m >= float(getattr(CFG, "GREEN_SNIPER_MIN_PRICE_PCT_5M", 20.0))):
+        action = "delay" if failures == ["too_young"] or failures == ["no_route"] else "shadow"
+        if any(reason in terminal for reason in failures):
+            action = "reject"
+        reason = ",".join(failures[:8])
+    else:
+        action = "reject"
+        reason = ",".join(failures[:8]) or "not_hot"
+
+    return GreenSniperDecision(
+        action=action,
+        lane=LANE_PUMP_EARLY_GREEN_SNIPER,
+        reason=reason,
+        score=score,
+        size_hint=size_hint,
+        runner_profile=runner_profile,
+        reject_reasons=tuple(failures),
+        route_required=route_required,
+        proxy_liquidity_used=proxy_liq,
+        social_status=social.status,
+        social_bonus_applied=social_bonus,
+        social_risk_flags=tuple(social.risk_flags),
+        paper_birth_probe=paper_birth_probe,
+    )
+
+
+def apply_green_sniper_context(token: dict[str, Any], decision: GreenSniperDecision) -> dict[str, Any]:
+    token["entry_lane"] = decision.lane
+    token["gate_profile"] = "green_sniper"
+    token["sniper_gate_profile"] = "green_sniper"
+    token["profit_lane_tier"] = decision.lane
+    token["runner_exit_profile"] = decision.runner_profile
+    token["green_sniper_score"] = decision.score
+    token["green_sniper_action"] = decision.action
+    token["green_sniper_reason"] = decision.reason
+    token["green_sniper_size_hint"] = decision.size_hint
+    token["green_sniper_paper_birth_probe"] = int(bool(decision.paper_birth_probe))
+    token["social_bonus_applied"] = decision.social_bonus_applied
+    token["social_risk_flags"] = ",".join(decision.social_risk_flags)
+    token["live_profit_gate_failed_count"] = 0 if decision.action == "buy" else len(decision.reject_reasons)
+    token["live_profit_gate_failures"] = ",".join(decision.reject_reasons[:8])
+    return token
+
+
+__all__ = ["GreenSniperDecision", "apply_green_sniper_context", "evaluate_green_sniper"]

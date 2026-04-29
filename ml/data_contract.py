@@ -7,6 +7,7 @@ import pandas as pd
 
 from ml.lane_taxonomy import (
     LANE_PUMP_EARLY_BREAKOUT,
+    LANE_PUMP_EARLY_GREEN_SNIPER,
     LANE_PUMP_EARLY_METEOR,
     LANE_PUMP_EARLY_PRIME,
     LANE_PUMP_EARLY_PROFIT,
@@ -111,6 +112,18 @@ def normalize_price_source(value: Any) -> str:
     return aliases.get(raw, raw or "unknown")
 
 
+def _to_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        out = float(value)
+        if out != out:
+            return None
+        return out
+    except Exception:
+        return None
+
+
 def reconstruct_entry_lane(row: Mapping[str, Any]) -> str:
     explicit = normalize_entry_lane(row.get("entry_lane"))
     if explicit != LANE_UNKNOWN:
@@ -121,6 +134,8 @@ def reconstruct_entry_lane(row: Mapping[str, Any]) -> str:
         return tier
 
     profile = _raw(row.get("gate_profile") or row.get("sniper_gate_profile") or row.get("live_profit_gate_profile")).lower()
+    if profile.startswith("green_sniper"):
+        return LANE_PUMP_EARLY_GREEN_SNIPER
     if profile == "pumpswap_meteor_prime":
         return LANE_PUMP_EARLY_METEOR
     if profile.startswith("pumpswap_breakout"):
@@ -134,6 +149,10 @@ def reconstruct_entry_lane(row: Mapping[str, Any]) -> str:
 
     dex_id = normalize_dex_id(row.get("dex_id") or row.get("dexId") or row.get("buy_dex_id"))
     regime = normalize_entry_regime(row.get("entry_regime") or row.get("discovered_via"))
+    price5m = _to_float(row.get("price_pct_5m") or row.get("buy_price_pct_5m"))
+    min_green = _to_float(row.get("green_sniper_min_price_pct_5m")) or 20.0
+    if regime == "pump_early" and dex_id == "pumpswap" and price5m is not None and price5m >= min_green:
+        return LANE_PUMP_EARLY_GREEN_SNIPER
     if regime == "pump_early" and dex_id == "pumpswap" and row.get("venue_is_pumpswap") in {1, "1", True}:
         return LANE_PUMP_EARLY_PROFIT
     return LANE_UNKNOWN

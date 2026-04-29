@@ -678,7 +678,7 @@ def _sniper_paper_continue_on_health(regime: str) -> bool:
     return (
         _sniper_enabled(regime)
         and bool(getattr(CFG, "DRY_RUN", False))
-        and bool(getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH", True))
+        and bool(getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH", False))
         and not bool(getattr(CFG, "PAPER_PNL_STRICT_HEALTH", True))
     )
 
@@ -715,6 +715,27 @@ def _live_aggressive_continue_on_health(regime: str) -> bool:
         _live_aggressive_enabled()
         and bool(getattr(CFG, "LIVE_AGGRESSIVE_CONTINUE_ON_HEALTH", True))
     )
+
+
+def _paper_sniper_continue_on_health(token: dict[str, Any], regime: str) -> bool:
+    lane = str(token.get("entry_lane") or "").strip().lower()
+    profile = str(token.get("gate_profile") or token.get("sniper_gate_profile") or "").strip().lower()
+    return (
+        _normalize_regime(regime) == "pump_early"
+        and bool(getattr(CFG, "DRY_RUN", False))
+        and bool(getattr(CFG, "PAPER_SNIPER_MODE", False))
+        and bool(getattr(CFG, "PAPER_SNIPER_CONTINUE_ON_HEALTH", True))
+        and bool(getattr(CFG, "PAPER_SNIPER_IGNORE_REGIME_COOLDOWN", True))
+        and (lane == "pump_early_green_candle_sniper" or profile.startswith("green_sniper"))
+    )
+
+
+def _regime_cooldown_minutes() -> int:
+    return max(1, int(getattr(CFG, "REGIME_HEALTH_COOLDOWN_MIN", 120) or 120))
+
+
+def _recovery_demote_min_trades() -> int:
+    return max(1, int(getattr(CFG, "PUMP_EARLY_RECOVERY_DEMOTE_MIN_TRADES", 3) or 3))
 
 
 def _paper_aggressive_policy(regime_key: str) -> dict[str, float | int | str | bool]:
@@ -880,9 +901,7 @@ def _record_bucket_close(
         reasons.append("bucket_liq_crush_canary")
     if reasons:
         health.last_disable_reason = ",".join(reasons)
-        health.cooldown_until = now + dt.timedelta(
-            minutes=max(15, int(getattr(CFG, "REGIME_HEALTH_COOLDOWN_MIN", 120) or 120))
-        )
+        health.cooldown_until = now + dt.timedelta(minutes=_regime_cooldown_minutes())
         health.last_auto_demote_at = now
 
 
@@ -1016,6 +1035,24 @@ def _health_snapshot(regime: str, now: dt.datetime | None = None) -> dict[str, A
                 and not ignore_old_liq_crush
                 and liq_crush_count >= max(1, rolling_liq_limit)
             )
+            if health.canary_active:
+                recovery_min_trades = _recovery_demote_min_trades()
+                recent_recovery_pnls = [float(x) for x in recovery_pnls[-recovery_min_trades:]]
+                recovery_avg = (
+                    sum(recent_recovery_pnls) / len(recent_recovery_pnls)
+                    if len(recent_recovery_pnls) >= recovery_min_trades
+                    else None
+                )
+                bad_expectancy = False
+                bad_short_expectancy = recovery_avg is not None and recovery_avg <= short_floor
+                bad_loss_streak = (
+                    len(recovery_pnls) >= recovery_min_trades
+                    and health.recovery_consecutive_losses >= min(loss_streak_limit, recovery_min_trades)
+                )
+                bad_exec = False
+                bad_price = False
+                bad_liq_crush_canary = any(recovery_liq_crush[-1:])
+                bad_liq_crush_normal = False
 
             if bad_expectancy or bad_short_expectancy or bad_loss_streak or bad_exec or bad_price or bad_liq_crush_canary or bad_liq_crush_normal:
                 reasons = []
@@ -1035,9 +1072,7 @@ def _health_snapshot(regime: str, now: dt.datetime | None = None) -> dict[str, A
                     reasons.append("liq_crush")
                 disable_reason = ",".join(reasons) or "health"
                 health.last_disable_reason = disable_reason
-                health.cooldown_until = now + dt.timedelta(
-                    minutes=max(15, int(getattr(CFG, "REGIME_HEALTH_COOLDOWN_MIN", 120) or 120))
-                )
+                health.cooldown_until = now + dt.timedelta(minutes=_regime_cooldown_minutes())
                 health.recovery_armed = True
                 health.canary_active = False
                 health.recovery_trade_pnls_pct.clear()
@@ -1138,7 +1173,11 @@ def evaluate_candidate(
     effective_execution_state = "shadow" if requested_mode != "off" else "off"
     size_cap_multiplier: float | None = None
     mode_override_reason: str | None = None
-    paper_continue = _sniper_paper_continue_on_health(resolved_regime)
+    paper_continue = _sniper_paper_continue_on_health(resolved_regime) or _paper_sniper_continue_on_health(
+        token,
+        resolved_regime,
+    )
+    paper_aggressive_continue = _paper_aggressive_enabled()
     live_aggressive_continue = _live_aggressive_continue_on_health(resolved_regime)
     bucket_disable_reason = _bucket_disable_reason(token, resolved_regime, now)
 
@@ -1153,7 +1192,11 @@ def evaluate_candidate(
             effective_execution_state = "shadow"
         elif scorecard_signal and float(scorecard_signal["avg_pnl_pct"]) <= demote_avg_pnl_pct:
             mode_override_reason = "scorecard_negative"
-            if paper_continue:
+            if paper_aggressive_continue:
+                effective_mode = "live"
+                effective_execution_state = "paper_aggressive"
+                mode_override_reason = "paper_aggressive_scorecard_negative"
+            elif paper_continue:
                 effective_mode = "live"
                 effective_execution_state = "paper_recovery"
                 size_cap_multiplier = _sniper_paper_recovery_cap()
@@ -1168,7 +1211,11 @@ def evaluate_candidate(
                 effective_execution_state = "shadow"
         elif health["state"] == "cooldown":
             mode_override_reason = str(health.get("disable_reason") or "cooldown")
-            if paper_continue:
+            if paper_aggressive_continue:
+                effective_mode = "live"
+                effective_execution_state = "paper_aggressive"
+                mode_override_reason = f"paper_aggressive_{mode_override_reason}"
+            elif paper_continue:
                 effective_mode = "live"
                 effective_execution_state = "paper_recovery"
                 size_cap_multiplier = _sniper_paper_recovery_cap()
@@ -1183,7 +1230,11 @@ def evaluate_candidate(
                 effective_execution_state = "shadow"
         elif health["state"] == "shadow_wait":
             mode_override_reason = "recovery_not_ready"
-            if paper_continue:
+            if paper_aggressive_continue:
+                effective_mode = "live"
+                effective_execution_state = "paper_aggressive"
+                mode_override_reason = "paper_aggressive_recovery_not_ready"
+            elif paper_continue:
                 effective_mode = "live"
                 effective_execution_state = "paper_recovery"
                 size_cap_multiplier = _sniper_paper_recovery_cap()
@@ -1548,6 +1599,8 @@ def describe_regime_health(now: dt.datetime | None = None) -> dict[str, dict[str
             effective_execution_state = "off"
         elif requested_mode != "live":
             effective_execution_state = "shadow"
+        elif _paper_aggressive_enabled() and snap["state"] in {"cooldown", "shadow_wait", "recovery"}:
+            effective_execution_state = "paper_aggressive"
         elif _sniper_paper_continue_on_health(regime) and snap["state"] in {"cooldown", "shadow_wait", "recovery"}:
             effective_execution_state = "paper_recovery"
         elif _live_aggressive_continue_on_health(regime) and snap["state"] in {"cooldown", "shadow_wait", "recovery"}:

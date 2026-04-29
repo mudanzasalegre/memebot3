@@ -23,6 +23,10 @@ def _cfg(**overrides):
         "ML_LIVE_PROFIT_EV_SIZE_UP": 50,
         "ML_LIVE_PROFIT_PROBA_SIZE_UP": 0.3,
         "AI_THRESHOLD": 0.5,
+        "GREEN_SNIPER_ML_MODE": "sizing_only",
+        "GREEN_SNIPER_ML_BLOCK_ENABLED": False,
+        "GREEN_SNIPER_ML_RISK_REDUCE_SIZE": True,
+        "GREEN_SNIPER_RISK_CAN_VETO_LIVE": False,
     }
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -41,6 +45,22 @@ def test_live_profit_low_proba_allowed_in_sizing_only(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(ml_policy, "THRESHOLDS_BY_LANE_PATH", tmp_path / "missing.json")
     monkeypatch.setattr(ml_policy, "LEGACY_THRESHOLD_PATH", tmp_path / "missing2.json")
     d = ml_policy.decide_ml_action(token={"entry_lane": "pump_early_pumpswap_profit"}, feature_row={}, proba=0.01, base_rules_passed=True, dry_run=False, live=True)
+    assert d.allow_buy is True
+    assert d.mode == "sizing_only"
+
+
+def test_green_sniper_low_proba_does_not_block(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(ml_policy, "CFG", _cfg(ML_GATE_MODE="lane_aware"))
+    monkeypatch.setattr(ml_policy, "THRESHOLDS_BY_LANE_PATH", tmp_path / "missing.json")
+    monkeypatch.setattr(ml_policy, "LEGACY_THRESHOLD_PATH", tmp_path / "missing2.json")
+    d = ml_policy.decide_ml_action(
+        token={"entry_lane": "pump_early_green_candle_sniper"},
+        feature_row={},
+        proba=0.01,
+        base_rules_passed=True,
+        dry_run=False,
+        live=True,
+    )
     assert d.allow_buy is True
     assert d.mode == "sizing_only"
 

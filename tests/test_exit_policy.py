@@ -86,6 +86,58 @@ def test_pumpswap_profit_no_pump_exits_before_generic_time_stop() -> None:
     assert reason == "NO_PUMP_EXIT"
 
 
+def test_green_sniper_uses_runner_profile_and_later_partial() -> None:
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_green_candle_sniper",
+        "gate_profile": "green_sniper",
+        "highest_pnl_pct": 125.0,
+        "partial_taken": False,
+    }
+
+    policy = exit_policy.effective_exit_policy(subject)
+
+    assert policy.runner_exit_profile == "green_sniper_runner"
+    assert policy.tp_partial_trigger_pct == 25.0
+    assert policy.tp_partial_fraction == 0.25
+    assert policy.post_partial_lock_floor_pct == 80.0
+    assert policy.post_partial_max_giveback_pct == 10.0
+
+
+def test_green_sniper_does_not_full_take_profit_before_partial() -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_green_candle_sniper",
+        "gate_profile": "green_sniper",
+        "opened_at": now - dt.timedelta(seconds=70),
+        "buy_price_usd": 1.0,
+        "highest_pnl_pct": 20.0,
+        "partial_taken": False,
+    }
+
+    reason = exit_policy.should_exit(subject, price_now=1.20, now=now, pnl_pct=20.0)
+
+    assert reason is None
+
+
+def test_green_sniper_adverse_tick_uses_fast_window() -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_green_candle_sniper",
+        "gate_profile": "green_sniper",
+        "opened_at": now - dt.timedelta(seconds=50),
+        "buy_price_usd": 1.0,
+        "highest_pnl_pct": 0.0,
+        "partial_taken": False,
+    }
+
+    reason = exit_policy.should_exit(subject, price_now=0.89, now=now, pnl_pct=-11.0)
+
+    assert reason == "ADVERSE_TICK"
+
+
 def test_prime_runner_escalates_lock_floor_after_peak_threshold() -> None:
     subject = {
         "entry_regime": "pump_early",
@@ -143,6 +195,27 @@ def test_breakout_probe_uses_meteor_runner_profile() -> None:
     assert policy.runner_profile_state == "step1"
     assert policy.post_partial_lock_floor_pct == 70.0
     assert policy.post_partial_max_giveback_pct == 20.0
+    assert exit_policy.partial_fraction(subject) == 0.50
+
+
+def test_extreme_momentum_broad_uses_meteor_runner_profile() -> None:
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_pumpswap_profit",
+        "gate_profile": "pumpswap_profit_broad",
+        "buy_dex_id": "pumpswap",
+        "buy_market_cap_usd": 90_000.0,
+        "buy_price_pct_5m": 240.0,
+        "buy_txns_last_5m": 900.0,
+        "buy_liquidity_is_proxy": 0,
+        "highest_pnl_pct": 260.0,
+        "partial_taken": True,
+    }
+
+    policy = exit_policy.effective_exit_policy(subject)
+
+    assert policy.runner_exit_profile == "meteor_runner"
+    assert policy.runner_profile_state == "step2"
     assert exit_policy.partial_fraction(subject) == 0.50
 
 

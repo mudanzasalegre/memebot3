@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 from fastapi import HTTPException
 
+from analytics.social_signal import latest_social_payload, social_signal_from_token
 from analytics.audit import build_trade_consistency
 from analytics.reporting import load_positions_frame, load_tokens_frame
 from api.repositories.filesystem import load_jsonl_rows, parse_timestamp
@@ -138,11 +139,24 @@ def _trade_list_item(row: pd.Series) -> dict[str, Any]:
         "opened_at": row.get("opened_at"),
         "closed_at": row.get("closed_at"),
         "entry_regime": row.get("entry_regime"),
+        "entry_lane": row.get("entry_lane"),
+        "gate_profile": row.get("gate_profile"),
+        "strategy_version": row.get("strategy_version"),
+        "experiment_id": row.get("experiment_id"),
+        "exit_profile": row.get("exit_profile"),
         "exit_reason": row.get("exit_reason"),
         "outcome": computed["outcome"],
         "buy_amount_sol": row.get("buy_amount_sol"),
         "size_bucket": row.get("size_bucket"),
         "size_multiplier": row.get("size_multiplier"),
+        "buy_dex_id": row.get("buy_dex_id"),
+        "buy_price_pct_5m": row.get("buy_price_pct_5m"),
+        "buy_txns_last_5m": row.get("buy_txns_last_5m"),
+        "buy_liquidity_is_proxy": _safe_bool(row.get("buy_liquidity_is_proxy")),
+        "mcap_bucket": row.get("mcap_bucket"),
+        "price5m_bucket": row.get("price5m_bucket"),
+        "buy_liquidity_usd": row.get("buy_liquidity_usd"),
+        "buy_market_cap_usd": row.get("buy_market_cap_usd"),
         "buy_price_usd": row.get("buy_price_usd"),
         "close_price_usd": row.get("close_price_usd"),
         "effective_exit_price_usd": computed["effective_exit_price_usd"],
@@ -152,6 +166,8 @@ def _trade_list_item(row: pd.Series) -> dict[str, Any]:
         "max_pnl_pct_seen": row.get("max_pnl_pct_seen"),
         "partial_taken": bool(_safe_bool(row.get("partial_taken"))),
         "runner_exit_profile": row.get("runner_exit_profile"),
+        "time_to_peak_sec": row.get("time_to_peak_sec"),
+        "exit_from_peak_giveback_pct": row.get("exit_from_peak_giveback_pct"),
         "price_source_at_buy": row.get("price_source_at_buy"),
         "price_source_at_close": row.get("price_source_at_close"),
     }
@@ -169,12 +185,24 @@ def _trade_payload(row: pd.Series) -> dict[str, Any]:
         "price_source_at_buy": row.get("price_source_at_buy"),
         "buy_tx_sig": row.get("buy_tx_sig"),
         "entry_regime": row.get("entry_regime"),
+        "entry_lane": row.get("entry_lane"),
+        "gate_profile": row.get("gate_profile"),
+        "strategy_version": row.get("strategy_version"),
+        "experiment_id": row.get("experiment_id"),
+        "exit_profile": row.get("exit_profile"),
+        "config_hash": row.get("config_hash"),
         "size_bucket": row.get("size_bucket"),
         "size_multiplier": row.get("size_multiplier"),
         "buy_amount_sol": row.get("buy_amount_sol"),
         "entry_notional_usd": row.get("entry_notional_usd"),
         "entry_ai_proba": row.get("entry_ai_proba"),
         "entry_score_total": row.get("entry_score_total"),
+        "buy_dex_id": row.get("buy_dex_id"),
+        "buy_price_pct_5m": row.get("buy_price_pct_5m"),
+        "buy_txns_last_5m": row.get("buy_txns_last_5m"),
+        "buy_liquidity_is_proxy": _safe_bool(row.get("buy_liquidity_is_proxy")),
+        "mcap_bucket": row.get("mcap_bucket"),
+        "price5m_bucket": row.get("price5m_bucket"),
         "buy_liquidity_usd": row.get("buy_liquidity_usd"),
         "buy_market_cap_usd": row.get("buy_market_cap_usd"),
         "buy_volume_24h_usd": row.get("buy_volume_24h_usd"),
@@ -295,6 +323,10 @@ def _filter_closed_trades(
     outcome: str | None,
     exit_reason: str | None,
     entry_regime: str | None,
+    entry_lane: str | None = None,
+    gate_profile: str | None = None,
+    buy_dex_id: str | None = None,
+    liquidity_proxy: str | None = None,
 ) -> pd.DataFrame:
     filtered = frame.copy()
     closed_series = filtered.get("closed", pd.Series(0, index=filtered.index)).fillna(0).astype(int)
@@ -304,6 +336,19 @@ def _filter_closed_trades(
         filtered = filtered[filtered["exit_reason"].astype("string") == exit_reason].copy()
     if entry_regime:
         filtered = filtered[filtered["entry_regime"].astype("string") == entry_regime].copy()
+    if entry_lane and "entry_lane" in filtered.columns:
+        filtered = filtered[filtered["entry_lane"].astype("string") == entry_lane].copy()
+    if gate_profile and "gate_profile" in filtered.columns:
+        filtered = filtered[filtered["gate_profile"].astype("string") == gate_profile].copy()
+    if buy_dex_id and "buy_dex_id" in filtered.columns:
+        filtered = filtered[filtered["buy_dex_id"].astype("string").str.lower() == buy_dex_id.lower()].copy()
+    if liquidity_proxy and "buy_liquidity_is_proxy" in filtered.columns:
+        proxy_value = liquidity_proxy.strip().lower()
+        proxy_series = filtered["buy_liquidity_is_proxy"].fillna(0).astype(int).eq(1)
+        if proxy_value in {"true", "1", "yes", "proxy"}:
+            filtered = filtered[proxy_series].copy()
+        elif proxy_value in {"false", "0", "no", "real"}:
+            filtered = filtered[~proxy_series].copy()
     if outcome:
         effective_outcomes = filtered.apply(
             lambda row: _effective_outcome(row, float(total_pnl_pct_from_record(row))),
@@ -397,6 +442,15 @@ def _nearest_entry_snapshot(settings: APISettings, *, address: str, opened_at: A
     return to_jsonable(payload)
 
 
+def _social_signal_from_snapshot(entry_snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not entry_snapshot:
+        return None
+    signal = social_signal_from_token(dict(entry_snapshot))
+    if signal.status == "unknown" and signal.social_ok is None and signal.link_count == 0:
+        return None
+    return signal.to_dict()
+
+
 def _derive_replay_metrics(
     row: pd.Series,
     runtime_timeline: list[dict[str, Any]],
@@ -447,6 +501,10 @@ def get_closed_trades_envelope(
     outcome: str | None = None,
     exit_reason: str | None = None,
     entry_regime: str | None = None,
+    entry_lane: str | None = None,
+    gate_profile: str | None = None,
+    buy_dex_id: str | None = None,
+    liquidity_proxy: str | None = None,
 ) -> Envelope:
     frame = _merged_positions_tokens(settings)
     filtered = pd.DataFrame()
@@ -467,6 +525,10 @@ def get_closed_trades_envelope(
             outcome=outcome,
             exit_reason=exit_reason,
             entry_regime=entry_regime,
+            entry_lane=entry_lane,
+            gate_profile=gate_profile,
+            buy_dex_id=buy_dex_id,
+            liquidity_proxy=liquidity_proxy,
         )
         filtered = _sort_closed_trades(filtered)
         summary = _closed_trades_summary(filtered)
@@ -514,6 +576,10 @@ def get_closed_trades_envelope(
             "outcome": outcome,
             "exit_reason": exit_reason,
             "entry_regime": entry_regime,
+            "entry_lane": entry_lane,
+            "gate_profile": gate_profile,
+            "buy_dex_id": buy_dex_id,
+            "liquidity_proxy": liquidity_proxy,
         },
         "summary": to_jsonable(summary),
         "consistency": to_jsonable(consistency),
@@ -588,6 +654,10 @@ def get_trade_replay_envelope(settings: APISettings, *, trade_id: int) -> Envelo
         "trade": to_jsonable(trade),
         "token": to_jsonable(token),
         "entry_snapshot": entry_snapshot,
+        "social_signal_at_entry": _social_signal_from_snapshot(entry_snapshot),
+        "social_signal_after_enrichment": latest_social_payload(str(row.get("address") or "")),
+        "social_bonus_applied": (entry_snapshot or {}).get("social_bonus_applied") if entry_snapshot else None,
+        "social_risk_flags": (entry_snapshot or {}).get("social_risk_flags") if entry_snapshot else None,
         "runtime_timeline": to_jsonable(runtime_timeline),
         "research_timeline": to_jsonable(research_timeline),
         "derived": to_jsonable(derived),

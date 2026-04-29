@@ -7,6 +7,7 @@ LANE_PUMP_EARLY_PROFIT = "pump_early_pumpswap_profit"
 LANE_PUMP_EARLY_PRIME = "pump_early_pumpswap_prime"
 LANE_PUMP_EARLY_METEOR = "pump_early_meteor_prime"
 LANE_PUMP_EARLY_BREAKOUT = "pump_early_pumpswap_breakout_probe"
+LANE_PUMP_EARLY_GREEN_SNIPER = "pump_early_green_candle_sniper"
 LANE_RESEARCH_SNIPER = "pump_early_sniper_research"
 LANE_UNKNOWN = "unknown"
 
@@ -15,6 +16,7 @@ LIVE_PROFIT_LANES = {
     LANE_PUMP_EARLY_PRIME,
     LANE_PUMP_EARLY_METEOR,
     LANE_PUMP_EARLY_BREAKOUT,
+    LANE_PUMP_EARLY_GREEN_SNIPER,
 }
 
 RESEARCH_LANES = {
@@ -36,6 +38,12 @@ _LANE_ALIASES = {
     LANE_PUMP_EARLY_BREAKOUT: LANE_PUMP_EARLY_BREAKOUT,
     "pumpswap_breakout": LANE_PUMP_EARLY_BREAKOUT,
     "pumpswap_breakout_probe": LANE_PUMP_EARLY_BREAKOUT,
+    LANE_PUMP_EARLY_GREEN_SNIPER: LANE_PUMP_EARLY_GREEN_SNIPER,
+    "green_sniper": LANE_PUMP_EARLY_GREEN_SNIPER,
+    "green_candle": LANE_PUMP_EARLY_GREEN_SNIPER,
+    "pumpswap_green": LANE_PUMP_EARLY_GREEN_SNIPER,
+    "hot_green": LANE_PUMP_EARLY_GREEN_SNIPER,
+    "newborn_pump": LANE_PUMP_EARLY_GREEN_SNIPER,
     LANE_RESEARCH_SNIPER: LANE_RESEARCH_SNIPER,
     "pump_early_sniper": LANE_RESEARCH_SNIPER,
     "sniper": LANE_RESEARCH_SNIPER,
@@ -78,6 +86,7 @@ __all__ = [
     "LANE_PUMP_EARLY_PRIME",
     "LANE_PUMP_EARLY_METEOR",
     "LANE_PUMP_EARLY_BREAKOUT",
+    "LANE_PUMP_EARLY_GREEN_SNIPER",
     "LANE_RESEARCH_SNIPER",
     "LANE_UNKNOWN",
     "LIVE_PROFIT_LANES",

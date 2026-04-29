@@ -71,6 +71,10 @@ export function TradesPage() {
   const [outcomeFilter, setOutcomeFilter] = useState("all");
   const [exitReasonFilter, setExitReasonFilter] = useState("");
   const [entryRegimeFilter, setEntryRegimeFilter] = useState("");
+  const [entryLaneFilter, setEntryLaneFilter] = useState("");
+  const [gateProfileFilter, setGateProfileFilter] = useState("");
+  const [dexFilter, setDexFilter] = useState("");
+  const [proxyFilter, setProxyFilter] = useState("");
   const [pageLimit, setPageLimit] = useState(50);
   const [cursorHistory, setCursorHistory] = useState<PageCursor[]>([{ before_id: null, before_ts: null }]);
   const [cursorIndex, setCursorIndex] = useState(0);
@@ -85,6 +89,10 @@ export function TradesPage() {
       outcome: outcomeFilter === "all" ? undefined : outcomeFilter,
       exit_reason: exitReasonFilter || undefined,
       entry_regime: entryRegimeFilter || undefined,
+      entry_lane: entryLaneFilter || undefined,
+      gate_profile: gateProfileFilter || undefined,
+      buy_dex_id: dexFilter || undefined,
+      liquidity_proxy: proxyFilter || undefined,
     }),
     5000,
   );
@@ -103,7 +111,7 @@ export function TradesPage() {
   useEffect(() => {
     setCursorHistory([{ before_id: null, before_ts: null }]);
     setCursorIndex(0);
-  }, [entryRegimeFilter, exitReasonFilter, outcomeFilter, pageLimit]);
+  }, [dexFilter, entryLaneFilter, entryRegimeFilter, exitReasonFilter, gateProfileFilter, outcomeFilter, pageLimit, proxyFilter]);
 
   const exitReasons = Array.from(
     new Set([
@@ -117,10 +125,29 @@ export function TradesPage() {
       ...(entryRegimeFilter ? [entryRegimeFilter] : []),
     ]),
   ).sort();
+  const entryLanes = Array.from(
+    new Set([
+      ...trades.map((item) => item.entry_lane).filter((value): value is string => Boolean(value)),
+      ...(entryLaneFilter ? [entryLaneFilter] : []),
+    ]),
+  ).sort();
+  const gateProfiles = Array.from(
+    new Set([
+      ...trades.map((item) => item.gate_profile).filter((value): value is string => Boolean(value)),
+      ...(gateProfileFilter ? [gateProfileFilter] : []),
+    ]),
+  ).sort();
+  const dexIds = Array.from(
+    new Set([
+      ...trades.map((item) => item.buy_dex_id).filter((value): value is string => Boolean(value)),
+      ...(dexFilter ? [dexFilter] : []),
+    ]),
+  ).sort();
 
   const outcomeBreakdown = countBy(trades, (item) => item.outcome || "unknown");
   const exitBreakdown = countBy(trades, (item) => item.exit_reason || "unknown");
   const regimeBreakdown = countBy(trades, (item) => item.entry_regime || "unknown");
+  const laneBreakdown = countBy(trades, (item) => item.entry_lane || "unknown");
   const topOutcomeCount = maxCount(outcomeBreakdown);
   const topExitCount = maxCount(exitBreakdown);
   const topRegimeCount = maxCount(regimeBreakdown);
@@ -133,6 +160,10 @@ export function TradesPage() {
     setOutcomeFilter("all");
     setExitReasonFilter("");
     setEntryRegimeFilter("");
+    setEntryLaneFilter("");
+    setGateProfileFilter("");
+    setDexFilter("");
+    setProxyFilter("");
     resetPagination();
   }
 
@@ -145,6 +176,10 @@ export function TradesPage() {
     setOutcomeFilter(typeof filters.outcomeFilter === "string" ? filters.outcomeFilter : "all");
     setExitReasonFilter(typeof filters.exitReasonFilter === "string" ? filters.exitReasonFilter : "");
     setEntryRegimeFilter(typeof filters.entryRegimeFilter === "string" ? filters.entryRegimeFilter : "");
+    setEntryLaneFilter(typeof filters.entryLaneFilter === "string" ? filters.entryLaneFilter : "");
+    setGateProfileFilter(typeof filters.gateProfileFilter === "string" ? filters.gateProfileFilter : "");
+    setDexFilter(typeof filters.dexFilter === "string" ? filters.dexFilter : "");
+    setProxyFilter(typeof filters.proxyFilter === "string" ? filters.proxyFilter : "");
     resetPagination();
   }
 
@@ -203,6 +238,32 @@ export function TradesPage() {
         id: "regime",
         header: "Regime",
         render: (row) => row.entry_regime || "n/a",
+      },
+      {
+        id: "lane",
+        header: "Lane",
+        render: (row) => (
+          <div className="table-primary-cell">
+            <strong>{row.entry_lane || "n/a"}</strong>
+            <small>{row.gate_profile || "no gate"}</small>
+          </div>
+        ),
+      },
+      {
+        id: "dex",
+        header: "Dex / proxy",
+        render: (row) => (
+          <div className="table-primary-cell">
+            <strong>{row.buy_dex_id || "n/a"}</strong>
+            <small>{row.buy_liquidity_is_proxy ? "proxy liquidity" : "real liquidity"}</small>
+          </div>
+        ),
+      },
+      {
+        id: "peak",
+        align: "right",
+        header: "Peak",
+        render: (row) => formatSignedPct(row.max_pnl_pct_seen ?? row.highest_pnl_pct),
       },
       {
         id: "pnlPct",
@@ -350,10 +411,55 @@ export function TradesPage() {
                   ))}
                 </select>
               </label>
+
+              <label className="filter-field">
+                <span>Entry lane</span>
+                <select className="ui-field" onChange={(event) => setEntryLaneFilter(event.target.value)} value={entryLaneFilter}>
+                  <option value="">all</option>
+                  {entryLanes.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="filter-field">
+                <span>Gate profile</span>
+                <select className="ui-field" onChange={(event) => setGateProfileFilter(event.target.value)} value={gateProfileFilter}>
+                  <option value="">all</option>
+                  {gateProfiles.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="filter-field">
+                <span>Buy dex</span>
+                <select className="ui-field" onChange={(event) => setDexFilter(event.target.value)} value={dexFilter}>
+                  <option value="">all</option>
+                  {dexIds.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="filter-field">
+                <span>Liquidity proxy</span>
+                <select className="ui-field" onChange={(event) => setProxyFilter(event.target.value)} value={proxyFilter}>
+                  <option value="">all</option>
+                  <option value="real">real</option>
+                  <option value="proxy">proxy</option>
+                </select>
+              </label>
             </div>
 
             <SavedViewsToolbar
-              currentFilters={{ outcomeFilter, exitReasonFilter, entryRegimeFilter }}
+              currentFilters={{ outcomeFilter, exitReasonFilter, entryRegimeFilter, entryLaneFilter, gateProfileFilter, dexFilter, proxyFilter }}
               onApply={applySavedView}
               pageKey="trades"
             />
@@ -441,6 +547,20 @@ export function TradesPage() {
               </div>
             ))}
             {!regimeBreakdown.length ? <p className="empty-note">No regime distribution to summarize.</p> : null}
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-4" eyebrow="Current page" title="Entry lanes" subtitle="Breakdown over visible rows only.">
+          <div className="breakdown-list">
+            {laneBreakdown.slice(0, 8).map((row) => (
+              <div className="breakdown-list__item" key={row.group}>
+                <div className="breakdown-list__label">
+                  <strong>{row.group}</strong>
+                  <span>{formatCount(row.count)}</span>
+                </div>
+              </div>
+            ))}
+            {!laneBreakdown.length ? <p className="empty-note">No lane distribution to summarize.</p> : null}
           </div>
         </Surface>
 

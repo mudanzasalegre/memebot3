@@ -23,6 +23,10 @@ def closed_trades(
     outcome: str | None = Query(default=None),
     exit_reason: str | None = Query(default=None),
     entry_regime: str | None = Query(default=None),
+    entry_lane: str | None = Query(default=None),
+    gate_profile: str | None = Query(default=None),
+    buy_dex_id: str | None = Query(default=None),
+    liquidity_proxy: str | None = Query(default=None),
     settings: APISettings = Depends(get_settings),
 ) -> Envelope:
     return get_closed_trades_envelope(
@@ -33,6 +37,10 @@ def closed_trades(
         outcome=outcome,
         exit_reason=exit_reason,
         entry_regime=entry_regime,
+        entry_lane=entry_lane,
+        gate_profile=gate_profile,
+        buy_dex_id=buy_dex_id,
+        liquidity_proxy=liquidity_proxy,
     )
 
 

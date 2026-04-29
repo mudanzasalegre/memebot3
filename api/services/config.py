@@ -138,7 +138,7 @@ def _sniper_lane() -> dict[str, object]:
             "live_canary_advanced": int(getattr(CFG, "PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY_ADVANCED", 2) or 2),
         },
         "paper_learning": {
-            "continue_on_health": bool(getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH", True)),
+            "continue_on_health": bool(getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH", False)),
             "recovery_size_cap": float(getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_RECOVERY_SIZE_CAP", 0.20) or 0.20),
             "route_proxy_liquidity_enabled": bool(
                 getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_ENABLED", True)
@@ -508,11 +508,93 @@ def _paper_validation() -> dict[str, object]:
             "pump_early_pumpswap_breakout_probe",
         ],
         "research_shadow_separate": True,
-        "paper_continue_on_health": bool(getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH", True)),
+        "paper_continue_on_health": bool(getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH", False)),
         "effective_continue_on_health": bool(
-            getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH", True)
+            getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH", False)
             and not bool(getattr(CFG, "PAPER_PNL_STRICT_HEALTH", True))
         ),
+    }
+
+
+def _green_sniper_lane() -> dict[str, object]:
+    exit_policy = describe_exit_policy()
+    return {
+        "enabled": bool(getattr(CFG, "GREEN_SNIPER_ENABLED", True)),
+        "entry_lane": "pump_early_green_candle_sniper",
+        "paper_sniper_mode": bool(getattr(CFG, "PAPER_SNIPER_MODE", False)),
+        "live_enabled": bool(getattr(CFG, "GREEN_SNIPER_LIVE_ENABLED", False)),
+        "ml_mode": str(getattr(CFG, "GREEN_SNIPER_ML_MODE", "sizing_only") or "sizing_only"),
+        "ml_can_block": bool(getattr(CFG, "GREEN_SNIPER_ML_BLOCK_ENABLED", False)),
+        "thresholds": {
+            "rank_guard": {
+                "enabled": bool(getattr(CFG, "GREEN_SNIPER_RANK_GUARD_ENABLED", True)),
+                "min_score": float(getattr(CFG, "GREEN_SNIPER_RANK_GUARD_MIN_SCORE", 45.0) or 45.0),
+                "bypass_paper_birth_probe": bool(
+                    getattr(CFG, "GREEN_SNIPER_RANK_GUARD_BYPASS_PAPER_BIRTH_PROBE", True)
+                ),
+            },
+            "paper": {
+                "age_minutes_range": [
+                    float(getattr(CFG, "GREEN_SNIPER_MIN_AGE_MIN", 0.15) or 0.15),
+                    float(getattr(CFG, "GREEN_SNIPER_MAX_AGE_MIN", 8.0) or 8.0),
+                ],
+                "min_liquidity_usd": float(getattr(CFG, "GREEN_SNIPER_MIN_LIQUIDITY_USD", 1200.0) or 1200.0),
+                "price_pct_5m_range": [
+                    float(getattr(CFG, "GREEN_SNIPER_MIN_PRICE_PCT_5M", 20.0) or 20.0),
+                    float(getattr(CFG, "GREEN_SNIPER_MAX_PRICE_PCT_5M", 280.0) or 280.0),
+                ],
+                "min_txns_last_5m": int(getattr(CFG, "GREEN_SNIPER_MIN_TXNS_5M", 35) or 35),
+                "require_route": bool(getattr(CFG, "GREEN_SNIPER_REQUIRE_ROUTE_PAPER", False)),
+                "allow_proxy_liquidity": bool(getattr(CFG, "GREEN_SNIPER_ALLOW_PROXY_LIQUIDITY_PAPER", True)),
+                "birth_probe": {
+                    "enabled": bool(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_ENABLED", True)),
+                    "max_age_min": float(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_MAX_AGE_MIN", 3.0) or 3.0),
+                    "min_liquidity_usd": float(
+                        getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_MIN_LIQUIDITY_USD", 1000.0) or 1000.0
+                    ),
+                    "max_price_impact_pct": float(
+                        getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_MAX_PRICE_IMPACT_PCT", 25.0) or 25.0
+                    ),
+                },
+            },
+            "live": {
+                "age_minutes_range": [
+                    float(getattr(CFG, "GREEN_SNIPER_LIVE_MIN_AGE_MIN", 0.35) or 0.35),
+                    float(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_AGE_MIN", 6.0) or 6.0),
+                ],
+                "min_liquidity_usd": float(getattr(CFG, "GREEN_SNIPER_LIVE_MIN_LIQUIDITY_USD", 2500.0) or 2500.0),
+                "min_txns_last_5m": int(getattr(CFG, "GREEN_SNIPER_LIVE_MIN_TXNS_5M", 60) or 60),
+                "require_route": bool(getattr(CFG, "GREEN_SNIPER_REQUIRE_ROUTE_LIVE", True)),
+                "max_price_impact_pct": float(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_PRICE_IMPACT_PCT", 12.0) or 12.0),
+            },
+        },
+        "sizing": {
+            "paper_micro_sol": float(getattr(CFG, "GREEN_SNIPER_SIZE_MICRO_SOL", 0.10) or 0.10),
+            "paper_core_sol": float(getattr(CFG, "GREEN_SNIPER_SIZE_CORE_SOL", 0.10) or 0.10),
+            "paper_hot_sol": float(getattr(CFG, "GREEN_SNIPER_SIZE_HOT_SOL", 0.10) or 0.10),
+            "live_canary_sol": float(getattr(CFG, "GREEN_SNIPER_LIVE_SIZE_SOL", 0.10) or 0.10),
+        },
+        "social_intelligence": {
+            "enabled": bool(getattr(CFG, "SOCIALS_ENABLED", True)),
+            "async_only": bool(getattr(CFG, "SOCIALS_ASYNC_ONLY", True)),
+            "hot_path_blocking": bool(getattr(CFG, "SOCIALS_HOT_PATH_BLOCKING", False)),
+            "require_socials": bool(getattr(CFG, "GREEN_SNIPER_REQUIRE_SOCIALS", False)),
+            "bonus_enabled": bool(getattr(CFG, "GREEN_SNIPER_SOCIALS_BONUS_ENABLED", True)),
+            "score_bonus": float(getattr(CFG, "GREEN_SNIPER_SOCIALS_SCORE_BONUS", 5.0) or 5.0),
+            "risk_penalty": float(getattr(CFG, "GREEN_SNIPER_SOCIALS_RISK_PENALTY", 5.0) or 5.0),
+            "paper_can_increase_size": bool(getattr(CFG, "GREEN_SNIPER_SOCIALS_CAN_INCREASE_SIZE_PAPER", True)),
+            "live_can_increase_size": bool(getattr(CFG, "GREEN_SNIPER_SOCIALS_CAN_INCREASE_SIZE_LIVE", False)),
+            "suspicious_can_block": bool(getattr(CFG, "GREEN_SNIPER_SOCIALS_SUSPICIOUS_CAN_BLOCK", False)),
+            "suspicious_can_reduce_size": bool(
+                getattr(CFG, "GREEN_SNIPER_SOCIALS_SUSPICIOUS_CAN_REDUCE_SIZE", True)
+            ),
+        },
+        "runner_exit_profile": {
+            "profile": "green_sniper_runner",
+            "effective": dict(exit_policy.get("green_sniper_runner_profile") or {}),
+            "partial_trigger_pct": float(getattr(CFG, "GREEN_SNIPER_TP_PARTIAL_TRIGGER_PCT", 18.0) or 18.0),
+            "partial_fraction": float(getattr(CFG, "GREEN_SNIPER_TP_PARTIAL_FRACTION", 0.35) or 0.35),
+        },
     }
 
 
@@ -525,6 +607,7 @@ def get_policies_envelope(settings: APISettings) -> Envelope:
         "strategy": describe_strategy_policy(),
         "execution_profile": _execution_profile(),
         "sniper_lane": _sniper_lane(),
+        "green_sniper_lane": _green_sniper_lane(),
         "profit_lane": _profit_lane(),
         "live_profit_gate": _live_profit_gate(),
         "rank_gate": _rank_gate(),

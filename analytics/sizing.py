@@ -209,6 +209,19 @@ def compute_entry_sizing(
         multiplier = float(getattr(CFG, "PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER", PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER) or 0.20)
         notes = [*notes, f"lane_{bucket}"]
 
+    if regime == "pump_early" and (
+        entry_lane == "pump_early_green_candle_sniper" or sniper_profile.startswith("green_sniper")
+    ):
+        hint = str(token.get("green_sniper_size_hint") or "micro").strip().lower()
+        bucket = f"green_sniper_{hint if hint in {'micro', 'core', 'hot'} else 'micro'}"
+        if hint == "hot":
+            multiplier = float(PUMP_EARLY_SNIPER_SIZE_HOT_MULTIPLIER)
+        elif hint == "core":
+            multiplier = float(PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER)
+        else:
+            multiplier = float(PUMP_EARLY_SNIPER_SIZE_MICRO_MULTIPLIER)
+        notes = [*notes, f"lane_{bucket}"]
+
     if regime == "pump_early" and sniper_profile in {"sniper_micro", "sniper_core", "sniper_hot"}:
         bucket = sniper_profile
         if sniper_profile == "sniper_hot":
@@ -268,6 +281,15 @@ def describe_sizing_policy() -> dict[str, Any]:
             "pumpswap_prime": float(getattr(CFG, "PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER", 0.20) or 0.20),
             "pumpswap_meteor": float(getattr(CFG, "PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER", 0.20) or 0.20),
             "pumpswap_breakout": float(getattr(CFG, "PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER", 0.20) or 0.20),
+            "green_sniper_micro": float(PUMP_EARLY_SNIPER_SIZE_MICRO_MULTIPLIER),
+            "green_sniper_core": float(PUMP_EARLY_SNIPER_SIZE_CORE_MULTIPLIER),
+            "green_sniper_hot": float(PUMP_EARLY_SNIPER_SIZE_HOT_MULTIPLIER),
+        },
+        "green_sniper_amounts_sol": {
+            "paper_micro": float(getattr(CFG, "GREEN_SNIPER_SIZE_MICRO_SOL", 0.03) or 0.03),
+            "paper_core": float(getattr(CFG, "GREEN_SNIPER_SIZE_CORE_SOL", 0.06) or 0.06),
+            "paper_hot": float(getattr(CFG, "GREEN_SNIPER_SIZE_HOT_SOL", 0.10) or 0.10),
+            "live_canary": float(getattr(CFG, "GREEN_SNIPER_LIVE_SIZE_SOL", 0.01) or 0.01),
         },
         "regime_size_caps": {
             "pump_early": float(PUMP_EARLY_MAX_SIZE_MULTIPLIER),

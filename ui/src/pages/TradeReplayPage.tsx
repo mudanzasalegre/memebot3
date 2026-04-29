@@ -77,15 +77,25 @@ const snapshotPriorityKeys = [
   "source_file",
   "discovered_via",
   "entry_regime",
+  "entry_lane",
+  "gate_profile",
   "price_source",
   "age_minutes",
   "queue_attempts",
   "queue_age_minutes",
   "coverage_core_fields",
+  "snapshot_missing_fields",
+  "green_sniper_score",
+  "rank_score",
+  "has_jupiter_route",
   "liquidity_usd",
+  "liquidity_is_proxy",
   "volume_24h_usd",
   "market_cap_usd",
+  "price_pct_5m",
   "txns_last_5m",
+  "buy_sell_ratio_5m",
+  "profit_pnl_guard_failures",
   "holders",
 ];
 
@@ -207,6 +217,8 @@ export function TradeReplayPage() {
             <StatusChip label={trade.outcome || "unknown"} tone={statusTone(trade.outcome)} compact mono />
             {trade.exit_reason ? <StatusChip label={trade.exit_reason} tone="neutral" compact mono /> : null}
             {trade.entry_regime ? <StatusChip label={trade.entry_regime} tone="neutral" compact mono /> : null}
+            {trade.entry_lane ? <StatusChip label={trade.entry_lane} tone="info" compact mono /> : null}
+            {trade.gate_profile ? <StatusChip label={trade.gate_profile} tone="neutral" compact mono /> : null}
           </>
         }
         question="What happened exactly between first sight and final exit for this trade?"
@@ -286,8 +298,90 @@ export function TradeReplayPage() {
               <strong>{trade.size_bucket || "n/a"}</strong>
             </div>
             <div className="kv-cell">
+              <span>Entry lane</span>
+              <strong>{trade.entry_lane || "n/a"}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Gate profile</span>
+              <strong>{trade.gate_profile || "n/a"}</strong>
+            </div>
+            <div className="kv-cell">
               <span>Hold minutes</span>
               <strong>{formatDecimal(derived?.hold_minutes ?? computed?.hold_minutes, "m")}</strong>
+            </div>
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-4" eyebrow="Sniper context" title="Entry quality and runner capture">
+          <div className="kv-grid">
+            <div className="kv-cell">
+              <span>Buy dex</span>
+              <strong>{trade.buy_dex_id || token?.dex_id || "n/a"}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Liquidity proxy</span>
+              <strong>{trade.buy_liquidity_is_proxy ? "yes" : "no"}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Price 5m</span>
+              <strong>{formatSignedPct(trade.buy_price_pct_5m)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Txns 5m</span>
+              <strong>{formatCount(trade.buy_txns_last_5m)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Mcap bucket</span>
+              <strong>{trade.mcap_bucket || "n/a"}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Price5m bucket</span>
+              <strong>{trade.price5m_bucket || "n/a"}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Runner profile</span>
+              <strong>{trade.runner_exit_profile || trade.exit_profile || "n/a"}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Peak seen</span>
+              <strong>{formatSignedPct(trade.max_pnl_pct_seen ?? trade.highest_pnl_pct)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Time to peak</span>
+              <strong>{formatDecimal(trade.time_to_peak_sec, "s")}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Exit giveback</span>
+              <strong>{formatSignedPct(trade.exit_from_peak_giveback_pct)}</strong>
+            </div>
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-4" eyebrow="Social intelligence" title="Async social signal">
+          <div className="kv-grid">
+            <div className="kv-cell">
+              <span>Status at entry</span>
+              <strong>{replay?.social_signal_at_entry?.status || "n/a"}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Status after enrichment</span>
+              <strong>{replay?.social_signal_after_enrichment?.status || "n/a"}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Links found</span>
+              <strong>{formatCount(replay?.social_signal_after_enrichment?.link_count ?? replay?.social_signal_at_entry?.link_count)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Bonus applied</span>
+              <strong>{formatDecimal(typeof replay?.social_bonus_applied === "number" ? replay.social_bonus_applied : null)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Risk flags</span>
+              <strong>{stringifyValue(replay?.social_risk_flags || replay?.social_signal_after_enrichment?.risk_flags)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Latency</span>
+              <strong>{formatDecimal(replay?.social_signal_after_enrichment?.latency_ms, "ms")}</strong>
             </div>
           </div>
         </Surface>

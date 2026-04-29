@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime as dt
+import hashlib
 import json
 import logging
 import math
@@ -126,6 +127,11 @@ from runtime.command_bus import (  # noqa: E402
 from runtime.state_models import RuntimeStateSnapshot  # noqa: E402
 from runtime.state_publisher import count_open_positions, publish_runtime_state  # noqa: E402
 from runtime.single_instance import SingleInstanceLock, SingleInstanceLockError  # noqa: E402
+from runtime.fast_enrichment import enrich_fast  # noqa: E402
+from runtime.hot_queue import GLOBAL_HOT_QUEUE  # noqa: E402
+from runtime import live_canary  # noqa: E402
+from runtime.position_limits import evaluate_lane_position_limit  # noqa: E402
+from runtime.social_enrichment_queue import schedule_social_enrichment  # noqa: E402
 
 # ───────── Fetchers / analytics ─────────────────────────────────────────────
 from fetcher import (  # noqa: E402
@@ -151,6 +157,10 @@ import analytics.sizing as entry_sizing  # noqa: E402
 import analytics.exit_policy as exit_policy  # noqa: E402
 import analytics.strategy_runtime as strategy_runtime  # noqa: E402
 import analytics.research_runtime as research_runtime  # noqa: E402
+from analytics.green_sniper_gate import apply_green_sniper_context, evaluate_green_sniper  # noqa: E402
+from analytics.green_sniper_rank_guard import evaluate_green_sniper_rank_guard  # noqa: E402
+from analytics.green_sniper_sizing import compute_green_sniper_sizing  # noqa: E402
+from analytics.profit_pnl_guard import evaluate_profit_pnl_guard  # noqa: E402
 from analytics.ml_policy import decide_ml_action  # noqa: E402
 from analytics.risk_predict import predict_risk  # noqa: E402
 from analytics.ev_predict import predict_ev  # noqa: E402
@@ -1138,7 +1148,7 @@ _PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE = bool(
 )
 _PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD = max(
     0.0,
-    float(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD", 200_000.0) or 200_000.0),
+    float(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD", 25_000.0) or 25_000.0),
 )
 _PUMP_EARLY_PROFIT_DEEP_NEG_PRICE5M_PCT = float(
     getattr(CFG, "PUMP_EARLY_PROFIT_DEEP_NEG_PRICE5M_PCT", -40.0)
@@ -1837,12 +1847,29 @@ def _evaluate_pumpswap_profit_gate(
         blocked_bucket = blocked_bucket or price_block
 
     meteor_prime = not meteor_failures
+    breakout_probe = not breakout_failures
+    preliminary_prime = (
+        (not failures)
+        and mcap < 25_000
+        and _PUMP_EARLY_PROFIT_MIN_LIQUIDITY_USD <= liquidity <= 25_000
+        and not liq_proxy
+        and dex_id == "pumpswap"
+    )
     shape_failures = _profit_shape_guard_failures(token, meteor_prime=meteor_prime)
+    pnl_guard = evaluate_profit_pnl_guard(
+        token,
+        gate_profile="pumpswap_profit_broad",
+        prime=preliminary_prime,
+        meteor_prime=meteor_prime,
+        breakout_probe=breakout_probe,
+    )
     if shape_failures and not blocked_bucket:
         blocked_bucket = shape_failures[0]
+    pnl_guard_failures = list(pnl_guard.failures)
+    if pnl_guard_failures and not blocked_bucket:
+        blocked_bucket = pnl_guard.blocked_bucket
     standard_failures = list(failures)
-    effective_failures = [*standard_failures, *shape_failures]
-    breakout_probe = not breakout_failures
+    effective_failures = [*standard_failures, *shape_failures, *pnl_guard_failures]
     allowed = (not effective_failures) or meteor_prime or breakout_probe
     prime = (
         (not effective_failures)
@@ -1880,17 +1907,21 @@ def _evaluate_pumpswap_profit_gate(
         token["profit_lane_tier"] = "pump_early_meteor_prime"
         token["meteor_prime_standard_failures"] = ",".join(standard_failures[:12])
         token["profit_shape_guard_failures"] = ""
+        token["profit_pnl_guard_failures"] = ""
     elif gate_profile == "pumpswap_breakout_probe":
         token["profit_lane_tier"] = "pump_early_pumpswap_breakout_probe"
         token["breakout_standard_failures"] = ",".join(effective_failures[:12])
         token["breakout_gate_failures"] = ""
         token["profit_shape_guard_failures"] = ""
+        token["profit_pnl_guard_failures"] = ""
     elif prime:
         token["profit_lane_tier"] = "pump_early_pumpswap_prime"
         token["profit_shape_guard_failures"] = ""
+        token["profit_pnl_guard_failures"] = ""
     else:
         token["breakout_gate_failures"] = ",".join(breakout_failures[:12])
         token["profit_shape_guard_failures"] = ",".join(shape_failures[:12])
+        token["profit_pnl_guard_failures"] = ",".join(pnl_guard_failures[:12])
     return {
         "allowed": bool(allowed),
         "entry_lane": entry_lane,
@@ -1902,6 +1933,11 @@ def _evaluate_pumpswap_profit_gate(
 
 
 def _tag_pump_sniper_gate(token: dict, rank_info: dict[str, object] | None = None) -> tuple[bool, str]:
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_green_candle_sniper":
+        token["live_profit_gate_failed_count"] = 0
+        token.setdefault("gate_profile", "green_sniper")
+        token.setdefault("sniper_gate_profile", "green_sniper")
+        return True, ""
     if _PUMP_EARLY_PROFIT_LANE_ENABLED:
         decision = _evaluate_pumpswap_profit_gate(token, rank_info)
         if bool(decision.get("allowed")):
@@ -3360,6 +3396,29 @@ async def _maybe_apply_paper_sniper_liquidity_proxy(token: dict, addr: str) -> b
     return True
 
 
+async def _maybe_apply_green_sniper_liquidity_proxy(token: dict, addr: str) -> bool:
+    if not (
+        DRY_RUN
+        and bool(getattr(CFG, "GREEN_SNIPER_ENABLED", True))
+        and bool(getattr(CFG, "GREEN_SNIPER_PAPER_ROUTE_PROXY_ENABLED", True))
+    ):
+        return False
+    if token.get("liquidity_usd"):
+        return False
+    if str(token.get("entry_regime") or "").strip().lower() != "pump_early":
+        return False
+    if not token.get("price_usd") and token.get("price_pct_5m") is None:
+        return False
+    min_proxy_liq = float(getattr(CFG, "GREEN_SNIPER_PAPER_ROUTE_PROXY_MIN_LIQUIDITY_USD", 1200.0) or 1200.0)
+    token["liquidity_usd"] = min_proxy_liq
+    token["liquidity_usd_is_proxy"] = 1
+    token["liquidity_is_proxy"] = 1
+    token["sniper_liquidity_proxy"] = 1
+    token.setdefault("has_jupiter_route", 0)
+    log.info("Green sniper paper liquidity proxy %s liq=%.0f", addr[:6], min_proxy_liq)
+    return True
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # run_bot.py  — _evaluate_and_buy
 # ────────────────────────────────────────────────────────────────────────────
@@ -3403,6 +3462,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["queue_age_minutes"] = max(0.0, (time.time() - first_seen_epoch_s) / 60.0)
     token["entry_regime"] = entry_sizing.classify_entry_regime(token, queue_attempts=queue_attempts)
     token["require_jupiter_for_buy"] = int(require_jup_for_buy)
+    token["strategy_version"] = str(getattr(CFG, "SNIPER_STRATEGY_VERSION", "2026-04-green-sniper-v1") or "")
+    token["experiment_id"] = str(getattr(CFG, "SNIPER_EXPERIMENT_ID", "green_v1") or "")
     if queue_attempts > 0 or _candidate_age_minutes(token) >= max(1.0, float(MIN_AGE_MIN)):
         warn_if_nulls(token, context=addr[:4])
     _log_token(token, addr)
@@ -3430,6 +3491,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                     token.update(tok2)
                 if token.get("liquidity_usd"):
                     pass  # ya tenemos liq/vol/mcap/price_usd
+                elif await _maybe_apply_green_sniper_liquidity_proxy(token, addr):
+                    pass
                 elif await _maybe_apply_paper_sniper_liquidity_proxy(token, addr):
                     pass
                 else:
@@ -3443,6 +3506,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             return
 
     # 4) — incomplete (sin liquidez) ---------------------------------
+    if not token.get("liquidity_usd"):
+        await _maybe_apply_green_sniper_liquidity_proxy(token, addr)
+
     if not token.get("liquidity_usd"):
         await _maybe_apply_paper_sniper_liquidity_proxy(token, addr)
 
@@ -3481,19 +3547,85 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["require_jupiter_for_buy"] = int(require_jup_for_buy)
 
     # 6) — señales baratas (social, trend, insider…) —
-    token["social_ok"] = await socials.has_socials(addr)
-    try:
-        token["trend"], token["trend_fallback_used"] = await trend.trend_signal(addr)
-    except trend.Trend404Retry:
-        log.debug("⚠️  %s sin datos trend – continúa", addr[:4])
-        token["trend"] = None
-        token["trend_fallback_used"] = True
+    token["strategy_version"] = str(getattr(CFG, "SNIPER_STRATEGY_VERSION", "2026-04-green-sniper-v1") or "")
+    token["experiment_id"] = str(getattr(CFG, "SNIPER_EXPERIMENT_ID", "green_v1") or "")
+    green_decision = None
+    if str(token.get("entry_regime") or "").strip().lower() == "pump_early" and bool(getattr(CFG, "GREEN_SNIPER_ENABLED", True)):
+        fast = enrich_fast(token)
+        token.update(fast.token)
+        token.setdefault("score_total", filters.total_score(token))
+        green_decision = evaluate_green_sniper(token, dry_run=DRY_RUN, live=not DRY_RUN)
+        if green_decision.action in {"buy", "shadow", "delay"}:
+            apply_green_sniper_context(token, green_decision)
+            schedule_social_enrichment(token, lane=green_decision.lane)
+        if green_decision.action == "delay":
+            _research_decision(
+                token,
+                action="wait",
+                reason=f"green_sniper:{green_decision.reason}",
+                stage="green_sniper",
+                dedup_ttl_s=30,
+            )
+            _requeue_with_stats(addr, reason=f"green_sniper:{green_decision.reason}", backoff=2, token=token)
+            return
+        if green_decision.action == "shadow":
+            vec_shadow = build_feature_vector(token)
+            _research_decision(
+                token,
+                action="shadow",
+                reason=f"green_sniper:{green_decision.reason}",
+                stage="green_sniper",
+                shadow_kind="green_sniper_reject_shadow",
+                dedup_ttl_s=120,
+            )
+            await _open_shadow(
+                addr,
+                vec_shadow,
+                price_hint=token.get("price_usd"),
+                force=True,
+                regime="pump_early",
+                reason=f"green_sniper:{green_decision.reason}",
+                stage="green_sniper",
+                shadow_kind="green_sniper_reject_shadow",
+            )
+            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "green_shadow"))
+            _remove_from_queue_if_present(addr)
+            return
+    green_fast_path = bool(green_decision and green_decision.action == "buy")
+    if green_fast_path:
+        require_jup_for_buy = bool(
+            getattr(CFG, "GREEN_SNIPER_REQUIRE_ROUTE_LIVE", True)
+            if not DRY_RUN
+            else getattr(CFG, "GREEN_SNIPER_REQUIRE_ROUTE_PAPER", False)
+        )
+        token["require_jupiter_for_buy"] = int(require_jup_for_buy)
 
-    token["insider_sig"] = await insider.insider_alert(addr)
-    token["score_total"] = filters.total_score(token)
+    if green_fast_path:
+        token.setdefault("social_ok", None)
+        token.setdefault("social_status", "unknown")
+        token.setdefault("trend", None)
+        token.setdefault("trend_fallback_used", True)
+        token.setdefault("insider_sig", False)
+        token["score_total"] = filters.total_score(token)
+    else:
+        token["social_ok"] = await socials.has_socials(addr)
+    if not (green_fast_path and DRY_RUN and bool(getattr(CFG, "PAPER_SNIPER_MODE", False))):
+        try:
+            token["trend"], token["trend_fallback_used"] = await trend.trend_signal(addr)
+        except trend.Trend404Retry:
+            pass
+        log.debug("⚠️  %s sin datos trend – continúa", addr[:4])
+        if False:
+            token["trend"] = None
+            token["trend_fallback_used"] = True
+        token.setdefault("trend", None)
+        token.setdefault("trend_fallback_used", token.get("trend") is None)
+
+        token["insider_sig"] = await insider.insider_alert(addr)
+        token["score_total"] = filters.total_score(token)
 
     # 7) — filtro duro —
-    if filters.basic_filters(token) is not True:
+    if (not green_fast_path) and filters.basic_filters(token) is not True:
         attempts = int((meta := lista_pares.meta(addr) or {}).get("attempts", 0))
         keep, delay, reason = requeue_policy.decide(token, attempts,
                                                     meta.get("first_seen", time.time()))
@@ -3509,11 +3641,15 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         return
 
     # 8) — señales caras —
-    token["rug_score"]   = await rugcheck.check_token(addr)
-    token["cluster_bad"] = await clusters.suspicious_cluster(addr)
+    if green_fast_path and DRY_RUN and bool(getattr(CFG, "PAPER_SNIPER_MODE", False)):
+        token.setdefault("rug_score", None)
+        token.setdefault("cluster_bad", False)
+    else:
+        token["rug_score"]   = await rugcheck.check_token(addr)
+        token["cluster_bad"] = await clusters.suspicious_cluster(addr)
     token["score_total"] = filters.total_score(token)
 
-    quality_ok, quality_reason = filters.snapshot_quality_gate(token)
+    quality_ok, quality_reason = (True, "") if green_fast_path else filters.snapshot_quality_gate(token)
     if not quality_ok:
         log.debug("🧱 Snapshot quality gate: %s (%s)", addr[:6], quality_reason or "blocked")
         _stats["filtered_out"] += 1
@@ -3582,6 +3718,49 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         vec = build_feature_vector(token)
         vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
         rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_green_candle_sniper":
+        green_rank_guard = evaluate_green_sniper_rank_guard(rank_info)
+        token["green_sniper_rank_score"] = float(green_rank_guard.rank_score)
+        token["green_sniper_rank_guard_min_score"] = float(green_rank_guard.min_score)
+        token["green_sniper_rank_guard_reason"] = str(green_rank_guard.reason)
+        green_rank_bypass = bool(
+            DRY_RUN
+            and bool(getattr(CFG, "PAPER_SNIPER_MODE", False))
+            and bool(getattr(CFG, "GREEN_SNIPER_RANK_GUARD_BYPASS_PAPER_BIRTH_PROBE", True))
+            and bool(token.get("green_sniper_paper_birth_probe"))
+        )
+        if green_rank_bypass:
+            token["green_sniper_rank_guard_reason"] = "paper_birth_probe_bypass"
+        if not green_rank_guard.allowed and not green_rank_bypass:
+            _stats["filtered_out"] += 1
+            reject_reason = f"green_rank_guard:{green_rank_guard.reason}"
+            _store_policy_reject(vec, already_vector=True, reason=reject_reason)
+            _research_decision(
+                token,
+                action="shadow",
+                reason=reject_reason,
+                stage="green_rank_guard",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="green_sniper_reject_shadow",
+            )
+            await _open_shadow(
+                addr,
+                vec,
+                price_hint=token.get("price_usd"),
+                force=True,
+                regime="pump_early",
+                reason=reject_reason,
+                stage="green_rank_guard",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="green_sniper_reject_shadow",
+            )
+            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "green_shadow"))
+            _remove_from_queue_if_present(addr)
+            return
     ml_gate = _ml_gate_state()
     ml_decision = decide_ml_action(
         token=token,
@@ -3645,7 +3824,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     sniper_gate_ok_preview = bool(
         _PUMP_EARLY_SNIPER_ENABLED
         and str(token.get("entry_lane") or "").strip().lower()
-        in {"pump_early_sniper", "pump_early_pumpswap_profit"}
+        in {"pump_early_sniper", "pump_early_pumpswap_profit", "pump_early_green_candle_sniper"}
         and _metric_int(token, "live_profit_gate_failed_count") == 0
     )
     if (
@@ -3693,11 +3872,29 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         queue_attempts=queue_attempts,
         ai_threshold=ai_threshold_eff,
     )
+    green_size_decision = None
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_green_candle_sniper":
+        green_size_decision = compute_green_sniper_sizing(
+            token,
+            dry_run=DRY_RUN,
+            live=not DRY_RUN,
+            size_hint=token.get("green_sniper_size_hint"),
+            risk_proba=risk_proba,
+            ev_pred_pct=ev_pred_pct,
+        )
+        token["green_sniper_size_mode"] = green_size_decision.mode
+        token["green_sniper_size_reason"] = green_size_decision.reason
     token["entry_regime"] = size_decision.regime
     strategy_decision = strategy_runtime.evaluate_candidate(
         token,
         regime=size_decision.regime,
         has_route=route_probe.get("has_route"),
+    )
+    green_paper_health_bypass = bool(
+        green_fast_path
+        and DRY_RUN
+        and bool(getattr(CFG, "PAPER_SNIPER_MODE", False))
+        and bool(getattr(CFG, "PAPER_SNIPER_CONTINUE_ON_HEALTH", True))
     )
     log_strategy_decision_event(
         addr,
@@ -3712,7 +3909,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         health_state=strategy_decision.health_state,
         size_cap_multiplier=strategy_decision.size_cap_multiplier,
     )
-    if strategy_decision.action == "wait":
+    if strategy_decision.action == "wait" and not green_paper_health_bypass:
         log.info(
             "🧭 Strategy wait %s regime=%s reason=%s conf=%d/%d",
             addr[:6],
@@ -3737,7 +3934,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             backoff=int(strategy_decision.requeue_backoff_s),
         )
         return
-    if strategy_decision.action == "off":
+    if strategy_decision.action == "off" and not green_paper_health_bypass:
         _stats["filtered_out"] += 1
         _store_policy_reject(vec, already_vector=True, reason="strategy_off")
         _research_decision(
@@ -3821,7 +4018,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             backoff=_PUMP_EARLY_QUALITY_BACKOFF_S if size_decision.regime == "pump_early" else _DEX_MATURE_QUALITY_BACKOFF_S,
         )
         return
-    if strategy_decision.action == "shadow" and not paper_shadow_probe_live:
+    if strategy_decision.action == "shadow" and not paper_shadow_probe_live and not green_paper_health_bypass:
         _research_decision(
             token,
             action="shadow",
@@ -3848,6 +4045,35 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
         _remove_from_queue_if_present(addr)
         return
+
+    if green_fast_path and not DRY_RUN:
+        canary_ok, canary_reason = live_canary.evaluate_green_live_canary(token)
+        if not canary_ok:
+            _research_decision(
+                token,
+                action="shadow",
+                reason=f"green_live_canary:{canary_reason}",
+                stage="live_canary",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="green_sniper_reject_shadow",
+            )
+            await _open_shadow(
+                addr,
+                vec,
+                price_hint=token.get("price_usd"),
+                force=True,
+                regime=size_decision.regime,
+                reason=f"green_live_canary:{canary_reason}",
+                stage="live_canary",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="green_sniper_reject_shadow",
+            )
+            _remove_from_queue_if_present(addr)
+            return
 
     capacity_ok, regime_open, regime_cap = await _regime_capacity(ses, size_decision.regime)
     if not capacity_ok:
@@ -3910,7 +4136,10 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
     # 10) — importe —
     amount_sol = _compute_trade_amount(size_decision.multiplier)
-    if amount_sol < MIN_BUY_SOL:
+    if green_size_decision is not None:
+        amount_sol = float(green_size_decision.amount_sol)
+    effective_min_buy_sol = float(getattr(CFG, "GREEN_SNIPER_LIVE_SIZE_SOL", MIN_BUY_SOL) or MIN_BUY_SOL) if green_fast_path else float(MIN_BUY_SOL)
+    if amount_sol < effective_min_buy_sol:
         # Shadow si pasa IA pero no se compra por importe
         _research_decision(
             token,
@@ -4101,6 +4330,12 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 entry_regime=size_decision.regime,
                 entry_lane=token.get("entry_lane"),
                 discovered_via=token.get("discovered_via"),
+                gate_profile=token.get("gate_profile") or token.get("sniper_gate_profile"),
+                runner_exit_profile=token.get("runner_exit_profile"),
+                exit_profile=token.get("exit_profile") or token.get("runner_exit_profile"),
+                strategy_version=token.get("strategy_version"),
+                experiment_id=token.get("experiment_id"),
+                config_hash=_config_hash(),
             )
         else:
             buy_resp = await buyer.buy(
@@ -4206,8 +4441,12 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
     if not DRY_RUN:
         _wallet_sol_balance = max(_wallet_sol_balance - amount_sol, 0.0)
+        if green_fast_path:
+            live_canary.record_green_live_buy()
 
     token["runner_exit_profile"] = _runner_profile_for_subject(token)
+    token["exit_profile"] = token.get("runner_exit_profile")
+    token["config_hash"] = _config_hash()
     _research_decision(
         token,
         action="bought",
@@ -4239,6 +4478,10 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         entry_score_total=_metric_int(token, "score_total"),
         entry_lane=str(token.get("entry_lane") or "") or None,
         gate_profile=str(token.get("gate_profile") or token.get("sniper_gate_profile") or "") or None,
+        strategy_version=str(token.get("strategy_version") or "") or None,
+        experiment_id=str(token.get("experiment_id") or "") or None,
+        exit_profile=str(token.get("exit_profile") or runner_exit_profile or "") or None,
+        config_hash=str(token.get("config_hash") or "") or None,
         buy_dex_id=str(token.get("dex_id") or token.get("dexId") or "") or None,
         buy_price_pct_5m=token.get("price_pct_5m"),
         buy_txns_last_5m=_metric_int(token, "txns_last_5m"),
@@ -4346,6 +4589,8 @@ async def _load_open_position_lanes(ses: SessionLocal) -> list[str]:
             lane = "pump_early_pumpswap_breakout_probe"
         if not lane and bucket == "pumpswap_breakout":
             lane = "pump_early_pumpswap_breakout_probe"
+        if not lane and (profile.startswith("green_sniper") or bucket.startswith("green_sniper")):
+            lane = "pump_early_green_candle_sniper"
         if not lane and (profile.startswith("pumpswap_profit") or profile.startswith("pumpswap_meteor")):
             lane = "pump_early_pumpswap_profit"
         if not lane and bucket in {"pumpswap_profit", "pumpswap_prime", "pumpswap_meteor"}:
@@ -4357,9 +4602,17 @@ async def _load_open_position_lanes(ses: SessionLocal) -> list[str]:
 
 async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[bool, int, int]:
     lane = str(entry_lane or "").strip().lower()
-    if lane not in {"pump_early_pumpswap_profit", "pump_early_pumpswap_breakout_probe"}:
+    if lane not in {"pump_early_pumpswap_profit", "pump_early_pumpswap_breakout_probe", "pump_early_green_candle_sniper"}:
         return True, 0, int(CFG.MAX_ACTIVE_POSITIONS)
     open_lanes = await _load_open_position_lanes(ses)
+    if lane == "pump_early_green_candle_sniper":
+        decision = evaluate_lane_position_limit(
+            lane,
+            [{"entry_lane": value} for value in open_lanes],
+            dry_run=DRY_RUN,
+            live=not DRY_RUN,
+        )
+        return decision.allowed, decision.open_count, min(int(CFG.MAX_ACTIVE_POSITIONS), max(1, int(decision.cap or 1)))
     current = sum(1 for value in open_lanes if value == lane)
     if lane == "pump_early_pumpswap_breakout_probe":
         limit = (
@@ -4386,12 +4639,13 @@ async def _regime_capacity(ses: SessionLocal, regime: str) -> tuple[bool, int, i
         if DRY_RUN:
             profit_cap = int(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2) or 2)
             breakout_cap = int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1) or 1)
+            green_cap = int(getattr(CFG, "GREEN_SNIPER_MAX_OPEN_PAPER", getattr(CFG, "PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 6)) or 6)
             fallback_cap = int(getattr(CFG, "PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 3) or 3)
             limit = min(
                 int(CFG.MAX_ACTIVE_POSITIONS),
                 max(
                     1,
-                    (profit_cap + breakout_cap)
+                    (profit_cap + breakout_cap + green_cap)
                     if _PUMP_EARLY_PROFIT_LANE_ENABLED and _PUMP_EARLY_BREAKOUT_PROBE_ENABLED
                     else profit_cap
                     if _PUMP_EARLY_PROFIT_LANE_ENABLED
@@ -4427,6 +4681,8 @@ async def _regime_capacity(ses: SessionLocal, regime: str) -> tuple[bool, int, i
             )
             if _PUMP_EARLY_PROFIT_LANE_ENABLED and _PUMP_EARLY_BREAKOUT_PROBE_ENABLED and not advanced_ready:
                 live_cap += int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY", 1) or 1)
+            if bool(getattr(CFG, "GREEN_SNIPER_LIVE_ENABLED", False)):
+                live_cap += int(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_OPEN", 1) or 1)
             limit = min(int(CFG.MAX_ACTIVE_POSITIONS), max(1, live_cap))
     return current < limit, current, limit
 
@@ -4486,6 +4742,8 @@ def _entry_vector_for_close(vec: object, pos: Position) -> dict[str, object]:
             payload["profit_lane_tier"] = "pump_early_meteor_prime"
         elif size_bucket == "pumpswap_breakout":
             payload["profit_lane_tier"] = "pump_early_pumpswap_breakout_probe"
+        elif size_bucket.startswith("green_sniper"):
+            payload["profit_lane_tier"] = "pump_early_green_candle_sniper"
         elif size_bucket == "pumpswap_prime":
             payload["profit_lane_tier"] = "pump_early_pumpswap_prime"
         elif str(getattr(pos, "entry_lane", "") or "") == "pump_early_pumpswap_profit":
@@ -4494,6 +4752,10 @@ def _entry_vector_for_close(vec: object, pos: Position) -> dict[str, object]:
         payload["dex_id"] = getattr(pos, "buy_dex_id", None)
     if payload.get("liquidity_is_proxy") is None:
         payload["liquidity_is_proxy"] = int(bool(getattr(pos, "buy_liquidity_is_proxy", False)))
+    payload.setdefault("strategy_version", getattr(pos, "strategy_version", None))
+    payload.setdefault("experiment_id", getattr(pos, "experiment_id", None))
+    payload.setdefault("exit_profile", getattr(pos, "exit_profile", None) or getattr(pos, "runner_exit_profile", None))
+    payload.setdefault("config_hash", getattr(pos, "config_hash", None))
     return payload
 
 
@@ -4502,6 +4764,20 @@ def _runner_profile_for_subject(subject: object) -> str | None:
         return exit_policy.resolve_runner_exit_profile(subject)
     except Exception:
         return None
+
+
+def _config_hash() -> str:
+    payload = {
+        "strategy_version": str(getattr(CFG, "SNIPER_STRATEGY_VERSION", "")),
+        "experiment_id": str(getattr(CFG, "SNIPER_EXPERIMENT_ID", "")),
+        "green_enabled": bool(getattr(CFG, "GREEN_SNIPER_ENABLED", True)),
+        "paper_sniper": bool(getattr(CFG, "PAPER_SNIPER_MODE", False)),
+        "live_enabled": bool(getattr(CFG, "GREEN_SNIPER_LIVE_ENABLED", False)),
+        "green_min_price5m": float(getattr(CFG, "GREEN_SNIPER_MIN_PRICE_PCT_5M", 20.0) or 20.0),
+        "green_max_price5m": float(getattr(CFG, "GREEN_SNIPER_MAX_PRICE_PCT_5M", 280.0) or 280.0),
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def _seconds_from_opened_at(opened_at: object, now: dt.datetime) -> int | None:
@@ -5291,6 +5567,15 @@ async def _check_positions(ses: SessionLocal) -> None:
             execution_state=_position_execution_state(pos),
             **_position_health_metadata(pos),
         )
+        if (not DRY_RUN) and str(getattr(pos, "entry_lane", "") or "").strip().lower() == "pump_early_green_candle_sniper":
+            try:
+                sol_usd = float(await get_sol_usd())
+            except Exception:
+                sol_usd = 1.0
+            live_canary.record_green_live_close(
+                pnl_sol=float(getattr(pos, "total_pnl_usd", 0.0) or 0.0) / max(sol_usd, 1.0),
+                exit_reason=str(exit_reason),
+            )
 
         # ✅ Fix: NO sumar “a ojo”. Refresco balance real tras trade.
         if not DRY_RUN:
@@ -6066,12 +6351,23 @@ async def main_loop() -> None:
         if not _runtime_discovery_paused:
             try:
                 for tok in await pumpfun.get_latest_pumpfun():
-                    await _evaluate_and_buy_guarded(tok, ses, source="pumpfun")
+                    if bool(getattr(CFG, "HOT_QUEUE_ENABLED", True)):
+                        GLOBAL_HOT_QUEUE.add(tok, source=str(tok.get("source") or tok.get("discovered_via") or "pumpfun"))
+                    else:
+                        await _evaluate_and_buy_guarded(tok, ses, source="pumpfun")
             except Exception as exc:
                 _note_runtime_error("pumpfun_stream", exc)
                 log.error("PumpFun stream → %s", exc)
 
         # 3) Validación cola
+        if bool(getattr(CFG, "HOT_QUEUE_ENABLED", True)):
+            try:
+                for tok in GLOBAL_HOT_QUEUE.pop_batch(int(getattr(CFG, "HOT_QUEUE_BATCH_SIZE", 12) or 12)):
+                    await _evaluate_and_buy_guarded(tok, ses, source="hot_queue")
+            except Exception as exc:
+                _note_runtime_error("hot_queue", exc)
+                log.error("Hot queue -> %s", exc)
+
         for addr in obtener_pares()[:VALIDATION_BATCH_SIZE]:
             try:
                 meta    = lista_pares.meta(addr) or {}

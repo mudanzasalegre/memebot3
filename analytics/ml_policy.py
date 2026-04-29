@@ -7,7 +7,13 @@ from typing import Any
 
 from config.config import CFG, PROJECT_ROOT
 from ml.data_contract import reconstruct_entry_lane
-from ml.lane_taxonomy import LIVE_PROFIT_LANES, RESEARCH_LANES, LANE_UNKNOWN, normalize_entry_lane
+from ml.lane_taxonomy import (
+    LANE_PUMP_EARLY_GREEN_SNIPER,
+    LIVE_PROFIT_LANES,
+    RESEARCH_LANES,
+    LANE_UNKNOWN,
+    normalize_entry_lane,
+)
 
 
 THRESHOLDS_BY_LANE_PATH = PROJECT_ROOT / "data" / "metrics" / "recommended_thresholds.by_lane.json"
@@ -114,6 +120,8 @@ def _edge_score(ev_pred_pct: float | None, risk_proba: float | None) -> float | 
 
 
 def _sizing_multiplier(lane: str, proba: float | None, ev_pred_pct: float | None, risk_proba: float | None) -> float:
+    if lane == LANE_PUMP_EARLY_GREEN_SNIPER and not _bool_cfg("GREEN_SNIPER_ML_RISK_REDUCE_SIZE", True):
+        return 1.0
     if not _bool_cfg("ML_SIZING_ENABLED", False):
         return 1.0
     min_mult = _float_cfg("ML_SIZE_MIN_MULT", 0.25)
@@ -159,6 +167,38 @@ def decide_ml_action(
     enforce = False
     allow = bool(base_rules_passed)
     reason = "rules_passed"
+
+    if lane == LANE_PUMP_EARLY_GREEN_SNIPER:
+        mode = _mode_cfg("GREEN_SNIPER_ML_MODE", "sizing_only")
+        enforce = bool(_bool_cfg("GREEN_SNIPER_ML_BLOCK_ENABLED", False) and activation_ready)
+        allow = bool(base_rules_passed and (not enforce or proba_pass))
+        reason = "green_sniper_ml_copilot" if allow else "green_sniper_ml_block"
+        green_risk_veto = bool(
+            live
+            and _bool_cfg("GREEN_SNIPER_RISK_CAN_VETO_LIVE", False)
+            and risk_proba is not None
+            and float(risk_proba) >= _float_cfg("ML_RISK_VETO_THRESHOLD", 0.70)
+        )
+        if green_risk_veto:
+            allow = False
+            reason = "green_sniper_risk_veto"
+            risk_veto = True
+        return MlPolicyDecision(
+            mode=mode,
+            lane=lane or LANE_UNKNOWN,
+            proba=None if proba is None else float(proba),
+            threshold=threshold,
+            allow_buy=bool(allow),
+            enforce=bool(enforce),
+            sizing_multiplier=float(sizing_mult),
+            risk_veto=bool(risk_veto),
+            reason=reason,
+            activation_ready=bool(activation_ready),
+            source=source,
+            risk_proba=None if risk_proba is None else float(risk_proba),
+            ev_pred_pct=None if ev_pred_pct is None else float(ev_pred_pct),
+            edge_score=edge,
+        )
 
     if global_mode == "off":
         reason = "ml_off"

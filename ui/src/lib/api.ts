@@ -110,6 +110,8 @@ export interface MlGateData {
 
 export interface StrategyHealthEntry {
   requested_mode: string | null;
+  effective_mode?: string | null;
+  effective_execution_state?: string | null;
   health_state: string | null;
   trade_count: number | null;
   avg_pnl_pct: number | null;
@@ -119,6 +121,13 @@ export interface StrategyHealthEntry {
   consecutive_losses: number | null;
   cooldown_until: string | null;
   disable_reason: string | null;
+  last_disable_reason?: string | null;
+  size_cap_multiplier?: number | null;
+  severe_exit_count?: number | null;
+  severe_exits_rolling?: number | null;
+  liq_crush_count?: number | null;
+  recovery_trade_count?: number | null;
+  recovery_avg_pnl_pct?: number | null;
 }
 
 export interface ResearchRuntimeData {
@@ -175,6 +184,21 @@ export interface RuntimeStrategyHealthData {
   bot_id: string;
   updated_at: string | null;
   strategy_health: Record<string, StrategyHealthEntry>;
+  productive_health?: Record<string, unknown>;
+  research_health?: Record<string, unknown>;
+  current_gate_rebased?: boolean | null;
+  recovery_basis?: Record<string, unknown>;
+  blocked_buckets?: Record<string, unknown> | Array<Record<string, unknown>>;
+  lane_health?: Record<string, unknown>;
+  bucket_health?: Record<string, unknown>;
+  entry_lane_counts?: Record<string, number>;
+  sniper_reject_reasons?: Record<string, number>;
+  productive_trade_count?: number | null;
+  productive_avg_pnl_pct?: number | null;
+  productive_win_rate?: number | null;
+  severe_exits_rolling?: number | null;
+  last_disable_reason?: string | null;
+  cooldown_until?: string | null;
 }
 
 export interface RuntimeEventItem {
@@ -330,18 +354,35 @@ export interface ClosedTradeItem {
   opened_at: string | null;
   closed_at: string | null;
   entry_regime: string | null;
+  entry_lane: string | null;
+  gate_profile: string | null;
+  strategy_version?: string | null;
+  experiment_id?: string | null;
+  exit_profile?: string | null;
   exit_reason: string | null;
   outcome: string | null;
   buy_amount_sol: number | null;
   size_bucket: string | null;
   size_multiplier: number | null;
+  buy_dex_id: string | null;
+  buy_price_pct_5m: number | null;
+  buy_txns_last_5m: number | null;
+  buy_liquidity_is_proxy: boolean | null;
+  mcap_bucket: string | null;
+  price5m_bucket: string | null;
+  buy_liquidity_usd: number | null;
+  buy_market_cap_usd: number | null;
   buy_price_usd: number | null;
   close_price_usd: number | null;
   effective_exit_price_usd: number | null;
   total_pnl_usd: number | null;
   total_pnl_pct: number | null;
   highest_pnl_pct: number | null;
+  max_pnl_pct_seen: number | null;
   partial_taken: boolean;
+  runner_exit_profile: string | null;
+  time_to_peak_sec: number | null;
+  exit_from_peak_giveback_pct: number | null;
   price_source_at_buy: string | null;
   price_source_at_close: string | null;
 }
@@ -385,6 +426,10 @@ export interface ClosedTradesData {
     outcome: string | null;
     exit_reason: string | null;
     entry_regime: string | null;
+    entry_lane?: string | null;
+    gate_profile?: string | null;
+    buy_dex_id?: string | null;
+    liquidity_proxy?: string | null;
   };
   summary: ClosedTradesSummary;
   consistency: LedgerConsistencyData;
@@ -401,12 +446,24 @@ export interface TradeDetailTrade {
   price_source_at_buy: string | null;
   buy_tx_sig: string | null;
   entry_regime: string | null;
+  entry_lane: string | null;
+  gate_profile: string | null;
+  strategy_version: string | null;
+  experiment_id: string | null;
+  exit_profile: string | null;
+  config_hash: string | null;
   size_bucket: string | null;
   size_multiplier: number | null;
   buy_amount_sol: number | null;
   entry_notional_usd: number | null;
   entry_ai_proba: number | null;
   entry_score_total: number | null;
+  buy_dex_id: string | null;
+  buy_price_pct_5m: number | null;
+  buy_txns_last_5m: number | null;
+  buy_liquidity_is_proxy: boolean | null;
+  mcap_bucket: string | null;
+  price5m_bucket: string | null;
   buy_liquidity_usd: number | null;
   buy_market_cap_usd: number | null;
   buy_volume_24h_usd: number | null;
@@ -421,6 +478,7 @@ export interface TradeDetailTrade {
   exit_reason: string | null;
   outcome: string | null;
   highest_pnl_pct: number | null;
+  max_pnl_pct_seen: number | null;
   realized_qty: number | null;
   realized_proceeds_usd: number | null;
   realized_cost_usd: number | null;
@@ -434,6 +492,11 @@ export interface TradeDetailTrade {
   last_partial_at: string | null;
   last_partial_qty: number | null;
   last_partial_price_usd: number | null;
+  runner_exit_profile: string | null;
+  time_to_partial_sec: number | null;
+  time_to_peak_sec: number | null;
+  peak_after_partial_pct: number | null;
+  exit_from_peak_giveback_pct: number | null;
 }
 
 export interface TradeTokenData {
@@ -505,9 +568,48 @@ export interface TradeReplayData {
   trade: TradeDetailTrade;
   token: TradeTokenData;
   entry_snapshot: Record<string, unknown> | null;
+  social_signal_at_entry?: SocialSignalData | null;
+  social_signal_after_enrichment?: SocialSignalData | null;
+  social_bonus_applied?: number | null;
+  social_risk_flags?: string | string[] | null;
   runtime_timeline: RuntimeEventItem[];
   research_timeline: RuntimeEventItem[];
   derived: TradeReplayDerivedData;
+}
+
+export interface SocialSignalData {
+  status: string;
+  social_ok: boolean | null;
+  twitter_present: boolean;
+  telegram_present: boolean;
+  discord_present: boolean;
+  website_present: boolean;
+  link_count: number;
+  confidence_bonus: number;
+  risk_flags: string[];
+  source: string;
+  latency_ms: number | null;
+  twitter_url?: string | null;
+  telegram_url?: string | null;
+  discord_url?: string | null;
+  website_url?: string | null;
+}
+
+export interface SocialTokenData {
+  address: string;
+  signal: SocialSignalData | null;
+  cached_signal: SocialSignalData | null;
+  queue: Record<string, unknown>;
+}
+
+export interface SocialsSummaryData {
+  rows: number;
+  unique_tokens: number;
+  coverage_pct: number | null;
+  status_counts: Record<string, number>;
+  lane_status_counts: Record<string, Record<string, number>>;
+  risk_flags: Record<string, number>;
+  queue: Record<string, unknown>;
 }
 
 export interface AnalyticsGroupRow {
@@ -633,11 +735,26 @@ export interface MlGateStatusData {
   enforced: boolean | null;
   threshold: number | null;
   activation_ready: boolean | null;
+  live_threshold_origin?: string | null;
+  live_rank_gate?: Record<string, unknown> | null;
+  live_uses_rank_score?: boolean | null;
+  live_uses_heuristic_only?: boolean | null;
+  last_auto_demote_at?: string | null;
+  last_auto_recover_at?: string | null;
+  productive_gate?: string | null;
+  productive_gates?: string[];
+  sniper_lane_enabled?: boolean | null;
+  sniper_mode?: string | null;
+  green_sniper_ml_mode?: string | null;
+  green_sniper_ml_blocks?: boolean | null;
+  green_sniper_rank_guard?: Record<string, unknown>;
 }
 
 export interface MlStatusData {
   runtime: MlRuntimeData;
   gate: MlGateStatusData;
+  lane_readiness?: Record<string, unknown>;
+  next_model?: Record<string, unknown>;
   train_status: Record<string, unknown> | null;
   recommended_threshold: Record<string, unknown> | null;
   dataset_quality: Record<string, unknown> | null;
@@ -659,6 +776,60 @@ export interface ConfigPoliciesData {
   sizing: Record<string, unknown>;
   exit: Record<string, unknown>;
   strategy: Record<string, unknown>;
+  execution_profile?: Record<string, unknown>;
+  sniper_lane?: Record<string, unknown>;
+  green_sniper_lane?: Record<string, unknown>;
+  profit_lane?: Record<string, unknown>;
+  live_profit_gate?: Record<string, unknown>;
+  rank_gate?: Record<string, unknown>;
+  research_lane?: Record<string, unknown>;
+  paper_validation?: Record<string, unknown>;
+}
+
+export interface MissedPumpItem {
+  address: string | null;
+  symbol?: string | null;
+  source?: string | null;
+  first_seen_at?: string | null;
+  age_at_seen?: number | null;
+  price_pct_5m_at_seen?: number | null;
+  txns_5m_at_seen?: number | null;
+  liquidity_at_seen?: number | null;
+  mcap_at_seen?: number | null;
+  route_at_seen?: boolean | null;
+  reject_reason?: string | null;
+  delay_reason?: string | null;
+  shadow_reason?: string | null;
+  would_green_sniper_pass?: boolean | null;
+  rule_that_blocked?: string | null;
+  later_max_pnl_pct?: number | null;
+  [key: string]: unknown;
+}
+
+export interface SniperStatusData {
+  hot_queue_size: number | null;
+  hot_queue: Record<string, unknown>;
+  green_sniper_buys_today: number | null;
+  green_sniper_shadows_today: Record<string, number>;
+  green_sniper_rejects_today: Record<string, number>;
+  avg_time_to_eval_s: number | null;
+  avg_time_to_buy_s: number | null;
+  top_reject_reasons: Array<[string, number]>;
+  missed_pumps_top10: MissedPumpItem[];
+  live_canary: Record<string, unknown>;
+  green_sniper_policy?: Record<string, unknown>;
+}
+
+export interface MissedPumpsData {
+  count: number;
+  items: MissedPumpItem[];
+}
+
+export interface HotQueueData {
+  size?: number | null;
+  items?: Array<Record<string, unknown>>;
+  dropped?: number | null;
+  [key: string]: unknown;
 }
 
 export type ConfigEffectiveData = Record<string, unknown>;

@@ -36,6 +36,13 @@ function stringifyValue(value: unknown) {
 }
 
 
+function numericRecordRows(record: Record<string, number> | undefined) {
+  return Object.entries(record || {})
+    .map(([group, count]) => ({ group, count }))
+    .sort((left, right) => right.count - left.count || left.group.localeCompare(right.group));
+}
+
+
 export function RuntimePage() {
   const { timeRange } = useOutletContext<ShellOutletContext>();
   const { openPanel } = useDrawer();
@@ -47,6 +54,7 @@ export function RuntimePage() {
   const runtimeState = runtimeStateQuery.envelope?.data;
   const strategyHealth = strategyHealthQuery.envelope?.data.strategy_health || runtimeState?.strategy_health || {};
   const runtimeEvents = runtimeEventsQuery.envelope?.data.items || [];
+  const healthEnvelope = strategyHealthQuery.envelope?.data;
   const queryError = runtimeStateQuery.error || strategyHealthQuery.error || runtimeEventsQuery.error;
 
   if (!runtimeState) {
@@ -225,6 +233,63 @@ export function RuntimePage() {
 
         <Surface className="grid-span-12" eyebrow="Strategy health" title="Regime posture" subtitle="Current health snapshot per regime">
           <StrategyHealthStrip items={strategyHealth} onSelect={openStrategyDrawer} />
+        </Surface>
+
+        <Surface className="grid-span-4" eyebrow="Productive health" title="PnL validation lane">
+          <div className="kv-grid">
+            <div className="kv-cell">
+              <span>Productive trades</span>
+              <strong>{formatCount(healthEnvelope?.productive_trade_count)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Productive avg PnL</span>
+              <strong>{formatDecimal(healthEnvelope?.productive_avg_pnl_pct, "%")}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Productive win rate</span>
+              <strong>{formatDecimal(healthEnvelope?.productive_win_rate, "%")}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Severe exits rolling</span>
+              <strong>{formatCount(healthEnvelope?.severe_exits_rolling)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Cooldown until</span>
+              <strong>{formatTimestamp(healthEnvelope?.cooldown_until)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Last disable reason</span>
+              <strong>{healthEnvelope?.last_disable_reason || "n/a"}</strong>
+            </div>
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-4" eyebrow="Lane counts" title="Entry lanes observed">
+          <div className="breakdown-list">
+            {numericRecordRows(healthEnvelope?.entry_lane_counts).slice(0, 8).map((row) => (
+              <div className="breakdown-list__item" key={row.group}>
+                <div className="breakdown-list__label">
+                  <strong>{row.group}</strong>
+                  <span>{formatCount(row.count)}</span>
+                </div>
+              </div>
+            ))}
+            {!numericRecordRows(healthEnvelope?.entry_lane_counts).length ? <p className="empty-note">No lane counts in health snapshot.</p> : null}
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-4" eyebrow="Sniper rejects" title="Top reject reasons">
+          <div className="breakdown-list">
+            {numericRecordRows(healthEnvelope?.sniper_reject_reasons).slice(0, 8).map((row) => (
+              <div className="breakdown-list__item" key={row.group}>
+                <div className="breakdown-list__label">
+                  <strong>{row.group}</strong>
+                  <span>{formatCount(row.count)}</span>
+                </div>
+              </div>
+            ))}
+            {!numericRecordRows(healthEnvelope?.sniper_reject_reasons).length ? <p className="empty-note">No sniper reject reasons in health snapshot.</p> : null}
+          </div>
         </Surface>
 
         <Surface className="grid-span-4" eyebrow="Workers and guards" title="Background processes">

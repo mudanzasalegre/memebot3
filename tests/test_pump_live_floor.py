@@ -5,6 +5,8 @@ import datetime as dt
 from pathlib import Path
 from types import SimpleNamespace
 
+from analytics.profit_pnl_guard import evaluate_profit_pnl_guard
+
 
 def _load_entry_quality_gate(**overrides: object):
     namespace = _load_quality_namespace(**overrides)
@@ -58,6 +60,7 @@ def _load_quality_namespace(**overrides: object):
                 "enabled": True,
             }
         ),
+        "evaluate_profit_pnl_guard": evaluate_profit_pnl_guard,
         "DRY_RUN": False,
         "_stats": {"sold": 0},
         "_PUMP_EARLY_LIVE_HARD_MIN_AGE_MIN": 8.0,

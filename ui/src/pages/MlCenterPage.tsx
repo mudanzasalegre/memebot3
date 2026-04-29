@@ -6,7 +6,7 @@ import { StatusChip } from "../components/primitives/StatusChip";
 import { Surface } from "../components/primitives/Surface";
 import { usePollEnvelope } from "../hooks/usePollEnvelope";
 import type { MlResearchData, MlStatusData } from "../lib/api";
-import { formatCount, formatDecimal, formatSignedPct, formatTimestamp, formatUsd, shortenPath } from "../lib/format";
+import { formatCount, formatDecimal, formatSignedPct, formatTimestamp, formatUsd, humanizeKey, shortenPath } from "../lib/format";
 
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -76,6 +76,11 @@ export function MlCenterPage() {
   const thresholds = asRecord(research?.thresholds);
   const postPartialExperiment = asRecord(research?.post_partial_experiment);
   const consistency = research?.consistency;
+  const nextModel = asRecord(status?.next_model);
+  const laneReadiness = asRecord(status?.lane_readiness);
+  const laneReadinessRows = Object.entries(laneReadiness || {})
+    .filter(([, value]) => typeof value !== "object")
+    .slice(0, 18);
   const thresholdRegimes = asRecord(thresholds?.regimes) || {};
   const thresholdEntries = Object.entries(thresholdRegimes).map(([regime, value]) => ({
     regime,
@@ -128,7 +133,7 @@ export function MlCenterPage() {
 
       {!status?.runtime.model_exists || !status?.runtime.meta_exists ? (
         <Banner
-          detail="The model artifact or its metadata file is missing in this repo state. Runtime gate posture is still shown, but the model is not loadable."
+          detail={`The model artifact or its metadata file is missing. Next blocker: ${String(nextModel?.blocker || "not reported")}. Rows to next model: ${formatCount(numericValue(nextModel?.rows_to_next_model))}.`}
           title="Model artifacts missing"
           tone="warn"
         />
@@ -184,6 +189,14 @@ export function MlCenterPage() {
             <div className="metric-ribbon__item">
               <span>Enforced</span>
               <strong>{boolLabel(status?.gate.enforced)}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Live uses rank</span>
+              <strong>{boolLabel(status?.gate.live_uses_rank_score)}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Green ML blocks</span>
+              <strong>{boolLabel(status?.gate.green_sniper_ml_blocks)}</strong>
             </div>
           </div>
         </Surface>
@@ -251,6 +264,57 @@ export function MlCenterPage() {
                 </div>
               </button>
             ))}
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-4" eyebrow="Next model" title="Auto-train blockers">
+          <div className="kv-grid">
+            <div className="kv-cell">
+              <span>Last attempt</span>
+              <strong>{formatTimestamp(typeof nextModel?.last_train_attempt_at === "string" ? nextModel.last_train_attempt_at : null)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Status</span>
+              <strong>{String(nextModel?.last_train_status || "n/a")}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Blocker</span>
+              <strong>{String(nextModel?.blocker || "none")}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Eligible rows</span>
+              <strong>{formatCount(numericValue(nextModel?.eligible_rows))}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Eligible tokens</span>
+              <strong>{formatCount(numericValue(nextModel?.eligible_unique_tokens))}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Eligible positives</span>
+              <strong>{formatCount(numericValue(nextModel?.eligible_positives))}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Rows to next model</span>
+              <strong>{formatCount(numericValue(nextModel?.rows_to_next_model))}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Missing lane metadata</span>
+              <strong>{formatCount(numericValue(nextModel?.rows_missing_lane_metadata))}</strong>
+            </div>
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-8" eyebrow="Lane readiness" title="Outcomes by productive lane">
+          <div className="strategy-grid">
+            {laneReadinessRows.map(([key, value]) => (
+              <div className="strategy-card" key={key}>
+                <div className="strategy-card__header">
+                  <strong>{humanizeKey(key)}</strong>
+                  <StatusChip label={stringifyValue(value)} tone="neutral" compact mono />
+                </div>
+              </div>
+            ))}
+            {!laneReadinessRows.length ? <p className="empty-note">No lane readiness payload is available.</p> : null}
           </div>
         </Surface>
 

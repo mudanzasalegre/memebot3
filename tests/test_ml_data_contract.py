@@ -11,13 +11,19 @@ from ml.data_contract import (
     normalize_sample_type,
     reconstruct_entry_lane,
 )
-from ml.lane_taxonomy import LANE_PUMP_EARLY_PROFIT, LANE_RESEARCH_SNIPER, LANE_UNKNOWN
+from ml.lane_taxonomy import (
+    LANE_PUMP_EARLY_GREEN_SNIPER,
+    LANE_PUMP_EARLY_PROFIT,
+    LANE_RESEARCH_SNIPER,
+    LANE_UNKNOWN,
+)
 
 
 def test_lane_known_and_legacy() -> None:
     assert normalize_entry_lane("pump_early_pumpswap_profit") == LANE_PUMP_EARLY_PROFIT
     assert normalize_entry_lane("pumpswap_breakout_probe") == "pump_early_pumpswap_breakout_probe"
     assert normalize_entry_lane("pump_early_sniper") == LANE_RESEARCH_SNIPER
+    assert normalize_entry_lane("green_sniper") == LANE_PUMP_EARLY_GREEN_SNIPER
 
 
 def test_lane_empty_is_unknown() -> None:
@@ -28,6 +34,20 @@ def test_lane_empty_is_unknown() -> None:
 def test_reconstruct_lane_from_gate_profile() -> None:
     assert reconstruct_entry_lane({"gate_profile": "pumpswap_profit_prime"}) == "pump_early_pumpswap_prime"
     assert reconstruct_entry_lane({"gate_profile": "pumpswap_breakout_probe"}) == "pump_early_pumpswap_breakout_probe"
+    assert reconstruct_entry_lane({"gate_profile": "green_sniper"}) == LANE_PUMP_EARLY_GREEN_SNIPER
+
+
+def test_reconstruct_green_lane_from_momentum() -> None:
+    assert (
+        reconstruct_entry_lane(
+            {
+                "entry_regime": "pump_early",
+                "dex_id": "pumpswap",
+                "price_pct_5m": 80,
+            }
+        )
+        == LANE_PUMP_EARLY_GREEN_SNIPER
+    )
 
 
 def test_sample_type_invalid_and_predicates() -> None:

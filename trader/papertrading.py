@@ -371,6 +371,12 @@ async def buy(
     entry_regime: str | None = None,
     entry_lane: str | None = None,
     discovered_via: str | None = None,
+    gate_profile: str | None = None,
+    runner_exit_profile: str | None = None,
+    exit_profile: str | None = None,
+    strategy_version: str | None = None,
+    experiment_id: str | None = None,
+    config_hash: str | None = None,
 ) -> dict:
     """
     Registra una posición simulada.
@@ -535,6 +541,12 @@ async def buy(
         "price_source": price_src,
         "entry_regime": entry_regime,
         "entry_lane": entry_lane,
+        "gate_profile": gate_profile,
+        "runner_exit_profile": runner_exit_profile,
+        "exit_profile": exit_profile or runner_exit_profile,
+        "strategy_version": strategy_version,
+        "experiment_id": experiment_id,
+        "config_hash": config_hash,
         "discovered_via": discovered_via,
         "partial_taken": False,
         "partial_count": 0,

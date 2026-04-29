@@ -227,6 +227,18 @@ def _override_optional_value(regime: str, key: str, default: float | None) -> fl
 
 def _profit_runner_profiles() -> dict[str, dict[str, float]]:
     return {
+        "green_sniper_runner": {
+            "partial_fraction": float(getattr(CFG, "GREEN_SNIPER_TP_PARTIAL_FRACTION", 0.25) or 0.25),
+            "step1_peak_pct": float(getattr(CFG, "GREEN_SNIPER_STEP1_PEAK_PCT", 60.0) or 60.0),
+            "step1_lock_floor_pct": float(getattr(CFG, "GREEN_SNIPER_STEP1_LOCK_FLOOR_PCT", 20.0) or 20.0),
+            "step1_max_giveback_pct": float(getattr(CFG, "GREEN_SNIPER_STEP1_MAX_GIVEBACK_PCT", 5.0) or 5.0),
+            "step2_peak_pct": float(getattr(CFG, "GREEN_SNIPER_STEP2_PEAK_PCT", 120.0) or 120.0),
+            "step2_lock_floor_pct": float(getattr(CFG, "GREEN_SNIPER_STEP2_LOCK_FLOOR_PCT", 80.0) or 80.0),
+            "step2_max_giveback_pct": float(getattr(CFG, "GREEN_SNIPER_STEP2_MAX_GIVEBACK_PCT", 10.0) or 10.0),
+            "step3_peak_pct": float(getattr(CFG, "GREEN_SNIPER_STEP3_PEAK_PCT", 250.0) or 250.0),
+            "step3_lock_floor_pct": float(getattr(CFG, "GREEN_SNIPER_STEP3_LOCK_FLOOR_PCT", 160.0) or 160.0),
+            "step3_max_giveback_pct": float(getattr(CFG, "GREEN_SNIPER_STEP3_MAX_GIVEBACK_PCT", 20.0) or 20.0),
+        },
         "broad_runner": {
             "lock_floor_pct": float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_BROAD_LOCK_FLOOR_PCT", 20.0) or 20.0),
             "partial_fraction": float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_BROAD_PARTIAL_FRACTION", 0.80) or 0.80),
@@ -311,8 +323,10 @@ def _resolve_aggressive_research_runner_profile(subject: Any) -> str:
 
 def resolve_runner_exit_profile(subject: Any) -> str | None:
     explicit = str(_get(subject, "runner_exit_profile", "") or "").strip().lower()
-    if explicit in {"broad_runner", "prime_runner", "meteor_runner"}:
+    if explicit in {"broad_runner", "prime_runner", "meteor_runner", "green_sniper_runner"}:
         return explicit
+    if _is_green_sniper_subject(subject):
+        return "green_sniper_runner"
     if _is_aggressive_research_subject(subject):
         return _resolve_aggressive_research_runner_profile(subject)
     if not _is_pumpswap_profit_subject(subject):
@@ -333,6 +347,14 @@ def resolve_runner_exit_profile(subject: Any) -> str | None:
     if profile.startswith("pumpswap_meteor"):
         return "meteor_runner"
     if profile.startswith("pumpswap_breakout") or lane == "pump_early_pumpswap_breakout_probe":
+        return "meteor_runner"
+    if (
+        _subject_real_liquidity(subject)
+        and _subject_dex_id(subject) == "pumpswap"
+        and price5m is not None
+        and price5m >= float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_METEOR_MOMENTUM_PRICE5M_PCT", 180.0) or 180.0)
+        and txns_5m >= float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_METEOR_MOMENTUM_MIN_TXNS_5M", 600) or 600)
+    ):
         return "meteor_runner"
     if profile.startswith("pumpswap_profit_prime"):
         if (
@@ -379,6 +401,25 @@ def _runner_policy_overrides(subject: Any, peak_pct: float) -> tuple[str | None,
             state = "step2"
         return profile, state, lock_floor, max_giveback
 
+    if profile == "green_sniper_runner":
+        cfg = profiles["green_sniper_runner"]
+        lock_floor = 0.0
+        max_giveback = float(cfg["step1_max_giveback_pct"])
+        state = "pre_step"
+        if peak >= float(cfg["step1_peak_pct"]):
+            lock_floor = float(cfg["step1_lock_floor_pct"])
+            max_giveback = float(cfg["step1_max_giveback_pct"])
+            state = "step1"
+        if peak >= float(cfg["step2_peak_pct"]):
+            lock_floor = float(cfg["step2_lock_floor_pct"])
+            max_giveback = float(cfg["step2_max_giveback_pct"])
+            state = "step2"
+        if peak >= float(cfg["step3_peak_pct"]):
+            lock_floor = float(cfg["step3_lock_floor_pct"])
+            max_giveback = float(cfg["step3_max_giveback_pct"])
+            state = "step3"
+        return profile, state, lock_floor, max_giveback
+
     return (
         "broad_runner",
         "base",
@@ -399,6 +440,17 @@ def _is_pumpswap_profit_subject(subject: Any) -> bool:
         or profile.startswith("pumpswap_meteor")
         or profile.startswith("pumpswap_breakout")
         or bucket in {"pumpswap_profit", "pumpswap_prime", "pumpswap_meteor", "pumpswap_breakout"}
+    )
+
+
+def _is_green_sniper_subject(subject: Any) -> bool:
+    lane = str(_get(subject, "entry_lane", "") or "").strip().lower()
+    profile = str(_get(subject, "gate_profile", "") or _get(subject, "sniper_gate_profile", "") or "").strip().lower()
+    bucket = str(_get(subject, "size_bucket", "") or "").strip().lower()
+    return (
+        lane == "pump_early_green_candle_sniper"
+        or profile.startswith("green_sniper")
+        or bucket.startswith("green_sniper")
     )
 
 
@@ -431,16 +483,25 @@ def effective_exit_policy(subject: Any) -> ExitPolicy:
         runner_partial = _profit_runner_profiles().get(runner_exit_profile, {}).get("partial_fraction")
         if runner_partial is not None:
             tp_partial_fraction = min(max(float(runner_partial), 0.05), 0.95)
+    tp_partial_trigger_pct = _override_value(regime, "tp_partial_trigger_pct", float(CFG.TP_PARTIAL_TRIGGER_PCT))
+    tp_partial_enabled = bool(CFG.TP_PARTIAL_ENABLED)
+    green_sniper_subject = _is_green_sniper_subject(subject)
+    if green_sniper_subject:
+        tp_partial_enabled = bool(getattr(CFG, "GREEN_SNIPER_TP_PARTIAL_ENABLED", True))
+        tp_partial_trigger_pct = float(getattr(CFG, "GREEN_SNIPER_TP_PARTIAL_TRIGGER_PCT", 25.0) or 25.0)
+    take_profit_pct = _override_value(regime, "take_profit_pct", float(CFG.TAKE_PROFIT_PCT))
+    if green_sniper_subject and tp_partial_enabled:
+        take_profit_pct = max(float(take_profit_pct), float(tp_partial_trigger_pct))
 
     return ExitPolicy(
         regime=regime,
-        take_profit_pct=_override_value(regime, "take_profit_pct", float(CFG.TAKE_PROFIT_PCT)),
+        take_profit_pct=take_profit_pct,
         stop_loss_pct=_override_value(regime, "stop_loss_pct", float(CFG.STOP_LOSS_PCT)),
         trailing_pct=max(0.0, _override_value(regime, "trailing_pct", float(CFG.TRAILING_PCT))),
         max_holding_h=max(0.0, _override_value(regime, "max_holding_h", float(CFG.MAX_HOLDING_H))),
         max_hard_hold_h=max(0.0, _override_value(regime, "max_hard_hold_h", float(CFG.MAX_HARD_HOLD_H))),
-        tp_partial_enabled=bool(CFG.TP_PARTIAL_ENABLED),
-        tp_partial_trigger_pct=_override_value(regime, "tp_partial_trigger_pct", float(CFG.TP_PARTIAL_TRIGGER_PCT)),
+        tp_partial_enabled=tp_partial_enabled,
+        tp_partial_trigger_pct=tp_partial_trigger_pct,
         tp_partial_fraction=tp_partial_fraction,
         post_partial_stop_pct=_override_value(regime, "post_partial_stop_pct", float(CFG.POST_PARTIAL_STOP_PCT)),
         post_partial_trailing_pct=max(0.0, _override_value(regime, "post_partial_trailing_pct", float(CFG.POST_PARTIAL_TRAILING_PCT))),
@@ -554,9 +615,13 @@ def should_exit(
     if pnl_pct is None and buy_price_usd > 0:
         pnl_pct = (float(price_now) - buy_price_usd) / buy_price_usd * 100.0
 
-    if pnl_pct is not None and _is_pumpswap_profit_subject(subject):
-        adverse_after_s = max(0.0, float(getattr(CFG, "PUMP_EARLY_PROFIT_ADVERSE_TICK_AFTER_S", 75) or 75))
-        adverse_pnl = float(getattr(CFG, "PUMP_EARLY_PROFIT_ADVERSE_TICK_PNL_PCT", -8.0) or -8.0)
+    if pnl_pct is not None and (_is_pumpswap_profit_subject(subject) or _is_green_sniper_subject(subject)):
+        if _is_green_sniper_subject(subject):
+            adverse_after_s = max(0.0, float(getattr(CFG, "GREEN_SNIPER_ADVERSE_TICK_AFTER_S", 45) or 45))
+            adverse_pnl = float(getattr(CFG, "GREEN_SNIPER_ADVERSE_TICK_PNL_PCT", -10.0) or -10.0)
+        else:
+            adverse_after_s = max(0.0, float(getattr(CFG, "PUMP_EARLY_PROFIT_ADVERSE_TICK_AFTER_S", 75) or 75))
+            adverse_pnl = float(getattr(CFG, "PUMP_EARLY_PROFIT_ADVERSE_TICK_PNL_PCT", -8.0) or -8.0)
         if adverse_after_s > 0 and age_s >= adverse_after_s and float(pnl_pct) <= adverse_pnl:
             return "ADVERSE_TICK"
 
@@ -593,13 +658,18 @@ def should_exit(
     if peak <= 0:
         peak = _to_float(_get(subject, "peak_pnl_pct"), 0.0)
 
-    if _is_pumpswap_profit_subject(subject):
-        profit_no_pump_window = max(
-            0.0,
-            float(getattr(CFG, "PUMP_EARLY_PROFIT_NO_PUMP_WINDOW_MIN", 3.0) or 3.0),
-        )
-        profit_no_pump_peak = float(getattr(CFG, "PUMP_EARLY_PROFIT_NO_PUMP_MIN_PEAK_PCT", 2.0) or 2.0)
-        profit_no_pump_pnl = float(getattr(CFG, "PUMP_EARLY_PROFIT_NO_PUMP_MAX_PNL_PCT", 0.0) or 0.0)
+    if _is_pumpswap_profit_subject(subject) or _is_green_sniper_subject(subject):
+        if _is_green_sniper_subject(subject):
+            profit_no_pump_window = max(0.0, float(getattr(CFG, "GREEN_SNIPER_NO_PUMP_WINDOW_MIN", 2.0) or 2.0))
+            profit_no_pump_peak = float(getattr(CFG, "GREEN_SNIPER_NO_PUMP_MIN_PEAK_PCT", 8.0) or 8.0)
+            profit_no_pump_pnl = float(getattr(CFG, "GREEN_SNIPER_NO_PUMP_MAX_PNL_PCT", 0.0) or 0.0)
+        else:
+            profit_no_pump_window = max(
+                0.0,
+                float(getattr(CFG, "PUMP_EARLY_PROFIT_NO_PUMP_WINDOW_MIN", 3.0) or 3.0),
+            )
+            profit_no_pump_peak = float(getattr(CFG, "PUMP_EARLY_PROFIT_NO_PUMP_MIN_PEAK_PCT", 2.0) or 2.0)
+            profit_no_pump_pnl = float(getattr(CFG, "PUMP_EARLY_PROFIT_NO_PUMP_MAX_PNL_PCT", 0.0) or 0.0)
         if profit_no_pump_window > 0 and age_min >= profit_no_pump_window:
             if peak < profit_no_pump_peak and float(pnl_pct) <= profit_no_pump_pnl:
                 return "NO_PUMP_EXIT"
@@ -656,7 +726,8 @@ def should_exit(
     if float(policy.trailing_pct) > 0 and float(pnl_pct) <= (peak - float(policy.trailing_pct)):
         return "TRAILING_STOP"
 
-    if float(pnl_pct) >= float(policy.take_profit_pct):
+    green_waiting_for_partial = _is_green_sniper_subject(subject) and not partial_taken and policy.tp_partial_enabled
+    if not green_waiting_for_partial and float(pnl_pct) >= float(policy.take_profit_pct):
         if not (policy.tp_partial_enabled and partial_taken):
             return "TAKE_PROFIT"
 
@@ -710,6 +781,7 @@ def describe_exit_policy() -> dict[str, Any]:
             "no_pump_max_pnl_pct": float(getattr(CFG, "PUMP_EARLY_PROFIT_NO_PUMP_MAX_PNL_PCT", 0.0) or 0.0),
         },
         "profit_lane_runner_profiles": _profit_runner_profiles(),
+        "green_sniper_runner_profile": _profit_runner_profiles()["green_sniper_runner"],
     }
 
 

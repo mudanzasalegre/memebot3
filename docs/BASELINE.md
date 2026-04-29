@@ -5,7 +5,8 @@
 ## Config efectiva
 
 - `DRY_RUN`: `True`
-- `TRADE_AMOUNT_SOL`: `0.05`
+- `TRADE_AMOUNT_SOL`: `0.1`
+- `MIN_BUY_SOL`: `0.1`
 - `AI_THRESHOLD`: `0.0`
 - `BUY_SOFT_SCORE_MIN`: `0`
 - `MIN_AGE_MIN`: `0.05`
@@ -21,13 +22,45 @@
 - `SNAPSHOT_REQUIRE_SOCIAL_OR_TREND`: `False`
 - `SNAPSHOT_REQUIRE_RUG_SCORE`: `False`
 - `SNAPSHOT_ALLOWED_PRICE_SOURCES`: `('jupiter', 'birdeye', 'dexscreener')`
-- `MAX_ACTIVE_POSITIONS`: `4`
+- `MAX_ACTIVE_POSITIONS`: `12`
 - `REGIME_PUMP_EARLY_MAX_AGE_MIN`: `30.0`
 - `DYNAMIC_SIZING_ENABLED`: `True`
 - `AI_SIZING_ENABLED`: `False`
 - `PUMP_EARLY_EXECUTION_MODE`: `live`
-- `DEX_MATURE_EXECUTION_MODE`: `shadow`
-- `REVIVAL_EXECUTION_MODE`: `shadow`
+- `DEX_MATURE_EXECUTION_MODE`: `live`
+- `REVIVAL_EXECUTION_MODE`: `live`
+- `PAPER_AGGRESSIVE_TRADING_ENABLED`: `False`
+- `PAPER_AGGRESSIVE_CONFIRM_SNAPSHOTS`: `1`
+- `PAPER_AGGRESSIVE_CONFIRM_BACKOFF_S`: `10`
+- `PAPER_AGGRESSIVE_MIN_AGE_MIN`: `0.05`
+- `PAPER_AGGRESSIVE_MIN_LIQUIDITY_USD`: `1500.0`
+- `PAPER_AGGRESSIVE_MIN_MARKET_CAP_USD`: `2000.0`
+- `PAPER_AGGRESSIVE_MAX_MARKET_CAP_USD`: `500000.0`
+- `PAPER_AGGRESSIVE_MIN_SCORE_TOTAL`: `30`
+- `PAPER_AGGRESSIVE_MIN_RANK_SCORE`: `35.0`
+- `PAPER_AGGRESSIVE_MIN_TXNS_5M`: `3`
+- `PAPER_AGGRESSIVE_MAX_SNAPSHOT_MISSING_FIELDS`: `5`
+- `PAPER_AGGRESSIVE_MAX_PRICE_IMPACT_PCT`: `20.0`
+- `PAPER_AGGRESSIVE_REQUIRE_ROUTE`: `True`
+- `PAPER_AGGRESSIVE_REQUIRE_PRICE`: `True`
+- `PAPER_AGGRESSIVE_BUY_RESEARCH_LANES`: `False`
+- `LIVE_AGGRESSIVE_TRADING_ENABLED`: `False`
+- `LIVE_AGGRESSIVE_CONFIRM_SNAPSHOTS`: `1`
+- `LIVE_AGGRESSIVE_CONFIRM_BACKOFF_S`: `10`
+- `LIVE_AGGRESSIVE_MIN_AGE_MIN`: `0.05`
+- `LIVE_AGGRESSIVE_MIN_LIQUIDITY_USD`: `1500.0`
+- `LIVE_AGGRESSIVE_MIN_MARKET_CAP_USD`: `2000.0`
+- `LIVE_AGGRESSIVE_MAX_MARKET_CAP_USD`: `500000.0`
+- `LIVE_AGGRESSIVE_MIN_SCORE_TOTAL`: `30`
+- `LIVE_AGGRESSIVE_MIN_RANK_SCORE`: `35.0`
+- `LIVE_AGGRESSIVE_MIN_TXNS_5M`: `3`
+- `LIVE_AGGRESSIVE_MAX_SNAPSHOT_MISSING_FIELDS`: `5`
+- `LIVE_AGGRESSIVE_MAX_PRICE_IMPACT_PCT`: `20.0`
+- `LIVE_AGGRESSIVE_REQUIRE_ROUTE`: `True`
+- `LIVE_AGGRESSIVE_REQUIRE_PRICE`: `True`
+- `LIVE_AGGRESSIVE_BUY_RESEARCH_LANES`: `False`
+- `LIVE_AGGRESSIVE_CONTINUE_ON_HEALTH`: `False`
+- `LIVE_AGGRESSIVE_HEALTH_SIZE_CAP_MULTIPLIER`: `0.1`
 - `PUMP_EARLY_QUALITY_MIN_POINTS`: `4`
 - `PUMP_EARLY_QUALITY_MIN_AGE_MIN`: `3.0`
 - `PUMP_EARLY_QUALITY_MIN_LIQUIDITY_USD`: `8000.0`
@@ -56,16 +89,129 @@
 - `PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH`: `True`
 - `PUMP_EARLY_SNIPER_PAPER_RECOVERY_SIZE_CAP`: `0.2`
 - `PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_ENABLED`: `True`
+- `PUMP_EARLY_PROFIT_LANE_ENABLED`: `True`
+- `PUMP_EARLY_PROFIT_DEX_ALLOWLIST`: `pumpswap`
+- `PUMP_EARLY_PROFIT_REQUIRE_REAL_LIQUIDITY`: `True`
+- `PUMP_EARLY_PROFIT_MIN_LIQUIDITY_USD`: `5000.0`
+- `PUMP_EARLY_PROFIT_MIN_SCORE_TOTAL`: `35`
+- `PUMP_EARLY_PROFIT_MIN_AGE_MIN`: `3.0`
+- `PUMP_EARLY_PROFIT_MAX_AGE_MIN`: `30.0`
+- `PUMP_EARLY_PROFIT_MAX_PRICE_IMPACT_PCT`: `10.0`
+- `PUMP_EARLY_PROFIT_BLOCK_MCAP_MIN_USD`: `0.0`
+- `PUMP_EARLY_PROFIT_BLOCK_MCAP_MAX_USD`: `0.0`
+- `PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES`: `300:999`
+- `PUMP_EARLY_METEOR_PRIME_ENABLED`: `False`
+- `PUMP_EARLY_METEOR_PRIME_MIN_LIQUIDITY_USD`: `4000.0`
+- `PUMP_EARLY_METEOR_PRIME_MAX_LIQUIDITY_USD`: `30000.0`
+- `PUMP_EARLY_METEOR_PRIME_MIN_MARKET_CAP_USD`: `5000.0`
+- `PUMP_EARLY_METEOR_PRIME_MAX_MARKET_CAP_USD`: `30000.0`
+- `PUMP_EARLY_METEOR_PRIME_MIN_PRICE_PCT_5M`: `110.0`
+- `PUMP_EARLY_METEOR_PRIME_MAX_PRICE_PCT_5M`: `300.0`
+- `PUMP_EARLY_METEOR_PRIME_MIN_TXNS_5M`: `220`
+- `PUMP_EARLY_METEOR_PRIME_MIN_SCORE_TOTAL`: `30`
+- `PUMP_EARLY_METEOR_PRIME_MIN_AGE_MIN`: `3.0`
+- `PUMP_EARLY_METEOR_PRIME_MAX_AGE_MIN`: `18.0`
+- `PUMP_EARLY_METEOR_PRIME_MAX_PRICE_IMPACT_PCT`: `12.0`
+- `PUMP_EARLY_METEOR_PRIME_MIN_VOLUME_USD_24H`: `8000.0`
+- `PUMP_EARLY_BREAKOUT_PROBE_ENABLED`: `True`
+- `PUMP_EARLY_BREAKOUT_MIN_LIQUIDITY_USD`: `5000.0`
+- `PUMP_EARLY_BREAKOUT_MAX_LIQUIDITY_USD`: `30000.0`
+- `PUMP_EARLY_BREAKOUT_MIN_MARKET_CAP_USD`: `5000.0`
+- `PUMP_EARLY_BREAKOUT_MAX_MARKET_CAP_USD`: `60000.0`
+- `PUMP_EARLY_BREAKOUT_MIN_PRICE_PCT_5M`: `25.0`
+- `PUMP_EARLY_BREAKOUT_MAX_PRICE_PCT_5M`: `120.0`
+- `PUMP_EARLY_BREAKOUT_MIN_TXNS_5M`: `300`
+- `PUMP_EARLY_BREAKOUT_MIN_VOLUME_USD_24H`: `20000.0`
+- `PUMP_EARLY_BREAKOUT_MIN_SCORE_TOTAL`: `35`
+- `PUMP_EARLY_BREAKOUT_MIN_RANK_SCORE`: `50.0`
+- `PUMP_EARLY_BREAKOUT_MIN_AGE_MIN`: `2.0`
+- `PUMP_EARLY_BREAKOUT_MAX_AGE_MIN`: `15.0`
+- `PUMP_EARLY_BREAKOUT_MAX_PRICE_IMPACT_PCT`: `8.0`
+- `PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER`: `1`
+- `PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY`: `1`
+- `PUMP_EARLY_BREAKOUT_HEALTH_ISOLATED`: `True`
+- `PUMP_EARLY_PROFIT_SHAPE_GUARD_ENABLED`: `True`
+- `PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE`: `True`
+- `PUMP_EARLY_PROFIT_MAX_MARKET_CAP_USD`: `200000.0`
+- `PUMP_EARLY_PROFIT_DEEP_NEG_PRICE5M_PCT`: `-40.0`
+- `PUMP_EARLY_PROFIT_DEEP_NEG_MIN_TXNS_5M`: `1500`
+- `PUMP_EARLY_PROFIT_DEEP_NEG_MIN_VOLUME_USD_24H`: `150000.0`
+- `PUMP_EARLY_PROFIT_EXTREME_PRICE5M_PCT`: `300.0`
+- `PUMP_EARLY_PROFIT_EXTREME_PRICE5M_MIN_MCAP_USD`: `100000.0`
+- `PUMP_EARLY_PROFIT_DEAD_VOLUME_MIN_USD_24H`: `15000.0`
+- `PUMP_EARLY_PROFIT_DEAD_VOLUME_MAX_USD_24H`: `30000.0`
+- `PUMP_EARLY_PROFIT_DEAD_VOLUME_MAX_TXNS_5M`: `1000`
+- `PUMP_EARLY_PROFIT_HOT_PRICE5M_MIN_PCT`: `100.0`
+- `PUMP_EARLY_PROFIT_HOT_PRICE5M_MAX_PCT`: `180.0`
+- `PUMP_EARLY_PROFIT_HOT_MCAP_MIN_USD`: `50000.0`
+- `PUMP_EARLY_PROFIT_HOT_MIN_LIQUIDITY_USD`: `20000.0`
+- `PUMP_EARLY_PROFIT_HOT_MIN_TXNS_5M`: `600`
+- `PUMP_EARLY_PROFIT_HOT_MIN_VOLUME_USD_24H`: `50000.0`
+- `PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_VOLUME_USD_24H`: `0.0`
+- `PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_TXNS_5M`: `500`
+- `PUMP_EARLY_PROFIT_LOW_VOLUME_NO_MOMENTUM_MAX_PRICE5M_PCT`: `50.0`
+- `PUMP_EARLY_PROFIT_PRIME_MID_MOMENTUM_MIN_TXNS_5M`: `350`
+- `PUMP_EARLY_PROFIT_PRIME_MID_MOMENTUM_MIN_VOLUME_USD_24H`: `100000.0`
+- `PUMP_EARLY_PROFIT_HIGH_MCAP_MID_PRICE5M_MIN_PCT`: `40.0`
+- `PUMP_EARLY_PROFIT_HIGH_MCAP_MID_PRICE5M_MAX_PCT`: `50.0`
+- `PUMP_EARLY_PROFIT_HIGH_MCAP_MID_MIN_MCAP_USD`: `100000.0`
+- `PUMP_EARLY_PROFIT_PNL_GUARD_ENABLED`: `True`
+- `PUMP_EARLY_PROFIT_PNL_GUARD_JACKPOT_PRICE5M_MIN`: `180.0`
+- `PUMP_EARLY_PROFIT_PNL_GUARD_50K_100K_WEAK_PRICE5M_MAX`: `25.0`
+- `PUMP_EARLY_PROFIT_PNL_GUARD_50K_100K_WEAK_MIN_TXNS_5M`: `700`
+- `PUMP_EARLY_PROFIT_PNL_GUARD_LOCAL_TOP_MIN_MCAP_USD`: `25000.0`
+- `PUMP_EARLY_PROFIT_PNL_GUARD_MID_MOMENTUM_MIN_MCAP_USD`: `50000.0`
+- `PUMP_EARLY_PROFIT_MAX_OPEN_PAPER`: `2`
+- `PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY`: `1`
+- `PUMP_EARLY_AGGRESSIVE_RESEARCH_GUARD_ENABLED`: `True`
+- `PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_PRICE5M_RANGES`: `300:999`
+- `PUMP_EARLY_AGGRESSIVE_RESEARCH_DEX_ALLOWLIST`: `pumpswap`
+- `PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_HIGH_MCAP_USD`: `100000.0`
+- `PUMP_EARLY_AGGRESSIVE_RESEARCH_HIGH_MCAP_ALLOW_MIN_TXNS_5M`: `1200`
+- `PUMP_EARLY_AGGRESSIVE_RESEARCH_BLOCK_PROXY`: `True`
+- `PUMP_EARLY_AGGRESSIVE_RESEARCH_HOT_PRICE5M_MIN_PCT`: `180.0`
+- `PUMP_EARLY_AGGRESSIVE_RESEARCH_HOT_MIN_TXNS_5M`: `150`
+- `PUMP_EARLY_PROFIT_RUNNER_BROAD_LOCK_FLOOR_PCT`: `20.0`
+- `PUMP_EARLY_PROFIT_RUNNER_BROAD_PARTIAL_FRACTION`: `0.8`
+- `PUMP_EARLY_PROFIT_RUNNER_BROAD_MAX_GIVEBACK_PCT`: `5.0`
+- `PUMP_EARLY_PROFIT_RUNNER_PRIME_BASE_LOCK_FLOOR_PCT`: `25.0`
+- `PUMP_EARLY_PROFIT_RUNNER_PRIME_PARTIAL_FRACTION`: `0.65`
+- `PUMP_EARLY_PROFIT_RUNNER_PRIME_BASE_MAX_GIVEBACK_PCT`: `10.0`
+- `PUMP_EARLY_PROFIT_RUNNER_PRIME_STEP_PEAK_PCT`: `80.0`
+- `PUMP_EARLY_PROFIT_RUNNER_PRIME_STEP_LOCK_FLOOR_PCT`: `45.0`
+- `PUMP_EARLY_PROFIT_RUNNER_PRIME_STEP_MAX_GIVEBACK_PCT`: `15.0`
+- `PUMP_EARLY_PROFIT_RUNNER_METEOR_BASE_LOCK_FLOOR_PCT`: `25.0`
+- `PUMP_EARLY_PROFIT_RUNNER_METEOR_PARTIAL_FRACTION`: `0.5`
+- `PUMP_EARLY_PROFIT_RUNNER_METEOR_BASE_MAX_GIVEBACK_PCT`: `15.0`
+- `PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP1_PEAK_PCT`: `100.0`
+- `PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP1_LOCK_FLOOR_PCT`: `70.0`
+- `PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP1_MAX_GIVEBACK_PCT`: `20.0`
+- `PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP2_PEAK_PCT`: `250.0`
+- `PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP2_LOCK_FLOOR_PCT`: `120.0`
+- `PUMP_EARLY_PROFIT_RUNNER_METEOR_MOMENTUM_PRICE5M_PCT`: `180.0`
+- `PUMP_EARLY_PROFIT_RUNNER_METEOR_MOMENTUM_MIN_TXNS_5M`: `600`
+- `PUMP_EARLY_PROFIT_RECOVERY_RECENT_TRADES`: `8`
+- `PUMP_EARLY_PROFIT_RECOVERY_RECENT_MIN_AVG_PNL_PCT`: `5.0`
+- `PUMP_EARLY_PROFIT_RECOVERY_RECENT_MAX_CONSECUTIVE_LOSSES`: `2`
+- `PUMP_EARLY_RESEARCH_ALLOW_PROXY`: `True`
+- `PAPER_PNL_STRICT_HEALTH`: `False`
+- `PUMP_EARLY_PROFIT_ADVERSE_TICK_AFTER_S`: `45`
+- `PUMP_EARLY_PROFIT_ADVERSE_TICK_PNL_PCT`: `-6.0`
+- `PUMP_EARLY_PROFIT_NO_PUMP_WINDOW_MIN`: `3.0`
+- `PUMP_EARLY_PROFIT_NO_PUMP_MIN_PEAK_PCT`: `2.0`
+- `PUMP_EARLY_PROFIT_NO_PUMP_MAX_PNL_PCT`: `0.0`
+- `RESEARCH_SHADOW_MAX_OPEN`: `6`
+- `RESEARCH_SHADOW_MAX_OPEN_PER_REGIME`: `4`
 - `LIVE_RANK_SCORE_FALLBACK_MIN`: `12.5`
 - `SIZE_ACCEPTABLE_MIN_POINTS`: `3`
 - `SIZE_PREMIUM_MIN_POINTS`: `7`
 - `PUMP_EARLY_MAX_SIZE_MULTIPLIER`: `0.3`
 - `DEX_MATURE_MAX_SIZE_MULTIPLIER`: `0.2`
 - `REVIVAL_MAX_SIZE_MULTIPLIER`: `0.25`
-- `MAX_ACTIVE_POSITIONS_PER_REGIME`: `2`
-- `PUMP_EARLY_MAX_ACTIVE_POSITIONS`: `3`
-- `DEX_MATURE_MAX_ACTIVE_POSITIONS`: `1`
-- `REVIVAL_MAX_ACTIVE_POSITIONS`: `2`
+- `MAX_ACTIVE_POSITIONS_PER_REGIME`: `6`
+- `PUMP_EARLY_MAX_ACTIVE_POSITIONS`: `6`
+- `DEX_MATURE_MAX_ACTIVE_POSITIONS`: `6`
+- `REVIVAL_MAX_ACTIVE_POSITIONS`: `3`
 - `REQUIRE_JUPITER_FOR_BUY`: `True`
 - `EXIT_PROFILE_BY_REGIME`: `True`
 - `TP_PARTIAL_ENABLED`: `True`
@@ -159,18 +305,37 @@
 - `MIN_THRESHOLD_CHANGE`: `0.01`
 - `PRECISION_AT_K_PCT`: `0.1`
 - `ML_GATE_MODE`: `shadow`
+- `ML_LIVE_PROFIT_MODE`: `sizing_only`
+- `ML_RESEARCH_MODE`: `shadow`
+- `ML_UNKNOWN_LANE_MODE`: `shadow`
+- `ML_ALLOW_RESEARCH_LIVE`: `True`
+- `ML_ALLOW_UNKNOWN_LIVE`: `False`
+- `ML_SIZING_ENABLED`: `True`
+- `ML_RISK_MODEL_ENABLED`: `True`
+- `ML_RISK_VETO_ENABLED`: `False`
+- `ML_EV_MODEL_ENABLED`: `True`
+- `ML_REJECT_SHADOW_ENABLED`: `True`
+- `ML_RETRAIN_IN_MAIN_LOOP`: `False`
+- `ML_TRAINING_DAEMON_ENABLED`: `True`
+- `ML_DRIFT_MONITOR_ENABLED`: `True`
+- `ML_AUTO_PROMOTE_LANES`: `False`
+- `LIVE_MAX_DAILY_BUYS`: `10`
+- `LIVE_MAX_DAILY_LOSS_SOL`: `0.5`
+- `LIVE_MAX_CONSECUTIVE_LOSSES`: `4`
 - `ML_MIN_DATASET_ROWS`: `190`
 - `ML_MIN_POSITIVES`: `40`
 - `ML_MIN_UNIQUE_TOKENS`: `190`
 - `ML_MIN_REALIZED_RETURN_ROWS`: `50`
-- `ML_MIN_HOLDOUT_ROWS`: `40`
-- `ML_MIN_HOLDOUT_POSITIVES`: `8`
+- `ML_MIN_HOLDOUT_ROWS`: `30`
+- `ML_MIN_HOLDOUT_POSITIVES`: `10`
 - `ML_MIN_NON_CONSTANT_FEATURES`: `12`
 - `ML_TUNE_OBJECTIVE`: `expected_pnl_precision_floor`
 - `ML_TUNE_PRECISION_FLOOR`: `0.6`
 - `ML_TUNE_MIN_SELECTED`: `10`
 - `ML_TUNE_MIN_REALIZED_SELECTED`: `5`
 - `ML_SELECTION_MIN_DELTA`: `0.25`
+- `ML_TRAIN_ENTRY_LANE_ALLOWLIST`: `pump_early_pumpswap_profit,pump_early_pumpswap_prime,pump_early_meteor_prime,pump_early_pumpswap_breakout_probe`
+- `ML_TRAIN_DEX_ALLOWLIST`: `pumpswap`
 - `TAKE_PROFIT_PCT`: `12.0`
 - `STOP_LOSS_PCT`: `8.0`
 - `TRAILING_PCT`: `10.0`
@@ -179,84 +344,104 @@
 
 ## DB de posiciones
 
-- Filas totales: `357`
-- Cerradas: `357`
+- Filas totales: `89`
+- Cerradas: `89`
 - Abiertas: `0`
-- Win rate simple: `32.493`
-- PnL medio (%): `-4.592`
-- PnL mediano (%): `-6.817`
-- Hold medio (min): `6.77`
-- Giveback medio (%): `43.044`
-- Max drawdown simple (p.p.): `-1754.894`
+- Win rate simple: `25.843`
+- PnL medio (%): `-11.108`
+- PnL mediano (%): `-3.0`
+- Hold medio (min): `4.432`
+- Giveback medio (%): `30.159`
+- Max drawdown simple (p.p.): `-929.436`
 
 ### Breakdown por exit_reason
 
-- `NO_PUMP_EXIT`: count=`109`, avg_pnl=`-22.939`, median_pnl=`-15.686`, avg_giveback=`23.063`
-- `POST_PARTIAL_TRAILING`: count=`85`, avg_pnl=`48.054`, median_pnl=`28.219`, avg_giveback=`104.392`
-- `STOP_LOSS`: count=`61`, avg_pnl=`-27.784`, median_pnl=`-21.338`, avg_giveback=`28.017`
-- `POST_PARTIAL_STOP`: count=`31`, avg_pnl=`6.512`, median_pnl=`3.74`, avg_giveback=`7.149`
-- `PRE_PARTIAL_TIME_STOP`: count=`27`, avg_pnl=`-22.151`, median_pnl=`-12.516`, avg_giveback=`22.151`
-- `EARLY_DROP`: count=`23`, avg_pnl=`-28.632`, median_pnl=`-20.76`, avg_giveback=`28.632`
-- `LIQUIDITY_CRUSH`: count=`19`, avg_pnl=`-25.1`, median_pnl=`-15.403`, avg_giveback=`41.688`
-- `TIMEOUT`: count=`2`, avg_pnl=`1.418`, median_pnl=`1.418`, avg_giveback=`0.015`
+- `ADVERSE_TICK`: count=`35`, avg_pnl=`-39.879`, median_pnl=`-37.773`, avg_giveback=`54.225`
+- `NO_PUMP_EXIT`: count=`24`, avg_pnl=`-1.326`, median_pnl=`-0.114`, avg_giveback=`1.328`
+- `TAKE_PROFIT`: count=`12`, avg_pnl=`15.72`, median_pnl=`15.616`, avg_giveback=`-0.0`
+- `POST_PARTIAL_TRAILING`: count=`7`, avg_pnl=`47.31`, median_pnl=`41.526`, avg_giveback=`66.758`
+- `LIQUIDITY_CRUSH`: count=`5`, avg_pnl=`-31.894`, median_pnl=`-11.872`, avg_giveback=`31.894`
+- `STOP_LOSS`: count=`3`, avg_pnl=`-11.973`, median_pnl=`-9.939`, avg_giveback=`11.973`
+- `EARLY_DROP`: count=`1`, avg_pnl=`-5.836`, median_pnl=`-5.836`, avg_giveback=`5.836`
+- `POST_PARTIAL_STOP`: count=`1`, avg_pnl=`14.022`, median_pnl=`14.022`, avg_giveback=`48.114`
+- `TRAILING_STOP`: count=`1`, avg_pnl=`106.342`, median_pnl=`106.342`, avg_giveback=`37.804`
 
 ### Breakdown por parcial
 
-- `partial_taken=True`: count=`119`, avg_pnl=`36.826`, median_pnl=`20.926`
-- `partial_taken=False`: count=`238`, avg_pnl=`-25.301`, median_pnl=`-18.759`
+- `partial_taken=True`: count=`13`, avg_pnl=`34.675`, median_pnl=`36.629`
+- `partial_taken=False`: count=`76`, avg_pnl=`-18.94`, median_pnl=`-6.297`
 
 ## Dataset
 
 - Ficheros parquet: `1`
-- Filas: `2083`
-- Positivos: `148`
-- Tokens unicos: `1703`
-- Columnas constantes: `holders, rug_score, mint_auth_renounced, price_pct_1m, volume_pct_5m, social_ok, twitter_followers, discord_members, trend, require_jupiter_for_buy, missing_holders, missing_rug_score, missing_socials, missing_trend, is_incomplete`
+- Filas: `2128`
+- Positivos: `65`
+- Tokens unicos: `2075`
+- Columnas constantes: `gate_profile, profit_lane_tier, holders, rug_score, mint_auth_renounced, price_pct_1m, volume_pct_5m, social_ok, twitter_followers, discord_members, missing_holders, missing_rug_score, missing_socials, strategy_version, experiment_id, exit_profile, config_hash, is_incomplete`
 
 ### Nulos por columna (%)
 
 - `address`: `0.0`
 - `age_minutes`: `0.0`
-- `cluster_bad`: `5.905`
+- `cluster_bad`: `5.028`
+- `config_hash`: `100.0`
 - `coverage_core_fields`: `0.0`
+- `dex_id`: `0.0`
+- `dex_id_code`: `0.0`
 - `discord_members`: `100.0`
 - `discovered_via`: `0.0`
 - `discovered_via_code`: `0.0`
+- `entry_lane`: `0.0`
 - `entry_regime`: `0.0`
 - `entry_regime_code`: `0.0`
-- `has_jupiter_route`: `8.497`
+- `exit_profile`: `10.573`
+- `experiment_id`: `0.0`
+- `gate_profile`: `10.573`
+- `green_sniper_action`: `10.573`
+- `green_sniper_reason`: `10.573`
+- `green_sniper_score`: `10.573`
+- `has_jupiter_route`: `39.709`
 - `holders`: `100.0`
+- `impact_zero_flag`: `0.0`
 - `is_incomplete`: `0.0`
 - `label`: `0.0`
-- `liquidity_usd`: `10.85`
-- `market_cap_usd`: `0.384`
-- `mint_auth_renounced`: `5.905`
+- `liquidity_is_proxy`: `0.0`
+- `liquidity_usd`: `10.902`
+- `market_cap_usd`: `7.096`
+- `mcap_bucket`: `0.0`
+- `mcap_bucket_code`: `0.0`
+- `mint_auth_renounced`: `5.028`
 - `missing_holders`: `0.0`
 - `missing_liquidity`: `0.0`
 - `missing_rug_score`: `0.0`
 - `missing_socials`: `0.0`
 - `missing_trend`: `0.0`
 - `missing_volume`: `0.0`
-- `price_impact_pct`: `0.576`
+- `price5m_bucket`: `0.0`
+- `price5m_bucket_code`: `0.0`
+- `price_impact_pct`: `7.049`
 - `price_pct_1m`: `100.0`
-- `price_pct_5m`: `12.674`
+- `price_pct_5m`: `23.778`
 - `price_source`: `0.0`
 - `price_source_quality`: `0.0`
+- `profit_lane_tier`: `10.573`
 - `queue_age_minutes`: `0.0`
 - `queue_attempts`: `0.0`
 - `require_jupiter_for_buy`: `0.0`
 - `rug_score`: `100.0`
 - `sample_type`: `0.0`
-- `score_total`: `5.905`
+- `score_total`: `5.028`
 - `snapshot_missing_fields`: `0.0`
 - `social_ok`: `100.0`
-- `target_total_pnl_pct`: `72.588`
+- `strategy_version`: `0.0`
+- `target_total_pnl_pct`: `6.062`
 - `timestamp`: `0.0`
-- `trend`: `100.0`
+- `trend`: `94.455`
 - `ts`: `0.0`
 - `twitter_followers`: `100.0`
-- `txns_last_5m`: `4.993`
-- `txns_last_5m_buys`: `6.817`
-- `txns_last_5m_sells`: `6.097`
-- `volume_24h_usd`: `0.24`
+- `txns_last_5m`: `13.111`
+- `txns_last_5m_buys`: `16.776`
+- `txns_last_5m_sells`: `13.863`
+- `venue_is_pumpswap`: `0.0`
+- `volume_24h_usd`: `7.331`
 - `volume_pct_5m`: `100.0`

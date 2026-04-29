@@ -108,6 +108,12 @@ export function AnalyticsPage() {
 
   const exitRows = edge?.exit_reason || [];
   const regimeRows = edge?.regimes.entry_regime || [];
+  const laneRows = edge?.regimes.entry_lane || [];
+  const gateRows = edge?.regimes.gate_profile || [];
+  const dexRows = edge?.regimes.buy_dex_id || edge?.regimes.dex_id || [];
+  const proxyRows = edge?.regimes.liquidity_proxy || [];
+  const price5mRows = edge?.regimes.price5m_bucket || [];
+  const runnerRows = edge?.regimes.runner_exit_profile || [];
   const sizeRows = edge?.sizing.size_bucket || [];
   const topExitCount = maxCount(exitRows);
   const topRegimeCount = maxCount(regimeRows);
@@ -284,6 +290,70 @@ export function AnalyticsPage() {
               </div>
             ))}
             {!regimeRows.length ? <p className="empty-note">No regime distribution available.</p> : null}
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-8" eyebrow="Sniper lanes" title="Edge by lane and gate">
+          <div className="editorial-grid editorial-grid--nested">
+            <div className="grid-span-6">
+              <DataTable
+                columns={groupColumns("Entry lane")}
+                emptyMessage="No lane distribution available."
+                rowKey={(row) => row.group}
+                rows={laneRows.slice(0, 8)}
+              />
+            </div>
+            <div className="grid-span-6">
+              <DataTable
+                columns={groupColumns("Gate profile")}
+                emptyMessage="No gate-profile distribution available."
+                rowKey={(row) => row.group}
+                rows={gateRows.slice(0, 8)}
+              />
+            </div>
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-4" eyebrow="Venue and proxy" title="Edge by dex/liquidity truth">
+          <div className="breakdown-list">
+            {dexRows.slice(0, 5).map((row) => (
+              <div className="breakdown-list__item" key={row.group}>
+                <div className="breakdown-list__label">
+                  <strong>{row.group}</strong>
+                  <span>{formatSignedPct(row.avg_pnl_pct)}</span>
+                </div>
+              </div>
+            ))}
+            {proxyRows.slice(0, 3).map((row) => (
+              <div className="breakdown-list__item" key={`proxy-${row.group}`}>
+                <div className="breakdown-list__label">
+                  <strong>{`liquidity ${row.group}`}</strong>
+                  <span>{formatSignedPct(row.avg_pnl_pct)}</span>
+                </div>
+              </div>
+            ))}
+            {!dexRows.length && !proxyRows.length ? <p className="empty-note">No venue/proxy distribution available.</p> : null}
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-8" eyebrow="Momentum and runner" title="Edge by price5m bucket and exit profile">
+          <div className="editorial-grid editorial-grid--nested">
+            <div className="grid-span-6">
+              <DataTable
+                columns={groupColumns("Price 5m bucket")}
+                emptyMessage="No price5m distribution available."
+                rowKey={(row) => row.group}
+                rows={price5mRows}
+              />
+            </div>
+            <div className="grid-span-6">
+              <DataTable
+                columns={groupColumns("Runner profile")}
+                emptyMessage="No runner profile distribution available."
+                rowKey={(row) => row.group}
+                rows={runnerRows}
+              />
+            </div>
           </div>
         </Surface>
 

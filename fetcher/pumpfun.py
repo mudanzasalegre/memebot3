@@ -40,14 +40,14 @@ log = logging.getLogger("pumpfun")
 _WS_URL = "wss://pumpportal.fun/api/data"
 
 # nº máx. de tokens a devolver en cada llamada pública
-_LIMIT_RETURN = int(os.getenv("PUMPFUN_LIMIT_RETURN", "12"))
+_LIMIT_RETURN = int(os.getenv("PUMPFUN_LIMIT_RETURN", "75"))
 
 # cache “suave” de la lista (segundos)
-_CACHE_TTL = int(os.getenv("PUMPFUN_CACHE_TTL", "5"))
+_CACHE_TTL = int(os.getenv("PUMPFUN_CACHE_TTL", "1"))
 
 # buffer circular y ventana de frescura (minutos)
-_BUFFER_MAX = int(os.getenv("PUMPFUN_BUFFER_MAX", "200"))
-_WINDOW_MIN = float(os.getenv("PUMPFUN_WINDOW_MIN", "20"))
+_BUFFER_MAX = int(os.getenv("PUMPFUN_BUFFER_MAX", "1500"))
+_WINDOW_MIN = float(os.getenv("PUMPFUN_WINDOW_MIN", "60"))
 
 # backoff de reconexión (segundos)
 _BACKOFFS = [2, 4, 8, 16, 30, 60, 90]

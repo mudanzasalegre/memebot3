@@ -17,6 +17,7 @@ import type {
   RuntimeEventsData,
   RuntimeStateData,
   RuntimeStrategyHealthData,
+  SniperStatusData,
   SourceStatus,
   StrategyHealthEntry,
 } from "../lib/api";
@@ -75,11 +76,13 @@ export function OverviewPage() {
   const runtimeStateQuery = usePollEnvelope<RuntimeStateData>("/api/v1/runtime/state", 3000);
   const strategyHealthQuery = usePollEnvelope<RuntimeStrategyHealthData>("/api/v1/runtime/strategy-health", 3000);
   const runtimeEventsQuery = usePollEnvelope<RuntimeEventsData>("/api/v1/runtime/events?limit=10", 5000);
+  const sniperQuery = usePollEnvelope<SniperStatusData>("/api/v1/sniper/status", 5000);
 
   const runtimeState = runtimeStateQuery.envelope?.data;
+  const sniperStatus = sniperQuery.envelope?.data;
   const strategyHealth = strategyHealthQuery.envelope?.data.strategy_health || runtimeState?.strategy_health || {};
   const runtimeEvents = runtimeEventsQuery.envelope?.data.items || [];
-  const runtimeQueryError = runtimeStateQuery.error || strategyHealthQuery.error || runtimeEventsQuery.error;
+  const runtimeQueryError = runtimeStateQuery.error || strategyHealthQuery.error || runtimeEventsQuery.error || sniperQuery.error;
 
   if (!overview) {
     return (
@@ -141,6 +144,12 @@ export function OverviewPage() {
       label: "Queue",
       value: formatCount(overview.queue.pending),
       meta: `${formatCount(overview.queue.requeued)} requeued · ${formatCount(overview.queue.cooldown)} cooldown`,
+    },
+    {
+      path: "/sniper",
+      label: "Sniper",
+      value: formatCount(sniperStatus?.hot_queue_size),
+      meta: `${formatCount(sniperStatus?.green_sniper_buys_today)} buys | ${formatDecimal(sniperStatus?.avg_time_to_eval_s, "s")} eval`,
     },
     {
       path: "/positions",

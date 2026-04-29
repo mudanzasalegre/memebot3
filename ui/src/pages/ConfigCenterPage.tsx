@@ -84,6 +84,12 @@ export function ConfigCenterPage() {
     regime,
     payload: asRecord(value),
   }));
+  const greenSniperPolicy = asRecord(policies?.green_sniper_lane);
+  const greenThresholds = asRecord(greenSniperPolicy?.thresholds);
+  const greenPaper = asRecord(greenThresholds?.paper);
+  const greenLive = asRecord(greenThresholds?.live);
+  const greenRankGuard = asRecord(greenThresholds?.rank_guard);
+  const profitLanePolicy = asRecord(policies?.profit_lane);
 
   function openRawRecord(title: string, description: string, record: unknown) {
     openPanel({
@@ -227,6 +233,82 @@ export function ConfigCenterPage() {
             <div className="kv-cell">
               <span>Time stop</span>
               <strong>{formatDecimal(typeof policies?.exit.time_stop_min === "number" ? policies.exit.time_stop_min : null, "m")}</strong>
+            </div>
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-8" eyebrow="Green sniper" title="Fast-lane policy">
+          <div className="metric-ribbon">
+            <div className="metric-ribbon__item">
+              <span>Enabled</span>
+              <strong>{String(greenSniperPolicy?.enabled ? "yes" : "no")}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Paper sniper</span>
+              <strong>{String(greenSniperPolicy?.paper_sniper_mode ? "yes" : "no")}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Live enabled</span>
+              <strong>{String(greenSniperPolicy?.live_enabled ? "yes" : "no")}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>ML mode</span>
+              <strong>{String(greenSniperPolicy?.ml_mode || "n/a")}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>ML can block</span>
+              <strong>{String(greenSniperPolicy?.ml_can_block ? "yes" : "no")}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Rank guard min</span>
+              <strong>{formatDecimal(typeof greenRankGuard?.min_score === "number" ? greenRankGuard.min_score : null)}</strong>
+            </div>
+          </div>
+          <div className="kv-grid">
+            <div className="kv-cell">
+              <span>Paper age range</span>
+              <strong>{stringifyValue(greenPaper?.age_minutes_range)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Paper price5m range</span>
+              <strong>{stringifyValue(greenPaper?.price_pct_5m_range)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Paper min txns 5m</span>
+              <strong>{stringifyValue(greenPaper?.min_txns_last_5m)}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Paper proxy liquidity</span>
+              <strong>{String(greenPaper?.allow_proxy_liquidity ? "yes" : "no")}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Live require route</span>
+              <strong>{String(greenLive?.require_route ? "yes" : "no")}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Live max impact</span>
+              <strong>{formatDecimal(typeof greenLive?.max_price_impact_pct === "number" ? greenLive.max_price_impact_pct : null, "%")}</strong>
+            </div>
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-4" eyebrow="Profit lane" title="Productive validation">
+          <div className="kv-grid">
+            <div className="kv-cell">
+              <span>Enabled</span>
+              <strong>{String(profitLanePolicy?.enabled ? "yes" : "no")}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Entry lane</span>
+              <strong>{String(profitLanePolicy?.entry_lane || "n/a")}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Prime label</span>
+              <strong>{String(profitLanePolicy?.prime_label || "n/a")}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Capacity</span>
+              <strong>{stringifyValue(profitLanePolicy?.capacity)}</strong>
             </div>
           </div>
         </Surface>
