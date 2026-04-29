@@ -20,10 +20,11 @@ def _green_sniper_policy() -> dict[str, object]:
         "rank_guard_enabled": bool(getattr(CFG, "GREEN_SNIPER_RANK_GUARD_ENABLED", True)),
         "rank_guard_min_score": float(getattr(CFG, "GREEN_SNIPER_RANK_GUARD_MIN_SCORE", 45.0) or 45.0),
         "rank_guard_bypass_paper_birth_probe": bool(
-            getattr(CFG, "GREEN_SNIPER_RANK_GUARD_BYPASS_PAPER_BIRTH_PROBE", True)
+            getattr(CFG, "GREEN_SNIPER_RANK_GUARD_BYPASS_PAPER_BIRTH_PROBE", False)
         ),
         "paper_birth_probe": {
             "enabled": bool(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_ENABLED", True)),
+            "shadow_first": bool(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_SHADOW_FIRST", True)),
             "max_age_min": float(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_MAX_AGE_MIN", 3.0) or 3.0),
             "min_liquidity_usd": float(
                 getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_MIN_LIQUIDITY_USD", 1000.0) or 1000.0
@@ -46,7 +47,19 @@ def _green_sniper_policy() -> dict[str, object]:
             "core": float(getattr(CFG, "GREEN_SNIPER_SIZE_CORE_SOL", 0.10) or 0.10),
             "hot": float(getattr(CFG, "GREEN_SNIPER_SIZE_HOT_SOL", 0.10) or 0.10),
         },
-        "live_size_sol": float(getattr(CFG, "GREEN_SNIPER_LIVE_SIZE_SOL", 0.10) or 0.10),
+        "live_size_sol": float(getattr(CFG, "GREEN_SNIPER_LIVE_SIZE_SOL", 0.01) or 0.01),
+        "research_rank_canary": {
+            "enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_ENABLED", True)),
+            "paper_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_ENABLED", True)),
+            "live_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_LIVE_ENABLED", False)),
+            "min_score": float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_SCORE", 61.15) or 61.15),
+        },
+        "risk_guards": {
+            "green_sniper_risk_guard_enabled": bool(getattr(CFG, "GREEN_SNIPER_RISK_GUARD_ENABLED", True)),
+            "liquidity_guard_enabled": bool(getattr(CFG, "GREEN_SNIPER_LIQ_GUARD_ENABLED", True)),
+            "early_dump_enabled": bool(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_ENABLED", True)),
+            "late_momentum_watch_enabled": bool(getattr(CFG, "LATE_MOMENTUM_WATCH_ENABLED", True)),
+        },
     }
 
 

@@ -107,7 +107,7 @@ def test_proxy_liquidity_paper_goes_to_shadow_when_disabled(monkeypatch) -> None
     assert "proxy_liquidity_paper_disabled" in decision.reject_reasons
 
 
-def test_paper_birth_probe_buys_hot_missing_metrics(monkeypatch) -> None:
+def test_paper_birth_probe_is_shadow_first(monkeypatch) -> None:
     monkeypatch.setattr(gate, "CFG", _cfg(GREEN_SNIPER_ALLOW_PROXY_LIQUIDITY_PAPER=False))
     token = {
         "address": "Probe111111111111111111111111111111111111pump",
@@ -120,7 +120,7 @@ def test_paper_birth_probe_buys_hot_missing_metrics(monkeypatch) -> None:
 
     decision = gate.evaluate_green_sniper(token, dry_run=True, live=False)
 
-    assert decision.action == "buy"
+    assert decision.action == "shadow"
     assert decision.paper_birth_probe is True
     assert decision.size_hint == "micro"
     assert "paper_birth_probe" in decision.reason

@@ -38,6 +38,7 @@ class HotQueue:
         self._counter = itertools.count()
         self._seen: dict[str, float] = {}
         self._events: list[HotQueueEvent] = []
+        self._drop_counts: dict[str, int] = {}
 
     def _now(self) -> float:
         return dt.datetime.now(dt.timezone.utc).timestamp()
@@ -68,6 +69,23 @@ class HotQueue:
             except Exception:
                 pass
 
+    def _count_drop(self, reason: str, score: float) -> None:
+        key = "dropped_high_priority" if score >= float(getattr(CFG, "HOT_QUEUE_HIGH_PRIORITY_MIN_SCORE", 75.0) or 75.0) else "dropped_low_priority"
+        self._drop_counts[key] = self._drop_counts.get(key, 0) + 1
+        self._drop_counts[f"reason:{reason}"] = self._drop_counts.get(f"reason:{reason}", 0) + 1
+
+    def _drop_lowest_priority(self, source: str) -> None:
+        if not self._heap:
+            return
+        # Heap entries store negative scores so the default heappop returns the
+        # highest-priority candidate. Overflow eviction must remove the lowest.
+        lowest_idx = max(range(len(self._heap)), key=lambda idx: self._heap[idx][0])
+        neg_score, _, dropped = self._heap.pop(lowest_idx)
+        heapq.heapify(self._heap)
+        score = -float(neg_score)
+        self._count_drop("max_size", score)
+        self._event("hot_queue_drop", dropped, str(dropped.get("source") or source), score, "max_size")
+
     def add(self, token: dict[str, Any], *, source: str = "pumpfun", reason: str = "hot_candidate") -> bool:
         address = str(token.get("address") or token.get("mint") or "").strip()
         if not address:
@@ -86,20 +104,28 @@ class HotQueue:
         heapq.heappush(self._heap, (-score, next(self._counter), token))
         self._event("hot_queue_add", token, source, score, reason)
         while len(self._heap) > self.max_size:
-            _, _, dropped = heapq.heappop(self._heap)
-            self._event("hot_queue_drop", dropped, str(dropped.get("source") or source), 0.0, "max_size")
+            self._drop_lowest_priority(source)
         return True
 
     def pop_batch(self, limit: int | None = None) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         max_items = max(1, int(limit or getattr(CFG, "HOT_QUEUE_BATCH_SIZE", 12) or 12))
+        if bool(getattr(CFG, "HOT_QUEUE_DYNAMIC_BATCH_ENABLED", True)) and len(self._heap) > max_items * 2:
+            max_items = min(max_items * 3, len(self._heap), 100)
         now = dt.datetime.now(dt.timezone.utc)
         while self._heap and len(out) < max_items:
             neg_score, _, token = heapq.heappop(self._heap)
             age_min = _age_minutes(token, now)
             source = str(token.get("source") or token.get("discovered_via") or "hot")
             score = -float(neg_score)
-            if self.max_age_min > 0 and age_min > self.max_age_min:
+            priority_age = (
+                float(getattr(CFG, "HOT_QUEUE_HIGH_PRIORITY_MAX_AGE_MIN", self.max_age_min) or self.max_age_min)
+                if score >= float(getattr(CFG, "HOT_QUEUE_HIGH_PRIORITY_MIN_SCORE", 75.0) or 75.0)
+                else float(getattr(CFG, "HOT_QUEUE_LOW_PRIORITY_MAX_AGE_MIN", self.max_age_min) or self.max_age_min)
+            )
+            max_age = min(self.max_age_min, priority_age) if self.max_age_min > 0 and priority_age > 0 else max(self.max_age_min, priority_age)
+            if max_age > 0 and age_min > max_age:
+                self._count_drop("max_age", score)
                 self._event("hot_queue_drop", token, source, score, "max_age")
                 continue
             self._event("hot_queue_eval", token, source, score, "green_candidate")
@@ -112,6 +138,7 @@ class HotQueue:
             "size": len(self._heap),
             "max_size": self.max_size,
             "max_age_min": self.max_age_min,
+            "drop_counts": dict(self._drop_counts),
             "recent_events": [asdict(event) for event in self._events[-50:]],
         }
 

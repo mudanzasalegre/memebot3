@@ -7,7 +7,9 @@ import pandas as pd
 
 from ml.lane_taxonomy import (
     LANE_PUMP_EARLY_BREAKOUT,
+    LANE_PUMP_EARLY_BIRTH_PROBE,
     LANE_PUMP_EARLY_GREEN_SNIPER,
+    LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
     LANE_PUMP_EARLY_METEOR,
     LANE_PUMP_EARLY_PRIME,
     LANE_PUMP_EARLY_PROFIT,
@@ -21,6 +23,9 @@ SAMPLE_TRADE_CLOSE = "trade_close"
 SAMPLE_SHADOW_CLOSE = "shadow_close"
 SAMPLE_POLICY_REJECT = "policy_reject"
 SAMPLE_CANDIDATE = "candidate"
+SAMPLE_EXECUTION_BLOCKED_NO_ROUTE = "execution_blocked_no_route"
+SAMPLE_EXECUTION_BLOCKED_ZERO_QTY = "execution_blocked_zero_qty"
+SAMPLE_GREEN_SNIPER_REJECT_SHADOW = "green_sniper_reject_shadow"
 SAMPLE_UNKNOWN = "unknown"
 
 VALID_SAMPLE_TYPES = {
@@ -28,6 +33,9 @@ VALID_SAMPLE_TYPES = {
     SAMPLE_SHADOW_CLOSE,
     SAMPLE_POLICY_REJECT,
     SAMPLE_CANDIDATE,
+    SAMPLE_EXECUTION_BLOCKED_NO_ROUTE,
+    SAMPLE_EXECUTION_BLOCKED_ZERO_QTY,
+    SAMPLE_GREEN_SNIPER_REJECT_SHADOW,
 }
 
 REQUIRED_ML_CONTEXT_COLUMNS = (
@@ -70,6 +78,11 @@ def normalize_sample_type(value: Any) -> str:
         "reject": SAMPLE_POLICY_REJECT,
         "policy_rejected": SAMPLE_POLICY_REJECT,
         "candidate_reject": SAMPLE_POLICY_REJECT,
+        "no_route": SAMPLE_EXECUTION_BLOCKED_NO_ROUTE,
+        "execution_blocked_no_route": SAMPLE_EXECUTION_BLOCKED_NO_ROUTE,
+        "zero_qty": SAMPLE_EXECUTION_BLOCKED_ZERO_QTY,
+        "execution_blocked_zero_qty": SAMPLE_EXECUTION_BLOCKED_ZERO_QTY,
+        "green_sniper_reject_shadow": SAMPLE_GREEN_SNIPER_REJECT_SHADOW,
     }
     return aliases.get(raw, raw if raw in VALID_SAMPLE_TYPES else SAMPLE_UNKNOWN)
 
@@ -134,6 +147,11 @@ def reconstruct_entry_lane(row: Mapping[str, Any]) -> str:
         return tier
 
     profile = _raw(row.get("gate_profile") or row.get("sniper_gate_profile") or row.get("live_profit_gate_profile")).lower()
+    subtype = _raw(row.get("entry_subtype")).lower()
+    if subtype == "paper_birth_probe" or profile.startswith("green_sniper_birth_probe"):
+        return LANE_PUMP_EARLY_BIRTH_PROBE
+    if profile.startswith("late_momentum"):
+        return LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH
     if profile.startswith("green_sniper"):
         return LANE_PUMP_EARLY_GREEN_SNIPER
     if profile == "pumpswap_meteor_prime":
@@ -204,6 +222,9 @@ __all__ = [
     "SAMPLE_SHADOW_CLOSE",
     "SAMPLE_POLICY_REJECT",
     "SAMPLE_CANDIDATE",
+    "SAMPLE_EXECUTION_BLOCKED_NO_ROUTE",
+    "SAMPLE_EXECUTION_BLOCKED_ZERO_QTY",
+    "SAMPLE_GREEN_SNIPER_REJECT_SHADOW",
     "SAMPLE_UNKNOWN",
     "VALID_SAMPLE_TYPES",
     "normalize_sample_type",

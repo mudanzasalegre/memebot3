@@ -8,6 +8,7 @@ from ml.lane_taxonomy import (
     LANE_PUMP_EARLY_BREAKOUT,
     LANE_PUMP_EARLY_GREEN_SNIPER,
     LANE_PUMP_EARLY_PROFIT,
+    LANE_RESEARCH_RANK_CANARY,
     LANE_RESEARCH_SNIPER,
     normalize_entry_lane,
 )
@@ -51,6 +52,8 @@ def _cap_for_lane(lane: str, *, dry_run: bool, live: bool) -> int:
         )
     if lane == LANE_RESEARCH_SNIPER:
         return int(getattr(CFG, "RESEARCH_SHADOW_MAX_OPEN_PER_REGIME", 4) or 4)
+    if lane == LANE_RESEARCH_RANK_CANARY:
+        return int(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_OPEN", 1) or 1)
     return 999 if dry_run else 1
 
 
@@ -96,6 +99,10 @@ def describe_position_limits() -> dict[str, Any]:
         "breakout": {
             "paper": _cap_for_lane(LANE_PUMP_EARLY_BREAKOUT, dry_run=True, live=False),
             "live": _cap_for_lane(LANE_PUMP_EARLY_BREAKOUT, dry_run=False, live=True),
+        },
+        "research_rank_canary": {
+            "paper": _cap_for_lane(LANE_RESEARCH_RANK_CANARY, dry_run=True, live=False),
+            "live": _cap_for_lane(LANE_RESEARCH_RANK_CANARY, dry_run=False, live=True),
         },
     }
 

@@ -489,6 +489,9 @@ def effective_exit_policy(subject: Any) -> ExitPolicy:
     if green_sniper_subject:
         tp_partial_enabled = bool(getattr(CFG, "GREEN_SNIPER_TP_PARTIAL_ENABLED", True))
         tp_partial_trigger_pct = float(getattr(CFG, "GREEN_SNIPER_TP_PARTIAL_TRIGGER_PCT", 25.0) or 25.0)
+        if bool(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_PROTECTION_ENABLED", True)):
+            base_lock_floor_pct = float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_LOCK_FLOOR_PCT", base_lock_floor_pct) or base_lock_floor_pct)
+            base_max_giveback_pct = float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MAX_GIVEBACK_PCT", base_max_giveback_pct) or base_max_giveback_pct)
     take_profit_pct = _override_value(regime, "take_profit_pct", float(CFG.TAKE_PROFIT_PCT))
     if green_sniper_subject and tp_partial_enabled:
         take_profit_pct = max(float(take_profit_pct), float(tp_partial_trigger_pct))
@@ -617,6 +620,24 @@ def should_exit(
 
     if pnl_pct is not None and (_is_pumpswap_profit_subject(subject) or _is_green_sniper_subject(subject)):
         if _is_green_sniper_subject(subject):
+            early_dump_enabled = bool(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_ENABLED", True))
+            early_dump_after_s = max(0.0, float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_AFTER_S", 35) or 35))
+            early_dump_pnl = float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_PNL_PCT", -12.0) or -12.0)
+            early_dump_ignore_peak = float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_IGNORE_IF_PEAK_PCT", 15.0) or 15.0)
+            confirm_required = max(1, int(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_CONFIRM_TICKS", 2) or 2))
+            confirm_seen = int(_to_float(_get(subject, "early_dump_confirm_ticks", None), confirm_required))
+            peak_for_dump = _to_float(_get(subject, "highest_pnl_pct"), 0.0)
+            if peak_for_dump <= 0:
+                peak_for_dump = _to_float(_get(subject, "peak_pnl_pct"), 0.0)
+            if (
+                early_dump_enabled
+                and early_dump_after_s > 0
+                and age_s >= early_dump_after_s
+                and float(pnl_pct) <= early_dump_pnl
+                and peak_for_dump < early_dump_ignore_peak
+                and confirm_seen >= confirm_required
+            ):
+                return "EARLY_DUMP_CUT"
             adverse_after_s = max(0.0, float(getattr(CFG, "GREEN_SNIPER_ADVERSE_TICK_AFTER_S", 45) or 45))
             adverse_pnl = float(getattr(CFG, "GREEN_SNIPER_ADVERSE_TICK_PNL_PCT", -10.0) or -10.0)
         else:
@@ -704,7 +725,12 @@ def should_exit(
             policy.post_partial_protection_enabled
             and policy.post_partial_lock_floor_pct > 0
             and policy.post_partial_max_giveback_pct > 0
-            and peak >= float(policy.post_partial_lock_floor_pct)
+            and peak >= max(
+                float(policy.post_partial_lock_floor_pct),
+                float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MIN_PEAK_PCT", policy.post_partial_lock_floor_pct) or policy.post_partial_lock_floor_pct)
+                if _is_green_sniper_subject(subject)
+                else float(policy.post_partial_lock_floor_pct),
+            )
         ):
             protection_floor = max(
                 float(policy.post_partial_lock_floor_pct),
@@ -782,6 +808,12 @@ def describe_exit_policy() -> dict[str, Any]:
         },
         "profit_lane_runner_profiles": _profit_runner_profiles(),
         "green_sniper_runner_profile": _profit_runner_profiles()["green_sniper_runner"],
+        "green_sniper_post_partial_protection": {
+            "enabled": bool(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_PROTECTION_ENABLED", True)),
+            "lock_floor_pct": float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_LOCK_FLOOR_PCT", 20.0) or 20.0),
+            "max_giveback_pct": float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MAX_GIVEBACK_PCT", 5.0) or 5.0),
+            "min_peak_pct": float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MIN_PEAK_PCT", 35.0) or 35.0),
+        },
     }
 
 

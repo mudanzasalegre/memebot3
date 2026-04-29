@@ -1,77 +1,91 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from analytics.green_sniper_gate import evaluate_green_sniper
+from analytics.report_utils import (
+    address_of,
+    bought_addresses,
+    fnum,
+    load_candidate_outcomes,
+    metrics_dir,
+    write_json,
+    write_markdown,
+)
 from config.config import PROJECT_ROOT
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        try:
-            item = json.loads(line)
-        except Exception:
-            continue
-        if isinstance(item, dict):
-            rows.append(item)
-    return rows
-
-
-def _float(value: Any, default: float = 0.0) -> float:
-    try:
-        if value is None:
-            return default
-        out = float(value)
-        if out != out:
-            return default
-        return out
-    except Exception:
-        return default
+HOT_SEEN_PRICE5M_PCT = 100.0
+AVOIDED_LOSER_PNL_PCT = -20.0
 
 
 def _reason(row: dict[str, Any]) -> str:
-    return str(
-        row.get("rule_that_blocked")
-        or row.get("reject_reason")
-        or row.get("delay_reason")
-        or row.get("shadow_reason")
-        or row.get("reason")
-        or row.get("stage")
-        or "unknown"
+    candidates = (
+        row.get("final_blocking_reason"),
+        row.get("rule_that_blocked"),
+        row.get("reject_reason"),
+        row.get("delay_reason"),
+        row.get("shadow_reason"),
+        row.get("reason"),
     )
+    for value in candidates:
+        raw = str(value or "").strip()
+        if raw and raw.lower() != "late_funnel":
+            return raw
+    stage = str(row.get("stage") or "").strip()
+    if stage and stage.lower() != "late_funnel":
+        return stage
+    return "unknown"
 
 
-def build_missed_pumps(root: Path | None = None, *, min_pnl_pct: float = 100.0) -> list[dict[str, Any]]:
+def _confirmed_peak(row: dict[str, Any]) -> float | None:
+    fields = (
+        "shadow_max_pnl_pct_seen",
+        "max_pnl_pct_seen",
+        "max_pnl_pct",
+        "peak_pnl_pct",
+        "target_total_pnl_pct",
+        "shadow_outcome_pnl_pct",
+        "pnl_pct",
+    )
+    values = [fnum(row.get(field), float("nan")) for field in fields if row.get(field) is not None]
+    values = [value for value in values if value == value]
+    if not values:
+        return None
+    return max(values)
+
+
+def _classification(row: dict[str, Any], *, min_pnl_pct: float) -> str:
+    confirmed = _confirmed_peak(row)
+    if confirmed is not None and confirmed >= min_pnl_pct:
+        return "confirmed_missed_winner"
+    if confirmed is not None and confirmed <= AVOIDED_LOSER_PNL_PCT:
+        return "confirmed_avoided_loser"
+    if fnum(row.get("price_pct_5m"), 0.0) >= HOT_SEEN_PRICE5M_PCT:
+        return "hot_seen_not_bought"
+    return "unresolved_hot_candidate"
+
+
+def build_missed_pumps(
+    root: Path | None = None,
+    *,
+    min_pnl_pct: float = 100.0,
+    include_unconfirmed_hot: bool = True,
+) -> list[dict[str, Any]]:
     root = root or PROJECT_ROOT
-    metrics = root / "data" / "metrics"
-    outcomes = _read_jsonl(metrics / "candidate_outcomes.jsonl")
-    runtime = _read_jsonl(metrics / "runtime_events.jsonl")
-    bought = {
-        str(row.get("address") or row.get("mint") or "")
-        for row in runtime
-        if str(row.get("event") or row.get("action") or "").lower() in {"buy", "bought", "buy_ok"}
-    }
-    out: list[dict[str, Any]] = []
-    for row in outcomes:
-        addr = str(row.get("address") or row.get("mint") or "")
+    bought = bought_addresses(root)
+    rows: list[dict[str, Any]] = []
+    for row in load_candidate_outcomes(root):
+        addr = address_of(row)
         if not addr or addr in bought:
             continue
-        later = max(
-            _float(row.get("max_pnl_pct")),
-            _float(row.get("max_pnl_pct_seen")),
-            _float(row.get("target_total_pnl_pct")),
-            _float(row.get("peak_pnl_pct")),
-            _float(row.get("price_pct_5m")),
-        )
-        if later < min_pnl_pct:
+        classification = _classification(row, min_pnl_pct=min_pnl_pct)
+        if classification == "unresolved_hot_candidate" and not include_unconfirmed_hot:
             continue
+        confirmed_peak = _confirmed_peak(row)
         decision = evaluate_green_sniper(dict(row), dry_run=True, live=False)
-        out.append(
+        rows.append(
             {
                 "address": addr,
                 "symbol": row.get("symbol"),
@@ -89,27 +103,64 @@ def build_missed_pumps(root: Path | None = None, *, min_pnl_pct: float = 100.0) 
                 "would_green_sniper_pass": decision.action == "buy",
                 "rule_that_blocked": _reason(row),
                 "green_sniper_reason": decision.reason,
-                "later_max_pnl_pct": later,
+                "classification": classification,
+                "observed_peak_after_seen_pct": row.get("max_pnl_pct_seen") or row.get("max_pnl_pct") or row.get("peak_pnl_pct"),
+                "shadow_outcome_pnl_pct": row.get("shadow_outcome_pnl_pct") or row.get("pnl_pct"),
+                "shadow_max_pnl_pct_seen": row.get("shadow_max_pnl_pct_seen") or row.get("max_pnl_pct_seen"),
+                "trade_outcome_pnl_pct": row.get("trade_outcome_pnl_pct"),
+                "confirmed_later_peak_pct": confirmed_peak,
+                "later_max_pnl_pct": confirmed_peak,
             }
         )
-    return sorted(out, key=lambda item: float(item["later_max_pnl_pct"]), reverse=True)
+    order = {
+        "confirmed_missed_winner": 0,
+        "hot_seen_not_bought": 1,
+        "confirmed_avoided_loser": 2,
+        "unresolved_hot_candidate": 3,
+    }
+    return sorted(
+        rows,
+        key=lambda item: (
+            order.get(str(item["classification"]), 9),
+            -fnum(item.get("confirmed_later_peak_pct"), 0.0),
+            -fnum(item.get("price_pct_5m_at_seen"), 0.0),
+        ),
+    )
 
 
 def write_missed_pumps_report(root: Path | None = None) -> list[dict[str, Any]]:
     root = root or PROJECT_ROOT
     rows = build_missed_pumps(root)
-    metrics_dir = root / "data" / "metrics"
-    metrics_dir.mkdir(parents=True, exist_ok=True)
-    (metrics_dir / "missed_pumps.json").write_text(json.dumps(rows, indent=2, sort_keys=True), encoding="utf-8")
-    docs = root / "docs"
-    docs.mkdir(parents=True, exist_ok=True)
-    lines = ["# Missed Pumps Report", "", "| Address | Later max PnL | Rule blocked | Would green sniper pass |", "|---|---:|---|---|"]
-    for row in rows[:50]:
+    write_json(metrics_dir(root) / "missed_pumps.json", rows)
+    counts: dict[str, int] = {}
+    for row in rows:
+        key = str(row.get("classification") or "unknown")
+        counts[key] = counts.get(key, 0) + 1
+    lines = [
+        "# Missed Pumps Report",
+        "",
+        "This report separates hot momentum already visible at evaluation time from confirmed later outcomes. `price_pct_5m_at_seen` is never used as a later peak.",
+        "",
+        "| Classification | Count |",
+        "|---|---:|",
+    ]
+    for key in ("confirmed_missed_winner", "hot_seen_not_bought", "confirmed_avoided_loser", "unresolved_hot_candidate"):
+        lines.append(f"| {key} | {counts.get(key, 0)} |")
+    lines.extend(
+        [
+            "",
+            "| Address | Class | Confirmed later peak | Price5m at seen | Rule blocked | Would green sniper pass |",
+            "|---|---|---:|---:|---|---|",
+        ]
+    )
+    for row in rows[:100]:
+        confirmed = row.get("confirmed_later_peak_pct")
+        confirmed_txt = "n/a" if confirmed is None else f"{fnum(confirmed):.2f}%"
         lines.append(
-            f"| {str(row['address'])[:10]}... | {float(row['later_max_pnl_pct']):.2f}% | "
-            f"{row['rule_that_blocked']} | {row['would_green_sniper_pass']} |"
+            f"| {str(row['address'])[:10]}... | {row['classification']} | {confirmed_txt} | "
+            f"{fnum(row.get('price_pct_5m_at_seen')):.2f}% | {row['rule_that_blocked']} | {row['would_green_sniper_pass']} |"
         )
-    (docs / "MISSED_PUMPS_REPORT.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_markdown(root / "docs" / "MISSED_PUMPS_REPORT.md", lines)
     return rows
 
 

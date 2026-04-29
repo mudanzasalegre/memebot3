@@ -5,6 +5,7 @@ import datetime as dt
 from typing import Any
 
 from config.config import CFG
+from analytics.green_sniper_score import score_green_sniper
 from analytics.social_signal import (
     SOCIAL_STATUS_PRESENT,
     SOCIAL_STATUS_SUSPICIOUS,
@@ -102,28 +103,7 @@ def _buy_sell_ratio(token: dict[str, Any]) -> float:
 
 
 def _score(token: dict[str, Any], *, live: bool, has_route: bool, proxy_liquidity: bool) -> float:
-    price5m = float(_to_float(token.get("price_pct_5m"), 0.0) or 0.0)
-    txns = float(_to_int(token.get("txns_last_5m"), 0))
-    age = _age_minutes(token)
-    impact = float(_to_float(token.get("price_impact_pct"), 0.0) or 0.0)
-    liq = float(_to_float(token.get("liquidity_usd"), 0.0) or 0.0)
-    ratio = _buy_sell_ratio(token)
-
-    score = 0.0
-    score += min(max(price5m, 0.0), 180.0) / 4.0
-    score += min(txns, 200.0) / 4.0
-    score += min(ratio, 3.0) * 8.0
-    score += min(liq / 500.0, 20.0)
-    if age <= 2.0:
-        score += 12.0
-    elif age <= 5.0:
-        score += 8.0
-    if has_route:
-        score += 8.0
-    if proxy_liquidity:
-        score -= 8.0 if live else 2.0
-    if impact > 0:
-        score -= max(0.0, impact - 8.0)
+    score = score_green_sniper(token, has_route=has_route, proxy_liquidity=proxy_liquidity, live=live).score
     social = social_signal_from_token(token)
     if bool(getattr(CFG, "GREEN_SNIPER_SOCIALS_BONUS_ENABLED", True)):
         if social.status == SOCIAL_STATUS_PRESENT:
@@ -137,7 +117,8 @@ def _size_hint(token: dict[str, Any], score: float) -> str:
     price5m = float(_to_float(token.get("price_pct_5m"), 0.0) or 0.0)
     txns = _to_int(token.get("txns_last_5m"), 0)
     age = _age_minutes(token)
-    if score >= 78.0 and txns >= int(getattr(CFG, "GREEN_SNIPER_HOT_MIN_TXNS_5M", 80) or 80) and 20.0 <= price5m <= 180.0 and age <= 3.0:
+    rank = float(_to_float(token.get("rank_score") or token.get("research_rank_score"), 0.0) or 0.0)
+    if score >= 78.0 and rank >= 50.0 and txns >= int(getattr(CFG, "GREEN_SNIPER_HOT_MIN_TXNS_5M", 80) or 80) and 20.0 <= price5m <= 180.0 and age <= 3.0:
         return "hot"
     if score >= 55.0:
         return "core"
@@ -245,6 +226,8 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
     if price5m is None:
         failures.append("missing_price_pct_5m")
     else:
+        if bool(getattr(CFG, "LATE_MOMENTUM_WATCH_ENABLED", True)) and price5m >= float(getattr(CFG, "LATE_MOMENTUM_WATCH_MIN_PRICE5M", 300.0) or 300.0):
+            failures.append("late_momentum_watch")
         if price5m < float(getattr(CFG, "GREEN_SNIPER_MIN_PRICE_PCT_5M", 20.0)):
             failures.append("low_green_momentum")
         if price5m > float(getattr(CFG, "GREEN_SNIPER_MAX_PRICE_PCT_5M", 280.0)):
@@ -281,6 +264,7 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
         "missing_price",
         "proxy_liquidity_live",
         "high_impact",
+        "late_momentum_watch",
     }
     score = _score(token, live=live, has_route=has_route, proxy_liquidity=proxy_liq)
     social = social_signal_from_token(token)
@@ -304,7 +288,7 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
     )
 
     if paper_birth_probe:
-        action = "buy"
+        action = "shadow" if bool(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_SHADOW_FIRST", True)) else "buy"
         reason = "paper_birth_probe:" + ",".join(failures[:8])
         size_hint = "micro"
     elif not failures:
@@ -338,8 +322,8 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
 
 def apply_green_sniper_context(token: dict[str, Any], decision: GreenSniperDecision) -> dict[str, Any]:
     token["entry_lane"] = decision.lane
-    token["gate_profile"] = "green_sniper"
-    token["sniper_gate_profile"] = "green_sniper"
+    token["gate_profile"] = "green_sniper_birth_probe" if decision.paper_birth_probe else "green_sniper"
+    token["sniper_gate_profile"] = token["gate_profile"]
     token["profit_lane_tier"] = decision.lane
     token["runner_exit_profile"] = decision.runner_profile
     token["green_sniper_score"] = decision.score
@@ -347,6 +331,8 @@ def apply_green_sniper_context(token: dict[str, Any], decision: GreenSniperDecis
     token["green_sniper_reason"] = decision.reason
     token["green_sniper_size_hint"] = decision.size_hint
     token["green_sniper_paper_birth_probe"] = int(bool(decision.paper_birth_probe))
+    if decision.paper_birth_probe:
+        token["entry_subtype"] = "paper_birth_probe"
     token["social_bonus_applied"] = decision.social_bonus_applied
     token["social_risk_flags"] = ",".join(decision.social_risk_flags)
     token["live_profit_gate_failed_count"] = 0 if decision.action == "buy" else len(decision.reject_reasons)

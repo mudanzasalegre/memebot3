@@ -159,7 +159,9 @@ import analytics.strategy_runtime as strategy_runtime  # noqa: E402
 import analytics.research_runtime as research_runtime  # noqa: E402
 from analytics.green_sniper_gate import apply_green_sniper_context, evaluate_green_sniper  # noqa: E402
 from analytics.green_sniper_rank_guard import evaluate_green_sniper_rank_guard  # noqa: E402
+from analytics.green_sniper_risk_guard import evaluate_green_sniper_risk_guard  # noqa: E402
 from analytics.green_sniper_sizing import compute_green_sniper_sizing  # noqa: E402
+from analytics.research_rank_canary import apply_research_rank_canary_context, evaluate_research_rank_canary  # noqa: E402
 from analytics.profit_pnl_guard import evaluate_profit_pnl_guard  # noqa: E402
 from analytics.ml_policy import decide_ml_action  # noqa: E402
 from analytics.risk_predict import predict_risk  # noqa: E402
@@ -3718,17 +3720,19 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         vec = build_feature_vector(token)
         vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
         rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+    research_canary_decision = evaluate_research_rank_canary(token, rank_info, dry_run=DRY_RUN, live=not DRY_RUN)
+    research_rank_canary_fast_path = bool(research_canary_decision.allowed)
+    if research_rank_canary_fast_path:
+        apply_research_rank_canary_context(token, research_canary_decision)
+        vec = build_feature_vector(token)
+        vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+        rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
     if str(token.get("entry_lane") or "").strip().lower() == "pump_early_green_candle_sniper":
         green_rank_guard = evaluate_green_sniper_rank_guard(rank_info)
         token["green_sniper_rank_score"] = float(green_rank_guard.rank_score)
         token["green_sniper_rank_guard_min_score"] = float(green_rank_guard.min_score)
         token["green_sniper_rank_guard_reason"] = str(green_rank_guard.reason)
-        green_rank_bypass = bool(
-            DRY_RUN
-            and bool(getattr(CFG, "PAPER_SNIPER_MODE", False))
-            and bool(getattr(CFG, "GREEN_SNIPER_RANK_GUARD_BYPASS_PAPER_BIRTH_PROBE", True))
-            and bool(token.get("green_sniper_paper_birth_probe"))
-        )
+        green_rank_bypass = False
         if green_rank_bypass:
             token["green_sniper_rank_guard_reason"] = "paper_birth_probe_bypass"
         if not green_rank_guard.allowed and not green_rank_bypass:
@@ -3758,6 +3762,41 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 rank_info=rank_info,
                 shadow_kind="green_sniper_reject_shadow",
             )
+            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "green_shadow"))
+            _remove_from_queue_if_present(addr)
+            return
+        risk_guard = evaluate_green_sniper_risk_guard(token, dry_run=DRY_RUN, live=not DRY_RUN)
+        token["green_sniper_risk_level"] = risk_guard.risk_level
+        token["green_sniper_risk_reasons"] = ",".join(risk_guard.risk_reasons)
+        token["green_sniper_risk_size_multiplier"] = float(risk_guard.size_multiplier)
+        if not risk_guard.allow_buy:
+            _stats["filtered_out"] += 1
+            reject_reason = f"green_risk_guard:{risk_guard.risk_level}:{','.join(risk_guard.risk_reasons[:4])}"
+            _store_policy_reject(vec, already_vector=True, reason=reject_reason)
+            _research_decision(
+                token,
+                action="shadow",
+                reason=reject_reason,
+                stage="green_risk_guard",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="green_sniper_reject_shadow",
+            )
+            if risk_guard.can_shadow:
+                await _open_shadow(
+                    addr,
+                    vec,
+                    price_hint=token.get("price_usd"),
+                    force=True,
+                    regime="pump_early",
+                    reason=reject_reason,
+                    stage="green_risk_guard",
+                    proba=proba,
+                    threshold=ai_threshold_eff,
+                    rank_info=rank_info,
+                    shadow_kind="green_sniper_reject_shadow",
+                )
             _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "green_shadow"))
             _remove_from_queue_if_present(addr)
             return
@@ -3824,7 +3863,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     sniper_gate_ok_preview = bool(
         _PUMP_EARLY_SNIPER_ENABLED
         and str(token.get("entry_lane") or "").strip().lower()
-        in {"pump_early_sniper", "pump_early_pumpswap_profit", "pump_early_green_candle_sniper"}
+        in {"pump_early_sniper", "pump_early_pumpswap_profit", "pump_early_green_candle_sniper", "pump_early_research_rank_canary"}
         and _metric_int(token, "live_profit_gate_failed_count") == 0
     )
     if (
@@ -3891,7 +3930,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         has_route=route_probe.get("has_route"),
     )
     green_paper_health_bypass = bool(
-        green_fast_path
+        (green_fast_path or research_rank_canary_fast_path)
         and DRY_RUN
         and bool(getattr(CFG, "PAPER_SNIPER_MODE", False))
         and bool(getattr(CFG, "PAPER_SNIPER_CONTINUE_ON_HEALTH", True))
@@ -4138,6 +4177,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     amount_sol = _compute_trade_amount(size_decision.multiplier)
     if green_size_decision is not None:
         amount_sol = float(green_size_decision.amount_sol)
+    if research_rank_canary_fast_path:
+        amount_sol = float(research_canary_decision.amount_sol)
     effective_min_buy_sol = float(getattr(CFG, "GREEN_SNIPER_LIVE_SIZE_SOL", MIN_BUY_SOL) or MIN_BUY_SOL) if green_fast_path else float(MIN_BUY_SOL)
     if amount_sol < effective_min_buy_sol:
         # Shadow si pasa IA pero no se compra por importe
@@ -4602,10 +4643,15 @@ async def _load_open_position_lanes(ses: SessionLocal) -> list[str]:
 
 async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[bool, int, int]:
     lane = str(entry_lane or "").strip().lower()
-    if lane not in {"pump_early_pumpswap_profit", "pump_early_pumpswap_breakout_probe", "pump_early_green_candle_sniper"}:
+    if lane not in {
+        "pump_early_pumpswap_profit",
+        "pump_early_pumpswap_breakout_probe",
+        "pump_early_green_candle_sniper",
+        "pump_early_research_rank_canary",
+    }:
         return True, 0, int(CFG.MAX_ACTIVE_POSITIONS)
     open_lanes = await _load_open_position_lanes(ses)
-    if lane == "pump_early_green_candle_sniper":
+    if lane in {"pump_early_green_candle_sniper", "pump_early_research_rank_canary"}:
         decision = evaluate_lane_position_limit(
             lane,
             [{"entry_lane": value} for value in open_lanes],
