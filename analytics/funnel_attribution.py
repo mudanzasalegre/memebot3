@@ -78,26 +78,23 @@ def _final_state(events: list[dict[str, Any]]) -> tuple[str, str, str]:
         event = execution_blocked[-1]
         return "execution_blocked", str(event.get("reason") or "execution_blocked"), str(event.get("stage") or "execution")
 
-    shadow = [
-        event
-        for event in events
-        if "shadow" in str(event.get("stage") or event.get("reason") or event.get("event_type") or event.get("shadow_kind") or "").lower()
-    ]
-    reject = [
-        event
-        for event in events
-        if "reject" in str(event.get("stage") or event.get("reason") or event.get("event_type") or "").lower()
-        or str(event.get("event_type") or "").lower() == "candidate_decision"
-        and str(event.get("reason") or "").lower() not in {"", "bought", "buy_ok"}
-    ]
-    delay = [event for event in events if "delay" in str(event.get("stage") or event.get("reason") or "").lower()]
-
-    for state, bucket in (("rejected", reject), ("shadow", shadow), ("delayed", delay)):
-        if bucket:
-            event = bucket[-1]
-            return state, str(event.get("reason") or state), str(event.get("stage") or state)
-
     meaningful = [event for event in events if str(event.get("stage") or "").lower() != "late_funnel"]
+    for event in reversed(meaningful):
+        text = " ".join(
+            str(event.get(key) or "")
+            for key in ("stage", "reason", "event_type", "shadow_kind")
+        ).lower()
+        if "shadow" in text:
+            return "shadow", str(event.get("reason") or "shadow"), str(event.get("stage") or "shadow")
+        if "delay" in text or "wait" in text:
+            return "delayed", str(event.get("reason") or "delayed"), str(event.get("stage") or "delay")
+        if "reject" in text or "blocked" in text:
+            return "rejected", str(event.get("reason") or "rejected"), str(event.get("stage") or "reject")
+        if "soft_score" in text:
+            return "rejected", str(event.get("reason") or "soft_score"), str(event.get("stage") or "soft_score")
+        if str(event.get("event_type") or "").lower() == "candidate_decision" and str(event.get("reason") or "").lower() not in {"", "bought", "buy_ok"}:
+            return "rejected", str(event.get("reason") or "candidate_decision"), str(event.get("stage") or "candidate_decision")
+
     if meaningful:
         event = meaningful[-1]
         return "expired", str(event.get("reason") or "expired"), str(event.get("stage") or "expired")

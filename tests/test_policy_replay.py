@@ -14,3 +14,6 @@ def test_policy_replay_combined_caps_severe_loss(tmp_path) -> None:
     )
     report = build_policy_replay(tmp_path)
     assert report["combined_v1"]["avg_pnl"] > report["current"]["avg_pnl"]
+    assert report["risk_guard"]["avg_pnl"] > report["current"]["avg_pnl"]
+    assert "liq_guard" in report
+    assert "research_rank_canary" in report

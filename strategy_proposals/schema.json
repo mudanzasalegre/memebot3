@@ -5,9 +5,13 @@
     "proposal_id": {"type": "string"},
     "hypothesis": {"type": "string"},
     "changes": {"type": "object"},
+    "thresholds": {"type": "object"},
+    "lanes": {"type": "array", "items": {"type": "string"}},
+    "exit_profiles": {"type": "object"},
     "expected_effect": {"type": "object"},
+    "expected_metrics": {"type": "object"},
     "required_gates": {"type": "array", "items": {"type": "string"}},
-    "live_allowed": {"type": "boolean"},
+    "live_allowed": {"type": "boolean", "default": false},
     "risk_notes": {"type": "array", "items": {"type": "string"}}
   },
   "additionalProperties": true

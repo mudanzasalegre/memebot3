@@ -15,6 +15,16 @@ from ml.lane_taxonomy import (
 )
 
 
+def _int_cfg(name: str, default: int) -> int:
+    value = getattr(CFG, name, None)
+    if value is None or value == "":
+        return int(default)
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
 @dataclass(frozen=True)
 class PositionLimitDecision:
     allowed: bool
@@ -31,34 +41,20 @@ def _cap_for_lane(lane: str, *, dry_run: bool, live: bool) -> int:
     lane = normalize_entry_lane(lane)
     if lane == LANE_PUMP_EARLY_GREEN_SNIPER:
         if live:
-            return int(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_OPEN", 1) or 1)
-        return int(getattr(CFG, "GREEN_SNIPER_MAX_OPEN_PAPER", getattr(CFG, "PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 6)) or 6)
+            return _int_cfg("GREEN_SNIPER_LIVE_MAX_OPEN", 1)
+        return _int_cfg("GREEN_SNIPER_MAX_OPEN_PAPER", _int_cfg("PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 6))
     if lane == LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH:
         if live:
-            return int(getattr(CFG, "LATE_MOMENTUM_WATCH_MAX_OPEN_LIVE", 0) or 0)
-        return int(getattr(CFG, "LATE_MOMENTUM_WATCH_MAX_OPEN_PAPER", 1) or 1)
+            return _int_cfg("LATE_MOMENTUM_WATCH_MAX_OPEN_LIVE", 0)
+        return _int_cfg("LATE_MOMENTUM_WATCH_MAX_OPEN_PAPER", 1)
     if lane == LANE_PUMP_EARLY_BREAKOUT:
-        return int(
-            getattr(
-                CFG,
-                "PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER",
-                1,
-            )
-            or 1
-        )
+        return _int_cfg("PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1)
     if lane == LANE_PUMP_EARLY_PROFIT:
-        return int(
-            getattr(
-                CFG,
-                "PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER",
-                2,
-            )
-            or 2
-        )
+        return _int_cfg("PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2)
     if lane == LANE_RESEARCH_SNIPER:
-        return int(getattr(CFG, "RESEARCH_SHADOW_MAX_OPEN_PER_REGIME", 4) or 4)
+        return _int_cfg("RESEARCH_SHADOW_MAX_OPEN_PER_REGIME", 4)
     if lane == LANE_RESEARCH_RANK_CANARY:
-        return int(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_OPEN", 1) or 1)
+        return _int_cfg("RESEARCH_RANK_CANARY_MAX_OPEN", 1)
     return 999 if dry_run else 1
 
 
@@ -80,8 +76,8 @@ def evaluate_lane_position_limit(
     normalized = normalize_entry_lane(lane)
     counts = count_open_by_lane(open_positions)
     open_count = int(counts.get(normalized, 0))
-    cap = max(0, _cap_for_lane(normalized, dry_run=dry_run, live=live))
-    allowed = cap <= 0 or open_count < cap
+    cap = _cap_for_lane(normalized, dry_run=dry_run, live=live)
+    allowed = cap < 0 or (cap > 0 and open_count < cap)
     return PositionLimitDecision(
         allowed=allowed,
         lane=normalized,

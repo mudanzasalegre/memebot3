@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from analytics.social_signal import social_signal_from_token
+from analytics.token_time import compute_age_minutes
 from ml.data_contract import (
     normalize_dex_id as contract_normalize_dex_id,
     normalize_entry_regime as contract_normalize_entry_regime,
@@ -77,7 +78,13 @@ COLUMNS: list[str] = [
     "trend",
     "has_jupiter_route",
     "require_jupiter_for_buy",
+    "route_proxy",
     "liquidity_is_proxy",
+    "green_sniper_risk_level",
+    "green_sniper_risk_reasons",
+    "green_sniper_size_multiplier",
+    "liquidity_risk_level",
+    "liquidity_risk_reasons",
     "venue_is_pumpswap",
     "mcap_bucket",
     "mcap_bucket_code",
@@ -104,7 +111,13 @@ _BOOL_COLS = {
     "website_present",
     "has_jupiter_route",
     "require_jupiter_for_buy",
+    "route_proxy",
     "liquidity_is_proxy",
+    "green_sniper_risk_level",
+    "green_sniper_risk_reasons",
+    "green_sniper_size_multiplier",
+    "liquidity_risk_level",
+    "liquidity_risk_reasons",
     "venue_is_pumpswap",
     "impact_zero_flag",
 }
@@ -209,6 +222,7 @@ ALLOWED_FEATURES: set[str] = {
     "trend",
     "has_jupiter_route",
     "require_jupiter_for_buy",
+    "route_proxy",
     "liquidity_is_proxy",
     "venue_is_pumpswap",
     "mcap_bucket",
@@ -385,21 +399,7 @@ def _feature_value(tok: Dict[str, Any], col: str) -> Any:
 
 
 def _coerce_age_minutes(tok: Dict[str, Any], now: dt.datetime) -> float:
-    created_at = tok.get("created_at")
-    if created_at is not None:
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=dt.timezone.utc)
-        return max(0.0, (now - created_at).total_seconds() / 60.0)
-
-    for key in ("age_min", "age_minutes", "queue_age_minutes"):
-        raw = tok.get(key)
-        try:
-            if raw is None:
-                continue
-            return max(0.0, float(raw))
-        except Exception:
-            continue
-    return 0.0
+    return compute_age_minutes(tok, now=now)
 
 
 def build_feature_vector(tok: Dict[str, Any]) -> pd.Series:
@@ -437,6 +437,12 @@ def build_feature_vector(tok: Dict[str, Any]) -> pd.Series:
         "price_source_quality": _price_source_quality(tok.get("price_source")),
         "age_minutes": age_min,
         "liquidity_is_proxy": _as_bool_int(tok.get("liquidity_is_proxy") or tok.get("liquidity_usd_is_proxy")),
+        "route_proxy": _as_bool_int(tok.get("route_proxy")),
+        "green_sniper_risk_level": tok.get("green_sniper_risk_level"),
+        "green_sniper_risk_reasons": tok.get("green_sniper_risk_reasons"),
+        "green_sniper_size_multiplier": tok.get("green_sniper_size_multiplier"),
+        "liquidity_risk_level": tok.get("liquidity_risk_level"),
+        "liquidity_risk_reasons": tok.get("liquidity_risk_reasons"),
         "venue_is_pumpswap": int(dex_id == "pumpswap"),
         "mcap_bucket": str(tok.get("mcap_bucket") or mcap_bucket),
         "mcap_bucket_code": int(mcap_bucket_code),

@@ -1,45 +1,59 @@
-# Local Milestones
+# Local Milestones PR-00..PR-36
 
-This workspace has no `.git`, so PR-00..PR-31 are tracked as local milestones.
-
-| Milestone | Status | Notes |
-|---|---|---|
-| PR--01 Preflight | implemented | Uses `.venv`, fixes current `CFG` AST-test failure, adds preflight tooling. |
-| PR-00 Baseline snapshot | implemented | `analytics/baseline_snapshot.py`, `tools/current_baseline_snapshot.py`. |
-| PR-01 Funnel Attribution v2 | implemented | Adds final state metadata, shadow/outcome flags and later peak. |
-| PR-02 Decision Ledger | implemented | `features/decision_store.py`, `analytics/decision_ledger.py`, best-effort runtime append. |
-| PR-03 Dataset Hygiene v2 | implemented | Expanded sample types and productive-training predicates. |
-| PR-04 Label Builder | implemented | `ml/label_builder.py`. |
-| PR-05 Feature Set v2 | implemented | `ml/feature_sets.py`. |
-| PR-06 Risk Model | implemented | `ml/train_risk_model.py`, runtime wrapper. |
-| PR-07 EV Model | implemented | `ml/train_ev_model.py`, runtime wrapper. |
-| PR-08 Runner Model | implemented | `ml/train_runner_model.py`, runtime wrapper. |
-| PR-09 Continuation Model | implemented | `ml/train_continuation_model.py`, runtime wrapper. |
-| PR-10 Exit Model | implemented | `ml/train_exit_model.py`, runtime wrapper. |
-| PR-11 TradeDecision v2 | implemented | `execution/trade_decision.py`, `runtime/entry_policy.py`. |
-| PR-12 Policy Score | implemented | `runtime/policy_score.py`. |
-| PR-13 Policy Modes | implemented | `runtime/policy_modes.py`; live enforce is blocked by default. |
-| PR-14 Dynamic Thresholds | implemented | `runtime/dynamic_thresholds.py`. |
-| PR-15 Policy Replay | implemented | Existing replay extended with model/combined policies. |
-| PR-16 Green Learned Policy | implemented | Safe helper in `runtime/learned_policies.py`. |
-| PR-17 Research Rank Learned Canary | implemented | Safe helper in `runtime/learned_policies.py`. |
-| PR-18 Late Momentum Continuation | implemented | Safe helper in `runtime/learned_policies.py`. |
-| PR-19 Bird Runner Exit | implemented | `analytics/bird_runner_exit.py`, explicit profile support. |
-| PR-20 Exit Policy Selector | implemented | `analytics/exit_policy_selector.py`. |
-| PR-21 Runner Capture Optimizer | implemented | `analytics/runner_capture_optimizer.py`. |
-| PR-22 Walk-forward Training | implemented | `ml/walk_forward.py`, `tools/walk_forward_train.py`. |
-| PR-23 Model Registry Families | implemented | `ml/model_registry.py` supports family paths. |
-| PR-24 Drift Monitor | existing/compatible | Existing defensive `analytics/drift_monitor.py`. |
-| PR-25 Dynamic Policy Tuner | implemented | `runtime/policy_tuner.py`. |
-| PR-26 Candidate Policy Profiles | implemented | `strategy_proposals/` schema and candidate dirs. |
-| PR-27 Paper Forward Evaluator | implemented | `analytics/paper_forward.py`. |
-| PR-28 Live Canary Controller v2 | implemented | `runtime/live_canary_v2.py`. |
-| PR-29 Strategy Quality Gate v2 | implemented | Existing script extended. |
-| PR-30 StrategyProposal Schema | implemented | `strategy_proposals/schema.json`, validator. |
-| PR-31 Proposal Review CLI | implemented | `tools/review_strategy_proposal.py`. |
+This workspace has no `.git`, so the PR plan is tracked as local milestones.
 
 Validation command:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+## Invariants
+
+- No automatic live activation.
+- No automatic model promotion.
+- No LLM trading.
+- Socials are never a hard gate.
+- Rule-based fallback remains available.
+
+## Milestones
+
+| Milestone | Local status | Notes |
+|---|---|---|
+| PR-00 Preflight | implemented | Extended `.venv` preflight, profile/env checks, no-data report builders. |
+| PR-01 Position limits semantics | implemented | `cap=-1` unlimited, `cap=0` blocked, `cap>0` max open. |
+| PR-02 Green sniper age score | implemented | Shared token age helper and score normalization from `created_at`/`createdAt`. |
+| PR-03 Missed pumps confirmed outcomes | implemented | Confirmed winner/loser requires outcome-confirmed sample or flag. |
+| PR-04 Late momentum route policy | implemented | Paper route proxy tag; live no-route blocks/shadows. |
+| PR-05 Config effect audit | implemented | `tools/config_effect_audit.py` reports active/placebo flags. |
+| PR-06 Baseline snapshot | implemented | Adds severe losses, runner counts and mcap buckets. |
+| PR-07 Funnel Attribution v2 | implemented | Final-state attribution hardened; `late_funnel` cannot be final blocker. |
+| PR-08 Decision Ledger | implemented | Canonical action normalization and outcome linking fields. |
+| PR-09 Dataset Hygiene v2 | implemented | Execution-blocked excluded from productive training; lane shadows are outcome samples. |
+| PR-10 Trade Diagnostics | implemented | Entry subtype, buckets, severe and runner metrics. |
+| PR-11 Green Sniper Risk Guard | implemented | Guard integrated behind existing flag. |
+| PR-12 Liquidity Guard | implemented | Guard integrated in green sniper and late momentum. |
+| PR-13 Early Dump Cut | implemented | Pure helper plus runtime monitor wrapper. |
+| PR-14 Policy Replay Engine | implemented | Plan aliases added while preserving existing policies. |
+| PR-15 Runner Capture Report | implemented | Adds gt_500, exit_profile and lane grouping. |
+| PR-16 Label Builder | implemented | Existing label builder retained with anti-leakage tests. |
+| PR-17 Feature Sets v2 | implemented | Existing explicit feature sets retained. |
+| PR-18 Severe Loss Risk Model | implemented | Manual trainer/runtime retained; no auto-promotion. |
+| PR-19 EV Model | implemented | Manual trainer/runtime retained. |
+| PR-20 Runner Model | implemented | Manual trainer/runtime retained. |
+| PR-21 Continuation Model | implemented | Manual trainer/runtime retained. |
+| PR-22 TradeDecision v2 | implemented | Existing v2 retained. |
+| PR-23 Policy Score | implemented | Existing multi-objective score retained. |
+| PR-24 Dynamic Thresholds | implemented | Existing offline threshold manager retained. |
+| PR-25 Learned Policy v1 | implemented | Safe paper/live mode helpers retained. |
+| PR-26 Bird Runner Exit | implemented | Existing profile support retained. |
+| PR-27 Exit Selector | implemented | Existing selector retained. |
+| PR-28 Walk-forward Training | implemented | Existing manual pipeline retained. |
+| PR-29 Model Registry Families | implemented | Existing family registry retained. |
+| PR-30 Drift Monitor | implemented | Defensive monitor retained. |
+| PR-31 Offline Tuner | implemented | Existing candidate generator retained. |
+| PR-32 Candidate Policy Profiles | implemented | Existing schema and validator retained. |
+| PR-33 Paper Forward Evaluator | implemented | Runtime/tool wrappers added. |
+| PR-34 Live Canary Controller v2 | implemented | Paper-forward and risk-low gates added. |
+| PR-35 Strategy Quality Gate v2 | implemented | Live/replay/paper/manual approval checks extended. |
+| PR-36 StrategyProposal LLM-ready | implemented | Existing proposal README/schema/review CLI retained; no LLM integration. |

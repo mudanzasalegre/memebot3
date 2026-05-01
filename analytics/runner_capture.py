@@ -20,7 +20,7 @@ def _row_capture(row: dict[str, Any]) -> dict[str, Any]:
         "giveback_pct": round(max(max_seen - realized, 0.0), 3),
         "partial_taken": bool(row.get("partial_taken") or row.get("partials") or row.get("partial_count")),
         "exit_reason": row.get("exit_reason") or row.get("reason"),
-        "runner_profile": row.get("runner_exit_profile") or row.get("exit_profile") or "unknown",
+        "exit_profile": row.get("exit_profile") or row.get("runner_exit_profile") or "unknown",
     }
 
 
@@ -28,7 +28,8 @@ def build_runner_capture(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
     rows = [_row_capture(row) for row in load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)]
     runner_rows = [row for row in rows if fnum(row.get("max_pnl_seen"), 0.0) >= 50]
-    buckets: dict[str, list[dict[str, Any]]] = {"gt_50": [], "gt_100": [], "gt_300": []}
+    buckets: dict[str, list[dict[str, Any]]] = {"gt_50": [], "gt_100": [], "gt_300": [], "gt_500": []}
+    by_lane: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         peak = fnum(row.get("max_pnl_seen"), 0.0)
         if peak >= 50:
@@ -37,6 +38,10 @@ def build_runner_capture(root: Path | None = None) -> dict[str, Any]:
             buckets["gt_100"].append(row)
         if peak >= 300:
             buckets["gt_300"].append(row)
+        if peak >= 500:
+            buckets["gt_500"].append(row)
+        if peak >= 50:
+            by_lane.setdefault(str(row.get("entry_lane") or "unknown"), []).append(row)
 
     def summarize(items: list[dict[str, Any]]) -> dict[str, Any]:
         if not items:
@@ -49,6 +54,7 @@ def build_runner_capture(root: Path | None = None) -> dict[str, Any]:
 
     return {
         "summary": {key: summarize(value) for key, value in buckets.items()},
+        "by_lane": {key: summarize(value) for key, value in sorted(by_lane.items())},
         "top_runners": sorted(runner_rows, key=lambda item: fnum(item["max_pnl_seen"]), reverse=True)[:100],
     }
 

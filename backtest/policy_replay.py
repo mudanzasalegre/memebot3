@@ -11,14 +11,18 @@ POLICIES = (
     "current",
     "rules_only",
     "fix_missed_only",
+    "risk_guard",
     "risk_guard_v2",
+    "liq_guard",
     "risk_model_only",
     "rank_canary",
+    "research_rank_canary",
     "score_recalibrated",
     "ev_model_only",
     "runner_model_only",
     "late_momentum_watch",
     "continuation_model",
+    "early_dump",
     "early_dump_cut",
     "post_partial_protected",
     "combined_v1",
@@ -36,9 +40,11 @@ def _simulate(row: dict[str, Any], policy: str) -> float:
     reason = str(row.get("exit_reason") or row.get("reason") or "").upper()
     peak = fnum(row.get("max_pnl_pct_seen") or row.get("peak_pnl_pct") or row.get("max_pnl_pct"), pnl)
     combined = policy in {"combined_v1", "combined_policy_v1", "combined_policy_v2"}
-    if policy in {"risk_guard_v2", "risk_model_only"} or combined:
+    if policy in {"risk_guard", "risk_guard_v2", "risk_model_only"} or combined:
         if reason in {"ADVERSE_TICK", "LIQUIDITY_CRUSH"}:
             return max(pnl, -18.0)
+    if policy == "liq_guard" and reason == "LIQUIDITY_CRUSH":
+        return max(pnl, -15.0)
     if policy == "risk_model_only":
         return pnl
     if policy == "ev_model_only" and fnum(row.get("ev_pred_pct"), pnl) < 0:
@@ -48,14 +54,14 @@ def _simulate(row: dict[str, Any], policy: str) -> float:
         return max(pnl, peak * 0.30) if peak >= 100 else pnl
     if policy == "continuation_model" and str(row.get("entry_lane") or "") == "pump_early_late_momentum_watch":
         return max(pnl, fnum(row.get("continuation_peak_after_seen_3m"), pnl) * 0.25)
-    if policy in {"early_dump_cut"} or combined:
+    if policy in {"early_dump", "early_dump_cut"} or combined:
         if pnl < -25 and peak < 15:
             return max(pnl, -12.0)
     if policy in {"post_partial_protected"} or combined:
         if peak >= 100 and pnl > 0:
             capture = 0.40 if policy == "combined_policy_v2" else 0.35
             return max(pnl, peak * capture)
-    if policy == "rank_canary" and str(row.get("entry_lane") or "").endswith("sniper_research") and fnum(row.get("rank_score"), 0) >= 61:
+    if policy in {"rank_canary", "research_rank_canary"} and str(row.get("entry_lane") or "").endswith("sniper_research") and fnum(row.get("rank_score"), 0) >= 61:
         return pnl
     return pnl
 

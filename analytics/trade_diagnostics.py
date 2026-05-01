@@ -25,6 +25,7 @@ from ml.data_contract import normalize_ml_row
 GROUP_FIELDS = (
     "entry_lane",
     "gate_profile",
+    "entry_subtype",
     "green_sniper_reason",
     "exit_reason",
     "sample_type",
@@ -72,6 +73,7 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "runner_count_50": sum(1 for row in rows if fnum(row.get("max_pnl"), _pnl(row)) >= 50),
         "runner_count_100": sum(1 for row in rows if fnum(row.get("max_pnl"), _pnl(row)) >= 100),
         "runner_count_300": sum(1 for row in rows if fnum(row.get("max_pnl"), _pnl(row)) >= 300),
+        "runner_count_500": sum(1 for row in rows if fnum(row.get("max_pnl"), _pnl(row)) >= 500),
         "adverse_tick_count": sum(1 for row in rows if str(row.get("exit_reason")).upper() == "ADVERSE_TICK"),
         "liq_crush_count": sum(1 for row in rows if str(row.get("exit_reason")).upper() == "LIQUIDITY_CRUSH"),
     }

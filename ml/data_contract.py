@@ -217,7 +217,12 @@ def is_live_trade_sample(row: Mapping[str, Any]) -> bool:
 
 
 def is_shadow_sample(row: Mapping[str, Any]) -> bool:
-    return normalize_sample_type(row.get("sample_type")) == SAMPLE_SHADOW_CLOSE
+    return normalize_sample_type(row.get("sample_type")) in {
+        SAMPLE_SHADOW_CLOSE,
+        SAMPLE_GREEN_SNIPER_REJECT_SHADOW,
+        SAMPLE_LATE_MOMENTUM_WATCH_SHADOW,
+        SAMPLE_RESEARCH_RANK_SHADOW,
+    }
 
 
 def is_policy_reject(row: Mapping[str, Any]) -> bool:
@@ -235,6 +240,9 @@ def is_productive_training_sample(row: Mapping[str, Any]) -> bool:
     return normalize_sample_type(row.get("sample_type")) in {
         SAMPLE_TRADE_CLOSE,
         SAMPLE_SHADOW_CLOSE,
+        SAMPLE_GREEN_SNIPER_REJECT_SHADOW,
+        SAMPLE_LATE_MOMENTUM_WATCH_SHADOW,
+        SAMPLE_RESEARCH_RANK_SHADOW,
     }
 
 

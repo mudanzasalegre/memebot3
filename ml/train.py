@@ -49,7 +49,13 @@ HOLDOUT_PCT: Optional[float] = getattr(CFG, "TRAIN_FORWARD_HOLDOUT_PCT", None)
 TRAIN_WINDOW_DAYS: Optional[int] = getattr(CFG, "TRAINING_WINDOW_DAYS", None)
 PREC_AT_K_PCT: float = float(getattr(CFG, "PRECISION_AT_K_PCT", 0.10))
 RETURN_COL_CANDIDATES = ("target_total_pnl_pct", "total_pnl_pct", "pnl_pct")
-OUTCOME_SAMPLE_TYPES = ("trade_close", "shadow_close")
+OUTCOME_SAMPLE_TYPES = (
+    "trade_close",
+    "shadow_close",
+    "green_sniper_reject_shadow",
+    "late_momentum_watch_shadow",
+    "research_rank_shadow",
+)
 
 _FORBIDDEN_SUBSTR = (
     "pnl",

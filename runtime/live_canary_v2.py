@@ -19,6 +19,7 @@ def evaluate_live_canary_v2(
     token: dict[str, Any],
     *,
     candidate_policy_passed: bool,
+    paper_forward_passed: bool | None = None,
     manual_approval: bool,
     provider_health_ok: bool,
     open_count: int = 0,
@@ -33,12 +34,18 @@ def evaluate_live_canary_v2(
         return LiveCanaryDecision(False, "live_canary_disabled", max_open, max_daily, size_sol)
     if not candidate_policy_passed:
         return LiveCanaryDecision(False, "candidate_policy_not_passed", max_open, max_daily, size_sol)
+    if paper_forward_passed is None:
+        paper_forward_passed = candidate_policy_passed
+    if not paper_forward_passed:
+        return LiveCanaryDecision(False, "paper_forward_not_passed", max_open, max_daily, size_sol)
     if not manual_approval:
         return LiveCanaryDecision(False, "manual_approval_required", max_open, max_daily, size_sol)
     if not provider_health_ok:
         return LiveCanaryDecision(False, "provider_health_bad", max_open, max_daily, size_sol)
     if bool(getattr(CFG, "LIVE_REQUIRE_ROUTE", True)) and not bool(token.get("has_jupiter_route")):
         return LiveCanaryDecision(False, "route_required", max_open, max_daily, size_sol)
+    if str(token.get("risk_level") or token.get("green_sniper_risk_level") or "low").lower() in {"high", "lethal"}:
+        return LiveCanaryDecision(False, "risk_not_low", max_open, max_daily, size_sol)
     if open_count >= max_open:
         return LiveCanaryDecision(False, "max_open", max_open, max_daily, size_sol)
     if daily_buys >= max_daily:

@@ -13,7 +13,10 @@ Checks covered:
 
 - imports `config.config.CFG`;
 - compiles critical runtime, analytics, ML and policy modules;
-- verifies `.env.example` and `config/profiles/` exist;
+- parses `.env.example`;
+- parses every `config/profiles/*.env` file;
+- verifies `data/metrics` and `docs` exist;
+- runs report builders against an empty temporary data root;
 - optionally runs the full pytest suite.
 
-This milestone does not change trading behavior.
+This milestone does not train models, change `.env`, alter strategy, buy, or simulate trades.

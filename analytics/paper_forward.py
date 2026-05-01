@@ -12,17 +12,20 @@ def evaluate_paper_forward(candidate_policy: dict[str, Any], *, root: Path | Non
     root = root or PROJECT_ROOT
     replay = build_policy_replay(root)
     current = replay.get("current") or {}
-    combined = replay.get("combined_policy_v2") or replay.get("combined_v1") or {}
+    policy_name = str(candidate_policy.get("policy_name") or candidate_policy.get("replay_policy") or "combined_policy_v2")
+    combined = replay.get(policy_name) or replay.get("combined_policy_v2") or replay.get("combined_v1") or {}
     passed = (
         float(combined.get("total_pnl") or 0.0) >= float(current.get("total_pnl") or 0.0)
         and int(combined.get("severe_loss_count") or 0) <= int(current.get("severe_loss_count") or 0)
+        and float(combined.get("runner_capture_ratio") or 0.0) >= float(current.get("runner_capture_ratio") or 0.0)
     )
     return {
         "proposal_id": candidate_policy.get("proposal_id"),
+        "policy_name": policy_name,
         "passed": bool(passed),
         "baseline": current,
         "candidate": combined,
-        "required_before_live": ["paper_forward_window", "manual_approval"],
+        "required_before_live": ["policy_replay", "paper_forward_window", "manual_approval"],
     }
 
 

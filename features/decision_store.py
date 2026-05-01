@@ -47,12 +47,31 @@ def build_decision_id(*, address: str, timestamp: str, lane: str, action: str, r
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
+def normalize_decision_action(value: Any, row: Mapping[str, Any] | None = None) -> str:
+    row = row or {}
+    raw = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    reason = str(row.get("reason") or row.get("reject_reason") or row.get("delay_reason") or "").lower()
+    stage = str(row.get("stage") or row.get("event_type") or row.get("sample_type") or "").lower()
+    joined = "|".join([raw, reason, stage])
+    if "zero_qty" in joined or "no_route" in joined or "execution_blocked" in joined:
+        return "execution_blocked"
+    if raw in {"buy", "bought", "buy_ok", "paper_buy", "live"}:
+        return "buy"
+    if "shadow" in joined:
+        return "shadow"
+    if raw in {"delay", "delayed", "wait", "waiting"} or "delay" in joined:
+        return "delay"
+    if raw in {"reject", "rejected", "policy_reject"} or "reject" in joined or "blocked" in joined:
+        return "reject"
+    return raw if raw in {"buy", "shadow", "reject", "delay", "execution_blocked"} else "reject"
+
+
 def append_decision(row: Mapping[str, Any], *, path: Path | None = None) -> dict[str, Any]:
     target = path or DECISION_LEDGER_PATH
     timestamp = str(row.get("timestamp") or row.get("ts_utc") or datetime.now(timezone.utc).isoformat())
     address = str(row.get("address") or row.get("mint") or row.get("token_address") or "")
     lane = str(row.get("lane") or row.get("entry_lane") or "unknown")
-    action = str(row.get("action") or row.get("decision") or row.get("decision_action") or "unknown")
+    action = normalize_decision_action(row.get("action") or row.get("decision") or row.get("decision_action") or row.get("event_type"), row)
     reason = str(row.get("reason") or "")
     payload = {
         "decision_id": row.get("decision_id") or build_decision_id(address=address, timestamp=timestamp, lane=lane, action=action, reason=reason),
@@ -101,4 +120,4 @@ def read_decisions(path: Path | None = None) -> list[dict[str, Any]]:
     return rows
 
 
-__all__ = ["DECISION_LEDGER_PATH", "append_decision", "build_decision_id", "read_decisions"]
+__all__ = ["DECISION_LEDGER_PATH", "append_decision", "build_decision_id", "normalize_decision_action", "read_decisions"]

@@ -34,6 +34,9 @@ def test_label_builder_outputs_specialized_targets() -> None:
 
 def test_feature_sets_reject_future_leakage() -> None:
     assert feature_set("risk_features")
+    assert feature_set("ev_features")
+    assert feature_set("runner_features")
+    assert feature_set("continuation_features")
     assert "future_price" in validate_feature_set(["future_price"])
 
 
@@ -117,6 +120,7 @@ def test_live_canary_v2_requires_manual_approval(monkeypatch) -> None:
     decision = evaluate_live_canary_v2(
         {"has_jupiter_route": 1},
         candidate_policy_passed=True,
+        paper_forward_passed=True,
         manual_approval=False,
         provider_health_ok=True,
     )

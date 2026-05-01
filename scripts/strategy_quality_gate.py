@@ -34,6 +34,8 @@ def _int(name: str, default: int = 0) -> int:
 def checks() -> list[str]:
     errors: list[str] = []
     replay = ROOT / "data" / "metrics" / "policy_replay.json"
+    paper_forward = ROOT / "data" / "metrics" / "paper_forward_report.json"
+    model_root = ROOT / "ml" / "models"
     if _bool("POLICY_REPLAY_REQUIRED", False) and not replay.exists():
         errors.append("POLICY_REPLAY_REQUIRED=true but data/metrics/policy_replay.json is missing")
     if _bool("AUTO_PROMOTE_LIVE", False):
@@ -45,6 +47,25 @@ def checks() -> list[str]:
     for name in ("GREEN_SNIPER_POLICY_MODE", "LATE_MOMENTUM_POLICY_MODE", "RESEARCH_RANK_POLICY_MODE"):
         if str(getattr(CFG, name, "") or "").strip().lower() == "enforce" and not _bool("ALLOW_LIVE_POLICY_ENFORCE", False):
             errors.append(f"{name}=enforce requires explicit ALLOW_LIVE_POLICY_ENFORCE")
+    if _bool("LIVE_CANARY_ENABLED", False):
+        if _int("LIVE_CANARY_MAX_OPEN", 1) > 1:
+            errors.append("LIVE_CANARY_MAX_OPEN must stay <=1")
+        if _int("LIVE_CANARY_MAX_DAILY_BUYS", 3) > 3:
+            errors.append("LIVE_CANARY_MAX_DAILY_BUYS must stay <=3")
+        if _float("LIVE_CANARY_DAILY_LOSS_CAP_SOL", 0.05) <= 0:
+            errors.append("LIVE_CANARY_DAILY_LOSS_CAP_SOL is required")
+        if not _bool("LIVE_REQUIRE_ROUTE", True):
+            errors.append("LIVE_CANARY requires LIVE_REQUIRE_ROUTE=true")
+        if not _bool("LIVE_REQUIRE_PROVIDER_HEALTH", True):
+            errors.append("LIVE_CANARY requires LIVE_REQUIRE_PROVIDER_HEALTH=true")
+        if not _bool("LIVE_CANARY_MANUAL_APPROVAL", False):
+            errors.append("LIVE_CANARY requires LIVE_CANARY_MANUAL_APPROVAL=true")
+        if not replay.exists():
+            errors.append("LIVE_CANARY requires data/metrics/policy_replay.json")
+        if not paper_forward.exists():
+            errors.append("LIVE_CANARY requires data/metrics/paper_forward_report.json")
+        if not model_root.exists():
+            errors.append("LIVE_CANARY requires ml/models registry directory")
     if _bool("GREEN_SNIPER_LIVE_ENABLED", False):
         if _bool("DRY_RUN", True):
             errors.append("live canary requires DRY_RUN=0")

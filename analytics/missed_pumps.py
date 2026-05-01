@@ -14,10 +14,25 @@ from analytics.report_utils import (
     write_markdown,
 )
 from config.config import PROJECT_ROOT
+from ml.data_contract import (
+    SAMPLE_GREEN_SNIPER_REJECT_SHADOW,
+    SAMPLE_LATE_MOMENTUM_WATCH_SHADOW,
+    SAMPLE_RESEARCH_RANK_SHADOW,
+    SAMPLE_SHADOW_CLOSE,
+    SAMPLE_TRADE_CLOSE,
+    normalize_sample_type,
+)
 
 
 HOT_SEEN_PRICE5M_PCT = 100.0
 AVOIDED_LOSER_PNL_PCT = -20.0
+CONFIRMED_OUTCOME_SAMPLE_TYPES = {
+    SAMPLE_TRADE_CLOSE,
+    SAMPLE_SHADOW_CLOSE,
+    SAMPLE_GREEN_SNIPER_REJECT_SHADOW,
+    SAMPLE_LATE_MOMENTUM_WATCH_SHADOW,
+    SAMPLE_RESEARCH_RANK_SHADOW,
+}
 
 
 def _reason(row: dict[str, Any]) -> str:
@@ -39,7 +54,16 @@ def _reason(row: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _outcome_confirmed(row: dict[str, Any]) -> bool:
+    raw = str(row.get("outcome_confirmed") or "").strip().lower()
+    if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    return normalize_sample_type(row.get("sample_type")) in CONFIRMED_OUTCOME_SAMPLE_TYPES
+
+
 def _confirmed_peak(row: dict[str, Any]) -> float | None:
+    if not _outcome_confirmed(row):
+        return None
     fields = (
         "shadow_max_pnl_pct_seen",
         "max_pnl_pct_seen",
@@ -110,6 +134,7 @@ def build_missed_pumps(
                 "trade_outcome_pnl_pct": row.get("trade_outcome_pnl_pct"),
                 "confirmed_later_peak_pct": confirmed_peak,
                 "later_max_pnl_pct": confirmed_peak,
+                "outcome_confirmed": _outcome_confirmed(row),
             }
         )
     order = {

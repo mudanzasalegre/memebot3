@@ -640,6 +640,36 @@ def _post_partial_exit_reason(
     return None
 
 
+def green_sniper_early_dump_reason(
+    subject: Any,
+    *,
+    age_s: float,
+    pnl_pct: float,
+    peak_pct: float | None = None,
+) -> str | None:
+    if not bool(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_ENABLED", True)):
+        return None
+    early_dump_after_s = max(0.0, float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_AFTER_S", 35) or 35))
+    early_dump_pnl = float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_PNL_PCT", -12.0) or -12.0)
+    early_dump_ignore_peak = float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_IGNORE_IF_PEAK_PCT", 15.0) or 15.0)
+    confirm_required = max(1, int(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_CONFIRM_TICKS", 2) or 2))
+    confirm_seen = int(_to_float(_get(subject, "early_dump_confirm_ticks", None), confirm_required))
+    peak_for_dump = peak_pct
+    if peak_for_dump is None:
+        peak_for_dump = _to_float(_get(subject, "highest_pnl_pct"), 0.0)
+        if peak_for_dump <= 0:
+            peak_for_dump = _to_float(_get(subject, "peak_pnl_pct"), 0.0)
+    if (
+        early_dump_after_s > 0
+        and age_s >= early_dump_after_s
+        and float(pnl_pct) <= early_dump_pnl
+        and float(peak_for_dump or 0.0) < early_dump_ignore_peak
+        and confirm_seen >= confirm_required
+    ):
+        return "EARLY_DUMP_CUT"
+    return None
+
+
 def should_exit(
     subject: Any,
     price_now: float | None,
@@ -689,24 +719,12 @@ def should_exit(
 
     if pnl_pct is not None and (_is_pumpswap_profit_subject(subject) or _is_green_sniper_subject(subject)):
         if _is_green_sniper_subject(subject):
-            early_dump_enabled = bool(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_ENABLED", True))
-            early_dump_after_s = max(0.0, float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_AFTER_S", 35) or 35))
-            early_dump_pnl = float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_PNL_PCT", -12.0) or -12.0)
-            early_dump_ignore_peak = float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_IGNORE_IF_PEAK_PCT", 15.0) or 15.0)
-            confirm_required = max(1, int(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_CONFIRM_TICKS", 2) or 2))
-            confirm_seen = int(_to_float(_get(subject, "early_dump_confirm_ticks", None), confirm_required))
             peak_for_dump = _to_float(_get(subject, "highest_pnl_pct"), 0.0)
             if peak_for_dump <= 0:
                 peak_for_dump = _to_float(_get(subject, "peak_pnl_pct"), 0.0)
-            if (
-                early_dump_enabled
-                and early_dump_after_s > 0
-                and age_s >= early_dump_after_s
-                and float(pnl_pct) <= early_dump_pnl
-                and peak_for_dump < early_dump_ignore_peak
-                and confirm_seen >= confirm_required
-            ):
-                return "EARLY_DUMP_CUT"
+            early_dump_reason = green_sniper_early_dump_reason(subject, age_s=age_s, pnl_pct=float(pnl_pct), peak_pct=peak_for_dump)
+            if early_dump_reason:
+                return early_dump_reason
             adverse_after_s = max(0.0, float(getattr(CFG, "GREEN_SNIPER_ADVERSE_TICK_AFTER_S", 45) or 45))
             adverse_pnl = float(getattr(CFG, "GREEN_SNIPER_ADVERSE_TICK_PNL_PCT", -10.0) or -10.0)
         else:
@@ -865,6 +883,7 @@ __all__ = [
     "describe_exit_policy",
     "effective_exit_policy",
     "partial_fraction",
+    "green_sniper_early_dump_reason",
     "resolve_runner_exit_profile",
     "resolve_entry_regime",
     "should_exit",

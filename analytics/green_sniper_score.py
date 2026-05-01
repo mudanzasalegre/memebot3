@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from analytics.token_time import compute_age_minutes
+
 
 def _float(value: Any, default: float = 0.0) -> float:
     try:
@@ -62,7 +64,7 @@ def score_green_sniper(token: dict[str, Any], *, has_route: bool, proxy_liquidit
     rank = _float(token.get("rank_score") or token.get("research_rank_score"), -1.0)
     liq = _float(token.get("liquidity_usd"), 0.0)
     txns = _float(token.get("txns_last_5m"), 0.0)
-    age = _float(token.get("age_minutes") or token.get("age_min") or token.get("queue_age_minutes"), 0.0)
+    age = compute_age_minutes(token)
     impact = _float(token.get("price_impact_pct"), 0.0)
     mcap = _float(token.get("market_cap_usd"), 0.0)
 

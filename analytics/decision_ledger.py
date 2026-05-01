@@ -5,7 +5,7 @@ from typing import Any
 
 from analytics.report_utils import load_candidate_outcomes, load_runtime_events, metrics_dir, write_json, write_markdown
 from config.config import PROJECT_ROOT
-from features.decision_store import append_decision, read_decisions
+from features.decision_store import append_decision, normalize_decision_action, read_decisions
 
 
 def rebuild_decision_ledger(root: Path | None = None, *, output_path: Path | None = None) -> list[dict[str, Any]]:
@@ -14,23 +14,31 @@ def rebuild_decision_ledger(root: Path | None = None, *, output_path: Path | Non
     if target.exists():
         target.unlink()
     rows: list[dict[str, Any]] = []
+    latest_by_address_lane: dict[tuple[str, str], str] = {}
     for source, events in (("runtime", load_runtime_events(root)), ("candidate_outcomes", load_candidate_outcomes(root))):
         for event in events:
             action = event.get("decision_action") or event.get("action")
             event_type = str(event.get("event_type") or "")
-            if not action and event_type not in {"candidate_decision", "buy", "paper_buy", "bought", "buy_ok"}:
+            reason = str(event.get("reason") or event.get("reject_reason") or event.get("delay_reason") or "")
+            normalized_action = normalize_decision_action(action or event_type or reason, event)
+            if not action and event_type not in {"candidate_decision", "candidate_outcome", "buy", "paper_buy", "bought", "buy_ok", "execution_blocked", "reject", "delay"}:
                 continue
+            address = str(event.get("address") or event.get("mint") or event.get("token_address") or "")
+            lane = str(event.get("entry_lane") or event.get("lane") or "unknown")
+            linked_id = event.get("decision_id") or latest_by_address_lane.get((address, lane)) or latest_by_address_lane.get((address, "unknown"))
             row = append_decision(
                 {
                     **event,
                     "source": source,
-                    "action": action or event_type,
+                    "action": normalized_action,
                     "timestamp": event.get("ts_utc") or event.get("timestamp"),
-                    "lane": event.get("entry_lane"),
+                    "lane": lane,
+                    "linked_decision_id": linked_id,
                     "features_snapshot": {k: v for k, v in event.items() if k not in {"event_type", "ts_utc", "address"}},
                 },
                 path=target,
             )
+            latest_by_address_lane[(str(row.get("address") or address), str(row.get("lane") or lane))] = str(row.get("decision_id"))
             rows.append(row)
     return rows
 

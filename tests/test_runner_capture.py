@@ -14,3 +14,6 @@ def test_runner_capture_counts_gt_100(tmp_path) -> None:
     )
     report = build_runner_capture(tmp_path)
     assert report["summary"]["gt_100"]["count"] == 1
+    assert "gt_500" in report["summary"]
+    assert "by_lane" in report
+    assert report["top_runners"][0]["exit_profile"] == "unknown"

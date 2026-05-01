@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-import datetime as dt
 from typing import Any
 
 from config.config import CFG
 from analytics.green_sniper_score import score_green_sniper
+from analytics.green_sniper_risk_guard import evaluate_green_sniper_risk_guard
 from analytics.late_momentum_watch import evaluate_late_momentum_watch
+from analytics.liquidity_risk import evaluate_liquidity_risk
 from analytics.social_signal import (
     SOCIAL_STATUS_PRESENT,
     SOCIAL_STATUS_SUSPICIOUS,
     social_signal_from_token,
 )
+from analytics.token_time import compute_age_minutes, token_with_age
 from ml.lane_taxonomy import LANE_PUMP_EARLY_GREEN_SNIPER
 
 
@@ -31,6 +33,12 @@ class GreenSniperDecision:
     social_risk_flags: tuple[str, ...] = ()
     paper_birth_probe: bool = False
     gate_profile: str = "green_sniper"
+    risk_level: str = "low"
+    risk_reasons: tuple[str, ...] = ()
+    size_multiplier: float = 1.0
+    liquidity_risk_level: str = "low"
+    liquidity_risk_reasons: tuple[str, ...] = ()
+    route_proxy: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -71,25 +79,7 @@ def _to_bool(value: Any, default: bool = False) -> bool:
 
 
 def _age_minutes(token: dict[str, Any]) -> float:
-    created = token.get("created_at") or token.get("createdAt")
-    if isinstance(created, str):
-        try:
-            created = dt.datetime.fromisoformat(created.replace("Z", "+00:00"))
-        except Exception:
-            created = None
-    if isinstance(created, dt.datetime):
-        now = dt.datetime.now(dt.timezone.utc)
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=dt.timezone.utc)
-        return max(0.0, (now - created.astimezone(dt.timezone.utc)).total_seconds() / 60.0)
-
-    for key in ("age_minutes", "age_min", "queue_age_minutes"):
-        if key not in token:
-            continue
-        value = _to_float(token.get(key), None)
-        if value is not None:
-            return max(0.0, float(value))
-    return 0.0
+    return compute_age_minutes(token)
 
 
 def _norm_source(value: Any) -> str:
@@ -105,7 +95,8 @@ def _buy_sell_ratio(token: dict[str, Any]) -> float:
 
 
 def _score(token: dict[str, Any], *, live: bool, has_route: bool, proxy_liquidity: bool) -> float:
-    score = score_green_sniper(token, has_route=has_route, proxy_liquidity=proxy_liquidity, live=live).score
+    token_for_score = token_with_age(token)
+    score = score_green_sniper(token_for_score, has_route=has_route, proxy_liquidity=proxy_liquidity, live=live).score
     social = social_signal_from_token(token)
     if bool(getattr(CFG, "GREEN_SNIPER_SOCIALS_BONUS_ENABLED", True)):
         if social.status == SOCIAL_STATUS_PRESENT:
@@ -246,6 +237,7 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
                 social_bonus_applied=0.0,
                 social_risk_flags=tuple(social.risk_flags),
                 gate_profile="late_momentum_watch",
+                route_proxy=late.route_proxy,
             )
         if price5m < float(getattr(CFG, "GREEN_SNIPER_MIN_PRICE_PCT_5M", 20.0)):
             failures.append("low_green_momentum")
@@ -328,6 +320,29 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
         action = "reject"
         reason = ",".join(failures[:8]) or "not_hot"
 
+    risk_decision = evaluate_green_sniper_risk_guard(token, dry_run=dry_run, live=live)
+    liq_decision = evaluate_liquidity_risk(token, live=live)
+    if bool(getattr(CFG, "GREEN_SNIPER_RISK_GUARD_ENABLED", True)) and risk_decision.risk_level in {"high", "lethal"}:
+        if paper_birth_probe and dry_run and not live and action == "shadow":
+            pass
+        elif risk_decision.risk_level == "lethal":
+            action = "reject"
+        elif live:
+            action = "reject"
+        elif action == "buy":
+            action = "shadow"
+        if not reason or reason in {"green_sniper_pass", "late_momentum_canary"}:
+            reason = "risk_guard:" + ",".join(risk_decision.risk_reasons[:6])
+    if bool(getattr(CFG, "GREEN_SNIPER_LIQ_GUARD_ENABLED", True)) and liq_decision.risk_level in {"high", "lethal"}:
+        if paper_birth_probe and dry_run and not live and action == "shadow":
+            pass
+        elif live or liq_decision.risk_level == "lethal":
+            action = "reject"
+        elif action == "buy":
+            action = "shadow"
+        if not reason or reason == "green_sniper_pass":
+            reason = "liquidity_risk:" + ",".join(liq_decision.reasons[:6])
+
     return GreenSniperDecision(
         action=action,
         lane=LANE_PUMP_EARLY_GREEN_SNIPER,
@@ -342,6 +357,11 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
         social_bonus_applied=social_bonus,
         social_risk_flags=tuple(social.risk_flags),
         paper_birth_probe=paper_birth_probe,
+        risk_level=risk_decision.risk_level,
+        risk_reasons=tuple(risk_decision.risk_reasons),
+        size_multiplier=risk_decision.size_multiplier,
+        liquidity_risk_level=liq_decision.risk_level,
+        liquidity_risk_reasons=tuple(liq_decision.reasons),
     )
 
 
@@ -356,6 +376,12 @@ def apply_green_sniper_context(token: dict[str, Any], decision: GreenSniperDecis
     token["green_sniper_reason"] = decision.reason
     token["green_sniper_size_hint"] = decision.size_hint
     token["green_sniper_paper_birth_probe"] = int(bool(decision.paper_birth_probe))
+    token["green_sniper_risk_level"] = decision.risk_level
+    token["green_sniper_risk_reasons"] = ",".join(decision.risk_reasons)
+    token["green_sniper_size_multiplier"] = decision.size_multiplier
+    token["liquidity_risk_level"] = decision.liquidity_risk_level
+    token["liquidity_risk_reasons"] = ",".join(decision.liquidity_risk_reasons)
+    token["route_proxy"] = int(bool(decision.route_proxy))
     if decision.paper_birth_probe:
         token["entry_subtype"] = "paper_birth_probe"
     token["social_bonus_applied"] = decision.social_bonus_applied

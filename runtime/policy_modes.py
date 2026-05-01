@@ -9,6 +9,7 @@ from ml.lane_taxonomy import (
     LANE_RESEARCH_RANK_CANARY,
     normalize_entry_lane,
 )
+from runtime.drift_monitor import degrade_policy_mode
 
 POLICY_MODES = {"observe", "shadow", "canary", "sizing_only", "enforce"}
 
@@ -33,6 +34,8 @@ def mode_for_lane(lane: str, *, live: bool = False) -> str:
         mode = _mode(getattr(CFG, "DEFAULT_POLICY_MODE", "observe"), "observe")
     if live and mode == "enforce" and not bool(getattr(CFG, "ALLOW_LIVE_POLICY_ENFORCE", False)):
         return "shadow"
+    if bool(getattr(CFG, "DRIFT_MONITOR_ENABLED", False)):
+        return degrade_policy_mode(mode, lane=lane)
     return mode
 
 

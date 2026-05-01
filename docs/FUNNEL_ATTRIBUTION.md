@@ -4,7 +4,8 @@
 |---|---:|
 | bought | 15 |
 | expired | 99 |
-| rejected | 447 |
+| rejected | 256 |
+| shadow | 191 |
 
 | Blocking reason | Count |
 |---|---:|

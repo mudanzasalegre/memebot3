@@ -40,6 +40,7 @@ _COMMON = [
     "trend",
     "has_jupiter_route",
     "require_jupiter_for_buy",
+    "route_proxy",
     "liquidity_is_proxy",
     "venue_is_pumpswap",
     "mcap_bucket_code",
@@ -56,6 +57,9 @@ FEATURE_SETS: dict[str, list[str]] = {
     "late_momentum_features": _COMMON + ["price_pct_5m", "txns_last_5m", "price_impact_pct"],
     "research_rank_features": _COMMON + ["green_sniper_score"],
     "risk_features": _COMMON,
+    "ev_features": _COMMON,
+    "runner_features": _COMMON + ["green_sniper_score"],
+    "continuation_features": _COMMON + ["price_pct_5m", "txns_last_5m", "price_impact_pct", "route_proxy"],
     "exit_features": _COMMON + ["exit_profile"],
 }
 

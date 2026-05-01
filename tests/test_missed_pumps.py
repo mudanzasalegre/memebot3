@@ -18,6 +18,7 @@ def test_missed_pump_reports_blocking_rule(tmp_path) -> None:
         "txns_last_5m": 100,
         "reason": "max_open",
         "max_pnl_pct": 350,
+        "sample_type": "green_sniper_reject_shadow",
     }
     (metrics / "candidate_outcomes.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
     (metrics / "runtime_events.jsonl").write_text("", encoding="utf-8")
@@ -57,7 +58,7 @@ def test_bought_token_not_reported_as_missed(tmp_path) -> None:
 def test_shadow_loser_is_confirmed_avoided_loser(tmp_path) -> None:
     metrics = tmp_path / "data" / "metrics"
     metrics.mkdir(parents=True)
-    row = {"address": "LOSER", "price_pct_5m": 10, "pnl_pct": -35, "reason": "risk_guard_high"}
+    row = {"address": "LOSER", "price_pct_5m": 10, "pnl_pct": -35, "reason": "risk_guard_high", "sample_type": "shadow_close"}
     (metrics / "candidate_outcomes.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
     (metrics / "runtime_events.jsonl").write_text("", encoding="utf-8")
     report = build_missed_pumps(tmp_path)
