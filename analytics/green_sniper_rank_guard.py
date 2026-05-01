@@ -35,7 +35,7 @@ def evaluate_green_sniper_rank_guard(rank_info: dict[str, Any] | None) -> GreenS
     """
 
     rank_score = _to_float((rank_info or {}).get("rank_score"), 0.0)
-    min_score = _to_float(getattr(CFG, "GREEN_SNIPER_RANK_GUARD_MIN_SCORE", 45.0), 45.0)
+    min_score = _to_float(getattr(CFG, "GREEN_SNIPER_RANK_GUARD_MIN_SCORE", 54.0), 54.0)
     if not _bool_cfg("GREEN_SNIPER_RANK_GUARD_ENABLED", True):
         return GreenSniperRankGuardDecision(
             allowed=True,

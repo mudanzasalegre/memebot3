@@ -351,6 +351,83 @@ def _shadow_row_matches_current_profit_gate(row: dict[str, Any]) -> bool:
     return True
 
 
+def _positive_sublane_override(token: dict[str, Any], regime: str, now: dt.datetime | None = None) -> dict[str, Any]:
+    if _normalize_regime(regime) != "pump_early":
+        return {"ready": False}
+    if not bool(getattr(CFG, "STRATEGY_SCORECARD_SUBLANE_OVERRIDE_ENABLED", True)):
+        return {"ready": False}
+
+    lane = str(token.get("entry_lane") or "").strip().lower()
+    gate_profile = str(token.get("gate_profile") or token.get("sniper_gate_profile") or "").strip().lower()
+    if not lane:
+        return {"ready": False}
+
+    now = now or utc_now()
+    max_age_h = max(0.0, float(getattr(CFG, "STRATEGY_SCORECARD_SUBLANE_OVERRIDE_MAX_AGE_H", 72.0) or 72.0))
+    cutoff = now - dt.timedelta(hours=max_age_h) if max_age_h > 0 else None
+    min_trades = max(1, int(getattr(CFG, "STRATEGY_SCORECARD_SUBLANE_OVERRIDE_MIN_TRADES", 3) or 3))
+    min_avg = float(getattr(CFG, "STRATEGY_SCORECARD_SUBLANE_OVERRIDE_MIN_AVG_PNL_PCT", 0.0) or 0.0)
+    max_severe = max(0, int(getattr(CFG, "STRATEGY_SCORECARD_SUBLANE_OVERRIDE_MAX_SEVERE", 2) or 2))
+
+    matched: list[tuple[dt.datetime, dict[str, Any], float]] = []
+    for row in _load_shadow_recovery_events():
+        if str(row.get("event_type") or "") != "candidate_outcome":
+            continue
+        if _normalize_regime(row.get("regime") or row.get("entry_regime")) != "pump_early":
+            continue
+        row_lane = str(row.get("entry_lane") or "").strip().lower()
+        row_gate = str(row.get("gate_profile") or row.get("sniper_gate_profile") or "").strip().lower()
+        if row_lane != lane:
+            continue
+        if gate_profile and row_gate and row_gate != gate_profile:
+            continue
+        ts = _parse_utc(row.get("ts_utc") or row.get("timestamp") or row.get("ts"))
+        if ts is None:
+            continue
+        if cutoff is not None and ts < cutoff:
+            continue
+        pnl = _row_pnl_pct(row)
+        if pnl is None:
+            continue
+        reason = str(row.get("reason") or "").strip().lower()
+        if reason in {"buy_zero_qty", "no_route", "jupiter_price_missing"}:
+            continue
+        matched.append((ts, row, float(pnl)))
+
+    matched.sort(key=lambda item: item[0])
+    window = max(min_trades, int(getattr(CFG, "STRATEGY_SCORECARD_SUBLANE_OVERRIDE_WINDOW", 30) or 30))
+    selected = matched[-window:]
+    if len(selected) < min_trades:
+        return {
+            "ready": False,
+            "source": "positive_sublane_override",
+            "lane": lane,
+            "gate_profile": gate_profile,
+            "count": len(selected),
+            "min_trades": min_trades,
+        }
+
+    pnls = [pnl for _, _, pnl in selected]
+    avg_pnl = sum(pnls) / len(pnls)
+    win_rate_pct = sum(1 for value in pnls if value > 0.0) / len(pnls) * 100.0
+    severe_count = sum(1 for _, row, pnl in selected if _is_severe_exit(str(row.get("exit_reason") or ""), pnl))
+    ready = avg_pnl >= min_avg and severe_count <= max_severe
+    return {
+        "ready": bool(ready),
+        "source": "positive_sublane_override",
+        "lane": lane,
+        "gate_profile": gate_profile,
+        "count": len(selected),
+        "avg_pnl_pct": float(avg_pnl),
+        "win_rate_pct": float(win_rate_pct),
+        "severe_exit_count": int(severe_count),
+        "min_avg_pnl_pct": min_avg,
+        "max_severe": max_severe,
+        "first_event_at": selected[0][0],
+        "last_event_at": selected[-1][0],
+    }
+
+
 def _shadow_row_is_productive_recovery(row: dict[str, Any]) -> bool:
     if str(row.get("event_type") or "") != "candidate_outcome":
         return False
@@ -1183,6 +1260,7 @@ def evaluate_candidate(
 
     if requested_mode == "live":
         scorecard_signal = _scorecard_regime_signal(resolved_regime, now)
+        sublane_override = _positive_sublane_override(token, resolved_regime, now)
         demote_avg_pnl_pct = float(
             getattr(CFG, "STRATEGY_SCORECARD_DEMOTE_MAX_AVG_PNL_PCT", -1.0) or -1.0
         )
@@ -1191,8 +1269,22 @@ def evaluate_candidate(
             effective_mode = "shadow"
             effective_execution_state = "shadow"
         elif scorecard_signal and float(scorecard_signal["avg_pnl_pct"]) <= demote_avg_pnl_pct:
-            mode_override_reason = "scorecard_negative"
-            if paper_aggressive_continue:
+            if bool(sublane_override.get("ready")):
+                effective_mode = "live"
+                effective_execution_state = "sublane_canary" if not bool(getattr(CFG, "DRY_RUN", False)) else "paper_sublane_canary"
+                mode_override_reason = (
+                    "global_negative_but_sublane_positive:"
+                    f"{sublane_override.get('lane') or 'unknown'}"
+                )
+                if not bool(getattr(CFG, "DRY_RUN", False)):
+                    size_cap_multiplier = float(
+                        getattr(CFG, "STRATEGY_SCORECARD_SUBLANE_OVERRIDE_LIVE_SIZE_CAP", 0.10) or 0.10
+                    )
+            else:
+                mode_override_reason = "scorecard_negative"
+            if bool(sublane_override.get("ready")):
+                pass
+            elif paper_aggressive_continue:
                 effective_mode = "live"
                 effective_execution_state = "paper_aggressive"
                 mode_override_reason = "paper_aggressive_scorecard_negative"

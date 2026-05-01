@@ -167,6 +167,7 @@ def _paper_birth_probe_allowed(
         "missing_price",
         "missing_mcap",
         "proxy_liquidity_paper_disabled",
+        "proxy_liquidity_productive_block",
         "low_txns_5m",
         "weak_buy_sell_ratio",
         "low_green_momentum",
@@ -260,6 +261,12 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
         failures.append("high_mcap")
     if liq < min_liq:
         failures.append("low_liquidity")
+    if (
+        dry_run
+        and proxy_liq
+        and bool(getattr(CFG, "GREEN_SNIPER_BLOCK_PROXY_PRODUCTIVE", True))
+    ):
+        failures.append("proxy_liquidity_productive_block")
     if live and proxy_liq:
         failures.append("proxy_liquidity_live")
     if dry_run and proxy_liq and not bool(getattr(CFG, "GREEN_SNIPER_ALLOW_PROXY_LIQUIDITY_PAPER", False)):

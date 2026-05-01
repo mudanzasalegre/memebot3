@@ -489,9 +489,16 @@ def effective_exit_policy(subject: Any) -> ExitPolicy:
     if green_sniper_subject:
         tp_partial_enabled = bool(getattr(CFG, "GREEN_SNIPER_TP_PARTIAL_ENABLED", True))
         tp_partial_trigger_pct = float(getattr(CFG, "GREEN_SNIPER_TP_PARTIAL_TRIGGER_PCT", 25.0) or 25.0)
-        if bool(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_PROTECTION_ENABLED", True)):
-            base_lock_floor_pct = float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_LOCK_FLOOR_PCT", base_lock_floor_pct) or base_lock_floor_pct)
-            base_max_giveback_pct = float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MAX_GIVEBACK_PCT", base_max_giveback_pct) or base_max_giveback_pct)
+        if bool(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_PROTECTION_ENABLED", True)) and (
+            runner_lock_floor_pct is None or runner_profile_state in {None, "pre_step"}
+        ):
+            base_lock_floor_pct = float(
+                getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_LOCK_FLOOR_PCT", base_lock_floor_pct) or base_lock_floor_pct
+            )
+            base_max_giveback_pct = float(
+                getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MAX_GIVEBACK_PCT", base_max_giveback_pct)
+                or base_max_giveback_pct
+            )
     take_profit_pct = _override_value(regime, "take_profit_pct", float(CFG.TAKE_PROFIT_PCT))
     if green_sniper_subject and tp_partial_enabled:
         take_profit_pct = max(float(take_profit_pct), float(tp_partial_trigger_pct))
@@ -581,6 +588,44 @@ def partial_fraction(subject: Any) -> float:
     return effective_exit_policy(subject).tp_partial_fraction
 
 
+def _post_partial_exit_reason(
+    subject: Any,
+    policy: ExitPolicy,
+    *,
+    pnl_pct: float,
+    peak: float,
+) -> str | None:
+    if not _to_bool(_get(subject, "partial_taken"), False):
+        return None
+
+    if (
+        policy.post_partial_protection_enabled
+        and policy.post_partial_lock_floor_pct > 0
+        and policy.post_partial_max_giveback_pct > 0
+        and peak >= max(
+            float(policy.post_partial_lock_floor_pct),
+            float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MIN_PEAK_PCT", policy.post_partial_lock_floor_pct) or policy.post_partial_lock_floor_pct)
+            if _is_green_sniper_subject(subject)
+            else float(policy.post_partial_lock_floor_pct),
+        )
+    ):
+        protection_floor = max(
+            float(policy.post_partial_lock_floor_pct),
+            float(peak) - float(policy.post_partial_max_giveback_pct),
+        )
+        if float(pnl_pct) <= protection_floor:
+            if protection_floor <= float(policy.post_partial_lock_floor_pct):
+                return "POST_PARTIAL_STOP"
+            return "POST_PARTIAL_TRAILING"
+        return None
+
+    if float(pnl_pct) <= float(policy.post_partial_stop_pct):
+        return "POST_PARTIAL_STOP"
+    if policy.post_partial_trailing_pct > 0 and float(pnl_pct) <= (peak - float(policy.post_partial_trailing_pct)):
+        return "POST_PARTIAL_TRAILING"
+    return None
+
+
 def should_exit(
     subject: Any,
     price_now: float | None,
@@ -617,6 +662,16 @@ def should_exit(
     buy_price_usd = _to_float(_get(subject, "buy_price_usd"))
     if pnl_pct is None and buy_price_usd > 0:
         pnl_pct = (float(price_now) - buy_price_usd) / buy_price_usd * 100.0
+
+    peak = _to_float(_get(subject, "highest_pnl_pct"), 0.0)
+    if peak <= 0:
+        peak = _to_float(_get(subject, "peak_pnl_pct"), 0.0)
+    partial_taken = _to_bool(_get(subject, "partial_taken"), False)
+
+    if partial_taken and pnl_pct is not None:
+        post_partial_reason = _post_partial_exit_reason(subject, policy, pnl_pct=float(pnl_pct), peak=peak)
+        if post_partial_reason is not None:
+            return post_partial_reason
 
     if pnl_pct is not None and (_is_pumpswap_profit_subject(subject) or _is_green_sniper_subject(subject)):
         if _is_green_sniper_subject(subject):
@@ -675,10 +730,6 @@ def should_exit(
     if policy.no_expansion_max_pct and age_s >= 3600.0 and float(pnl_pct) <= float(policy.no_expansion_max_pct):
         return "NO_EXPANSION"
 
-    peak = _to_float(_get(subject, "highest_pnl_pct"), 0.0)
-    if peak <= 0:
-        peak = _to_float(_get(subject, "peak_pnl_pct"), 0.0)
-
     if _is_pumpswap_profit_subject(subject) or _is_green_sniper_subject(subject):
         if _is_green_sniper_subject(subject):
             profit_no_pump_window = max(0.0, float(getattr(CFG, "GREEN_SNIPER_NO_PUMP_WINDOW_MIN", 2.0) or 2.0))
@@ -704,7 +755,6 @@ def should_exit(
         if peak < float(policy.time_stop_min_peak_pct) and float(pnl_pct) <= float(policy.time_stop_max_pnl_pct):
             return "TIME_STOP"
 
-    partial_taken = _to_bool(_get(subject, "partial_taken"), False)
     if not partial_taken:
         if policy.pre_partial_retrace_trigger_pct > 0 and policy.pre_partial_retrace_giveback_pct > 0:
             if peak >= float(policy.pre_partial_retrace_trigger_pct):
@@ -721,30 +771,9 @@ def should_exit(
                 return "PRE_PARTIAL_TIME_STOP"
 
     if partial_taken:
-        if (
-            policy.post_partial_protection_enabled
-            and policy.post_partial_lock_floor_pct > 0
-            and policy.post_partial_max_giveback_pct > 0
-            and peak >= max(
-                float(policy.post_partial_lock_floor_pct),
-                float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MIN_PEAK_PCT", policy.post_partial_lock_floor_pct) or policy.post_partial_lock_floor_pct)
-                if _is_green_sniper_subject(subject)
-                else float(policy.post_partial_lock_floor_pct),
-            )
-        ):
-            protection_floor = max(
-                float(policy.post_partial_lock_floor_pct),
-                float(peak) - float(policy.post_partial_max_giveback_pct),
-            )
-            if float(pnl_pct) <= protection_floor:
-                if protection_floor <= float(policy.post_partial_lock_floor_pct):
-                    return "POST_PARTIAL_STOP"
-                return "POST_PARTIAL_TRAILING"
-        else:
-            if float(pnl_pct) <= float(policy.post_partial_stop_pct):
-                return "POST_PARTIAL_STOP"
-            if policy.post_partial_trailing_pct > 0 and float(pnl_pct) <= (peak - float(policy.post_partial_trailing_pct)):
-                return "POST_PARTIAL_TRAILING"
+        post_partial_reason = _post_partial_exit_reason(subject, policy, pnl_pct=float(pnl_pct), peak=peak)
+        if post_partial_reason is not None:
+            return post_partial_reason
 
     if float(pnl_pct) <= -abs(float(policy.stop_loss_pct)):
         return "STOP_LOSS"

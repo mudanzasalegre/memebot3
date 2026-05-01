@@ -138,6 +138,23 @@ def test_green_sniper_adverse_tick_uses_fast_window() -> None:
     assert reason == "ADVERSE_TICK"
 
 
+def test_green_sniper_post_partial_protection_precedes_adverse_tick() -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_green_candle_sniper",
+        "gate_profile": "green_sniper",
+        "opened_at": now - dt.timedelta(minutes=40),
+        "buy_price_usd": 1.0,
+        "highest_pnl_pct": 251.0,
+        "partial_taken": True,
+    }
+
+    reason = exit_policy.should_exit(subject, price_now=0.70, now=now, pnl_pct=-30.0)
+
+    assert reason == "POST_PARTIAL_TRAILING"
+
+
 def test_prime_runner_escalates_lock_floor_after_peak_threshold() -> None:
     subject = {
         "entry_regime": "pump_early",

@@ -1813,6 +1813,28 @@ def _evaluate_pumpswap_profit_gate(
         if _PUMP_EARLY_BREAKOUT_PROBE_ENABLED
         else ["breakout_disabled"]
     )
+    precision_price_min = float(getattr(CFG, "PUMP_EARLY_PRECISION_MIN_PRICE5M_PCT", -60.0) or -60.0)
+    precision_price_max = float(getattr(CFG, "PUMP_EARLY_PRECISION_MAX_PRICE5M_PCT", 50.0) or 50.0)
+    precision_min_liq = float(getattr(CFG, "PUMP_EARLY_PRECISION_MIN_LIQUIDITY_USD", 4_500.0) or 4_500.0)
+    precision_max_impact = float(getattr(CFG, "PUMP_EARLY_PRECISION_MAX_PRICE_IMPACT_PCT", 10.0) or 10.0)
+    precision_high_mcap_min_liq = float(
+        getattr(CFG, "PUMP_EARLY_PRECISION_HIGH_MCAP_MIN_LIQUIDITY_USD", 25_000.0) or 25_000.0
+    )
+    precision_allowed = bool(
+        bool(getattr(CFG, "PUMP_EARLY_PRECISION_GATE_ENABLED", True))
+        and dex_id == "pumpswap"
+        and has_route
+        and not liq_proxy
+        and price > 0
+        and liquidity >= precision_min_liq
+        and mcap > 0
+        and price_pct_5m is not None
+        and precision_price_min <= float(price_pct_5m) < precision_price_max
+        and impact <= precision_max_impact
+        and not (50_000.0 <= mcap < 100_000.0)
+        and not (mcap >= 100_000.0 and liquidity < precision_high_mcap_min_liq and rank_score < 60.0)
+        and age_min <= _PUMP_EARLY_PROFIT_MAX_AGE_MIN
+    )
 
     if dex_id not in _PUMP_EARLY_PROFIT_DEX_ALLOWLIST:
         failures.append(f"dex!={','.join(sorted(_PUMP_EARLY_PROFIT_DEX_ALLOWLIST)) or 'pumpswap'}")
@@ -1871,8 +1893,8 @@ def _evaluate_pumpswap_profit_gate(
     if pnl_guard_failures and not blocked_bucket:
         blocked_bucket = pnl_guard.blocked_bucket
     standard_failures = list(failures)
-    effective_failures = [*standard_failures, *shape_failures, *pnl_guard_failures]
-    allowed = (not effective_failures) or meteor_prime or breakout_probe
+    effective_failures = [] if precision_allowed else [*standard_failures, *shape_failures, *pnl_guard_failures]
+    allowed = precision_allowed or (not effective_failures) or meteor_prime or breakout_probe
     prime = (
         (not effective_failures)
         and mcap < 25_000
@@ -1881,7 +1903,9 @@ def _evaluate_pumpswap_profit_gate(
         and dex_id == "pumpswap"
     )
     gate_profile = (
-        "pumpswap_meteor_prime"
+        "pumpswap_precision"
+        if precision_allowed
+        else "pumpswap_meteor_prime"
         if meteor_prime
         else "pumpswap_breakout_probe"
         if breakout_probe and effective_failures
@@ -1905,7 +1929,11 @@ def _evaluate_pumpswap_profit_gate(
         blocked_bucket=None if allowed else blocked_bucket,
         rank_score=rank_score,
     )
-    if meteor_prime:
+    if precision_allowed:
+        token["profit_lane_tier"] = "pump_early_pumpswap_precision"
+        token["profit_shape_guard_failures"] = ""
+        token["profit_pnl_guard_failures"] = ""
+    elif meteor_prime:
         token["profit_lane_tier"] = "pump_early_meteor_prime"
         token["meteor_prime_standard_failures"] = ",".join(standard_failures[:12])
         token["profit_shape_guard_failures"] = ""
@@ -3424,6 +3452,59 @@ async def _maybe_apply_green_sniper_liquidity_proxy(token: dict, addr: str) -> b
 # ────────────────────────────────────────────────────────────────────────────
 # run_bot.py  — _evaluate_and_buy
 # ────────────────────────────────────────────────────────────────────────────
+def _green_shadow_can_continue_to_runner_canary(token: dict, decision: object) -> bool:
+    """Allow only selected real-liquidity Pump.fun shadows to reach rank/risk checks."""
+
+    if not bool(getattr(CFG, "GREEN_SNIPER_RUNNER_CANARY_ENABLED", True)):
+        return False
+    if str(getattr(decision, "action", "") or "") != "shadow":
+        return False
+    if bool(getattr(decision, "paper_birth_probe", False)):
+        return False
+
+    failures = {str(item) for item in getattr(decision, "reject_reasons", ())}
+    allowed_failures = {"low_green_momentum", "low_txns_5m", "weak_buy_sell_ratio"}
+    if not failures or any(item not in allowed_failures for item in failures):
+        return False
+
+    source = str(token.get("discovered_via") or token.get("source") or "").strip().lower().replace("_", "")
+    dex_id = _gate_dex_id(token)
+    if source not in {"pumpfun", "pumpportal"} and dex_id != "pumpfun":
+        return False
+    if _is_liquidity_proxy(token):
+        return False
+
+    price_pct_5m = _metric_optional_float(token, "price_pct_5m")
+    if price_pct_5m is None:
+        return False
+    min_price5m = float(getattr(CFG, "GREEN_SNIPER_RUNNER_CANARY_MIN_PRICE5M", 0.0) or 0.0)
+    max_price5m = float(getattr(CFG, "GREEN_SNIPER_RUNNER_CANARY_MAX_PRICE5M", 90.0) or 90.0)
+    if not (min_price5m <= float(price_pct_5m) < max_price5m):
+        return False
+
+    liquidity = _metric_float(token, "liquidity_usd")
+    min_liq = float(getattr(CFG, "GREEN_SNIPER_RUNNER_CANARY_MIN_LIQUIDITY_USD", 1500.0) or 1500.0)
+    if liquidity < min_liq:
+        return False
+
+    mcap = _metric_float(token, "market_cap_usd")
+    max_mcap = float(getattr(CFG, "GREEN_SNIPER_RUNNER_CANARY_MAX_MARKET_CAP_USD", 25_000.0) or 25_000.0)
+    if mcap <= 0 or mcap >= max_mcap:
+        return False
+
+    max_age = float(getattr(CFG, "GREEN_SNIPER_RUNNER_CANARY_MAX_AGE_MIN", 8.0) or 8.0)
+    if _candidate_age_minutes(token) > max_age:
+        return False
+
+    max_impact = float(getattr(CFG, "GREEN_SNIPER_RUNNER_CANARY_MAX_PRICE_IMPACT_PCT", 20.0) or 20.0)
+    if max(0.0, _metric_float(token, "price_impact_pct")) > max_impact:
+        return False
+
+    token["green_runner_canary_candidate"] = 1
+    token["green_runner_canary_reason"] = ",".join(sorted(failures))
+    return True
+
+
 async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     """Evalúa un token y, si pasa los filtros + IA, lanza la compra."""
     global _wallet_sol_balance
@@ -3570,7 +3651,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             )
             _requeue_with_stats(addr, reason=f"green_sniper:{green_decision.reason}", backoff=2, token=token)
             return
-        if green_decision.action == "shadow":
+        green_shadow_canary_continue = _green_shadow_can_continue_to_runner_canary(token, green_decision)
+        if green_decision.action == "shadow" and not green_shadow_canary_continue:
             vec_shadow = build_feature_vector(token)
             _research_decision(
                 token,
@@ -3593,6 +3675,14 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "green_shadow"))
             _remove_from_queue_if_present(addr)
             return
+        if green_decision.action == "shadow" and green_shadow_canary_continue:
+            _research_decision(
+                token,
+                action="wait",
+                reason=f"green_runner_canary_probe:{green_decision.reason}",
+                stage="green_sniper",
+                dedup_ttl_s=120,
+            )
     green_fast_path = bool(green_decision and green_decision.action == "buy")
     if green_fast_path:
         require_jup_for_buy = bool(
@@ -5281,6 +5371,7 @@ async def _check_positions(ses: SessionLocal) -> None:
         if (
             getattr(pos, "buy_liquidity_usd", None)
             and liq_now
+            and not (bool(getattr(pos, "partial_taken", False)) and price is not None)
             and float(pos_exit_policy.liq_crush_fraction) > 0
             and float(liq_now) <= float(pos.buy_liquidity_usd) * float(pos_exit_policy.liq_crush_fraction)
         ):

@@ -108,6 +108,14 @@ def test_proxy_liquidity_paper_goes_to_shadow_when_disabled(monkeypatch) -> None
     assert "proxy_liquidity_paper_disabled" in decision.reject_reasons
 
 
+def test_proxy_liquidity_paper_is_shadow_not_productive_buy(monkeypatch) -> None:
+    monkeypatch.setattr(gate, "CFG", _cfg(GREEN_SNIPER_ALLOW_PROXY_LIQUIDITY_PAPER=True))
+    decision = gate.evaluate_green_sniper(_load("liquidity_proxy_live_reject.json"), dry_run=True, live=False)
+
+    assert decision.action == "shadow"
+    assert "proxy_liquidity_productive_block" in decision.reject_reasons
+
+
 def test_paper_birth_probe_is_shadow_first(monkeypatch) -> None:
     monkeypatch.setattr(gate, "CFG", _cfg(GREEN_SNIPER_ALLOW_PROXY_LIQUIDITY_PAPER=False))
     token = {

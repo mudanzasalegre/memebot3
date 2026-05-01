@@ -43,6 +43,8 @@ def evaluate_research_rank_canary(
 ) -> ResearchRankCanaryDecision:
     min_score = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_SCORE", 61.15), 61.15)
     amount = _float(getattr(CFG, "RESEARCH_RANK_CANARY_SIZE_SOL", 0.01), 0.01)
+    if dry_run:
+        amount = max(amount, _float(getattr(CFG, "MIN_BUY_SOL", amount), amount))
     rank_score = _float((rank_info or {}).get("rank_score") or token.get("rank_score"), 0.0)
     if not bool(getattr(CFG, "RESEARCH_RANK_CANARY_ENABLED", True)):
         return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, "disabled", rank_score, min_score, amount)

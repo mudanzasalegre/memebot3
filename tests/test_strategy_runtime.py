@@ -243,6 +243,51 @@ def test_negative_scorecard_demotes_live_pump_to_shadow(tmp_path: Path, monkeypa
     assert decision.reason == "scorecard_negative"
 
 
+def test_positive_sublane_overrides_global_negative_scorecard(tmp_path: Path, monkeypatch) -> None:
+    now = dt.datetime(2026, 4, 6, 13, 0, tzinfo=dt.timezone.utc)
+    scorecard_path = tmp_path / "research_scorecard.json"
+    outcomes_path = tmp_path / "candidate_outcomes.jsonl"
+    _write_scorecard(scorecard_path, generated_at=now, group="pump_early", count=24, avg_pnl_pct=-8.5, win_rate_pct=25.0)
+    rows = [
+        {
+            "ts_utc": (now - dt.timedelta(minutes=idx)).isoformat(),
+            "event_type": "candidate_outcome",
+            "regime": "pump_early",
+            "source": "research_shadow",
+            "entry_lane": "pump_early_pumpswap_profit",
+            "gate_profile": "pumpswap_precision",
+            "reason": "strategy:scorecard_negative",
+            "pnl_pct": pnl,
+            "exit_reason": "POST_PARTIAL_TRAILING" if pnl > 0 else "NO_PUMP_EXIT",
+        }
+        for idx, pnl in enumerate([20.0, 12.0, -2.0], start=1)
+    ]
+    outcomes_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(strategy_runtime, "CFG", _make_cfg())
+    monkeypatch.setattr(strategy_runtime, "_SCORECARD_PATH", scorecard_path)
+    monkeypatch.setattr(strategy_runtime, "_SHADOW_RECOVERY_EVENTS_PATH", outcomes_path)
+    monkeypatch.setattr(strategy_runtime.research_runtime, "load_live_rank_gate", lambda *args, **kwargs: _rank_gate())
+    _reset_strategy_state()
+
+    decision = strategy_runtime.evaluate_candidate(
+        {
+            "address": "pump-positive-sublane",
+            "entry_lane": "pump_early_pumpswap_profit",
+            "gate_profile": "pumpswap_precision",
+            "age_min": 6.0,
+            "liquidity_usd": 12_000.0,
+        },
+        regime="pump_early",
+        has_route=True,
+        now=now,
+    )
+
+    assert decision.effective_mode == "live"
+    assert decision.action == "live"
+    assert decision.reason.startswith("global_negative_but_sublane_positive")
+
+
 def test_paper_aggressive_forces_shadow_regimes_to_live(monkeypatch) -> None:
     now = dt.datetime(2026, 4, 6, 13, 0, tzinfo=dt.timezone.utc)
     monkeypatch.setattr(
