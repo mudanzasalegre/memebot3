@@ -227,6 +227,11 @@ def _override_optional_value(regime: str, key: str, default: float | None) -> fl
 
 def _profit_runner_profiles() -> dict[str, dict[str, float]]:
     return {
+        "bird_runner": {
+            "lock_floor_pct": float(getattr(CFG, "BIRD_TP1_PCT", 25.0) or 25.0),
+            "partial_fraction": float(getattr(CFG, "BIRD_TP1_FRACTION", 0.25) or 0.25),
+            "max_giveback_pct": float(getattr(CFG, "BIRD_MAX_GIVEBACK_PCT", 12.0) or 12.0),
+        },
         "green_sniper_runner": {
             "partial_fraction": float(getattr(CFG, "GREEN_SNIPER_TP_PARTIAL_FRACTION", 0.25) or 0.25),
             "step1_peak_pct": float(getattr(CFG, "GREEN_SNIPER_STEP1_PEAK_PCT", 60.0) or 60.0),
@@ -323,7 +328,7 @@ def _resolve_aggressive_research_runner_profile(subject: Any) -> str:
 
 def resolve_runner_exit_profile(subject: Any) -> str | None:
     explicit = str(_get(subject, "runner_exit_profile", "") or "").strip().lower()
-    if explicit in {"broad_runner", "prime_runner", "meteor_runner", "green_sniper_runner"}:
+    if explicit in {"broad_runner", "prime_runner", "meteor_runner", "green_sniper_runner", "bird_runner"}:
         return explicit
     if _is_green_sniper_subject(subject):
         return "green_sniper_runner"
@@ -419,6 +424,15 @@ def _runner_policy_overrides(subject: Any, peak_pct: float) -> tuple[str | None,
             max_giveback = float(cfg["step3_max_giveback_pct"])
             state = "step3"
         return profile, state, lock_floor, max_giveback
+
+    if profile == "bird_runner":
+        cfg = profiles["bird_runner"]
+        return (
+            "bird_runner",
+            "base",
+            float(cfg["lock_floor_pct"]),
+            float(cfg["max_giveback_pct"]),
+        )
 
     return (
         "broad_runner",

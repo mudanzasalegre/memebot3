@@ -1813,15 +1813,16 @@ def _evaluate_pumpswap_profit_gate(
         if _PUMP_EARLY_BREAKOUT_PROBE_ENABLED
         else ["breakout_disabled"]
     )
-    precision_price_min = float(getattr(CFG, "PUMP_EARLY_PRECISION_MIN_PRICE5M_PCT", -60.0) or -60.0)
-    precision_price_max = float(getattr(CFG, "PUMP_EARLY_PRECISION_MAX_PRICE5M_PCT", 50.0) or 50.0)
-    precision_min_liq = float(getattr(CFG, "PUMP_EARLY_PRECISION_MIN_LIQUIDITY_USD", 4_500.0) or 4_500.0)
-    precision_max_impact = float(getattr(CFG, "PUMP_EARLY_PRECISION_MAX_PRICE_IMPACT_PCT", 10.0) or 10.0)
+    cfg = globals().get("CFG")
+    precision_price_min = float(getattr(cfg, "PUMP_EARLY_PRECISION_MIN_PRICE5M_PCT", -60.0) or -60.0)
+    precision_price_max = float(getattr(cfg, "PUMP_EARLY_PRECISION_MAX_PRICE5M_PCT", 50.0) or 50.0)
+    precision_min_liq = float(getattr(cfg, "PUMP_EARLY_PRECISION_MIN_LIQUIDITY_USD", 4_500.0) or 4_500.0)
+    precision_max_impact = float(getattr(cfg, "PUMP_EARLY_PRECISION_MAX_PRICE_IMPACT_PCT", 10.0) or 10.0)
     precision_high_mcap_min_liq = float(
-        getattr(CFG, "PUMP_EARLY_PRECISION_HIGH_MCAP_MIN_LIQUIDITY_USD", 25_000.0) or 25_000.0
+        getattr(cfg, "PUMP_EARLY_PRECISION_HIGH_MCAP_MIN_LIQUIDITY_USD", 25_000.0) or 25_000.0
     )
     precision_allowed = bool(
-        bool(getattr(CFG, "PUMP_EARLY_PRECISION_GATE_ENABLED", True))
+        bool(getattr(cfg, "PUMP_EARLY_PRECISION_GATE_ENABLED", False))
         and dex_id == "pumpswap"
         and has_route
         and not liq_proxy

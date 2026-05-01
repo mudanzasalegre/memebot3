@@ -13,6 +13,7 @@ import pandas as pd
 
 from analytics.audit import normalize_candidate_outcomes_frame, write_normalized_candidate_outcomes
 from config.config import CFG, PROJECT_ROOT
+from features.decision_store import append_decision
 from utils.time import utc_now
 
 
@@ -513,6 +514,20 @@ def record_candidate_decision(
     if shadow_kind:
         payload["shadow_kind"] = str(shadow_kind)
     _write_event("candidate_decision", address, **payload)
+    try:
+        append_decision(
+            {
+                **payload,
+                "address": address,
+                "action": action,
+                "timestamp": utc_now().isoformat(),
+                "source": "candidate_decision",
+                "features_snapshot": payload,
+                "policy_version": "research_runtime_v1",
+            }
+        )
+    except Exception as exc:
+        log.debug("decision ledger append %s %s -> %s", action, address[:6], exc)
 
     if action == "bought":
         _LIVE_CONTEXT[address] = payload
@@ -629,6 +644,20 @@ def record_shadow_open(
         shadow_kind=str(shadow_kind),
         **{k: v for k, v in data.items() if k not in {"decision_action", "stage", "reason", "shadow_kind"}},
     )
+    try:
+        append_decision(
+            {
+                **data,
+                "address": address,
+                "action": "research_shadow_open",
+                "timestamp": utc_now().isoformat(),
+                "source": "candidate_decision",
+                "features_snapshot": data,
+                "policy_version": "research_runtime_v1",
+            }
+        )
+    except Exception as exc:
+        log.debug("decision ledger shadow append %s -> %s", address[:6], exc)
 
 
 def record_shadow_partial(

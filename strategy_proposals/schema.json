@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "required": ["proposal_id", "hypothesis", "changes", "expected_effect", "required_gates", "live_allowed", "risk_notes"],
+  "properties": {
+    "proposal_id": {"type": "string"},
+    "hypothesis": {"type": "string"},
+    "changes": {"type": "object"},
+    "expected_effect": {"type": "object"},
+    "required_gates": {"type": "array", "items": {"type": "string"}},
+    "live_allowed": {"type": "boolean"},
+    "risk_notes": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

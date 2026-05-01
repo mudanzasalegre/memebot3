@@ -9,14 +9,21 @@ from config.config import PROJECT_ROOT
 
 POLICIES = (
     "current",
+    "rules_only",
     "fix_missed_only",
     "risk_guard_v2",
+    "risk_model_only",
     "rank_canary",
     "score_recalibrated",
+    "ev_model_only",
+    "runner_model_only",
     "late_momentum_watch",
+    "continuation_model",
     "early_dump_cut",
     "post_partial_protected",
     "combined_v1",
+    "combined_policy_v1",
+    "combined_policy_v2",
 )
 
 
@@ -28,12 +35,26 @@ def _simulate(row: dict[str, Any], policy: str) -> float:
     pnl = _base_pnl(row)
     reason = str(row.get("exit_reason") or row.get("reason") or "").upper()
     peak = fnum(row.get("max_pnl_pct_seen") or row.get("peak_pnl_pct") or row.get("max_pnl_pct"), pnl)
-    if policy in {"risk_guard_v2", "combined_v1"} and reason in {"ADVERSE_TICK", "LIQUIDITY_CRUSH"}:
-        return max(pnl, -18.0)
-    if policy in {"early_dump_cut", "combined_v1"} and pnl < -25 and peak < 15:
-        return max(pnl, -12.0)
-    if policy in {"post_partial_protected", "combined_v1"} and peak >= 100 and pnl > 0:
-        return max(pnl, peak * 0.35)
+    combined = policy in {"combined_v1", "combined_policy_v1", "combined_policy_v2"}
+    if policy in {"risk_guard_v2", "risk_model_only"} or combined:
+        if reason in {"ADVERSE_TICK", "LIQUIDITY_CRUSH"}:
+            return max(pnl, -18.0)
+    if policy == "risk_model_only":
+        return pnl
+    if policy == "ev_model_only" and fnum(row.get("ev_pred_pct"), pnl) < 0:
+        return 0.0
+    if policy == "runner_model_only":
+        peak = fnum(row.get("max_pnl_pct_seen") or row.get("peak_pnl_pct") or row.get("max_pnl_pct"), pnl)
+        return max(pnl, peak * 0.30) if peak >= 100 else pnl
+    if policy == "continuation_model" and str(row.get("entry_lane") or "") == "pump_early_late_momentum_watch":
+        return max(pnl, fnum(row.get("continuation_peak_after_seen_3m"), pnl) * 0.25)
+    if policy in {"early_dump_cut"} or combined:
+        if pnl < -25 and peak < 15:
+            return max(pnl, -12.0)
+    if policy in {"post_partial_protected"} or combined:
+        if peak >= 100 and pnl > 0:
+            capture = 0.40 if policy == "combined_policy_v2" else 0.35
+            return max(pnl, peak * capture)
     if policy == "rank_canary" and str(row.get("entry_lane") or "").endswith("sniper_research") and fnum(row.get("rank_score"), 0) >= 61:
         return pnl
     return pnl
@@ -51,6 +72,9 @@ def _summarize(rows: list[dict[str, Any]], policy: str) -> dict[str, Any]:
         "median_pnl": round(sorted(pnls)[len(pnls) // 2], 3),
         "total_pnl": round(sum(pnls), 3),
         "severe_loss_count": severe,
+        "missed_confirmed_winners": sum(1 for row in rows if str(row.get("classification") or "") == "confirmed_missed_winner"),
+        "avoided_losers": sum(1 for row in rows if str(row.get("classification") or "") == "confirmed_avoided_loser"),
+        "max_drawdown_proxy": round(min(0.0, min(pnls)), 3),
         "adverse_tick_count": sum(1 for row in rows if str(row.get("exit_reason") or row.get("reason")).upper() == "ADVERSE_TICK"),
         "liq_crush_count": sum(1 for row in rows if str(row.get("exit_reason") or row.get("reason")).upper() == "LIQUIDITY_CRUSH"),
         "runner_capture_ratio": round(

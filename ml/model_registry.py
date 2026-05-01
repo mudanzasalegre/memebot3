@@ -48,12 +48,13 @@ def write_candidate(
     model: Any,
     meta: dict[str, Any],
     model_id: str | None = None,
+    family: str | None = None,
     thresholds: dict[str, Any] | None = None,
     val_preds_path: Path | None = None,
     segment_report_path: Path | None = None,
 ) -> ModelArtifactSet:
     model_id = model_id or utc_model_id(str(meta.get("selected_model_name") or "model"))
-    candidate_dir = MODELS_DIR / model_id
+    candidate_dir = (MODELS_DIR / str(family) / model_id) if family else (MODELS_DIR / model_id)
     candidate_dir.mkdir(parents=True, exist_ok=True)
     model_path = candidate_dir / "model.pkl"
     meta_path = candidate_dir / "model.meta.json"
@@ -118,6 +119,38 @@ def promote_candidate(artifact: ModelArtifactSet, *, active_model_path: Path | N
     return new_registry
 
 
+def promote_family_candidate(
+    artifact: ModelArtifactSet,
+    *,
+    family: str,
+    active_name: str = "active_model.pkl",
+) -> dict[str, Any]:
+    family_dir = MODELS_DIR / str(family)
+    active_model_path = family_dir / active_name
+    registry = _load_registry()
+    families = dict(registry.get("families") or {})
+    joblib.load(artifact.model_path)
+    meta = json.loads(artifact.meta_path.read_text(encoding="utf-8"))
+    family_dir.mkdir(parents=True, exist_ok=True)
+    tmp_model = active_model_path.with_name(active_model_path.name + ".tmp")
+    tmp_meta = active_model_path.with_suffix(".meta.json.tmp")
+    shutil.copy2(artifact.model_path, tmp_model)
+    shutil.copy2(artifact.meta_path, tmp_meta)
+    os.replace(tmp_model, active_model_path)
+    os.replace(tmp_meta, active_model_path.with_suffix(".meta.json"))
+    families[str(family)] = {
+        "active_model_id": artifact.model_id,
+        "active_model_path": str(active_model_path),
+        "active_since_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "feature_set_hash": meta.get("feature_set_hash"),
+        "validation_metrics": meta.get("validation_metrics") or meta.get("metrics"),
+        "status": "active",
+    }
+    registry["families"] = families
+    atomic_write_json(REGISTRY_PATH, registry)
+    return registry
+
+
 __all__ = [
     "ModelArtifactSet",
     "MODELS_DIR",
@@ -126,4 +159,5 @@ __all__ = [
     "atomic_write_json",
     "write_candidate",
     "promote_candidate",
+    "promote_family_candidate",
 ]

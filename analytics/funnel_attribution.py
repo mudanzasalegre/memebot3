@@ -6,6 +6,7 @@ from typing import Any
 
 from analytics.report_utils import (
     address_of,
+    fnum,
     load_candidate_outcomes,
     load_paper_positions,
     load_runtime_events,
@@ -24,6 +25,9 @@ class FunnelResult:
     final_blocking_reason: str
     primary_stage: str
     timeline: list[dict[str, Any]]
+    was_bought: bool = False
+    has_shadow_outcome: bool = False
+    confirmed_later_peak_pct: float | None = None
 
 
 def _ts(row: dict[str, Any]) -> str:
@@ -51,6 +55,9 @@ def _normalize_event(row: dict[str, Any], *, source: str) -> dict[str, Any]:
         "reason": _reason(row) or row.get("stage") or "",
         "entry_lane": row.get("entry_lane"),
         "gate_profile": row.get("gate_profile"),
+        "pnl_pct": row.get("pnl_pct") or row.get("realized_pnl_pct") or row.get("total_pnl_pct") or row.get("target_total_pnl_pct"),
+        "max_pnl_seen": row.get("max_pnl_seen") or row.get("max_pnl_pct_seen") or row.get("peak_pnl_pct") or row.get("max_pnl_pct"),
+        "shadow_kind": row.get("shadow_kind"),
     }
 
 
@@ -71,8 +78,18 @@ def _final_state(events: list[dict[str, Any]]) -> tuple[str, str, str]:
         event = execution_blocked[-1]
         return "execution_blocked", str(event.get("reason") or "execution_blocked"), str(event.get("stage") or "execution")
 
-    shadow = [event for event in events if "shadow" in str(event.get("stage") or event.get("reason") or "").lower()]
-    reject = [event for event in events if "reject" in str(event.get("stage") or event.get("reason") or "").lower()]
+    shadow = [
+        event
+        for event in events
+        if "shadow" in str(event.get("stage") or event.get("reason") or event.get("event_type") or event.get("shadow_kind") or "").lower()
+    ]
+    reject = [
+        event
+        for event in events
+        if "reject" in str(event.get("stage") or event.get("reason") or event.get("event_type") or "").lower()
+        or str(event.get("event_type") or "").lower() == "candidate_decision"
+        and str(event.get("reason") or "").lower() not in {"", "bought", "buy_ok"}
+    ]
     delay = [event for event in events if "delay" in str(event.get("stage") or event.get("reason") or "").lower()]
 
     for state, bucket in (("rejected", reject), ("shadow", shadow), ("delayed", delay)):
@@ -108,6 +125,13 @@ def build_funnel_attribution(root: Path | None = None) -> list[dict[str, Any]]:
         state, reason, stage = _final_state(events)
         if reason.lower() == "late_funnel":
             reason = "expired"
+        was_bought = state == "bought"
+        has_shadow_outcome = any(
+            str(event.get("event_type") or "").lower() == "candidate_outcome"
+            and str(event.get("shadow_kind") or event.get("source") or "").lower().find("shadow") >= 0
+            for event in events
+        )
+        later_peak = max((fnum(event.get("max_pnl_seen"), 0.0) for event in events), default=0.0)
         out.append(
             {
                 "address": addr,
@@ -115,6 +139,9 @@ def build_funnel_attribution(root: Path | None = None) -> list[dict[str, Any]]:
                 "final_blocking_reason": reason,
                 "primary_stage": "expired" if str(stage).lower() == "late_funnel" else stage,
                 "timeline": events,
+                "was_bought": was_bought,
+                "has_shadow_outcome": has_shadow_outcome,
+                "confirmed_later_peak_pct": later_peak if later_peak > 0 else None,
             }
         )
     return sorted(out, key=lambda item: str(item["address"]))

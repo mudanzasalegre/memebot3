@@ -1,0 +1,18 @@
+{
+  "expected_metrics": {
+    "score": 74.735,
+    "source": "policy_replay"
+  },
+  "live_allowed": false,
+  "proposal_id": "offline_r0_35_e25_0_u0_1",
+  "required_gates": [
+    "policy_replay",
+    "paper_forward",
+    "manual_approval"
+  ],
+  "thresholds": {
+    "ev_min": 25.0,
+    "risk_max": 0.35,
+    "runner_min": 0.1
+  }
+}

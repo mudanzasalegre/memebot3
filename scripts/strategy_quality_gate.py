@@ -33,6 +33,18 @@ def _int(name: str, default: int = 0) -> int:
 
 def checks() -> list[str]:
     errors: list[str] = []
+    replay = ROOT / "data" / "metrics" / "policy_replay.json"
+    if _bool("POLICY_REPLAY_REQUIRED", False) and not replay.exists():
+        errors.append("POLICY_REPLAY_REQUIRED=true but data/metrics/policy_replay.json is missing")
+    if _bool("AUTO_PROMOTE_LIVE", False):
+        errors.append("AUTO_PROMOTE_LIVE must remain false")
+    if _bool("LLM_TRADING_ENABLED", False):
+        errors.append("LLM_TRADING_ENABLED must remain false")
+    if _bool("SOCIALS_HOT_PATH_BLOCKING", False) or _bool("GREEN_SNIPER_REQUIRE_SOCIALS", False):
+        errors.append("socials must not be a hard gate")
+    for name in ("GREEN_SNIPER_POLICY_MODE", "LATE_MOMENTUM_POLICY_MODE", "RESEARCH_RANK_POLICY_MODE"):
+        if str(getattr(CFG, name, "") or "").strip().lower() == "enforce" and not _bool("ALLOW_LIVE_POLICY_ENFORCE", False):
+            errors.append(f"{name}=enforce requires explicit ALLOW_LIVE_POLICY_ENFORCE")
     if _bool("GREEN_SNIPER_LIVE_ENABLED", False):
         if _bool("DRY_RUN", True):
             errors.append("live canary requires DRY_RUN=0")
@@ -52,8 +64,6 @@ def checks() -> list[str]:
     if _bool("PAPER_SNIPER_MODE", False):
         if not _bool("GREEN_SNIPER_REJECT_SHADOW_ENABLED", True):
             errors.append("paper sniper requires GREEN_SNIPER_REJECT_SHADOW_ENABLED=true for high-risk shadows")
-        if _bool("GREEN_SNIPER_REQUIRE_SOCIALS", False):
-            errors.append("socials cannot be a hard gate for green sniper")
     ranges = str(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES", "") or "")
     if "25:999" in ranges and _bool("GREEN_SNIPER_ENABLED", True):
         errors.append("price5m 25:999 block contradicts green sniper")

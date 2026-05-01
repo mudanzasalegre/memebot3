@@ -26,6 +26,8 @@ SAMPLE_CANDIDATE = "candidate"
 SAMPLE_EXECUTION_BLOCKED_NO_ROUTE = "execution_blocked_no_route"
 SAMPLE_EXECUTION_BLOCKED_ZERO_QTY = "execution_blocked_zero_qty"
 SAMPLE_GREEN_SNIPER_REJECT_SHADOW = "green_sniper_reject_shadow"
+SAMPLE_LATE_MOMENTUM_WATCH_SHADOW = "late_momentum_watch_shadow"
+SAMPLE_RESEARCH_RANK_SHADOW = "research_rank_shadow"
 SAMPLE_UNKNOWN = "unknown"
 
 VALID_SAMPLE_TYPES = {
@@ -36,6 +38,8 @@ VALID_SAMPLE_TYPES = {
     SAMPLE_EXECUTION_BLOCKED_NO_ROUTE,
     SAMPLE_EXECUTION_BLOCKED_ZERO_QTY,
     SAMPLE_GREEN_SNIPER_REJECT_SHADOW,
+    SAMPLE_LATE_MOMENTUM_WATCH_SHADOW,
+    SAMPLE_RESEARCH_RANK_SHADOW,
 }
 
 REQUIRED_ML_CONTEXT_COLUMNS = (
@@ -83,6 +87,10 @@ def normalize_sample_type(value: Any) -> str:
         "zero_qty": SAMPLE_EXECUTION_BLOCKED_ZERO_QTY,
         "execution_blocked_zero_qty": SAMPLE_EXECUTION_BLOCKED_ZERO_QTY,
         "green_sniper_reject_shadow": SAMPLE_GREEN_SNIPER_REJECT_SHADOW,
+        "late_momentum_watch_shadow": SAMPLE_LATE_MOMENTUM_WATCH_SHADOW,
+        "late_momentum_shadow": SAMPLE_LATE_MOMENTUM_WATCH_SHADOW,
+        "research_rank_shadow": SAMPLE_RESEARCH_RANK_SHADOW,
+        "research_rank_canary_shadow": SAMPLE_RESEARCH_RANK_SHADOW,
     }
     return aliases.get(raw, raw if raw in VALID_SAMPLE_TYPES else SAMPLE_UNKNOWN)
 
@@ -216,6 +224,20 @@ def is_policy_reject(row: Mapping[str, Any]) -> bool:
     return normalize_sample_type(row.get("sample_type")) == SAMPLE_POLICY_REJECT
 
 
+def is_execution_blocked_sample(row: Mapping[str, Any]) -> bool:
+    return normalize_sample_type(row.get("sample_type")) in {
+        SAMPLE_EXECUTION_BLOCKED_NO_ROUTE,
+        SAMPLE_EXECUTION_BLOCKED_ZERO_QTY,
+    }
+
+
+def is_productive_training_sample(row: Mapping[str, Any]) -> bool:
+    return normalize_sample_type(row.get("sample_type")) in {
+        SAMPLE_TRADE_CLOSE,
+        SAMPLE_SHADOW_CLOSE,
+    }
+
+
 __all__ = [
     "REQUIRED_ML_CONTEXT_COLUMNS",
     "SAMPLE_TRADE_CLOSE",
@@ -225,6 +247,8 @@ __all__ = [
     "SAMPLE_EXECUTION_BLOCKED_NO_ROUTE",
     "SAMPLE_EXECUTION_BLOCKED_ZERO_QTY",
     "SAMPLE_GREEN_SNIPER_REJECT_SHADOW",
+    "SAMPLE_LATE_MOMENTUM_WATCH_SHADOW",
+    "SAMPLE_RESEARCH_RANK_SHADOW",
     "SAMPLE_UNKNOWN",
     "VALID_SAMPLE_TYPES",
     "normalize_sample_type",
@@ -238,4 +262,6 @@ __all__ = [
     "is_live_trade_sample",
     "is_shadow_sample",
     "is_policy_reject",
+    "is_execution_blocked_sample",
+    "is_productive_training_sample",
 ]
