@@ -42,6 +42,8 @@ def _is_disabled() -> bool:
 
 
 def evaluate_green_live_canary(token: dict[str, Any]) -> tuple[bool, str]:
+    if bool(getattr(CFG, "STRATEGY_OPTIMIZATION_LOCK", True)):
+        return False, "strategy_optimization_lock"
     if not bool(getattr(CFG, "GREEN_SNIPER_LIVE_ENABLED", False)):
         return False, "green_live_disabled"
     if _is_disabled():

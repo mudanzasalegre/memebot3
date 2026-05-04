@@ -38,6 +38,18 @@ def _cfg(**overrides):
         "GREEN_SNIPER_LIVE_MIN_LIQUIDITY_USD": 2500.0,
         "GREEN_SNIPER_LIVE_MAX_PRICE_IMPACT_PCT": 12.0,
         "GREEN_SNIPER_LIVE_MIN_TXNS_5M": 60,
+        "GREEN_SNIPER_POLICY_MODE": "shadow",
+        "GREEN_SNIPER_BUY_RESTRICTED_ENABLED": True,
+        "GREEN_SNIPER_RESTRICTED_MIN_RANK": 64.0,
+        "GREEN_SNIPER_RESTRICTED_MIN_TXNS": 300,
+        "GREEN_SNIPER_RESTRICTED_MIN_LIQUIDITY": 10000.0,
+        "GREEN_SNIPER_RESTRICTED_MIN_MCAP": 25000.0,
+        "GREEN_SNIPER_RESTRICTED_MAX_MCAP": 100000.0,
+        "GREEN_SNIPER_RESTRICTED_MIN_PRICE5M": 25.0,
+        "GREEN_SNIPER_RESTRICTED_MAX_PRICE5M": 100.0,
+        "GREEN_SNIPER_RESTRICTED_REQUIRE_ROUTE": True,
+        "GREEN_SNIPER_RESTRICTED_MAX_PRICE_IMPACT_PCT": 12.0,
+        "GREEN_SNIPER_RESTRICTED_REQUIRE_PROVIDER_HEALTH": True,
         "GREEN_SNIPER_REQUIRE_SOCIALS": False,
         "GREEN_SNIPER_SOCIALS_BONUS_ENABLED": True,
         "GREEN_SNIPER_SOCIALS_SCORE_BONUS": 5.0,
@@ -55,7 +67,7 @@ def test_green_sniper_no_socials_still_can_buy(monkeypatch) -> None:
 
     decision = gate.evaluate_green_sniper(token, dry_run=True, live=False)
 
-    assert decision.action == "buy"
+    assert decision.action == "shadow"
     assert "social" not in ",".join(decision.reject_reasons)
 
 
@@ -67,7 +79,7 @@ def test_green_sniper_socials_false_still_can_buy(monkeypatch) -> None:
 
     decision = gate.evaluate_green_sniper(token, dry_run=True, live=False)
 
-    assert decision.action == "buy"
+    assert decision.action == "shadow"
     assert "social" not in ",".join(decision.reject_reasons)
 
 
@@ -87,8 +99,8 @@ def test_socials_bonus_can_increase_score_but_not_required(monkeypatch) -> None:
     base = gate.evaluate_green_sniper(base_token, dry_run=True, live=False)
     social = gate.evaluate_green_sniper(social_token, dry_run=True, live=False)
 
-    assert base.action == "buy"
-    assert social.action == "buy"
+    assert base.action == "shadow"
+    assert social.action == "shadow"
     assert social.score > base.score
 
 
@@ -106,6 +118,6 @@ def test_suspicious_socials_do_not_hard_reject(monkeypatch) -> None:
 
     decision = gate.evaluate_green_sniper(token, dry_run=True, live=False)
 
-    assert decision.action == "buy"
+    assert decision.action == "shadow"
     assert "reused_link" in decision.social_risk_flags
     assert "social" not in ",".join(decision.reject_reasons)

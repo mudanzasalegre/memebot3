@@ -46,6 +46,14 @@ class LateMomentumDecision:
 def evaluate_late_momentum_watch(token: dict[str, Any], *, dry_run: bool, live: bool) -> LateMomentumDecision:
     if not bool(getattr(CFG, "LATE_MOMENTUM_WATCH_ENABLED", True)):
         return LateMomentumDecision("reject", LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, "disabled", 0.0, ("disabled",))
+    if not bool(getattr(CFG, "LATE_MOMENTUM_WATCH_RESEARCH_ENABLED", True)):
+        return LateMomentumDecision(
+            "reject",
+            LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
+            "research_disabled",
+            0.0,
+            ("research_disabled",),
+        )
 
     price5m = _float(token.get("price_pct_5m"), 0.0)
     txns = _float(token.get("txns_last_5m"), 0.0)
@@ -109,9 +117,11 @@ def evaluate_late_momentum_watch(token: dict[str, Any], *, dry_run: bool, live: 
         return LateMomentumDecision("shadow", LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, ",".join(failures[:8]), round(max(score, 0.0), 3), tuple(failures), route_proxy)
     if live and not bool(getattr(CFG, "LATE_MOMENTUM_WATCH_LIVE_ENABLED", False)):
         return LateMomentumDecision("shadow", LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, "live_disabled", round(score, 3), ("live_disabled",), route_proxy)
-    if dry_run and bool(getattr(CFG, "LATE_MOMENTUM_WATCH_PAPER_CANARY_ENABLED", True)):
+    buy_enabled = bool(getattr(CFG, "LATE_MOMENTUM_WATCH_BUY_ENABLED", False))
+    if dry_run and buy_enabled and bool(getattr(CFG, "LATE_MOMENTUM_WATCH_PAPER_CANARY_ENABLED", False)):
         return LateMomentumDecision("buy", LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, "late_momentum_canary", round(score, 3), (), route_proxy)
-    return LateMomentumDecision("shadow", LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, "watch_only", round(score, 3), ("watch_only",), route_proxy)
+    reason = "research_only" if dry_run and not buy_enabled else "watch_only"
+    return LateMomentumDecision("shadow", LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, reason, round(score, 3), (reason,), route_proxy)
 
 
 __all__ = ["LateMomentumDecision", "evaluate_late_momentum_watch"]

@@ -142,6 +142,7 @@ notepad .env
 | `SOL_RPC_URL`, `RPC_URL`, `HELIUS_RPC_URL` | Solana RPC, balance, signing, price/route support. | Helius dashboard or another Solana RPC provider. |
 | `HELIUS_API_KEY` | Helius REST, cluster/dev signals, richer token context. | Helius dashboard. |
 | `BIRDEYE_API_KEY` | BirdEye fallback data if enabled. | BirdEye developer portal. |
+| `PUMPPORTAL_API_KEY` | PumpPortal websocket discovery (`subscribeNewToken`). | PumpPortal dashboard. |
 | `RUGCHECK_API_KEY` | Rug/risk enrichment. | RugCheck API access. |
 | `BITQUERY_TOKEN` | Optional discovery/enrichment flow. | Bitquery account. |
 | `BQ_CLIENT_ID`, `BQ_CLIENT_SECRET` | Optional Bitquery OAuth flow. | Bitquery account. |

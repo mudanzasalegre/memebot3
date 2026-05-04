@@ -12,6 +12,15 @@ if str(ROOT) not in sys.path:
 from config.config import CFG
 from runtime.provider_health import provider_health_snapshot
 
+CRITICAL_MODEL_WARNINGS = {
+    "in_sample_only",
+    "not_enough_rows",
+    "single_class",
+    "low_precision_at_k",
+    "unstable_by_lane",
+    "not_ready_for_enforcement",
+}
+
 
 def _bool(name: str, default: bool = False) -> bool:
     return bool(getattr(CFG, name, default))
@@ -31,15 +40,172 @@ def _int(name: str, default: int = 0) -> int:
         return default
 
 
+def _parse_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+def _truthy_text(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _falsey_text(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"0", "false", "no", "n", "off"}
+
+
+def _validate_paper_rank_research_profile(errors: list[str]) -> None:
+    profile = ROOT / "config" / "profiles" / "paper_rank_research_v1.env"
+    if not profile.exists():
+        if _bool("PAPER_RANK_RESEARCH_PROFILE_REQUIRED", False):
+            errors.append("paper_rank_research_v1 profile is required")
+        return
+    values = _parse_env_file(profile)
+    required_true = (
+        "DRY_RUN",
+        "PAPER_SNIPER_MODE",
+        "STRATEGY_OPTIMIZATION_LOCK",
+        "RESEARCH_RANK_CANARY_ENABLED",
+        "RESEARCH_RANK_CANARY_PAPER_ENABLED",
+        "RESEARCH_RANK_CANARY_PREFER_REAL_LIQUIDITY",
+        "GREEN_SNIPER_BUY_RESTRICTED_ENABLED",
+        "LATE_MOMENTUM_WATCH_RESEARCH_ENABLED",
+        "LATE_MOMENTUM_WATCH_AUTORESEARCH_ENABLED",
+        "POST_PARTIAL_PROTECTION_ENABLED",
+        "POST_PARTIAL_PROTECTION_PAPER_ENABLED",
+    )
+    required_false = (
+        "LIVE_CANARY_ENABLED",
+        "AUTO_PROMOTE_LIVE",
+        "MODEL_AUTO_PROMOTE",
+        "ML_AUTO_PROMOTE_LANES",
+        "ML_ALLOW_RESEARCH_LIVE",
+        "ML_ALLOW_UNKNOWN_LIVE",
+        "ALLOW_LIVE_POLICY_ENFORCE",
+        "RESEARCH_RANK_CANARY_LIVE_ENABLED",
+        "GREEN_SNIPER_LIVE_ENABLED",
+        "LATE_MOMENTUM_WATCH_BUY_ENABLED",
+        "LATE_MOMENTUM_WATCH_LIVE_ENABLED",
+        "POST_PARTIAL_PROTECTION_LIVE_ENABLED",
+        "SOCIALS_HOT_PATH_BLOCKING",
+        "GREEN_SNIPER_REQUIRE_SOCIALS",
+    )
+    for name in required_true:
+        if not _truthy_text(values.get(name)):
+            errors.append(f"paper_rank_research_v1 requires {name}=true")
+    for name in required_false:
+        if not _falsey_text(values.get(name)):
+            errors.append(f"paper_rank_research_v1 requires {name}=false")
+    if values.get("GREEN_SNIPER_POLICY_MODE", "").strip().lower() != "shadow":
+        errors.append("paper_rank_research_v1 requires GREEN_SNIPER_POLICY_MODE=shadow")
+    if values.get("RESEARCH_RANK_CANARY_MIN_SCORE", "").strip() not in {"0.647", "64.7"}:
+        errors.append("paper_rank_research_v1 requires RESEARCH_RANK_CANARY_MIN_SCORE=0.647")
+
+
+def _model_enforcement_requested() -> bool:
+    mode = str(getattr(CFG, "ML_GATE_MODE", "shadow") or "shadow").strip().lower()
+    if mode in {"legacy", "enforce"}:
+        return True
+    if mode == "lane_aware":
+        lane_modes = (
+            str(getattr(CFG, "ML_RESEARCH_MODE", "shadow") or "shadow").strip().lower(),
+            str(getattr(CFG, "ML_LIVE_PROFIT_MODE", "sizing_only") or "sizing_only").strip().lower(),
+            str(getattr(CFG, "ML_UNKNOWN_LANE_MODE", "shadow") or "shadow").strip().lower(),
+        )
+        if "enforce" in lane_modes:
+            return True
+    return bool(
+        _bool("GREEN_SNIPER_ML_BLOCK_ENABLED", False)
+        or _bool("ML_GREEN_SNIPER_BLOCK_ENABLED", False)
+        or (_bool("ML_RISK_VETO_ENABLED", False) and not _bool("ML_RISK_SHADOW_ONLY", True))
+    )
+
+
+def _critical_warnings_from_payload(payload: object) -> set[str]:
+    found: set[str] = set()
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            for key in ("critical_warnings", "warnings"):
+                items = value.get(key)
+                if isinstance(items, list):
+                    found.update(str(item) for item in items if str(item) in CRITICAL_MODEL_WARNINGS)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(payload)
+    return found
+
+
+def _validate_model_enforcement_warnings(errors: list[str]) -> None:
+    if not _model_enforcement_requested():
+        return
+    report_paths = (
+        ROOT / "data" / "metrics" / "model_training_report.json",
+        ROOT / "data" / "metrics" / "risk_model_report.json",
+        ROOT / "data" / "metrics" / "ev_model_report.json",
+        ROOT / "data" / "metrics" / "runner_model_report.json",
+        ROOT / "data" / "metrics" / "continuation_model_report.json",
+    )
+    existing = [path for path in report_paths if path.exists()]
+    if not existing:
+        errors.append("model enforcement requires model training reports without critical warnings")
+        return
+    for path in existing:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+        except Exception:
+            errors.append(f"model enforcement cannot parse {path.relative_to(ROOT)}")
+            continue
+        critical = sorted(_critical_warnings_from_payload(payload))
+        if critical:
+            errors.append(
+                f"model enforcement blocked by critical warnings in {path.relative_to(ROOT)}: {','.join(critical)}"
+            )
+
+
 def checks() -> list[str]:
     errors: list[str] = []
     replay = ROOT / "data" / "metrics" / "policy_replay.json"
     paper_forward = ROOT / "data" / "metrics" / "paper_forward_report.json"
     model_root = ROOT / "ml" / "models"
+    _validate_paper_rank_research_profile(errors)
+    _validate_model_enforcement_warnings(errors)
+    if _bool("STRATEGY_OPTIMIZATION_LOCK", True):
+        if not _bool("DRY_RUN", True):
+            errors.append("STRATEGY_OPTIMIZATION_LOCK=true requires DRY_RUN=true")
+        blocked_flags = (
+            "LIVE_CANARY_ENABLED",
+            "GREEN_SNIPER_LIVE_ENABLED",
+            "RESEARCH_RANK_CANARY_LIVE_ENABLED",
+            "LATE_MOMENTUM_WATCH_LIVE_ENABLED",
+            "LIVE_AGGRESSIVE_TRADING_ENABLED",
+            "AUTO_PROMOTE_LIVE",
+            "MODEL_AUTO_PROMOTE",
+            "ML_AUTO_PROMOTE_LANES",
+            "ML_ALLOW_RESEARCH_LIVE",
+            "ML_ALLOW_UNKNOWN_LIVE",
+            "ALLOW_LIVE_POLICY_ENFORCE",
+        )
+        for name in blocked_flags:
+            if _bool(name, False):
+                errors.append(f"STRATEGY_OPTIMIZATION_LOCK=true blocks {name}=true")
     if _bool("POLICY_REPLAY_REQUIRED", False) and not replay.exists():
         errors.append("POLICY_REPLAY_REQUIRED=true but data/metrics/policy_replay.json is missing")
     if _bool("AUTO_PROMOTE_LIVE", False):
         errors.append("AUTO_PROMOTE_LIVE must remain false")
+    if _bool("MODEL_AUTO_PROMOTE", False):
+        errors.append("MODEL_AUTO_PROMOTE must remain false")
     if _bool("LLM_TRADING_ENABLED", False):
         errors.append("LLM_TRADING_ENABLED must remain false")
     if _bool("SOCIALS_HOT_PATH_BLOCKING", False) or _bool("GREEN_SNIPER_REQUIRE_SOCIALS", False):

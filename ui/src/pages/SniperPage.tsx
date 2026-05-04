@@ -117,6 +117,23 @@ const missedColumns: DataColumn<MissedPumpItem>[] = [
     render: (row) => formatTimestamp(row.first_seen_at),
   },
   {
+    id: "class",
+    header: "Class",
+    render: (row) => (
+      <StatusChip
+        compact
+        label={row.classification || "unclassified"}
+        tone={row.classification === "confirmed_missed_winner" ? "danger" : row.classification === "confirmed_avoided_loser" ? "success" : "warn"}
+        mono
+      />
+    ),
+  },
+  {
+    id: "confirmed",
+    header: "Confirmed",
+    render: (row) => <StatusChip compact label={boolLabel(row.outcome_confirmed)} tone={boolTone(row.outcome_confirmed)} />,
+  },
+  {
     id: "price5m",
     align: "right",
     header: "Price 5m",

@@ -4,6 +4,11 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from config.config import CFG
+from analytics.lane_policy_categories import (
+    POLICY_GREEN_SNIPER_PURE,
+    POLICY_GREEN_SNIPER_RESTRICTED_BUY,
+    POLICY_GREEN_SNIPER_SHADOW,
+)
 from analytics.green_sniper_score import score_green_sniper
 from analytics.green_sniper_risk_guard import evaluate_green_sniper_risk_guard
 from analytics.late_momentum_watch import evaluate_late_momentum_watch
@@ -39,6 +44,7 @@ class GreenSniperDecision:
     liquidity_risk_level: str = "low"
     liquidity_risk_reasons: tuple[str, ...] = ()
     route_proxy: bool = False
+    policy_category: str = POLICY_GREEN_SNIPER_PURE
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -125,6 +131,61 @@ def _runner_profile(size_hint: str, token: dict[str, Any]) -> str:
     return "green_sniper_runner"
 
 
+def _provider_health_ok(token: dict[str, Any]) -> bool:
+    if token.get("provider_degraded") is not None and _to_bool(token.get("provider_degraded"), False):
+        return False
+    raw = str(token.get("provider_health") or token.get("provider_status") or "").strip().lower()
+    if raw in {"degraded", "down", "failed", "error", "unhealthy"}:
+        return False
+    return _to_bool(token.get("provider_health_ok"), True)
+
+
+def _restricted_buy_failures(
+    token: dict[str, Any],
+    *,
+    rank: float,
+    mcap: float,
+    price5m: float | None,
+    liq: float,
+    txns: int,
+    impact: float,
+    has_route: bool,
+    proxy_liq: bool,
+    risk_level: str,
+    liquidity_risk_level: str,
+) -> list[str]:
+    failures: list[str] = []
+    if rank < float(getattr(CFG, "GREEN_SNIPER_RESTRICTED_MIN_RANK", 64.0) or 64.0):
+        failures.append("restricted_rank_below_min")
+    if txns < int(getattr(CFG, "GREEN_SNIPER_RESTRICTED_MIN_TXNS", 300) or 300):
+        failures.append("restricted_txns_below_min")
+    min_liq = float(getattr(CFG, "GREEN_SNIPER_RESTRICTED_MIN_LIQUIDITY", 10_000.0) or 10_000.0)
+    if liq <= min_liq:
+        failures.append("restricted_liquidity_below_min")
+    min_mcap = float(getattr(CFG, "GREEN_SNIPER_RESTRICTED_MIN_MCAP", 25_000.0) or 25_000.0)
+    max_mcap = float(getattr(CFG, "GREEN_SNIPER_RESTRICTED_MAX_MCAP", 100_000.0) or 100_000.0)
+    if mcap < min_mcap or mcap > max_mcap:
+        failures.append("restricted_mcap_out_of_band")
+    min_price = float(getattr(CFG, "GREEN_SNIPER_RESTRICTED_MIN_PRICE5M", 25.0) or 25.0)
+    max_price = float(getattr(CFG, "GREEN_SNIPER_RESTRICTED_MAX_PRICE5M", 100.0) or 100.0)
+    if price5m is None or price5m < min_price or price5m > max_price:
+        failures.append("restricted_price5m_out_of_band")
+    if bool(getattr(CFG, "GREEN_SNIPER_RESTRICTED_REQUIRE_ROUTE", True)) and not has_route:
+        failures.append("restricted_no_route")
+    if proxy_liq:
+        failures.append("restricted_proxy_liquidity")
+    max_impact = float(getattr(CFG, "GREEN_SNIPER_RESTRICTED_MAX_PRICE_IMPACT_PCT", 12.0) or 12.0)
+    if impact > max_impact:
+        failures.append("restricted_high_impact")
+    if risk_level != "low":
+        failures.append(f"restricted_risk_{risk_level}")
+    if liquidity_risk_level != "low":
+        failures.append(f"restricted_liquidity_risk_{liquidity_risk_level}")
+    if bool(getattr(CFG, "GREEN_SNIPER_RESTRICTED_REQUIRE_PROVIDER_HEALTH", True)) and not _provider_health_ok(token):
+        failures.append("restricted_provider_health")
+    return failures
+
+
 def _paper_birth_probe_allowed(
     failures: list[str],
     *,
@@ -197,6 +258,7 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
     mcap = float(_to_float(token.get("market_cap_usd"), 0.0) or 0.0)
     price5m = _to_float(token.get("price_pct_5m"), None)
     txns = _to_int(token.get("txns_last_5m"), 0)
+    rank = float(_to_float(token.get("rank_score") or token.get("research_rank_score"), 0.0) or 0.0)
     impact = float(_to_float(token.get("price_impact_pct"), 0.0) or 0.0)
     missing = _to_int(token.get("snapshot_missing_fields"), 0)
     has_price = bool(_to_float(token.get("price_usd"), None) or price5m is not None)
@@ -238,6 +300,7 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
                 social_risk_flags=tuple(social.risk_flags),
                 gate_profile="late_momentum_watch",
                 route_proxy=late.route_proxy,
+                policy_category="late_momentum_watch",
             )
         if price5m < float(getattr(CFG, "GREEN_SNIPER_MIN_PRICE_PCT_5M", 20.0)):
             failures.append("low_green_momentum")
@@ -343,6 +406,42 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
         if not reason or reason == "green_sniper_pass":
             reason = "liquidity_risk:" + ",".join(liq_decision.reasons[:6])
 
+    gate_profile = "green_sniper_birth_probe" if paper_birth_probe else "green_sniper"
+    policy_category = POLICY_GREEN_SNIPER_SHADOW if action == "shadow" else POLICY_GREEN_SNIPER_PURE
+    if action == "buy" and not paper_birth_probe:
+        restricted_enabled = bool(getattr(CFG, "GREEN_SNIPER_BUY_RESTRICTED_ENABLED", True))
+        policy_mode = str(getattr(CFG, "GREEN_SNIPER_POLICY_MODE", "shadow") or "shadow").strip().lower()
+        restricted_failures = (
+            _restricted_buy_failures(
+                token,
+                rank=rank,
+                mcap=mcap,
+                price5m=price5m,
+                liq=liq,
+                txns=txns,
+                impact=impact,
+                has_route=has_route,
+                proxy_liq=proxy_liq,
+                risk_level=risk_decision.risk_level,
+                liquidity_risk_level=liq_decision.risk_level,
+            )
+            if restricted_enabled
+            else []
+        )
+        if restricted_enabled and not restricted_failures:
+            gate_profile = POLICY_GREEN_SNIPER_RESTRICTED_BUY
+            policy_category = POLICY_GREEN_SNIPER_RESTRICTED_BUY
+            reason = "green_sniper_restricted_buy"
+        else:
+            action = "shadow"
+            policy_category = POLICY_GREEN_SNIPER_SHADOW
+            if policy_mode == "shadow":
+                reason = "green_sniper_shadow_first:" + ",".join(restricted_failures[:8] or ["restricted_buy_disabled"])
+            elif restricted_enabled:
+                reason = "green_sniper_restricted_block:" + ",".join(restricted_failures[:8])
+    elif paper_birth_probe:
+        policy_category = POLICY_GREEN_SNIPER_SHADOW if action == "shadow" else POLICY_GREEN_SNIPER_PURE
+
     return GreenSniperDecision(
         action=action,
         lane=LANE_PUMP_EARLY_GREEN_SNIPER,
@@ -362,6 +461,8 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
         size_multiplier=risk_decision.size_multiplier,
         liquidity_risk_level=liq_decision.risk_level,
         liquidity_risk_reasons=tuple(liq_decision.reasons),
+        gate_profile=gate_profile,
+        policy_category=policy_category,
     )
 
 
@@ -376,6 +477,7 @@ def apply_green_sniper_context(token: dict[str, Any], decision: GreenSniperDecis
     token["green_sniper_reason"] = decision.reason
     token["green_sniper_size_hint"] = decision.size_hint
     token["green_sniper_paper_birth_probe"] = int(bool(decision.paper_birth_probe))
+    token["lane_policy_category"] = decision.policy_category
     token["green_sniper_risk_level"] = decision.risk_level
     token["green_sniper_risk_reasons"] = ",".join(decision.risk_reasons)
     token["green_sniper_size_multiplier"] = decision.size_multiplier

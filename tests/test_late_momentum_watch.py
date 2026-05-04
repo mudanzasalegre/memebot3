@@ -3,7 +3,7 @@ from __future__ import annotations
 import analytics.green_sniper_gate as gate
 
 
-def test_late_momentum_canary_buys_only_when_confirmed() -> None:
+def test_late_momentum_canary_is_research_only_by_default() -> None:
     decision = gate.evaluate_green_sniper(
         {
             "address": "LATE",
@@ -20,6 +20,7 @@ def test_late_momentum_canary_buys_only_when_confirmed() -> None:
         dry_run=True,
         live=False,
     )
-    assert decision.action == "buy"
+    assert decision.action == "shadow"
     assert decision.lane == "pump_early_late_momentum_watch"
     assert decision.gate_profile == "late_momentum_watch"
+    assert decision.reason == "research_only"

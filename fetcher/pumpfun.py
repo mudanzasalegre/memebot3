@@ -2,7 +2,7 @@
 """
 Pump.fun (nuevos tokens) vía **PumpPortal** WebSocket (FREE).
 
-- Conecta a:   wss://pumpportal.fun/api/data
+- Conecta a:   wss://pumpportal.fun/api/data?api-key=... (vía PUMPPORTAL_API_KEY)
 - Suscribe:    {"method": "subscribeNewToken"}
 - Mantiene UNA única conexión WS (evita ban), con backoff y keepalive.
 - Normaliza eventos al esquema DexScreener-like (address/symbol/name/created_at…).
@@ -26,6 +26,7 @@ import logging
 import os
 from collections import deque
 from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import aiohttp
 
@@ -37,7 +38,78 @@ from utils.solana_addr import normalize_mint
 log = logging.getLogger("pumpfun")
 
 # ─────────────────────────── Config ────────────────────────────
-_WS_URL = "wss://pumpportal.fun/api/data"
+_DEFAULT_WS_URL = "wss://pumpportal.fun/api/data"
+_TRUE = {"1", "true", "yes", "y", "on"}
+_FALSE = {"0", "false", "no", "n", "off"}
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    val = raw.strip().lower()
+    if val in _TRUE:
+        return True
+    if val in _FALSE:
+        return False
+    return default
+
+
+def _url_has_api_key(url: str) -> bool:
+    query = parse_qsl(urlsplit(url).query, keep_blank_values=True)
+    return any(k.lower() in {"api-key", "api_key", "apikey"} and bool(v.strip()) for k, v in query)
+
+
+def _build_ws_url(base_url: str, api_key: str = "") -> str:
+    url = (base_url or _DEFAULT_WS_URL).strip() or _DEFAULT_WS_URL
+    api_key = (api_key or "").strip()
+    if not api_key or _url_has_api_key(url):
+        return url
+
+    parts = urlsplit(url)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    query.append(("api-key", api_key))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def _redact_ws_url(url: str) -> str:
+    parts = urlsplit(url)
+    query = []
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        if key.lower() in {"api-key", "api_key", "apikey"} and value:
+            query.append((key, "***"))
+        else:
+            query.append((key, value))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def _resolve_ws_config(
+    *,
+    base_url: str,
+    api_key: str,
+    require_api_key: bool,
+    enabled: bool,
+) -> tuple[str, Optional[str]]:
+    url = _build_ws_url(base_url, api_key)
+    if not enabled:
+        return url, "PUMPFUN_WS_ENABLED=0"
+    if require_api_key and not _url_has_api_key(url):
+        return (
+            url,
+            "falta PUMPPORTAL_API_KEY o PUMPPORTAL_WS_URL con api-key; "
+            "PumpPortal ahora publica el WS con api-key en la URL",
+        )
+    return url, None
+
+
+_WS_URL, _WS_DISABLED_REASON = _resolve_ws_config(
+    base_url=os.getenv("PUMPPORTAL_WS_URL") or os.getenv("PUMPFUN_WS_URL") or _DEFAULT_WS_URL,
+    api_key=os.getenv("PUMPPORTAL_API_KEY") or os.getenv("PUMPFUN_API_KEY") or "",
+    require_api_key=_env_bool("PUMPPORTAL_REQUIRE_API_KEY", True),
+    enabled=_env_bool("PUMPFUN_WS_ENABLED", True),
+)
+_WS_URL_SAFE = _redact_ws_url(_WS_URL)
+_API_KEY_FOR_REDACTION = (os.getenv("PUMPPORTAL_API_KEY") or os.getenv("PUMPFUN_API_KEY") or "").strip()
 
 # nº máx. de tokens a devolver en cada llamada pública
 _LIMIT_RETURN = int(os.getenv("PUMPFUN_LIMIT_RETURN", "75"))
@@ -51,6 +123,8 @@ _WINDOW_MIN = float(os.getenv("PUMPFUN_WINDOW_MIN", "60"))
 
 # backoff de reconexión (segundos)
 _BACKOFFS = [2, 4, 8, 16, 30, 60, 90]
+_MAX_CONSECUTIVE_5XX = int(os.getenv("PUMPFUN_WS_MAX_CONSECUTIVE_5XX", "1"))
+_CIRCUIT_BREAK_S = int(os.getenv("PUMPFUN_WS_CIRCUIT_BREAK_S", "3600"))
 
 # ─────────────────────────── Estado global ─────────────────────
 _buffer: deque[Dict[str, Any]] = deque(maxlen=_BUFFER_MAX)
@@ -58,6 +132,7 @@ _seen: set[str] = set()
 _ws_task: Optional[asyncio.Task] = None
 _ws_lock = asyncio.Lock()     # garantiza una sola conexión viva
 _started = asyncio.Event()    # para esperar a que arranque la suscripción
+_disabled_logged = False
 
 
 # ────────────────────────── Helpers internos ───────────────────
@@ -115,6 +190,17 @@ def _extract_first(d: Dict[str, Any], *keys: str) -> Any:
             if k in payload and payload[k] not in (None, "", 0):
                 return payload[k]
     return None
+
+
+def _format_ws_error(exc: Exception) -> str:
+    if isinstance(exc, aiohttp.WSServerHandshakeError):
+        return f"handshake HTTP {exc.status} ({exc.message}, url='{_WS_URL_SAFE}')"
+
+    text = str(exc)
+    text = text.replace(_WS_URL, _WS_URL_SAFE)
+    if _API_KEY_FOR_REDACTION:
+        text = text.replace(_API_KEY_FOR_REDACTION, "***")
+    return text
 
 
 def _parse_event(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -179,6 +265,7 @@ async def _ws_consumer() -> None:
     Solo debe existir UNA tarea de este consumidor.
     """
     backoff_idx = 0
+    consecutive_5xx = 0
 
     while True:
         try:
@@ -193,6 +280,7 @@ async def _ws_consumer() -> None:
                     log.info("[PumpFun] Suscripción activa a subscribeNewToken")
                     _started.set()
                     backoff_idx = 0  # reset tras conectar
+                    consecutive_5xx = 0
 
                     # Bucle de mensajes
                     while True:
@@ -229,8 +317,25 @@ async def _ws_consumer() -> None:
             log.info("[PumpFun] WS consumer cancelado")
             raise
         except Exception as exc:
+            is_handshake_5xx = isinstance(exc, aiohttp.WSServerHandshakeError) and 500 <= exc.status <= 599
+            consecutive_5xx = consecutive_5xx + 1 if is_handshake_5xx else 0
             wait = _BACKOFFS[min(backoff_idx, len(_BACKOFFS) - 1)]
             backoff_idx += 1
+            circuit_open = False
+            if is_handshake_5xx and _MAX_CONSECUTIVE_5XX > 0 and consecutive_5xx >= _MAX_CONSECUTIVE_5XX:
+                wait = max(_CIRCUIT_BREAK_S, _BACKOFFS[-1])
+                backoff_idx = 0
+                consecutive_5xx = 0
+                circuit_open = True
+            exc = _format_ws_error(exc)
+            if circuit_open:
+                log.warning(
+                    "[PumpFun] WS handshake 5xx de PumpPortal (%s). Pausando %ss antes de reintentar.",
+                    exc,
+                    wait,
+                )
+                await asyncio.sleep(wait)
+                continue
             log.warning("[PumpFun] WS desconectado (%s). Reintentando en %ss…", exc, wait)
             await asyncio.sleep(wait)
             # intentará reconectar
@@ -238,7 +343,12 @@ async def _ws_consumer() -> None:
 
 async def _ensure_started() -> None:
     """Inicializa el consumidor si no está arrancado."""
-    global _ws_task
+    global _ws_task, _disabled_logged
+    if _WS_DISABLED_REASON:
+        if not _disabled_logged:
+            log.warning("[PumpFun] WS desactivado: %s", _WS_DISABLED_REASON)
+            _disabled_logged = True
+        return
     if _ws_task and not _ws_task.done():
         return
 

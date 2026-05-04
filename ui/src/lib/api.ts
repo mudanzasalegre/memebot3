@@ -786,6 +786,138 @@ export interface ConfigPoliciesData {
   paper_validation?: Record<string, unknown>;
 }
 
+export interface PolicyGateItem {
+  id: string;
+  label: string;
+  status: "pass" | "warn" | "block" | "missing" | string;
+  detail: string | null;
+}
+
+export interface PolicyMetricRow {
+  policy: string;
+  trades?: number | null;
+  win_rate?: number | null;
+  avg_pnl?: number | null;
+  median_pnl?: number | null;
+  total_pnl?: number | null;
+  severe_loss_count?: number | null;
+  runner_capture_ratio?: number | null;
+  missed_confirmed_winners?: number | null;
+  avoided_losers?: number | null;
+  max_drawdown_proxy?: number | null;
+  [key: string]: unknown;
+}
+
+export interface PolicySafetyData {
+  gates: PolicyGateItem[];
+  invariants: Record<string, unknown>;
+  preflight: Record<string, unknown>;
+  config_effect_summary: Record<string, number>;
+  policy_replay: {
+    current: Record<string, unknown>;
+    candidate: Record<string, unknown>;
+    candidate_passed: boolean;
+    best_by_total_pnl: string | null;
+  };
+  paper_forward: Record<string, unknown>;
+  model_registry: Record<string, unknown>;
+  drift: Record<string, unknown>;
+  proposals: Record<string, number>;
+}
+
+export interface PolicyReplayData {
+  current: Record<string, unknown> | null;
+  best_by_total_pnl: string | null;
+  policies: PolicyMetricRow[];
+  raw: Record<string, Record<string, unknown>>;
+}
+
+export interface PolicyCountRow {
+  key: string;
+  count: number;
+}
+
+export interface PolicyFunnelItem {
+  address: string;
+  final_state: string;
+  final_blocking_reason: string;
+  primary_stage: string;
+  was_bought?: boolean;
+  has_shadow_outcome?: boolean;
+  confirmed_later_peak_pct?: number | null;
+  timeline?: Array<Record<string, unknown>>;
+}
+
+export interface PolicyFunnelData {
+  count: number;
+  summary: {
+    final_states: PolicyCountRow[];
+    blocking_reasons: PolicyCountRow[];
+    primary_stages: PolicyCountRow[];
+  };
+  items: PolicyFunnelItem[];
+}
+
+export interface PolicyDecisionLedgerData {
+  count: number;
+  summary: {
+    rows: number;
+    by_action: Record<string, number>;
+    by_lane: Record<string, number>;
+  };
+  items: Array<Record<string, unknown>>;
+}
+
+export interface PolicyTradeDiagnosticsData {
+  summary: Record<string, unknown>;
+  groups: Record<string, Record<string, unknown>>;
+}
+
+export interface PolicyRunnerCaptureData {
+  summary: Record<string, Record<string, unknown>>;
+  by_lane: Record<string, Record<string, unknown>>;
+  top_runners: Array<Record<string, unknown>>;
+}
+
+export interface PolicyProposalItem {
+  proposal_id: string;
+  folder: string;
+  status: string;
+  path: string;
+  updated_at: string | null;
+  live_allowed?: boolean;
+  policy_name?: string;
+  replay_policy?: string;
+  thresholds?: Record<string, unknown>;
+  expected_metrics?: Record<string, unknown>;
+  required_gates?: string[];
+  [key: string]: unknown;
+}
+
+export interface PolicyProposalsData {
+  count: number;
+  counts: Record<string, number>;
+  items: PolicyProposalItem[];
+}
+
+export interface PolicyModelFamilyRow {
+  family: string;
+  candidate_count: number;
+  active_model_exists: boolean;
+  active_meta_exists: boolean;
+  registry: Record<string, unknown>;
+}
+
+export interface PolicyModelRegistryData {
+  registry: Record<string, unknown>;
+  families: PolicyModelFamilyRow[];
+}
+
+export type PolicyConfigEffectAuditData = {
+  flags: Record<string, Record<string, unknown>>;
+  summary: Record<string, number>;
+};
+
 export interface MissedPumpItem {
   address: string | null;
   symbol?: string | null;
@@ -803,6 +935,9 @@ export interface MissedPumpItem {
   would_green_sniper_pass?: boolean | null;
   rule_that_blocked?: string | null;
   later_max_pnl_pct?: number | null;
+  classification?: string | null;
+  outcome_confirmed?: boolean | null;
+  route_proxy?: boolean | null;
   [key: string]: unknown;
 }
 

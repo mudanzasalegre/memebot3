@@ -30,6 +30,8 @@ def evaluate_live_canary_v2(
     max_daily = int(getattr(CFG, "LIVE_CANARY_MAX_DAILY_BUYS", 3) or 3)
     loss_cap = float(getattr(CFG, "LIVE_CANARY_DAILY_LOSS_CAP_SOL", 0.05) or 0.05)
     size_sol = float(getattr(CFG, "LIVE_CANARY_SIZE_SOL", getattr(CFG, "MIN_BUY_SOL", 0.01)) or 0.01)
+    if bool(getattr(CFG, "STRATEGY_OPTIMIZATION_LOCK", True)):
+        return LiveCanaryDecision(False, "strategy_optimization_lock", max_open, max_daily, size_sol)
     if not bool(getattr(CFG, "LIVE_CANARY_ENABLED", False)):
         return LiveCanaryDecision(False, "live_canary_disabled", max_open, max_daily, size_sol)
     if not candidate_policy_passed:

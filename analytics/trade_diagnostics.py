@@ -4,6 +4,7 @@ import statistics
 from pathlib import Path
 from typing import Any
 
+from analytics.lane_policy_categories import classify_policy_category
 from analytics.report_utils import (
     boolish,
     fnum,
@@ -24,6 +25,7 @@ from ml.data_contract import normalize_ml_row
 
 GROUP_FIELDS = (
     "entry_lane",
+    "lane_policy_category",
     "gate_profile",
     "entry_subtype",
     "green_sniper_reason",
@@ -48,6 +50,7 @@ def _normalize(row: dict[str, Any], sample_type: str | None = None) -> dict[str,
     out["pnl_pct"] = _pnl(row)
     out["exit_reason"] = str(row.get("exit_reason") or row.get("reason") or "")
     out["green_sniper_reason"] = str(row.get("green_sniper_reason") or row.get("sniper_reason") or "")
+    out["lane_policy_category"] = classify_policy_category(out)
     out["rank_bucket"] = rank_bucket(row.get("rank_score") or row.get("research_rank_score"))
     out["price5m_bucket"] = price5m_bucket(row.get("price_pct_5m") or row.get("buy_price_pct_5m"))
     out["mcap_bucket"] = mcap_bucket(row.get("market_cap_usd") or row.get("buy_market_cap_usd"))

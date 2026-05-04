@@ -8,11 +8,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backtest.policy_replay import write_policy_replay
+from backtest.policy_replay import write_policy_replay, write_post_adjustment_policy_replay
 
 
 def main() -> None:
-    print(json.dumps(write_policy_replay(), indent=2, sort_keys=True))
+    report = write_policy_replay()
+    write_post_adjustment_policy_replay()
+    print(json.dumps(report, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

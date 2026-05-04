@@ -83,7 +83,13 @@ def _load_registry() -> dict[str, Any]:
         return {}
 
 
+def _ensure_promotion_unlocked() -> None:
+    if bool(getattr(CFG, "STRATEGY_OPTIMIZATION_LOCK", True)):
+        raise RuntimeError("STRATEGY_OPTIMIZATION_LOCK=true blocks model promotion")
+
+
 def promote_candidate(artifact: ModelArtifactSet, *, active_model_path: Path | None = None) -> dict[str, Any]:
+    _ensure_promotion_unlocked()
     active_model_path = active_model_path or CFG.MODEL_PATH
     active_meta_path = active_model_path.with_suffix(".meta.json")
     if not artifact.model_path.exists() or not artifact.meta_path.exists():
@@ -125,6 +131,7 @@ def promote_family_candidate(
     family: str,
     active_name: str = "active_model.pkl",
 ) -> dict[str, Any]:
+    _ensure_promotion_unlocked()
     family_dir = MODELS_DIR / str(family)
     active_model_path = family_dir / active_name
     registry = _load_registry()

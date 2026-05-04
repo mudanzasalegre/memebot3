@@ -361,6 +361,8 @@ parser.add_argument("--log",     action="store_true", help="Girar logs detallado
 args = parser.parse_args()
 
 DRY_RUN = args.dry_run or CFG.DRY_RUN
+if bool(getattr(CFG, "STRATEGY_OPTIMIZATION_LOCK", True)) and not DRY_RUN:
+    raise SystemExit("STRATEGY_OPTIMIZATION_LOCK=true blocks live runtime; start in DRY_RUN/paper mode")
 _PROCESS_LOCK: SingleInstanceLock | None = None
 
 

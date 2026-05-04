@@ -8,7 +8,7 @@ import { SourceHealthStrip } from "../components/primitives/SourceHealthStrip";
 import { StatusChip } from "../components/primitives/StatusChip";
 import { Surface } from "../components/primitives/Surface";
 import { usePollEnvelope } from "../hooks/usePollEnvelope";
-import type { ConfigEffectiveData, ConfigPoliciesData } from "../lib/api";
+import type { ConfigEffectiveData, ConfigPoliciesData, PolicyConfigEffectAuditData } from "../lib/api";
 import { formatCount, formatDecimal, humanizeKey } from "../lib/format";
 
 
@@ -66,14 +66,17 @@ export function ConfigCenterPage() {
 
   const effectiveQuery = usePollEnvelope<ConfigEffectiveData>("/api/v1/config/effective", 60000);
   const policiesQuery = usePollEnvelope<ConfigPoliciesData>("/api/v1/config/policies", 60000);
+  const configAuditQuery = usePollEnvelope<PolicyConfigEffectAuditData>("/api/v1/policy/config-effect-audit", 60000);
 
   const effective = effectiveQuery.envelope?.data;
   const policies = policiesQuery.envelope?.data;
+  const configAudit = configAuditQuery.envelope?.data;
   const sourceStatus = [
     ...(effectiveQuery.envelope?.meta.source_status || []),
     ...(policiesQuery.envelope?.meta.source_status || []),
+    ...(configAuditQuery.envelope?.meta.source_status || []),
   ].filter((item, index, items) => items.findIndex((other) => other.source_key === item.source_key) === index);
-  const queryError = effectiveQuery.error || policiesQuery.error;
+  const queryError = effectiveQuery.error || policiesQuery.error || configAuditQuery.error;
 
   const effectiveRows = Object.entries(effective || {})
     .filter(([key]) => !deferredQuery || key.toLowerCase().includes(deferredQuery))
@@ -90,6 +93,9 @@ export function ConfigCenterPage() {
   const greenLive = asRecord(greenThresholds?.live);
   const greenRankGuard = asRecord(greenThresholds?.rank_guard);
   const profitLanePolicy = asRecord(policies?.profit_lane);
+  const configAuditRows = Object.entries(configAudit?.summary || {})
+    .map(([key, count]) => ({ key, count }))
+    .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
 
   function openRawRecord(title: string, description: string, record: unknown) {
     openPanel({
@@ -172,6 +178,20 @@ export function ConfigCenterPage() {
 
         <Surface className="grid-span-4" eyebrow="Source truth" title="Config provenance">
           <SourceHealthStrip sources={sourceStatus} />
+        </Surface>
+
+        <Surface className="grid-span-4" eyebrow="Config effect" title="Flag audit summary">
+          <div className="strategy-grid">
+            {configAuditRows.map((row) => (
+              <div className="strategy-card" key={row.key}>
+                <div className="strategy-card__header">
+                  <strong>{humanizeKey(row.key)}</strong>
+                  <StatusChip label={formatCount(row.count)} tone={row.key.includes("placebo") ? "warn" : "success"} compact />
+                </div>
+              </div>
+            ))}
+            {!configAuditRows.length ? <p className="empty-note">No config-effect audit summary available.</p> : null}
+          </div>
         </Surface>
 
         <Surface className="grid-span-4" eyebrow="Filter policy" title="Pre-buy policy">

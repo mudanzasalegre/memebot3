@@ -57,3 +57,11 @@ Validation command:
 | PR-34 Live Canary Controller v2 | implemented | Paper-forward and risk-low gates added. |
 | PR-35 Strategy Quality Gate v2 | implemented | Live/replay/paper/manual approval checks extended. |
 | PR-36 StrategyProposal LLM-ready | implemented | Existing proposal README/schema/review CLI retained; no LLM integration. |
+
+## UI Upgrade
+
+| Milestone | Local status | Notes |
+|---|---|---|
+| Learned Policy UI control plane | implemented | Added `/policy` plus read-only API endpoints for safety gates, replay, decision ledger, funnel attribution, diagnostics, runner capture, model families and proposals. |
+| Sniper UI confirmed outcomes | implemented | Missed-pumps table now shows classification and outcome confirmation so hot-seen rows are not confused with confirmed outcomes. |
+| Config UI effect audit | implemented | Config Center now surfaces the config-effect audit summary alongside effective config and derived policies. |

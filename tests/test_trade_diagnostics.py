@@ -16,4 +16,5 @@ def test_trade_diagnostics_groups_by_exit_and_lane(tmp_path) -> None:
     report = build_trade_diagnostics(tmp_path)
     assert report["summary"]["trades"] == 2
     assert report["groups"]["entry_lane:pump_early_green_candle_sniper"]["severe_loss_count"] == 1
+    assert report["groups"]["lane_policy_category:green_sniper_shadow"]["trades"] == 2
     assert report["groups"]["exit_reason:ADVERSE_TICK"]["avg_pnl"] == -30

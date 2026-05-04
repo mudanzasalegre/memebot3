@@ -16,6 +16,7 @@ from api.routes.logs import router as logs_router
 from api.routes.ml import router as ml_router
 from api.routes.overview import router as overview_router
 from api.routes.queue import router as queue_router
+from api.routes.policy import router as policy_router
 from api.routes.runtime import router as runtime_router
 from api.routes.positions import router as positions_router
 from api.routes.provider_health import router as provider_health_router
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(trades_router, prefix="/api/v1", dependencies=protected)
     app.include_router(analytics_router, prefix="/api/v1", dependencies=protected)
     app.include_router(config_router, prefix="/api/v1", dependencies=protected)
+    app.include_router(policy_router, prefix="/api/v1", dependencies=protected)
     app.include_router(control_router, prefix="/api/v1", dependencies=protected)
     app.include_router(saved_views_router, prefix="/api/v1", dependencies=protected)
     app.include_router(ml_router, prefix="/api/v1", dependencies=protected)

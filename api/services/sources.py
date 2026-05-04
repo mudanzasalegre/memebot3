@@ -172,7 +172,8 @@ def jsonl_status(
             path=path,
         )
 
-    last_ts = max((parse_timestamp(row.get("ts_utc")) for row in rows), default=None)
+    timestamps = [parsed for parsed in (parse_timestamp(row.get("ts_utc")) for row in rows) if parsed is not None]
+    last_ts = max(timestamps, default=None)
     return make_source_status(
         source_key=source_key,
         kind="jsonl",

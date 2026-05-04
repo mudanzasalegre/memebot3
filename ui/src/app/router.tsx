@@ -9,6 +9,7 @@ import { LoginPage } from "../pages/LoginPage";
 import { LogsPage } from "../pages/LogsPage";
 import { MlCenterPage } from "../pages/MlCenterPage";
 import { OverviewPage } from "../pages/OverviewPage";
+import { PolicyCenterPage } from "../pages/PolicyCenterPage";
 import { PositionsPage } from "../pages/PositionsPage";
 import { QueuePage } from "../pages/QueuePage";
 import { RuntimePage } from "../pages/RuntimePage";
@@ -69,6 +70,10 @@ export const router = createBrowserRouter([
       {
         path: "ml",
         element: <MlCenterPage />,
+      },
+      {
+        path: "policy",
+        element: <PolicyCenterPage />,
       },
       {
         path: "config",

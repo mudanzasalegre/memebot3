@@ -43,6 +43,18 @@ def _cfg(**overrides):
         "GREEN_SNIPER_LIVE_MIN_LIQUIDITY_USD": 2500.0,
         "GREEN_SNIPER_LIVE_MAX_PRICE_IMPACT_PCT": 12.0,
         "GREEN_SNIPER_LIVE_MIN_TXNS_5M": 60,
+        "GREEN_SNIPER_POLICY_MODE": "shadow",
+        "GREEN_SNIPER_BUY_RESTRICTED_ENABLED": True,
+        "GREEN_SNIPER_RESTRICTED_MIN_RANK": 64.0,
+        "GREEN_SNIPER_RESTRICTED_MIN_TXNS": 300,
+        "GREEN_SNIPER_RESTRICTED_MIN_LIQUIDITY": 10000.0,
+        "GREEN_SNIPER_RESTRICTED_MIN_MCAP": 25000.0,
+        "GREEN_SNIPER_RESTRICTED_MAX_MCAP": 100000.0,
+        "GREEN_SNIPER_RESTRICTED_MIN_PRICE5M": 25.0,
+        "GREEN_SNIPER_RESTRICTED_MAX_PRICE5M": 100.0,
+        "GREEN_SNIPER_RESTRICTED_REQUIRE_ROUTE": True,
+        "GREEN_SNIPER_RESTRICTED_MAX_PRICE_IMPACT_PCT": 12.0,
+        "GREEN_SNIPER_RESTRICTED_REQUIRE_PROVIDER_HEALTH": True,
     }
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -51,8 +63,19 @@ def _cfg(**overrides):
 def test_hot_green_token_passes(monkeypatch) -> None:
     monkeypatch.setattr(gate, "CFG", _cfg())
     decision = gate.evaluate_green_sniper(_load("newborn_green_80pct.json"), dry_run=True, live=False)
-    assert decision.action == "buy"
+    assert decision.action == "shadow"
     assert decision.lane == "pump_early_green_candle_sniper"
+    assert decision.policy_category == "green_sniper_shadow"
+
+
+def test_restricted_green_token_can_buy(monkeypatch) -> None:
+    monkeypatch.setattr(gate, "CFG", _cfg())
+    token = _load("newborn_green_80pct.json")
+    token.update({"rank_score": 70, "txns_last_5m": 350, "liquidity_usd": 15_000})
+    decision = gate.evaluate_green_sniper(token, dry_run=True, live=False)
+    assert decision.action == "buy"
+    assert decision.gate_profile == "green_sniper_restricted_buy"
+    assert decision.policy_category == "green_sniper_restricted_buy"
 
 
 def test_late_500_pct_rejects(monkeypatch) -> None:
@@ -66,7 +89,8 @@ def test_late_500_pct_rejects(monkeypatch) -> None:
 def test_no_route_paper_can_buy(monkeypatch) -> None:
     monkeypatch.setattr(gate, "CFG", _cfg(GREEN_SNIPER_REQUIRE_ROUTE_PAPER=False))
     decision = gate.evaluate_green_sniper(_load("no_route_paper_ok.json"), dry_run=True, live=False)
-    assert decision.action == "buy"
+    assert decision.action == "shadow"
+    assert "restricted_no_route" in decision.reason
 
 
 def test_queue_age_is_used_when_age_is_missing(monkeypatch) -> None:
@@ -78,7 +102,7 @@ def test_queue_age_is_used_when_age_is_missing(monkeypatch) -> None:
 
     decision = gate.evaluate_green_sniper(token, dry_run=True, live=False)
 
-    assert decision.action == "buy"
+    assert decision.action == "shadow"
     assert "too_young" not in decision.reject_reasons
 
 

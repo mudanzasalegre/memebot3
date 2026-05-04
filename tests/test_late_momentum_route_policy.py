@@ -18,7 +18,7 @@ def _token() -> dict:
     }
 
 
-def test_late_momentum_paper_no_route_can_buy_with_proxy_tag(monkeypatch) -> None:
+def test_late_momentum_paper_no_route_shadows_with_proxy_tag(monkeypatch) -> None:
     monkeypatch.setattr(
         late,
         "CFG",
@@ -35,6 +35,35 @@ def test_late_momentum_paper_no_route_can_buy_with_proxy_tag(monkeypatch) -> Non
             LATE_MOMENTUM_WATCH_REQUIRE_ROUTE_LIVE=True,
             LATE_MOMENTUM_WATCH_PAPER_ROUTE_PROXY_TAG=True,
             LATE_MOMENTUM_WATCH_PAPER_CANARY_ENABLED=True,
+            LATE_MOMENTUM_WATCH_BUY_ENABLED=False,
+            LATE_MOMENTUM_WATCH_RESEARCH_ENABLED=True,
+        ),
+    )
+    decision = late.evaluate_late_momentum_watch(_token(), dry_run=True, live=False)
+    assert decision.action == "shadow"
+    assert decision.reason == "research_only"
+    assert decision.route_proxy is True
+
+
+def test_late_momentum_explicit_paper_buy_flag_can_buy(monkeypatch) -> None:
+    monkeypatch.setattr(
+        late,
+        "CFG",
+        SimpleNamespace(
+            LATE_MOMENTUM_WATCH_ENABLED=True,
+            LATE_MOMENTUM_WATCH_MIN_PRICE5M=300,
+            LATE_MOMENTUM_WATCH_MAX_PRICE5M=750,
+            LATE_MOMENTUM_WATCH_MIN_RANK_SCORE=55,
+            LATE_MOMENTUM_WATCH_MIN_TXNS_5M=300,
+            LATE_MOMENTUM_WATCH_MIN_LIQUIDITY_USD=2000,
+            LATE_MOMENTUM_WATCH_MAX_PRICE_IMPACT_PCT=12,
+            LATE_MOMENTUM_WATCH_ALLOW_RANK_MISSING_PAPER=True,
+            LATE_MOMENTUM_WATCH_REQUIRE_ROUTE_PAPER=False,
+            LATE_MOMENTUM_WATCH_REQUIRE_ROUTE_LIVE=True,
+            LATE_MOMENTUM_WATCH_PAPER_ROUTE_PROXY_TAG=True,
+            LATE_MOMENTUM_WATCH_PAPER_CANARY_ENABLED=True,
+            LATE_MOMENTUM_WATCH_BUY_ENABLED=True,
+            LATE_MOMENTUM_WATCH_RESEARCH_ENABLED=True,
         ),
     )
     decision = late.evaluate_late_momentum_watch(_token(), dry_run=True, live=False)

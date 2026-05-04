@@ -89,6 +89,14 @@ def _exercise_api() -> None:
         "/api/v1/sniper/hot-queue",
         "/api/v1/sniper/socials-summary",
         "/api/v1/provider-health",
+        "/api/v1/policy/safety",
+        "/api/v1/policy/replay",
+        "/api/v1/policy/decision-ledger?limit=5",
+        "/api/v1/policy/funnel-attribution?limit=5",
+        "/api/v1/policy/trade-diagnostics",
+        "/api/v1/policy/runner-capture",
+        "/api/v1/policy/proposals?limit=5",
+        "/api/v1/policy/model-registry",
     ]
 
     with TestClient(app) as client:
@@ -172,6 +180,31 @@ def _exercise_api() -> None:
 
         ml_research = _require_mapping(payloads["/api/v1/ml/research"].get("data"), path="/api/v1/ml/research")
         _require_keys(ml_research, ("scorecard", "thresholds", "research_events"), path="/api/v1/ml/research")
+
+        policy_safety = _require_mapping(payloads["/api/v1/policy/safety"].get("data"), path="/api/v1/policy/safety")
+        _require_keys(policy_safety, ("gates", "invariants", "policy_replay", "proposals"), path="/api/v1/policy/safety")
+        _require_source_key(payloads["/api/v1/policy/safety"], "policy.safety", path="/api/v1/policy/safety")
+
+        policy_replay = _require_mapping(payloads["/api/v1/policy/replay"].get("data"), path="/api/v1/policy/replay")
+        _require_keys(policy_replay, ("current", "best_by_total_pnl", "policies", "raw"), path="/api/v1/policy/replay")
+
+        policy_ledger = _require_mapping(
+            payloads["/api/v1/policy/decision-ledger?limit=5"].get("data"),
+            path="/api/v1/policy/decision-ledger",
+        )
+        _require_keys(policy_ledger, ("count", "summary", "items"), path="/api/v1/policy/decision-ledger")
+
+        policy_funnel = _require_mapping(
+            payloads["/api/v1/policy/funnel-attribution?limit=5"].get("data"),
+            path="/api/v1/policy/funnel-attribution",
+        )
+        _require_keys(policy_funnel, ("count", "summary", "items"), path="/api/v1/policy/funnel-attribution")
+
+        policy_proposals = _require_mapping(
+            payloads["/api/v1/policy/proposals?limit=5"].get("data"),
+            path="/api/v1/policy/proposals",
+        )
+        _require_keys(policy_proposals, ("count", "counts", "items"), path="/api/v1/policy/proposals")
 
         control_state = _require_mapping(payloads["/api/v1/control/state"].get("data"), path="/api/v1/control/state")
         _require_keys(control_state, ("bot_id", "runtime", "process", "commands"), path="/api/v1/control/state")

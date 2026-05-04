@@ -468,6 +468,13 @@ def _is_green_sniper_subject(subject: Any) -> bool:
     )
 
 
+def _is_research_rank_subject(subject: Any) -> bool:
+    lane = str(_get(subject, "entry_lane", "") or "").strip().lower()
+    profile = str(_get(subject, "gate_profile", "") or _get(subject, "sniper_gate_profile", "") or "").strip().lower()
+    tier = str(_get(subject, "profit_lane_tier", "") or "").strip().lower()
+    return lane == "pump_early_research_rank_canary" or tier == "pump_early_research_rank_canary" or profile == "research_rank_canary"
+
+
 def effective_exit_policy(subject: Any) -> ExitPolicy:
     regime = resolve_entry_regime(subject)
     base_lock_floor_pct = max(
@@ -517,6 +524,21 @@ def effective_exit_policy(subject: Any) -> ExitPolicy:
     if green_sniper_subject and tp_partial_enabled:
         take_profit_pct = max(float(take_profit_pct), float(tp_partial_trigger_pct))
 
+    dry_run = bool(getattr(CFG, "DRY_RUN", True))
+    protection_enabled = _override_bool(
+        regime,
+        "post_partial_protection_enabled",
+        bool(CFG.POST_PARTIAL_PROTECTION_ENABLED),
+    )
+    if protection_enabled:
+        protection_enabled = (
+            bool(getattr(CFG, "POST_PARTIAL_PROTECTION_PAPER_ENABLED", True))
+            if dry_run
+            else bool(getattr(CFG, "POST_PARTIAL_PROTECTION_LIVE_ENABLED", False))
+        )
+    if not bool(getattr(CFG, "POST_PARTIAL_LOCK_FLOOR_ENABLED", True)):
+        base_lock_floor_pct = 0.0
+
     return ExitPolicy(
         regime=regime,
         take_profit_pct=take_profit_pct,
@@ -529,11 +551,7 @@ def effective_exit_policy(subject: Any) -> ExitPolicy:
         tp_partial_fraction=tp_partial_fraction,
         post_partial_stop_pct=_override_value(regime, "post_partial_stop_pct", float(CFG.POST_PARTIAL_STOP_PCT)),
         post_partial_trailing_pct=max(0.0, _override_value(regime, "post_partial_trailing_pct", float(CFG.POST_PARTIAL_TRAILING_PCT))),
-        post_partial_protection_enabled=_override_bool(
-            regime,
-            "post_partial_protection_enabled",
-            bool(CFG.POST_PARTIAL_PROTECTION_ENABLED),
-        ),
+        post_partial_protection_enabled=protection_enabled,
         post_partial_lock_floor_pct=base_lock_floor_pct,
         post_partial_max_giveback_pct=base_max_giveback_pct,
         pre_partial_time_stop_min=max(
@@ -620,7 +638,10 @@ def _post_partial_exit_reason(
             float(policy.post_partial_lock_floor_pct),
             float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MIN_PEAK_PCT", policy.post_partial_lock_floor_pct) or policy.post_partial_lock_floor_pct)
             if _is_green_sniper_subject(subject)
-            else float(policy.post_partial_lock_floor_pct),
+            else max(
+                float(policy.post_partial_lock_floor_pct),
+                float(getattr(CFG, "POST_PARTIAL_MIN_PEAK_PCT", 35.0) or 35.0),
+            ),
         )
     ):
         protection_floor = max(
@@ -647,12 +668,13 @@ def green_sniper_early_dump_reason(
     pnl_pct: float,
     peak_pct: float | None = None,
 ) -> str | None:
-    if not bool(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_ENABLED", True)):
+    prefix = "RESEARCH_RANK_CANARY" if _is_research_rank_subject(subject) else "GREEN_SNIPER"
+    if not bool(getattr(CFG, f"{prefix}_EARLY_DUMP_ENABLED", True)):
         return None
-    early_dump_after_s = max(0.0, float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_AFTER_S", 35) or 35))
-    early_dump_pnl = float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_PNL_PCT", -12.0) or -12.0)
-    early_dump_ignore_peak = float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_IGNORE_IF_PEAK_PCT", 15.0) or 15.0)
-    confirm_required = max(1, int(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_CONFIRM_TICKS", 2) or 2))
+    early_dump_after_s = max(0.0, float(getattr(CFG, f"{prefix}_EARLY_DUMP_AFTER_S", 35) or 35))
+    early_dump_pnl = float(getattr(CFG, f"{prefix}_EARLY_DUMP_PNL_PCT", -12.0) or -12.0)
+    early_dump_ignore_peak = float(getattr(CFG, f"{prefix}_EARLY_DUMP_IGNORE_IF_PEAK_PCT", 15.0) or 15.0)
+    confirm_required = max(1, int(getattr(CFG, f"{prefix}_EARLY_DUMP_CONFIRM_TICKS", 2) or 2))
     confirm_seen = int(_to_float(_get(subject, "early_dump_confirm_ticks", None), confirm_required))
     peak_for_dump = peak_pct
     if peak_for_dump is None:
@@ -717,8 +739,8 @@ def should_exit(
         if post_partial_reason is not None:
             return post_partial_reason
 
-    if pnl_pct is not None and (_is_pumpswap_profit_subject(subject) or _is_green_sniper_subject(subject)):
-        if _is_green_sniper_subject(subject):
+    if pnl_pct is not None and (_is_pumpswap_profit_subject(subject) or _is_green_sniper_subject(subject) or _is_research_rank_subject(subject)):
+        if _is_green_sniper_subject(subject) or _is_research_rank_subject(subject):
             peak_for_dump = _to_float(_get(subject, "highest_pnl_pct"), 0.0)
             if peak_for_dump <= 0:
                 peak_for_dump = _to_float(_get(subject, "peak_pnl_pct"), 0.0)
@@ -841,8 +863,12 @@ def describe_exit_policy() -> dict[str, Any]:
         "post_partial_stop_pct": float(CFG.POST_PARTIAL_STOP_PCT),
         "post_partial_trailing_pct": float(CFG.POST_PARTIAL_TRAILING_PCT),
         "post_partial_protection_enabled": bool(CFG.POST_PARTIAL_PROTECTION_ENABLED),
+        "post_partial_protection_paper_enabled": bool(getattr(CFG, "POST_PARTIAL_PROTECTION_PAPER_ENABLED", True)),
+        "post_partial_protection_live_enabled": bool(getattr(CFG, "POST_PARTIAL_PROTECTION_LIVE_ENABLED", False)),
+        "post_partial_lock_floor_enabled": bool(getattr(CFG, "POST_PARTIAL_LOCK_FLOOR_ENABLED", True)),
         "post_partial_lock_floor_pct": float(CFG.POST_PARTIAL_LOCK_FLOOR_PCT),
         "post_partial_max_giveback_pct": float(CFG.POST_PARTIAL_MAX_GIVEBACK_PCT),
+        "post_partial_min_peak_pct": float(getattr(CFG, "POST_PARTIAL_MIN_PEAK_PCT", 35.0) or 35.0),
         "pre_partial_time_stop_min": float(CFG.PRE_PARTIAL_TIME_STOP_MIN),
         "pre_partial_time_stop_max_pnl_pct": float(CFG.PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT),
         "pre_partial_time_stop_min_peak_pct": float(CFG.PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT),
@@ -874,6 +900,24 @@ def describe_exit_policy() -> dict[str, Any]:
             "lock_floor_pct": float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_LOCK_FLOOR_PCT", 20.0) or 20.0),
             "max_giveback_pct": float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MAX_GIVEBACK_PCT", 5.0) or 5.0),
             "min_peak_pct": float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MIN_PEAK_PCT", 35.0) or 35.0),
+        },
+        "early_dump_cut": {
+            "green_sniper": {
+                "enabled": bool(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_ENABLED", True)),
+                "after_s": int(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_AFTER_S", 35) or 35),
+                "pnl_pct": float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_PNL_PCT", -12.0) or -12.0),
+                "confirm_ticks": int(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_CONFIRM_TICKS", 2) or 2),
+                "ignore_if_peak_pct": float(getattr(CFG, "GREEN_SNIPER_EARLY_DUMP_IGNORE_IF_PEAK_PCT", 15.0) or 15.0),
+            },
+            "research_rank_canary": {
+                "enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_EARLY_DUMP_ENABLED", True)),
+                "after_s": int(getattr(CFG, "RESEARCH_RANK_CANARY_EARLY_DUMP_AFTER_S", 35) or 35),
+                "pnl_pct": float(getattr(CFG, "RESEARCH_RANK_CANARY_EARLY_DUMP_PNL_PCT", -12.0) or -12.0),
+                "confirm_ticks": int(getattr(CFG, "RESEARCH_RANK_CANARY_EARLY_DUMP_CONFIRM_TICKS", 2) or 2),
+                "ignore_if_peak_pct": float(
+                    getattr(CFG, "RESEARCH_RANK_CANARY_EARLY_DUMP_IGNORE_IF_PEAK_PCT", 15.0) or 15.0
+                ),
+            },
         },
     }
 

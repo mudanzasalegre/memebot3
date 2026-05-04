@@ -108,6 +108,7 @@ def test_live_canary_v2_requires_manual_approval(monkeypatch) -> None:
         live_canary_v2,
         "CFG",
         SimpleNamespace(
+            STRATEGY_OPTIMIZATION_LOCK=False,
             LIVE_CANARY_ENABLED=True,
             LIVE_CANARY_MAX_OPEN=1,
             LIVE_CANARY_MAX_DAILY_BUYS=3,

@@ -29,10 +29,21 @@ def drift_snapshot(*, window: int = 50, events_path: Path = EVENTS_PATH) -> dict
     if df.empty:
         return {"rows": 0, "degraded": False, "reason": "no_events"}
     closed = df[df.get("event_type", pd.Series("", index=df.index)).astype("string").isin(["candidate_outcome", "trade_close", "shadow_close"])].tail(int(window))
-    pnl = pd.to_numeric(closed.get("pnl_pct", closed.get("target_total_pnl_pct")), errors="coerce")
+    if closed.empty:
+        pnl = pd.Series(dtype="float64")
+    elif "pnl_pct" in closed.columns:
+        pnl = pd.to_numeric(closed["pnl_pct"], errors="coerce")
+    elif "target_total_pnl_pct" in closed.columns:
+        pnl = pd.to_numeric(closed["target_total_pnl_pct"], errors="coerce")
+    else:
+        pnl = pd.Series(dtype="float64")
     severe = pnl.le(-30.0)
     missed = df[df.get("event_type", pd.Series("", index=df.index)).astype("string").eq("ml_policy_decision")]
-    missed_jackpots = int(pd.to_numeric(missed.get("target_total_pnl_pct"), errors="coerce").ge(100.0).sum()) if not missed.empty else 0
+    if not missed.empty and "target_total_pnl_pct" in missed.columns:
+        missed_pnl = pd.to_numeric(missed["target_total_pnl_pct"], errors="coerce")
+        missed_jackpots = int(missed_pnl.ge(100.0).sum())
+    else:
+        missed_jackpots = 0
     degraded = bool(missed_jackpots >= 2 or (len(pnl.dropna()) > 0 and severe.mean() > 0.25))
     return {
         "rows": int(len(closed)),
