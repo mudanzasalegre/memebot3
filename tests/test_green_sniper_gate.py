@@ -90,7 +90,7 @@ def test_no_route_paper_can_buy(monkeypatch) -> None:
     monkeypatch.setattr(gate, "CFG", _cfg(GREEN_SNIPER_REQUIRE_ROUTE_PAPER=False))
     decision = gate.evaluate_green_sniper(_load("no_route_paper_ok.json"), dry_run=True, live=False)
     assert decision.action == "shadow"
-    assert "restricted_no_route" in decision.reason
+    assert decision.reason == "green_sniper_policy_shadow"
 
 
 def test_queue_age_is_used_when_age_is_missing(monkeypatch) -> None:

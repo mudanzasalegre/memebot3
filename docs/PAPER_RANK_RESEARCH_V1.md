@@ -10,4 +10,9 @@ It keeps live disabled and optimization lock enabled while applying the first st
 - post-partial protection enabled in paper only;
 - model/live promotion disabled.
 
-Apply only when explicitly needed with `scripts/apply_profile.py paper_rank_research_v1`. The profile does not contain secrets.
+Profiles are not applied implicitly by filename. Use either:
+
+- `python tools/apply_profile.py --profile paper_rank_research_v1` to merge it into `.env` with a backup;
+- `CONFIG_PROFILE=paper_rank_research_v1` to load it explicitly at runtime.
+
+The profile does not contain secrets.

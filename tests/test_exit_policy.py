@@ -255,6 +255,55 @@ def test_aggressive_research_hot_low_mcap_stays_broad_runner_fraction() -> None:
     assert exit_policy.partial_fraction(subject) == 0.80
 
 
+def test_research_rank_pumpswap_runner_uses_jackpot_profile() -> None:
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_sniper_research",
+        "gate_profile": "pumpswap_profit_research",
+        "profit_lane_tier": "pump_early_research_rank_canary",
+        "buy_dex_id": "pumpswap",
+        "buy_liquidity_is_proxy": 0,
+        "buy_liquidity_usd": 19_316.86,
+        "buy_market_cap_usd": 61_534.0,
+        "buy_price_pct_5m": 46.14,
+        "buy_txns_last_5m": 784.0,
+        "research_rank_score": 68.5,
+        "highest_pnl_pct": 628.0,
+        "partial_taken": True,
+    }
+
+    policy = exit_policy.effective_exit_policy(subject)
+
+    assert policy.runner_exit_profile == "jackpot_runner"
+    assert policy.runner_profile_state == "step3"
+    assert policy.post_partial_lock_floor_pct == 320.0
+    assert policy.post_partial_max_giveback_pct == 35.0
+    assert exit_policy.partial_fraction(subject) == 0.35
+
+
+def test_research_rank_jackpot_profile_protects_without_rank_column() -> None:
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_sniper_research",
+        "gate_profile": "pumpswap_profit_research",
+        "buy_dex_id": "pumpswap",
+        "buy_liquidity_is_proxy": 0,
+        "buy_liquidity_usd": 21_979.31,
+        "buy_market_cap_usd": 77_639.0,
+        "buy_price_pct_5m": 92.8,
+        "buy_txns_last_5m": 595.0,
+        "highest_pnl_pct": 56.0,
+        "partial_taken": True,
+    }
+
+    policy = exit_policy.effective_exit_policy(subject)
+
+    assert policy.runner_exit_profile == "jackpot_runner"
+    assert policy.runner_profile_state == "base"
+    assert policy.post_partial_lock_floor_pct == 35.0
+    assert policy.post_partial_max_giveback_pct == 12.0
+
+
 def test_aggressive_research_low_mcap_stays_broad_runner_fraction() -> None:
     subject = {
         "entry_regime": "pump_early",

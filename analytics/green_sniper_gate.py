@@ -436,7 +436,7 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
             action = "shadow"
             policy_category = POLICY_GREEN_SNIPER_SHADOW
             if policy_mode == "shadow":
-                reason = "green_sniper_shadow_first:" + ",".join(restricted_failures[:8] or ["restricted_buy_disabled"])
+                reason = "green_sniper_policy_shadow"
             elif restricted_enabled:
                 reason = "green_sniper_restricted_block:" + ",".join(restricted_failures[:8])
     elif paper_birth_probe:

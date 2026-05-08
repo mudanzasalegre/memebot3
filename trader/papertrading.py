@@ -537,6 +537,7 @@ async def buy(
         "entry_notional_usd": float(entry_notional_usd),
         "opened_at": utc_now().isoformat(),
         "closed": False,
+        "dry_run": True,
         "token_address": mint_key,
         "price_source": price_src,
         "entry_regime": entry_regime,

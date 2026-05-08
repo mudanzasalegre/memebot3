@@ -95,6 +95,11 @@ def _make_cfg(**overrides: object) -> SimpleNamespace:
         "PUMP_EARLY_SNIPER_CANARY_INITIAL_SIZE_CAP": 0.20,
         "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH": True,
         "PUMP_EARLY_SNIPER_PAPER_RECOVERY_SIZE_CAP": 0.20,
+        "PUMP_EARLY_SNIPER_LIVE_CONTINUE_ON_HEALTH": True,
+        "PUMP_EARLY_SNIPER_LIVE_RECOVERY_SIZE_CAP": 0.10,
+        "PUMP_EARLY_SNIPER_LIVE_REQUIRE_MANUAL_APPROVAL": True,
+        "LIVE_CANARY_ENABLED": False,
+        "LIVE_CANARY_MANUAL_APPROVAL": False,
         "PAPER_PNL_STRICT_HEALTH": True,
         "PAPER_AGGRESSIVE_TRADING_ENABLED": False,
         "PAPER_AGGRESSIVE_CONFIRM_SNAPSHOTS": 1,
@@ -1012,3 +1017,87 @@ def test_paper_sniper_green_ignores_regime_cooldown_even_when_strict_health(monk
     assert decision.effective_execution_state == "paper_recovery"
     assert decision.action == "live"
     assert decision.reason == "paper_expectancy_8"
+
+
+def test_live_sniper_research_canary_uses_same_health_bypass_after_manual_approval(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    now = dt.datetime(2026, 4, 27, 20, 10, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(
+        strategy_runtime,
+        "CFG",
+        _make_cfg(
+            DRY_RUN=False,
+            PUMP_EARLY_SNIPER_ENABLED=True,
+            PUMP_EARLY_SNIPER_LIVE_CONTINUE_ON_HEALTH=True,
+            PUMP_EARLY_SNIPER_LIVE_RECOVERY_SIZE_CAP=0.10,
+            LIVE_CANARY_ENABLED=True,
+            LIVE_CANARY_MANUAL_APPROVAL=True,
+        ),
+    )
+    monkeypatch.setattr(strategy_runtime, "_SCORECARD_PATH", tmp_path / "missing_scorecard.json")
+    monkeypatch.setattr(strategy_runtime.research_runtime, "load_live_rank_gate", lambda *args, **kwargs: _rank_gate())
+    _reset_strategy_state()
+
+    health = strategy_runtime._HEALTH["pump_early"]
+    health.cooldown_until = now + dt.timedelta(minutes=15)
+    health.last_disable_reason = "expectancy_8"
+
+    decision = strategy_runtime.evaluate_candidate(
+        {
+            "address": "rank-live",
+            "entry_lane": "pump_early_sniper_research",
+            "gate_profile": "pumpswap_profit_research",
+            "profit_lane_tier": "pump_early_research_rank_canary",
+            "age_min": 6.0,
+            "liquidity_usd": 19_000.0,
+        },
+        regime="pump_early",
+        has_route=True,
+        now=now,
+    )
+
+    assert decision.effective_mode == "live"
+    assert decision.effective_execution_state == "live_sniper_recovery"
+    assert decision.size_cap_multiplier == 0.10
+    assert decision.action == "live"
+    assert decision.reason == "live_sniper_expectancy_8"
+
+
+def test_live_sniper_health_bypass_requires_manual_approval(monkeypatch, tmp_path: Path) -> None:
+    now = dt.datetime(2026, 4, 27, 20, 20, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(
+        strategy_runtime,
+        "CFG",
+        _make_cfg(
+            DRY_RUN=False,
+            PUMP_EARLY_SNIPER_ENABLED=True,
+            PUMP_EARLY_SNIPER_LIVE_CONTINUE_ON_HEALTH=True,
+            LIVE_CANARY_ENABLED=True,
+            LIVE_CANARY_MANUAL_APPROVAL=False,
+        ),
+    )
+    monkeypatch.setattr(strategy_runtime, "_SCORECARD_PATH", tmp_path / "missing_scorecard.json")
+    monkeypatch.setattr(strategy_runtime.research_runtime, "load_live_rank_gate", lambda *args, **kwargs: _rank_gate())
+    _reset_strategy_state()
+
+    health = strategy_runtime._HEALTH["pump_early"]
+    health.cooldown_until = now + dt.timedelta(minutes=15)
+    health.last_disable_reason = "expectancy_8"
+
+    decision = strategy_runtime.evaluate_candidate(
+        {
+            "address": "rank-live-blocked",
+            "entry_lane": "pump_early_sniper_research",
+            "gate_profile": "pumpswap_profit_research",
+            "age_min": 6.0,
+            "liquidity_usd": 19_000.0,
+        },
+        regime="pump_early",
+        has_route=True,
+        now=now,
+    )
+
+    assert decision.action == "shadow"
+    assert decision.reason == "expectancy_8"

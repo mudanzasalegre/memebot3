@@ -103,3 +103,27 @@ def test_post_partial_protection_live_disabled_by_default() -> None:
         exit_policy.CFG = original_cfg
 
     assert policy.post_partial_protection_enabled is False
+
+
+def test_post_partial_protection_runtime_dry_run_override_activates_paper() -> None:
+    original_cfg = exit_policy.CFG
+    original_override = exit_policy._RUNTIME_DRY_RUN_OVERRIDE
+    exit_policy.CFG = replace(
+        exit_policy.CFG,
+        DRY_RUN=False,
+        POST_PARTIAL_PROTECTION_ENABLED=True,
+        POST_PARTIAL_PROTECTION_PAPER_ENABLED=True,
+        POST_PARTIAL_PROTECTION_LIVE_ENABLED=False,
+        PUMP_EARLY_POST_PARTIAL_PROTECTION_ENABLED=None,
+        POST_PARTIAL_LOCK_FLOOR_PCT=20.0,
+        POST_PARTIAL_MAX_GIVEBACK_PCT=5.0,
+        POST_PARTIAL_MIN_PEAK_PCT=35.0,
+    )
+    exit_policy.set_runtime_dry_run(True)
+    try:
+        policy = exit_policy.effective_exit_policy(_subject(highest_pnl_pct=50.0))
+    finally:
+        exit_policy.CFG = original_cfg
+        exit_policy._RUNTIME_DRY_RUN_OVERRIDE = original_override
+
+    assert policy.post_partial_protection_enabled is True

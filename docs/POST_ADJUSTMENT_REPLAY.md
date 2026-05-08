@@ -2,18 +2,11 @@
 
 | Policy | Trades | Win rate | Avg PnL | Total PnL | Delta PnL | Severe | Delta Severe | Runner capture |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| baseline_48h | 23380 | 2.58% | 0.32% | 7566.32 | 0.00 | 450 | 0 | 0.018 |
-| research_rank_priority | 23380 | 2.58% | 0.32% | 7566.32 | 0.00 | 450 | 0 | 0.018 |
-| green_sniper_shadow_first | 23380 | 2.26% | 0.49% | 11424.06 | 3857.74 | 376 | -74 | 0.017 |
-| green_sniper_restricted | 23380 | 2.26% | 0.49% | 11356.61 | 3790.28 | 377 | -73 | 0.017 |
-| late_momentum_research_only | 23380 | 2.53% | 0.36% | 8519.03 | 952.71 | 427 | -23 | 0.018 |
-| post_partial_protected | 23380 | 2.58% | 0.73% | 17018.24 | 9451.91 | 450 | 0 | 0.019 |
-| early_dump_candidates | 23380 | 2.58% | 1.17% | 27365.58 | 19799.26 | 7 | -443 | 0.018 |
-| combined_adjusted_v1 | 23380 | 2.22% | 1.47% | 34345.83 | 26779.51 | 6 | -444 | 0.018 |
-
-## Frozen 48h Baseline Reference
-
-- Closed trades: `63`
-- Win rate: `31.746`
-- Avg PnL: `27.697`
-- Severe losses: `22`
+| baseline_48h | 3873 | 2.40% | 0.38% | 1451.59 | 0.00 | 75 | 0 | 0.017 |
+| research_rank_priority | 3873 | 2.40% | 0.38% | 1451.59 | 0.00 | 75 | 0 | 0.017 |
+| green_sniper_shadow_first | 3873 | 2.14% | 0.54% | 2091.47 | 639.88 | 58 | -17 | 0.015 |
+| green_sniper_restricted | 3873 | 2.14% | 0.54% | 2091.47 | 639.88 | 58 | -17 | 0.015 |
+| late_momentum_research_only | 3873 | 2.38% | 0.40% | 1537.66 | 86.07 | 72 | -3 | 0.016 |
+| post_partial_protected | 3873 | 2.40% | 0.87% | 3370.07 | 1918.48 | 75 | 0 | 0.018 |
+| early_dump_candidates | 3873 | 2.40% | 1.08% | 4179.54 | 2727.95 | 3 | -72 | 0.017 |
+| combined_adjusted_v1 | 3873 | 2.12% | 1.38% | 5337.35 | 3885.76 | 0 | -75 | 0.016 |

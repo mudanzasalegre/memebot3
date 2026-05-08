@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import json
+import threading
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from config.config import CFG
+from config.config import CFG, PROJECT_ROOT
 from analytics.lane_policy_categories import POLICY_RESEARCH_RANK_CANARY
 from ml.lane_taxonomy import LANE_RESEARCH_RANK_CANARY, LANE_RESEARCH_SNIPER, normalize_entry_lane
+
+
+AUDIT_PATH = PROJECT_ROOT / "data" / "metrics" / "research_rank_canary_audit.json"
+_AUDIT_LOCK = threading.Lock()
 
 
 def _float(value: Any, default: float = 0.0) -> float:
@@ -26,8 +34,14 @@ def _bool(value: Any) -> bool:
 
 
 def _score_threshold(value: Any, default: float = 0.647) -> float:
+    return normalize_score(value, default)[1]
+
+
+def normalize_score(value: Any, default: float = 0.0) -> tuple[float, float, str]:
     raw = _float(value, default)
-    return raw * 100.0 if 0.0 < raw <= 1.0 else raw
+    if 0.0 < raw <= 1.0:
+        return raw, raw * 100.0, "0_1"
+    return raw, raw, "0_100"
 
 
 def _field_float(token: dict[str, Any], *keys: str, default: float = 0.0) -> float:
@@ -46,6 +60,119 @@ class ResearchRankCanaryDecision:
     rank_score: float
     min_score: float
     amount_sol: float
+    rank_score_raw: float = 0.0
+    rank_score_scale: str = "0_100"
+    min_score_raw: float = 0.0
+    min_score_scale: str = "0_100"
+
+
+def _read_audit() -> dict[str, Any]:
+    try:
+        payload = json.loads(AUDIT_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        payload = {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *, dry_run: bool, live: bool) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    reason = str(decision.reason or "unknown")
+    address = str(token.get("address") or token.get("token_address") or "")
+    payload = {
+        "updated_at_utc": now,
+        "total_evaluations": 0,
+        "allowed": 0,
+        "rejected": 0,
+        "reasons": {},
+        "last_decision": {},
+        "config": {
+            "enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_ENABLED", True)),
+            "paper_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_ENABLED", True)),
+            "live_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_LIVE_ENABLED", False)),
+            "min_score_raw": decision.min_score_raw,
+            "min_score_normalized": decision.min_score,
+            "min_score_scale": decision.min_score_scale,
+            "require_route_paper": bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)),
+        },
+    }
+    try:
+        with _AUDIT_LOCK:
+            payload.update(_read_audit())
+            payload["updated_at_utc"] = now
+            payload["total_evaluations"] = int(payload.get("total_evaluations") or 0) + 1
+            if decision.allowed:
+                payload["allowed"] = int(payload.get("allowed") or 0) + 1
+            else:
+                payload["rejected"] = int(payload.get("rejected") or 0) + 1
+            reasons = payload.get("reasons")
+            if not isinstance(reasons, dict):
+                reasons = {}
+            reasons[reason] = int(reasons.get(reason) or 0) + 1
+            payload["reasons"] = reasons
+            payload["config"] = {
+                "enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_ENABLED", True)),
+                "paper_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_ENABLED", True)),
+                "live_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_LIVE_ENABLED", False)),
+                "min_score_raw": decision.min_score_raw,
+                "min_score_normalized": decision.min_score,
+                "min_score_scale": decision.min_score_scale,
+                "require_route_paper": bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)),
+            }
+            payload["last_decision"] = {
+                "ts_utc": now,
+                "address": address,
+                "allowed": bool(decision.allowed),
+                "reason": reason,
+                "dry_run": bool(dry_run),
+                "live": bool(live),
+                "entry_lane": str(token.get("entry_lane") or ""),
+                "rank_score_raw": decision.rank_score_raw,
+                "rank_score_normalized": decision.rank_score,
+                "rank_score_scale": decision.rank_score_scale,
+                "min_score_raw": decision.min_score_raw,
+                "min_score_normalized": decision.min_score,
+                "min_score_scale": decision.min_score_scale,
+                "price_pct_5m": _field_float(token, "price_pct_5m", "buy_price_pct_5m", default=0.0),
+                "market_cap_usd": _field_float(token, "market_cap_usd", "buy_market_cap_usd", default=0.0),
+                "txns_last_5m": _field_float(token, "txns_last_5m", "buy_txns_last_5m", default=0.0),
+                "liquidity_usd": _field_float(token, "liquidity_usd", "buy_liquidity_usd", default=0.0),
+                "has_jupiter_route": _bool(token.get("has_jupiter_route")),
+                "liquidity_is_proxy": _bool(
+                    token.get("liquidity_is_proxy")
+                    or token.get("liquidity_usd_is_proxy")
+                    or token.get("buy_liquidity_is_proxy")
+                ),
+            }
+            AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
+            AUDIT_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception:
+        return
+
+
+def _record_event(token: dict[str, Any], decision: ResearchRankCanaryDecision, *, dry_run: bool, live: bool) -> None:
+    address = str(token.get("address") or token.get("token_address") or "")
+    if not address:
+        return
+    try:
+        from utils.runtime_telemetry import record_runtime_event
+
+        record_runtime_event(
+            "research_rank_canary_eval",
+            address,
+            allowed=bool(decision.allowed),
+            reason=str(decision.reason),
+            dry_run=bool(dry_run),
+            live=bool(live),
+            entry_lane=str(token.get("entry_lane") or ""),
+            rank_score_raw=float(decision.rank_score_raw),
+            rank_score_normalized=float(decision.rank_score),
+            rank_score_scale=str(decision.rank_score_scale),
+            min_score_raw=float(decision.min_score_raw),
+            min_score_normalized=float(decision.min_score),
+            min_score_scale=str(decision.min_score_scale),
+        )
+    except Exception:
+        return
 
 
 def evaluate_research_rank_canary(
@@ -55,53 +182,74 @@ def evaluate_research_rank_canary(
     dry_run: bool,
     live: bool,
 ) -> ResearchRankCanaryDecision:
-    min_score = _score_threshold(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_SCORE", 0.647), 0.647)
+    min_score_raw, min_score, min_score_scale = normalize_score(
+        getattr(CFG, "RESEARCH_RANK_CANARY_MIN_SCORE", 0.647),
+        0.647,
+    )
     amount = _float(getattr(CFG, "RESEARCH_RANK_CANARY_SIZE_SOL", 0.01), 0.01)
     if dry_run:
         amount = max(amount, _float(getattr(CFG, "MIN_BUY_SOL", amount), amount))
-    rank_score = _float(
+    rank_raw_value = (
         (rank_info or {}).get("rank_score")
         or (rank_info or {}).get("research_rank_score")
         or token.get("rank_score")
-        or token.get("research_rank_score"),
-        0.0,
+        or token.get("research_rank_score")
     )
+    rank_score_raw, rank_score, rank_score_scale = normalize_score(rank_raw_value, 0.0)
+
+    def decision(allowed: bool, reason: str) -> ResearchRankCanaryDecision:
+        out = ResearchRankCanaryDecision(
+            allowed,
+            LANE_RESEARCH_RANK_CANARY,
+            reason,
+            rank_score,
+            min_score,
+            amount,
+            rank_score_raw,
+            rank_score_scale,
+            min_score_raw,
+            min_score_scale,
+        )
+        _record_audit(token, out, dry_run=dry_run, live=live)
+        _record_event(token, out, dry_run=dry_run, live=live)
+        return out
+
     if not bool(getattr(CFG, "RESEARCH_RANK_CANARY_ENABLED", True)):
-        return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, "disabled", rank_score, min_score, amount)
+        return decision(False, "disabled")
     if normalize_entry_lane(token.get("entry_lane")) != LANE_RESEARCH_SNIPER:
-        return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, "not_research_sniper", rank_score, min_score, amount)
+        return decision(False, "not_research_sniper")
     if live and not bool(getattr(CFG, "RESEARCH_RANK_CANARY_LIVE_ENABLED", False)):
-        return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, "live_disabled", rank_score, min_score, amount)
+        return decision(False, "live_disabled")
     if dry_run and not bool(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_ENABLED", True)):
-        return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, "paper_disabled", rank_score, min_score, amount)
+        return decision(False, "paper_disabled")
     if rank_score < min_score:
-        return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, f"rank_below_min:{rank_score:.2f}<{min_score:.2f}", rank_score, min_score, amount)
+        return decision(False, "rank_below_min")
     price5m = _field_float(token, "price_pct_5m", "buy_price_pct_5m", default=0.0)
     min_price5m = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 25.0), 25.0)
     max_price5m = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_PRICE5M", 100.0), 100.0)
     if price5m < min_price5m or price5m > max_price5m:
-        return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, f"price5m_out_of_band:{price5m:.2f}", rank_score, min_score, amount)
+        return decision(False, "price5m_out_of_band")
     mcap = _field_float(token, "market_cap_usd", "buy_market_cap_usd", default=0.0)
     min_mcap = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_MCAP_USD", 25_000.0), 25_000.0)
     max_mcap = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_MCAP_USD", 100_000.0), 100_000.0)
     if mcap < min_mcap or mcap > max_mcap:
-        return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, f"mcap_out_of_band:{mcap:.0f}", rank_score, min_score, amount)
+        return decision(False, "mcap_out_of_band")
     txns = _field_float(token, "txns_last_5m", "buy_txns_last_5m", default=0.0)
     min_txns = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_TXNS_5M", 300), 300.0)
     if txns < min_txns:
-        return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, f"txns_below_min:{txns:.0f}<{min_txns:.0f}", rank_score, min_score, amount)
+        return decision(False, "txns_below_min")
     liq = _field_float(token, "liquidity_usd", "buy_liquidity_usd", default=0.0)
     min_liq = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_LIQUIDITY_USD", 2000.0), 2000.0)
     if liq < min_liq:
-        return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, f"liquidity_below_min:{liq:.0f}<{min_liq:.0f}", rank_score, min_score, amount)
+        return decision(False, "liquidity_below_min")
     proxy = _bool(token.get("liquidity_is_proxy") or token.get("liquidity_usd_is_proxy") or token.get("buy_liquidity_is_proxy"))
     if proxy and bool(getattr(CFG, "RESEARCH_RANK_CANARY_PREFER_REAL_LIQUIDITY", True)):
-        return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, "proxy_liquidity", rank_score, min_score, amount)
+        return decision(False, "proxy_liquidity")
     if dry_run and bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)) and not _bool(token.get("has_jupiter_route")):
-        return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, "no_route_paper", rank_score, min_score, amount)
+        return decision(False, "no_route_paper")
     if live and bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_LIVE", True)) and not _bool(token.get("has_jupiter_route")):
-        return ResearchRankCanaryDecision(False, LANE_RESEARCH_RANK_CANARY, "no_route_live", rank_score, min_score, amount)
-    return ResearchRankCanaryDecision(True, LANE_RESEARCH_RANK_CANARY, "research_rank_canary", rank_score, min_score, amount)
+        return decision(False, "no_route_live")
+    return decision(True, "research_rank_canary")
 
 
 def apply_research_rank_canary_context(token: dict[str, Any], decision: ResearchRankCanaryDecision) -> dict[str, Any]:
@@ -110,11 +258,21 @@ def apply_research_rank_canary_context(token: dict[str, Any], decision: Research
     token["profit_lane_tier"] = decision.entry_lane
     token["lane_policy_category"] = POLICY_RESEARCH_RANK_CANARY
     token["research_rank_canary_rank_score"] = decision.rank_score
+    token["research_rank_canary_rank_score_raw"] = decision.rank_score_raw
+    token["research_rank_canary_rank_score_scale"] = decision.rank_score_scale
     token["research_rank_canary_min_score"] = decision.min_score
+    token["research_rank_canary_min_score_raw"] = decision.min_score_raw
+    token["research_rank_canary_min_score_scale"] = decision.min_score_scale
     token["research_rank_canary_amount_sol"] = decision.amount_sol
     token["green_sniper_reason"] = decision.reason
     token["live_profit_gate_failed_count"] = 0
     return token
 
 
-__all__ = ["ResearchRankCanaryDecision", "apply_research_rank_canary_context", "evaluate_research_rank_canary"]
+__all__ = [
+    "AUDIT_PATH",
+    "ResearchRankCanaryDecision",
+    "apply_research_rank_canary_context",
+    "evaluate_research_rank_canary",
+    "normalize_score",
+]

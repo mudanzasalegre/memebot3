@@ -794,6 +794,37 @@ def _live_aggressive_continue_on_health(regime: str) -> bool:
     )
 
 
+def _live_sniper_recovery_cap() -> float:
+    try:
+        return max(0.0, float(getattr(CFG, "PUMP_EARLY_SNIPER_LIVE_RECOVERY_SIZE_CAP", 0.10) or 0.10))
+    except Exception:
+        return 0.10
+
+
+def _live_sniper_continue_on_health(token: dict[str, Any], regime: str) -> bool:
+    if _normalize_regime(regime) != "pump_early":
+        return False
+    if bool(getattr(CFG, "DRY_RUN", False)):
+        return False
+    if not bool(getattr(CFG, "PUMP_EARLY_SNIPER_LIVE_CONTINUE_ON_HEALTH", False)):
+        return False
+    if not bool(getattr(CFG, "LIVE_CANARY_ENABLED", False)):
+        return False
+    if bool(getattr(CFG, "PUMP_EARLY_SNIPER_LIVE_REQUIRE_MANUAL_APPROVAL", True)) and not bool(
+        getattr(CFG, "LIVE_CANARY_MANUAL_APPROVAL", False)
+    ):
+        return False
+
+    lane = str(token.get("entry_lane") or "").strip().lower()
+    profile = str(token.get("gate_profile") or token.get("sniper_gate_profile") or "").strip().lower()
+    tier = str(token.get("profit_lane_tier") or "").strip().lower()
+    return (
+        lane in {"pump_early_sniper_research", "pump_early_research_rank_canary"}
+        or tier == "pump_early_research_rank_canary"
+        or profile in {"pumpswap_profit_research", "research_rank_canary"}
+    )
+
+
 def _paper_sniper_continue_on_health(token: dict[str, Any], regime: str) -> bool:
     lane = str(token.get("entry_lane") or "").strip().lower()
     profile = str(token.get("gate_profile") or token.get("sniper_gate_profile") or "").strip().lower()
@@ -1255,6 +1286,7 @@ def evaluate_candidate(
         resolved_regime,
     )
     paper_aggressive_continue = _paper_aggressive_enabled()
+    live_sniper_continue = _live_sniper_continue_on_health(token, resolved_regime)
     live_aggressive_continue = _live_aggressive_continue_on_health(resolved_regime)
     bucket_disable_reason = _bucket_disable_reason(token, resolved_regime, now)
 
@@ -1293,6 +1325,11 @@ def evaluate_candidate(
                 effective_execution_state = "paper_recovery"
                 size_cap_multiplier = _sniper_paper_recovery_cap()
                 mode_override_reason = "paper_scorecard_negative"
+            elif live_sniper_continue:
+                effective_mode = "live"
+                effective_execution_state = "live_sniper_recovery"
+                size_cap_multiplier = _live_sniper_recovery_cap()
+                mode_override_reason = "live_sniper_scorecard_negative"
             elif live_aggressive_continue:
                 effective_mode = "live"
                 effective_execution_state = "live_aggressive_recovery"
@@ -1312,6 +1349,11 @@ def evaluate_candidate(
                 effective_execution_state = "paper_recovery"
                 size_cap_multiplier = _sniper_paper_recovery_cap()
                 mode_override_reason = f"paper_{mode_override_reason}"
+            elif live_sniper_continue:
+                effective_mode = "live"
+                effective_execution_state = "live_sniper_recovery"
+                size_cap_multiplier = _live_sniper_recovery_cap()
+                mode_override_reason = f"live_sniper_{mode_override_reason}"
             elif live_aggressive_continue:
                 effective_mode = "live"
                 effective_execution_state = "live_aggressive_recovery"
@@ -1331,6 +1373,11 @@ def evaluate_candidate(
                 effective_execution_state = "paper_recovery"
                 size_cap_multiplier = _sniper_paper_recovery_cap()
                 mode_override_reason = "paper_recovery_not_ready"
+            elif live_sniper_continue:
+                effective_mode = "live"
+                effective_execution_state = "live_sniper_recovery"
+                size_cap_multiplier = _live_sniper_recovery_cap()
+                mode_override_reason = "live_sniper_recovery_not_ready"
             elif live_aggressive_continue:
                 effective_mode = "live"
                 effective_execution_state = "live_aggressive_recovery"

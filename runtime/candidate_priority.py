@@ -55,13 +55,17 @@ def _boolish(value: Any) -> bool:
 
 
 def _score_threshold(value: Any, default: float = 0.647) -> float:
+    return _normalize_score(value, default)
+
+
+def _normalize_score(value: Any, default: float = 0.0) -> float:
     raw = _to_float(value, default)
     return raw * 100.0 if 0.0 < raw <= 1.0 else raw
 
 
 def research_rank_priority_fit(token: dict[str, Any]) -> bool:
     lane = normalize_entry_lane(token.get("entry_lane") or token.get("profit_lane_tier"))
-    rank = _to_float(token.get("rank_score") or token.get("research_rank_score"), -1.0)
+    rank = _normalize_score(token.get("rank_score") or token.get("research_rank_score"), -1.0)
     price5m = _to_float(token.get("price_pct_5m") or token.get("buy_price_pct_5m"), 0.0)
     txns5m = _to_float(token.get("txns_last_5m") or token.get("buy_txns_last_5m"), 0.0)
     mcap = _to_float(token.get("market_cap_usd") or token.get("buy_market_cap_usd"), 0.0)
@@ -98,7 +102,7 @@ def candidate_priority_score(token: dict[str, Any], *, source: str | None = None
     price5m = _to_float(token.get("price_pct_5m"), 0.0)
     txns5m = _to_float(token.get("txns_last_5m"), 0.0)
     liq = _to_float(token.get("liquidity_usd"), 0.0)
-    rank = _to_float(token.get("rank_score") or token.get("research_rank_score"), -1.0)
+    rank = _normalize_score(token.get("rank_score") or token.get("research_rank_score"), -1.0)
     score = _source_score(str(src))
     score += max(0.0, 20.0 - age_min) * 1.5
     if rank >= 75:

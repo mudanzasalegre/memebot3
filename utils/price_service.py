@@ -20,6 +20,7 @@ Extras:
 
 from __future__ import annotations
 
+import asyncio
 import math
 import os
 import logging
@@ -31,7 +32,10 @@ from utils.sol_price import get_sol_usd
 from utils.solana_addr import normalize_mint
 
 # Adapters
-from fetcher.geckoterminal import get_token_data as get_gt_data, USE_GECKO_TERMINAL
+from fetcher.geckoterminal import (
+    get_token_data_async as get_gt_data_async,
+    USE_GECKO_TERMINAL,
+)
 from fetcher import birdeye
 from fetcher import dexscreener
 
@@ -106,6 +110,14 @@ except Exception:
 _USE_BIRDEYE    = os.getenv("USE_BIRDEYE", "true").lower() == "true"
 _RETRY_ON_FAIL  = int(os.getenv("PRICE_RETRY_ON_FAIL", "1"))  # nº reintentos de la cadena
 _RETRY_DELAY_S  = float(os.getenv("PRICE_RETRY_DELAY_S", "2.0"))
+try:
+    _GT_TIMEOUT_S = max(0.5, float(os.getenv("PRICE_GECKO_TIMEOUT_S", "4.0")))
+except Exception:
+    _GT_TIMEOUT_S = 4.0
+try:
+    _GT_HARD_TIMEOUT_S = max(1.0, float(os.getenv("PRICE_GECKO_HARD_TIMEOUT_S", "6.0")))
+except Exception:
+    _GT_HARD_TIMEOUT_S = 6.0
 
 # Flags Jupiter
 _USE_JUPITER_PRICE = os.getenv("USE_JUPITER_PRICE", "true").lower() == "true"
@@ -273,6 +285,23 @@ def _normalize_after_merge(tok: Dict[str, Any] | None) -> Dict[str, Any] | None:
     return _coerce_tick_numbers(tok)
 
 
+async def _query_gecko_terminal(address: str) -> Optional[Dict[str, Any]]:
+    try:
+        return await asyncio.wait_for(
+            get_gt_data_async(_CHAIN, address, timeout=_GT_TIMEOUT_S),
+            timeout=_GT_HARD_TIMEOUT_S,
+        )
+    except (TimeoutError, asyncio.TimeoutError):
+        logger.warning(
+            "[price_service] GeckoTerminal hard-timeout %.1fs para %s",
+            _GT_HARD_TIMEOUT_S,
+            address[:6],
+        )
+    except Exception as exc:
+        logger.debug("[price_service] GeckoTerminal error: %s", exc)
+    return None
+
+
 # ─────────── Impacto Jupiter (opcional, si router disponible) ────────────────
 SOL_MINT = "So11111111111111111111111111111111111111112"
 
@@ -370,12 +399,8 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
     # ④ GeckoTerminal (opcional, para completar sin perder metadata previa)
     gt_skip_key = f"price:gt_skip:{address}"
     if use_gt and USE_GECKO_TERMINAL and cache_get(gt_skip_key) is None:
-        try:
-            gt = get_gt_data(_CHAIN, address)
-            gt = _coerce_tick_numbers(gt)
-        except Exception as exc:
-            logger.debug("[price_service] GeckoTerminal error: %s", exc)
-            gt = None
+        gt = await _query_gecko_terminal(address)
+        gt = _coerce_tick_numbers(gt)
 
         if gt:
             logger.debug("[price_service] Merge ← GeckoTerminal para %s…", address[:6])

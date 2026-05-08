@@ -203,6 +203,7 @@ from utils.runtime_telemetry import (  # noqa: E402
     log_ml_policy_decision_event,
     log_regime_health_event,
     log_strategy_decision_event,
+    record_runtime_event,
 )
 from utils.solana_rpc import get_sol_balance  # noqa: E402
 from utils.time import utc_now, parse_iso_utc  # noqa: E402
@@ -363,6 +364,7 @@ args = parser.parse_args()
 DRY_RUN = args.dry_run or CFG.DRY_RUN
 if bool(getattr(CFG, "STRATEGY_OPTIMIZATION_LOCK", True)) and not DRY_RUN:
     raise SystemExit("STRATEGY_OPTIMIZATION_LOCK=true blocks live runtime; start in DRY_RUN/paper mode")
+exit_policy.set_runtime_dry_run(DRY_RUN)
 _PROCESS_LOCK: SingleInstanceLock | None = None
 
 
@@ -398,6 +400,79 @@ logging.basicConfig(
     force=True,
 )
 log = logging.getLogger("run_bot")
+
+_BOOT_CONFIG_AUDIT_FLAGS = (
+    "STRATEGY_OPTIMIZATION_LOCK",
+    "DRY_RUN",
+    "GREEN_SNIPER_POLICY_MODE",
+    "GREEN_SNIPER_BUY_RESTRICTED_ENABLED",
+    "RESEARCH_RANK_CANARY_ENABLED",
+    "RESEARCH_RANK_CANARY_PAPER_ENABLED",
+    "RESEARCH_RANK_CANARY_MIN_SCORE",
+    "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER",
+    "LATE_MOMENTUM_WATCH_BUY_ENABLED",
+    "POST_PARTIAL_PROTECTION_ENABLED",
+    "POST_PARTIAL_PROTECTION_PAPER_ENABLED",
+)
+_BOOT_AUDIT_EMITTED = False
+
+
+def _boot_config_value(name: str) -> object:
+    if name == "DRY_RUN":
+        return bool(DRY_RUN)
+    return getattr(CFG, name, None)
+
+
+def _emit_boot_config_audit() -> dict[str, object]:
+    flags = {name: _boot_config_value(name) for name in _BOOT_CONFIG_AUDIT_FLAGS}
+    payload: dict[str, object] = {
+        "updated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "config_profile": str(getattr(CFG, "CONFIG_PROFILE", "") or ""),
+        "config_profile_path": str(os.getenv("CONFIG_PROFILE_PATH") or ""),
+        "flags": flags,
+    }
+    path = PROJECT_ROOT / "data" / "metrics" / "boot_config_audit.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
+    log.info("Boot config audit: %s", json.dumps(flags, ensure_ascii=True, sort_keys=True))
+    try:
+        record_runtime_event(
+            "boot_config_audit",
+            "runtime",
+            config_profile=str(payload["config_profile"]),
+            config_profile_path=str(payload["config_profile_path"]),
+            **flags,
+        )
+    except Exception:
+        pass
+    return payload
+
+
+def _emit_post_partial_activation_audit() -> dict[str, object]:
+    payload = exit_policy.write_post_partial_activation_audit()
+    log.info(
+        "Post-partial activation audit: surface=%s active=%s regimes=%s paper_flag=%s",
+        payload.get("runtime_surface"),
+        payload.get("runtime_protection_active"),
+        ",".join(payload.get("active_regimes") or []) or "(none)",
+        payload.get("post_partial_protection_paper_enabled"),
+    )
+    try:
+        record_runtime_event(
+            "post_partial_activation_audit",
+            "runtime",
+            runtime_surface=str(payload.get("runtime_surface") or ""),
+            runtime_protection_active=bool(payload.get("runtime_protection_active")),
+            active_regimes=payload.get("active_regimes") or [],
+            effective_dry_run=bool(payload.get("effective_dry_run")),
+            post_partial_protection_paper_enabled=bool(
+                payload.get("post_partial_protection_paper_enabled")
+            ),
+            experiment_shadow_only=bool(payload.get("experiment_shadow_only")),
+        )
+    except Exception:
+        pass
+    return payload
 
 if DRY_RUN:
     from trader import papertrading as buyer  # type: ignore
@@ -6206,6 +6281,7 @@ async def main_loop() -> None:
     global _runtime_started_at, _runtime_process_state
     global _last_discovery_ok_at, _last_monitor_ok_at, _runtime_reports_refresh_state
     global _wallet_sol_balance, _last_stats_print, _last_csv_export, _last_wallet_checked_at
+    global _BOOT_AUDIT_EMITTED
     ses             = SessionLocal()
     last_discovery  = 0.0
     if _runtime_started_at is None:
@@ -6232,6 +6308,11 @@ async def main_loop() -> None:
             reason = "BLOCK_HOURS" if is_blocked else "fuera de ventana"
             delay  = _delay_until_window(now_local)
             log.info("⏸️  Inicio en hora NO operable (%s). Próximo intento en ~%ds.", reason, delay)
+
+    if not _BOOT_AUDIT_EMITTED:
+        _emit_boot_config_audit()
+        _emit_post_partial_activation_audit()
+        _BOOT_AUDIT_EMITTED = True
 
     log.info(
         "Ready (discover=%ss, batch=%s, sleep=%ss, DRY_RUN=%s, AI_THRESHOLD=%.2f)",

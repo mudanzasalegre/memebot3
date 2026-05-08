@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 from dataclasses import dataclass
 from typing import Any
 
-from config.config import CFG
+from config.config import CFG, PROJECT_ROOT
+
+
+_RUNTIME_DRY_RUN_OVERRIDE: bool | None = None
+
+
+def set_runtime_dry_run(dry_run: bool | None) -> None:
+    global _RUNTIME_DRY_RUN_OVERRIDE
+    _RUNTIME_DRY_RUN_OVERRIDE = None if dry_run is None else bool(dry_run)
 
 
 def _get(subject: Any, key: str, default: Any = None) -> Any:
@@ -39,6 +48,16 @@ def _to_bool(value: Any, default: bool = False) -> bool:
     if raw in {"0", "false", "no", "n", "off"}:
         return False
     return bool(default)
+
+
+def _effective_dry_run(subject: Any | None = None) -> bool:
+    if subject is not None:
+        explicit = _get(subject, "dry_run", None)
+        if explicit is not None:
+            return _to_bool(explicit, bool(getattr(CFG, "DRY_RUN", True)))
+    if _RUNTIME_DRY_RUN_OVERRIDE is not None:
+        return bool(_RUNTIME_DRY_RUN_OVERRIDE)
+    return bool(getattr(CFG, "DRY_RUN", True))
 
 
 def _normalize_regime(value: Any) -> str:
@@ -293,6 +312,44 @@ def _profit_runner_profiles() -> dict[str, dict[str, float]]:
                 getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_METEOR_STEP2_LOCK_FLOOR_PCT", 120.0) or 120.0
             ),
         },
+        "jackpot_runner": {
+            "partial_fraction": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_PARTIAL_FRACTION", 0.35) or 0.35
+            ),
+            "base_lock_floor_pct": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_BASE_LOCK_FLOOR_PCT", 35.0) or 35.0
+            ),
+            "base_max_giveback_pct": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_BASE_MAX_GIVEBACK_PCT", 12.0) or 12.0
+            ),
+            "step1_peak_pct": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_STEP1_PEAK_PCT", 100.0) or 100.0
+            ),
+            "step1_lock_floor_pct": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_STEP1_LOCK_FLOOR_PCT", 80.0) or 80.0
+            ),
+            "step1_max_giveback_pct": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_STEP1_MAX_GIVEBACK_PCT", 18.0) or 18.0
+            ),
+            "step2_peak_pct": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_STEP2_PEAK_PCT", 300.0) or 300.0
+            ),
+            "step2_lock_floor_pct": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_STEP2_LOCK_FLOOR_PCT", 180.0) or 180.0
+            ),
+            "step2_max_giveback_pct": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_STEP2_MAX_GIVEBACK_PCT", 25.0) or 25.0
+            ),
+            "step3_peak_pct": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_STEP3_PEAK_PCT", 500.0) or 500.0
+            ),
+            "step3_lock_floor_pct": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_STEP3_LOCK_FLOOR_PCT", 320.0) or 320.0
+            ),
+            "step3_max_giveback_pct": float(
+                getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_STEP3_MAX_GIVEBACK_PCT", 35.0) or 35.0
+            ),
+        },
     }
 
 
@@ -321,14 +378,14 @@ def _is_aggressive_research_subject(subject: Any) -> bool:
 
 
 def _resolve_aggressive_research_runner_profile(subject: Any) -> str:
-    _ = subject
-    # Research/aggressive buys are not validated productively; keep the runner small and defensive.
+    if _is_jackpot_research_subject(subject):
+        return "jackpot_runner"
     return "broad_runner"
 
 
 def resolve_runner_exit_profile(subject: Any) -> str | None:
     explicit = str(_get(subject, "runner_exit_profile", "") or "").strip().lower()
-    if explicit in {"broad_runner", "prime_runner", "meteor_runner", "green_sniper_runner", "bird_runner"}:
+    if explicit in {"broad_runner", "prime_runner", "meteor_runner", "jackpot_runner", "green_sniper_runner", "bird_runner"}:
         return explicit
     if _is_green_sniper_subject(subject):
         return "green_sniper_runner"
@@ -406,6 +463,25 @@ def _runner_policy_overrides(subject: Any, peak_pct: float) -> tuple[str | None,
             state = "step2"
         return profile, state, lock_floor, max_giveback
 
+    if profile == "jackpot_runner":
+        cfg = profiles["jackpot_runner"]
+        lock_floor = float(cfg["base_lock_floor_pct"])
+        max_giveback = float(cfg["base_max_giveback_pct"])
+        state = "base"
+        if peak >= float(cfg["step1_peak_pct"]):
+            lock_floor = float(cfg["step1_lock_floor_pct"])
+            max_giveback = float(cfg["step1_max_giveback_pct"])
+            state = "step1"
+        if peak >= float(cfg["step2_peak_pct"]):
+            lock_floor = float(cfg["step2_lock_floor_pct"])
+            max_giveback = float(cfg["step2_max_giveback_pct"])
+            state = "step2"
+        if peak >= float(cfg["step3_peak_pct"]):
+            lock_floor = float(cfg["step3_lock_floor_pct"])
+            max_giveback = float(cfg["step3_max_giveback_pct"])
+            state = "step3"
+        return profile, state, lock_floor, max_giveback
+
     if profile == "green_sniper_runner":
         cfg = profiles["green_sniper_runner"]
         lock_floor = 0.0
@@ -455,6 +531,65 @@ def _is_pumpswap_profit_subject(subject: Any) -> bool:
         or profile.startswith("pumpswap_breakout")
         or bucket in {"pumpswap_profit", "pumpswap_prime", "pumpswap_meteor", "pumpswap_breakout"}
     )
+
+
+def _is_jackpot_research_subject(subject: Any) -> bool:
+    if not bool(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_ENABLED", True)):
+        return False
+
+    lane = str(_get(subject, "entry_lane", "") or "").strip().lower()
+    profile = str(_get(subject, "gate_profile", "") or _get(subject, "sniper_gate_profile", "") or "").strip().lower()
+    tier = str(_get(subject, "profit_lane_tier", "") or "").strip().lower()
+    if not (
+        lane in {"pump_early_sniper_research", "pump_early_research_rank_canary"}
+        or tier == "pump_early_research_rank_canary"
+        or profile in {"pumpswap_profit_research", "research_rank_canary"}
+    ):
+        return False
+    if not _subject_real_liquidity(subject):
+        return False
+
+    liquidity = _to_float(_get(subject, "buy_liquidity_usd"), 0.0)
+    if liquidity <= 0:
+        liquidity = _to_float(_get(subject, "liquidity_usd"), 0.0)
+    if liquidity < float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_MIN_LIQUIDITY_USD", 10_000.0) or 10_000.0):
+        return False
+
+    mcap = _to_float(_get(subject, "buy_market_cap_usd"), 0.0)
+    if mcap <= 0:
+        mcap = _to_float(_get(subject, "market_cap_usd"), 0.0)
+    if not (
+        float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_MIN_MCAP_USD", 50_000.0) or 50_000.0)
+        <= mcap
+        <= float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_MAX_MCAP_USD", 100_000.0) or 100_000.0)
+    ):
+        return False
+
+    price5m = _to_float(_get(subject, "buy_price_pct_5m"), None)
+    if price5m is None:
+        price5m = _to_float(_get(subject, "price_pct_5m"), None)
+    if price5m is None or not (
+        float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_MIN_PRICE5M_PCT", 25.0) or 25.0)
+        <= price5m
+        <= float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_MAX_PRICE5M_PCT", 100.0) or 100.0)
+    ):
+        return False
+
+    txns_5m = _to_float(_get(subject, "buy_txns_last_5m"), 0.0)
+    if txns_5m <= 0:
+        txns_5m = _to_float(_get(subject, "txns_last_5m"), 0.0)
+    if txns_5m < float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_MIN_TXNS_5M", 500) or 500):
+        return False
+
+    rank_raw = _get(subject, "rank_score")
+    if rank_raw in (None, ""):
+        rank_raw = _get(subject, "research_rank_score")
+    if rank_raw not in (None, ""):
+        rank = _to_float(rank_raw, 0.0)
+        if rank < float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_MIN_RANK_SCORE", 61.0) or 61.0):
+            return False
+
+    return True
 
 
 def _is_green_sniper_subject(subject: Any) -> bool:
@@ -524,7 +659,7 @@ def effective_exit_policy(subject: Any) -> ExitPolicy:
     if green_sniper_subject and tp_partial_enabled:
         take_profit_pct = max(float(take_profit_pct), float(tp_partial_trigger_pct))
 
-    dry_run = bool(getattr(CFG, "DRY_RUN", True))
+    dry_run = _effective_dry_run(subject)
     protection_enabled = _override_bool(
         regime,
         "post_partial_protection_enabled",
@@ -922,6 +1057,48 @@ def describe_exit_policy() -> dict[str, Any]:
     }
 
 
+def write_post_partial_activation_audit(path: Any | None = None) -> dict[str, Any]:
+    target = path or (PROJECT_ROOT / "data" / "metrics" / "post_partial_activation_audit.json")
+    effective_dry_run = _effective_dry_run()
+    effective_by_regime = {
+        regime: effective_exit_policy({"entry_regime": regime}).__dict__
+        for regime in ("pump_early", "dex_mature", "revival")
+    }
+    active_regimes = [
+        regime
+        for regime, policy in effective_by_regime.items()
+        if bool(policy.get("post_partial_protection_enabled"))
+    ]
+    experiment_enabled = bool(getattr(CFG, "POST_PARTIAL_EXPERIMENT_ENABLED", True))
+    experiment_mode = str(getattr(CFG, "POST_PARTIAL_EXPERIMENT_MODE", "paper_shadow") or "paper_shadow").strip().lower()
+    payload = {
+        "updated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "cfg_dry_run": bool(getattr(CFG, "DRY_RUN", True)),
+        "runtime_dry_run_override": _RUNTIME_DRY_RUN_OVERRIDE,
+        "effective_dry_run": bool(effective_dry_run),
+        "post_partial_protection_enabled": bool(getattr(CFG, "POST_PARTIAL_PROTECTION_ENABLED", True)),
+        "post_partial_protection_paper_enabled": bool(
+            getattr(CFG, "POST_PARTIAL_PROTECTION_PAPER_ENABLED", True)
+        ),
+        "post_partial_protection_live_enabled": bool(
+            getattr(CFG, "POST_PARTIAL_PROTECTION_LIVE_ENABLED", False)
+        ),
+        "post_partial_lock_floor_enabled": bool(getattr(CFG, "POST_PARTIAL_LOCK_FLOOR_ENABLED", True)),
+        "post_partial_lock_floor_pct": float(getattr(CFG, "POST_PARTIAL_LOCK_FLOOR_PCT", 0.0) or 0.0),
+        "post_partial_max_giveback_pct": float(getattr(CFG, "POST_PARTIAL_MAX_GIVEBACK_PCT", 0.0) or 0.0),
+        "runtime_surface": "paper_exit_policy" if effective_dry_run else "live_exit_policy",
+        "runtime_protection_active": bool(active_regimes),
+        "active_regimes": active_regimes,
+        "experiment_shadow_enabled": bool(experiment_enabled and experiment_mode == "paper_shadow"),
+        "experiment_shadow_only": bool(experiment_enabled and experiment_mode == "paper_shadow" and not active_regimes),
+        "effective_by_regime": effective_by_regime,
+    }
+    target = PROJECT_ROOT / target if isinstance(target, str) else target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
+    return payload
+
+
 __all__ = [
     "ExitPolicy",
     "describe_exit_policy",
@@ -930,6 +1107,8 @@ __all__ = [
     "green_sniper_early_dump_reason",
     "resolve_runner_exit_profile",
     "resolve_entry_regime",
+    "set_runtime_dry_run",
     "should_exit",
     "should_take_partial",
+    "write_post_partial_activation_audit",
 ]
