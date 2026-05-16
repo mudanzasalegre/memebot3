@@ -137,6 +137,7 @@ async def _ensure_position_columns() -> None:
         ("peak_after_partial_pct", "REAL"),
         ("exit_from_peak_giveback_pct", "REAL"),
         ("partial_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("partial_ladder_state", "TEXT"),
         ("first_partial_at", "TIMESTAMP"),
         ("last_partial_at", "TIMESTAMP"),
         ("last_partial_qty", "INTEGER"),

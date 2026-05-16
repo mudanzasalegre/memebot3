@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from analytics import bird_runner_exit
+from analytics import bird_runner_exit, runner_ladder
 from config.config import CFG, PROJECT_ROOT
 
 
@@ -915,6 +915,7 @@ def partial_ladder_plan(subject: Any, pnl_pct: float) -> dict[str, Any]:
         cfg=CFG,
         steps=steps,
         moonbag_fraction=moonbag_fraction,
+        state=runner_ladder.state_from_subject(subject),
     )
     plan["enabled"] = True
     return plan
@@ -926,7 +927,7 @@ def partial_sell_fraction(subject: Any, pnl_pct: float) -> float:
         return 0.0
     plan = partial_ladder_plan(subject, pnl_pct)
     if bool(plan.get("enabled")):
-        return max(0.0, min(0.95, float(plan.get("sell_fraction_of_remaining") or 0.0)))
+        return max(0.0, min(1.0, float(plan.get("sell_fraction_of_remaining") or 0.0)))
     if _to_bool(_get(subject, "partial_taken"), False):
         return 0.0
     if float(pnl_pct) < float(policy.tp_partial_trigger_pct):
@@ -947,6 +948,23 @@ def runner_giveback_emergency_reason(subject: Any, *, pnl_pct: float, peak: floa
         dry_run=_effective_dry_run(subject),
         cfg=CFG,
     )
+
+
+def dynamic_runner_floor_pct(subject: Any, *, peak: float) -> float | None:
+    if not _to_bool(_get(subject, "partial_taken"), False):
+        return None
+    if float(peak or 0.0) < 100.0:
+        return None
+    return runner_ladder.dynamic_runner_floor_pct(float(peak or 0.0), cfg=CFG)
+
+
+def dynamic_runner_floor_reason(subject: Any, *, pnl_pct: float, peak: float) -> str | None:
+    floor = dynamic_runner_floor_pct(subject, peak=float(peak or 0.0))
+    if floor is None:
+        return None
+    if float(pnl_pct) <= float(floor):
+        return "DYNAMIC_RUNNER_FLOOR"
+    return None
 
 
 def _post_partial_exit_reason(
@@ -1064,6 +1082,9 @@ def should_exit(
     partial_taken = _to_bool(_get(subject, "partial_taken"), False)
 
     if partial_taken and pnl_pct is not None:
+        floor_reason = dynamic_runner_floor_reason(subject, pnl_pct=float(pnl_pct), peak=peak)
+        if floor_reason is not None:
+            return floor_reason
         giveback_emergency = runner_giveback_emergency_reason(subject, pnl_pct=float(pnl_pct), peak=peak)
         if giveback_emergency is not None:
             return giveback_emergency
@@ -1169,6 +1190,9 @@ def should_exit(
                 return "PRE_PARTIAL_TIME_STOP"
 
     if partial_taken:
+        floor_reason = dynamic_runner_floor_reason(subject, pnl_pct=float(pnl_pct), peak=peak)
+        if floor_reason is not None:
+            return floor_reason
         giveback_emergency = runner_giveback_emergency_reason(subject, pnl_pct=float(pnl_pct), peak=peak)
         if giveback_emergency is not None:
             return giveback_emergency
@@ -1250,7 +1274,15 @@ def describe_exit_policy() -> dict[str, Any]:
             "paper_enabled": bool(getattr(CFG, "BIRD_RUNNER_MULTI_PARTIAL_PAPER_ENABLED", True)),
             "live_enabled": bool(getattr(CFG, "BIRD_RUNNER_MULTI_PARTIAL_LIVE_ENABLED", False)),
             "steps": [step.__dict__ for step in bird_runner_exit.configured_bird_runner_steps(CFG)],
-            "moonbag_fraction": float(getattr(CFG, "BIRD_MOONBAG_FRACTION", 0.15) or 0.15),
+            "moonbag_fraction": float(getattr(CFG, "BIRD_MOONBAG_FRACTION", 0.03) or 0.03),
+            "dynamic_floor_enabled": bool(getattr(CFG, "DYNAMIC_RUNNER_FLOOR_ENABLED", True)),
+            "dynamic_floors": {
+                "peak_100": float(getattr(CFG, "RUNNER_FLOOR_PEAK_100", 50.0) or 50.0),
+                "peak_300": float(getattr(CFG, "RUNNER_FLOOR_PEAK_300", 150.0) or 150.0),
+                "peak_700": float(getattr(CFG, "RUNNER_FLOOR_PEAK_700", 350.0) or 350.0),
+                "peak_1000": float(getattr(CFG, "RUNNER_FLOOR_PEAK_1000", 500.0) or 500.0),
+                "peak_2000": float(getattr(CFG, "RUNNER_FLOOR_PEAK_2000", 800.0) or 800.0),
+            },
             "jackpot_steps": [
                 step.__dict__
                 for step in _configured_runner_steps(
@@ -1366,6 +1398,8 @@ def write_post_partial_activation_audit(path: Any | None = None) -> dict[str, An
 __all__ = [
     "ExitPolicy",
     "describe_exit_policy",
+    "dynamic_runner_floor_pct",
+    "dynamic_runner_floor_reason",
     "effective_exit_policy",
     "partial_ladder_plan",
     "partial_fraction",

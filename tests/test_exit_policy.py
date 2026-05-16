@@ -140,7 +140,7 @@ def test_green_sniper_adverse_tick_uses_fast_window() -> None:
     assert reason == "ADVERSE_TICK"
 
 
-def test_green_sniper_post_partial_protection_precedes_adverse_tick() -> None:
+def test_dynamic_runner_floor_precedes_green_post_partial_trailing() -> None:
     now = dt.datetime.now(dt.timezone.utc)
     subject = {
         "entry_regime": "pump_early",
@@ -154,7 +154,7 @@ def test_green_sniper_post_partial_protection_precedes_adverse_tick() -> None:
 
     reason = exit_policy.should_exit(subject, price_now=0.70, now=now, pnl_pct=-30.0)
 
-    assert reason == "POST_PARTIAL_TRAILING"
+    assert reason == "DYNAMIC_RUNNER_FLOOR"
 
 
 def test_prime_runner_escalates_lock_floor_after_peak_threshold() -> None:

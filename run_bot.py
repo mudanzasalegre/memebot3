@@ -155,6 +155,12 @@ except Exception:
 from analytics import filters, insider, trend, requeue_policy  # noqa: E402
 import analytics.sizing as entry_sizing  # noqa: E402
 import analytics.exit_policy as exit_policy  # noqa: E402
+from analytics import runner_ladder, runner_turbo_monitor  # noqa: E402
+from analytics.core_report_scheduler import (  # noqa: E402
+    ensure_core_report_placeholders,
+    regenerate_core_reports,
+    report_freshness,
+)
 import analytics.strategy_runtime as strategy_runtime  # noqa: E402
 import analytics.research_runtime as research_runtime  # noqa: E402
 from analytics.green_sniper_gate import apply_green_sniper_context, evaluate_green_sniper  # noqa: E402
@@ -163,6 +169,15 @@ from analytics.green_sniper_risk_guard import evaluate_green_sniper_risk_guard  
 from analytics.green_sniper_sizing import compute_green_sniper_sizing  # noqa: E402
 from analytics.pumpswap_prime_strict import evaluate_pumpswap_prime_strict  # noqa: E402
 from analytics.pumpswap_rebound_prime import apply_pumpswap_rebound_prime_context, evaluate_pumpswap_rebound_prime  # noqa: E402
+from analytics.sniper_research_subprofiles import (  # noqa: E402
+    apply_sniper_research_subprofile_context,
+    evaluate_sniper_research_subprofile,
+)
+from analytics.untagged_buy_block import (  # noqa: E402
+    REASON_UNTAGGED_BLOCKED,
+    apply_untagged_buy_shadow_context,
+    evaluate_untagged_buy_guard,
+)
 from analytics.research_rank_canary import (  # noqa: E402
     apply_research_rank_canary_context,
     apply_research_rank_canary_shadow_context,
@@ -410,6 +425,10 @@ log = logging.getLogger("run_bot")
 _BOOT_CONFIG_AUDIT_FLAGS = (
     "STRATEGY_OPTIMIZATION_LOCK",
     "DRY_RUN",
+    "REQUIRE_ENTRY_LANE_FOR_BUY",
+    "ALLOW_UNTAGGED_STANDARD_BUY",
+    "DEX_MATURE_STANDARD_BUY_ENABLED",
+    "PUMPFUN_STANDARD_BUY_ENABLED",
     "GREEN_SNIPER_POLICY_MODE",
     "GREEN_SNIPER_BUY_RESTRICTED_ENABLED",
     "RESEARCH_RANK_CANARY_ENABLED",
@@ -421,7 +440,11 @@ _BOOT_CONFIG_AUDIT_FLAGS = (
     "POST_PARTIAL_PROTECTION_PAPER_ENABLED",
     "POST_PARTIAL_PROTECTION_EXECUTION_ENABLED",
     "BIRD_RUNNER_MULTI_PARTIAL_ENABLED",
+    "DYNAMIC_RUNNER_FLOOR_ENABLED",
     "RUNNER_GIVEBACK_EMERGENCY_ENABLED",
+    "RUNNER_TURBO_MONITOR_ENABLED",
+    "RUNNER_TURBO_PAPER_ONLY",
+    "CORE_REPORTS_AUTO_REGEN_ENABLED",
 )
 _BOOT_AUDIT_EMITTED = False
 
@@ -434,16 +457,36 @@ def _boot_config_value(name: str) -> object:
 
 def _emit_boot_config_audit() -> dict[str, object]:
     flags = {name: _boot_config_value(name) for name in _BOOT_CONFIG_AUDIT_FLAGS}
+    try:
+        core_reports = report_freshness(PROJECT_ROOT)
+    except Exception as exc:
+        core_reports = {"error": str(exc), "missing": []}
     payload: dict[str, object] = {
         "updated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "config_profile": str(getattr(CFG, "CONFIG_PROFILE", "") or ""),
         "config_profile_path": str(os.getenv("CONFIG_PROFILE_PATH") or ""),
         "flags": flags,
+        "core_reports": core_reports,
     }
     path = PROJECT_ROOT / "data" / "metrics" / "boot_config_audit.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
     log.info("Boot config audit: %s", json.dumps(flags, ensure_ascii=True, sort_keys=True))
+    missing_reports = core_reports.get("missing") if isinstance(core_reports, dict) else []
+    reports_map = core_reports.get("reports") if isinstance(core_reports, dict) else {}
+    last_generated = None
+    if isinstance(reports_map, dict):
+        generated_values = [
+            str((item or {}).get("generated_at_utc") or "")
+            for item in reports_map.values()
+            if isinstance(item, dict) and item.get("generated_at_utc")
+        ]
+        last_generated = max(generated_values) if generated_values else None
+    log.info(
+        "Core reports freshness: missing=%s last_generated=%s",
+        ",".join(str(item) for item in (missing_reports or [])) or "-",
+        last_generated or "-",
+    )
     try:
         record_runtime_event(
             "boot_config_audit",
@@ -698,6 +741,9 @@ _runtime_discovery_paused: bool = False
 _runtime_buys_paused: bool = False
 _retrain_lock = asyncio.Lock()
 _reports_refresh_lock = asyncio.Lock()
+_core_reports_regen_lock = asyncio.Lock()
+_last_core_reports_regen_at: Optional[dt.datetime] = None
+_last_core_reports_regen_sold: int = 0
 _CONTROL_COMMAND_POLL_INTERVAL_S = 1.0
 _RUNTIME_STATE_INTERVAL_S = 5
 _RUNTIME_STATE_BOT_ID = CONTROL_DEFAULT_BOT_ID
@@ -720,6 +766,41 @@ def _record_sell_stat(at: Optional[dt.datetime] = None) -> None:
     global _last_sell_at
     _stats["sold"] += 1
     _last_sell_at = at or utc_now()
+
+
+async def _maybe_regenerate_core_reports(*, source: str, force: bool = False) -> None:
+    global _last_core_reports_regen_at, _last_core_reports_regen_sold
+
+    if not bool(getattr(CFG, "CORE_REPORTS_AUTO_REGEN_ENABLED", True)):
+        return
+    if _core_reports_regen_lock.locked():
+        return
+
+    now = utc_now()
+    interval_min = max(1, int(getattr(CFG, "CORE_REPORTS_REGEN_INTERVAL_MIN", 30) or 30))
+    close_step = max(0, int(getattr(CFG, "CORE_REPORTS_REGEN_ON_CLOSES", 25) or 25))
+    sold_now = int(_stats.get("sold", 0) or 0)
+    due_time = (
+        _last_core_reports_regen_at is None
+        or (now - _last_core_reports_regen_at).total_seconds() >= interval_min * 60
+    )
+    due_closes = close_step > 0 and (sold_now - int(_last_core_reports_regen_sold or 0)) >= close_step
+    if not force and not due_time and not due_closes:
+        return
+
+    async with _core_reports_regen_lock:
+        try:
+            result = await asyncio.to_thread(regenerate_core_reports, PROJECT_ROOT)
+            _last_core_reports_regen_at = now
+            _last_core_reports_regen_sold = sold_now
+            warnings = result.get("warnings") if isinstance(result, dict) else {}
+            if warnings:
+                log.warning("Core reports regeneration warnings (%s): %s", source, warnings)
+            else:
+                log.info("Core reports regenerated (%s)", source)
+        except Exception as exc:
+            _note_runtime_error(f"core_reports_regen:{source}", exc)
+            log.warning("Core reports regeneration failed (%s): %s", source, exc)
 
 
 def _note_runtime_error(context: str, exc: Exception | str) -> None:
@@ -2831,6 +2912,14 @@ async def _build_runtime_state_snapshot() -> RuntimeStateSnapshot:
     queue_oldest_first_seen_at, queue_items = _queue_snapshot_payload(now)
     open_positions_count = await count_open_positions(SessionLocal)
     model_status = model_runtime_status()
+    log.info(
+        "Runner turbo monitor: enabled=%s paper_only=%s target_interval=%ss peak=%s%% duration=%sm",
+        str(bool(getattr(CFG, "RUNNER_TURBO_MONITOR_ENABLED", True))),
+        str(bool(getattr(CFG, "RUNNER_TURBO_PAPER_ONLY", True))),
+        _fmt(float(getattr(CFG, "RUNNER_TURBO_INTERVAL_S", 1.0) or 1.0), "{:.1f}"),
+        _fmt(float(getattr(CFG, "RUNNER_TURBO_PEAK_PCT", 100.0) or 100.0), "{:.0f}"),
+        _fmt(float(getattr(CFG, "RUNNER_TURBO_MAX_DURATION_MIN", 20.0) or 20.0), "{:.0f}"),
+    )
     ml_gate = _ml_gate_state()
     strategy_health = strategy_runtime.describe_regime_health(now)
     bucket_health = strategy_runtime.describe_bucket_health(now)
@@ -4459,6 +4548,79 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             )
             return
 
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_sniper_research":
+        subprofile_decision = evaluate_sniper_research_subprofile(token)
+        apply_sniper_research_subprofile_context(token, subprofile_decision)
+        vec = build_feature_vector(token)
+        vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+        if not subprofile_decision.allowed:
+            _stats["filtered_out"] += 1
+            _store_policy_reject(vec, already_vector=True, reason=subprofile_decision.reason)
+            _research_decision(
+                token,
+                action="shadow",
+                reason=subprofile_decision.reason,
+                stage="sniper_research_subprofile",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="research",
+                dedup_ttl_s=300,
+            )
+            await _open_shadow(
+                addr,
+                vec,
+                price_hint=token.get("price_usd"),
+                force=True,
+                regime=size_decision.regime,
+                reason=subprofile_decision.reason,
+                stage="sniper_research_subprofile",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="research",
+            )
+            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+            _remove_from_queue_if_present(addr)
+            return
+        rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+
+    if DRY_RUN and bool(getattr(CFG, "REQUIRE_ENTRY_LANE_FOR_BUY", True)):
+        untagged_decision = evaluate_untagged_buy_guard(token)
+        if not untagged_decision.allowed:
+            _stats["filtered_out"] += 1
+            apply_untagged_buy_shadow_context(token, untagged_decision)
+            vec = build_feature_vector(token)
+            _store_policy_reject(vec, already_vector=True, reason=REASON_UNTAGGED_BLOCKED)
+            _research_decision(
+                token,
+                action="shadow",
+                reason=REASON_UNTAGGED_BLOCKED,
+                stage="entry_lane_guard",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="execution",
+                dedup_ttl_s=300,
+            )
+            if bool(getattr(CFG, "UNTAGGED_BUY_SHADOW_ENABLED", True)):
+                await _open_shadow(
+                    addr,
+                    vec,
+                    price_hint=token.get("price_usd"),
+                    force=True,
+                    regime=size_decision.regime,
+                    reason=REASON_UNTAGGED_BLOCKED,
+                    stage="entry_lane_guard",
+                    proba=proba,
+                    threshold=ai_threshold_eff,
+                    rank_info=rank_info,
+                    shadow_kind="execution",
+                )
+            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+            _remove_from_queue_if_present(addr)
+            return
+
     # IMPORTANTE: no etiquetar 1 en T0; guardamos el vector para el cierre
     _pending_ai_vectors[addr] = vec
 
@@ -4841,6 +5003,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         peak_after_partial_pct=None,
         exit_from_peak_giveback_pct=None,
         partial_count=0,
+        partial_ladder_state=runner_ladder.encode_ladder_state(runner_ladder.initial_ladder_state()),
         buy_liquidity_usd=token.get("liquidity_usd"),
         buy_market_cap_usd=token.get("market_cap_usd"),
         buy_volume_24h_usd=token.get("volume_24h_usd"),
@@ -5262,6 +5425,8 @@ def _record_partial_trade_fill(
     qty_sold: int,
     fill_price_usd: Optional[float],
     filled_at: dt.datetime,
+    partial_increment: int = 1,
+    partial_ladder_state: Optional[dict[str, object]] = None,
 ) -> None:
     remaining_before = int(getattr(pos, "qty", 0) or 0)
     sold_qty = max(0, min(remaining_before, int(qty_sold or 0)))
@@ -5292,7 +5457,13 @@ def _record_partial_trade_fill(
     if hasattr(pos, "partial_taken"):
         pos.partial_taken = True
     if hasattr(pos, "partial_count"):
-        pos.partial_count = int(getattr(pos, "partial_count", 0) or 0) + 1
+        pos.partial_count = int(getattr(pos, "partial_count", 0) or 0) + max(1, int(partial_increment or 1))
+    if partial_ladder_state is not None and hasattr(pos, "partial_ladder_state"):
+        try:
+            pos.partial_ladder_state = runner_ladder.encode_ladder_state(partial_ladder_state)
+            runner_ladder.write_position_state(str(getattr(pos, "id", None) or getattr(pos, "address", "")), partial_ladder_state)
+        except Exception:
+            log.debug("partial_ladder_state persist failed for %s", getattr(pos, "address", "")[:6], exc_info=True)
     if hasattr(pos, "first_partial_at") and getattr(pos, "first_partial_at", None) is None:
         pos.first_partial_at = filled_at
     if hasattr(pos, "last_partial_at"):
@@ -5586,6 +5757,17 @@ async def _check_positions(ses: SessionLocal) -> None:
             except Exception:
                 pnl_pct = None
 
+        if pnl_pct is not None:
+            try:
+                runner_turbo_monitor.observe_position(
+                    pos.address,
+                    peak_pct=float(getattr(pos, "highest_pnl_pct", 0.0) or 0.0),
+                    dry_run=DRY_RUN,
+                    now=now,
+                )
+            except Exception:
+                log.debug("runner turbo observe failed for %s", pos.address[:6], exc_info=True)
+
         pos_exit_policy = exit_policy.effective_exit_policy(pos)
         if (
             getattr(pos_exit_policy, "runner_exit_profile", None)
@@ -5697,6 +5879,7 @@ async def _check_positions(ses: SessionLocal) -> None:
             if not DRY_RUN:
                 await _refresh_balance_force("after_sell_liq_crush")
 
+            runner_turbo_monitor.mark_closed(pos.address, now=now)
             _record_sell_stat(now)
             sells_done += 1
             continue  # siguiente posición
@@ -5711,6 +5894,7 @@ async def _check_positions(ses: SessionLocal) -> None:
             qty_total = int(getattr(pos, "qty", 0) or 0)
             # si no hay margen, no hacemos parcial → dejamos que el exit TP cierre total si toca
             if qty_total > 0:
+                ladder_plan = exit_policy.partial_ladder_plan(pos, pnl_pct)
                 sell_fraction = float(exit_policy.partial_sell_fraction(pos, pnl_pct))
                 qty_to_sell = int(round(qty_total * sell_fraction))
                 qty_to_sell = max(1, qty_to_sell)
@@ -5775,6 +5959,10 @@ async def _check_positions(ses: SessionLocal) -> None:
                         qty_sold=part_qty_sold,
                         fill_price_usd=part_price_used if part_price_used is not None else price,
                         filled_at=now,
+                        partial_increment=int(ladder_plan.get("pending_step_count") or 1),
+                        partial_ladder_state=ladder_plan.get("next_state")
+                        if isinstance(ladder_plan.get("next_state"), dict)
+                        else None,
                     )
 
                     try:
@@ -5835,6 +6023,7 @@ async def _check_positions(ses: SessionLocal) -> None:
                             execution_state=_position_execution_state(pos),
                             **_position_health_metadata(pos),
                         )
+                        runner_turbo_monitor.mark_closed(pos.address, now=now)
                         _record_sell_stat(now)
                         sells_done += 1
                     continue  # tras parcial, NO cierres en este tick
@@ -5844,13 +6033,30 @@ async def _check_positions(ses: SessionLocal) -> None:
         if exit_reason is None:
             continue
 
+        sell_price_hint = price
+        sell_price_source_hint = price_src
+        if DRY_RUN and str(exit_reason) == "DYNAMIC_RUNNER_FLOOR":
+            try:
+                floor_pct = exit_policy.dynamic_runner_floor_pct(
+                    pos,
+                    peak=float(getattr(pos, "highest_pnl_pct", 0.0) or 0.0),
+                )
+                buy_px = float(getattr(pos, "buy_price_usd", 0.0) or 0.0)
+                if floor_pct is not None and buy_px > 0:
+                    floor_price = buy_px * (1.0 + float(floor_pct) / 100.0)
+                    if sell_price_hint is None or floor_price > float(sell_price_hint):
+                        sell_price_hint = floor_price
+                        sell_price_source_hint = "dynamic_runner_floor"
+            except Exception:
+                log.debug("dynamic runner floor price hint failed for %s", pos.address[:6], exc_info=True)
+
         # ④ SELL — seller.sell hará su propio cálculo robusto de precio
         sell_resp = await seller.sell(
             pos.address,
             pos.qty,
             token_mint=mint_key,
-            price_hint=price,            # el que calculaste en el monitor (puede ser None)
-            price_source_hint=price_src, # "jup_batch" | "jup_single" | "jup_critical" | "dex_full" | None
+            price_hint=sell_price_hint,            # el que calculaste en el monitor (puede ser None)
+            price_source_hint=sell_price_source_hint, # "jup_batch" | "jup_single" | "jup_critical" | "dex_full" | None
         )
 
         # Si falla la venta, NO cierres la posición
@@ -5894,16 +6100,17 @@ async def _check_positions(ses: SessionLocal) -> None:
             try:
                 pos.close_price_usd = float(used_close)  # incluye fallback_buy si aplicó
             except Exception:
-                pos.close_price_usd = price if price is not None else None
+                pos.close_price_usd = sell_price_hint if sell_price_hint is not None else None
         else:
-            pos.close_price_usd = price if price is not None else None
+            pos.close_price_usd = sell_price_hint if sell_price_hint is not None else None
 
         if hasattr(pos, "price_source_at_close"):
-            pos.price_source_at_close = used_source or price_src or None
+            pos.price_source_at_close = used_source or sell_price_source_hint or None
 
         pos.exit_tx_sig = (sell_resp or {}).get("signature")
         _seal_closed_trade_metrics(pos, pos.close_price_usd)
 
+        runner_turbo_monitor.mark_closed(pos.address, now=now)
         _record_sell_stat(now)
         sells_done += 1
 
@@ -5919,7 +6126,7 @@ async def _check_positions(ses: SessionLocal) -> None:
                     log.exception("post-partial experiment snapshot refresh failed")
 
         # Persistencia dataset al cierre
-        _persist_dataset_at_close(pos, used_close if used_close is not None else price)
+        _persist_dataset_at_close(pos, used_close if used_close is not None else sell_price_hint)
         research_runtime.record_live_trade_close(
             pos.address,
             regime=pos_regime,
@@ -6480,6 +6687,17 @@ async def main_loop() -> None:
     if not _BOOT_AUDIT_EMITTED:
         _emit_boot_config_audit()
         _emit_post_partial_activation_audit()
+        if bool(getattr(CFG, "CORE_REPORTS_AUTO_REGEN_ENABLED", True)):
+            try:
+                placeholder_result = ensure_core_report_placeholders(PROJECT_ROOT)
+                created = placeholder_result.get("created") if isinstance(placeholder_result, dict) else []
+                if created:
+                    log.warning("Core reports missing on startup, placeholders created: %s", ",".join(created))
+                if bool(getattr(CFG, "CORE_REPORTS_REGEN_ON_STARTUP", True)):
+                    asyncio.create_task(_maybe_regenerate_core_reports(source="startup", force=True))
+            except Exception as exc:
+                _note_runtime_error("core_reports_startup", exc)
+                log.warning("Core reports startup check failed: %s", exc)
         _BOOT_AUDIT_EMITTED = True
 
     log.info(
@@ -6833,7 +7051,8 @@ async def main_loop() -> None:
             store_export_csv()
             _last_csv_export = now_mono
 
-        await asyncio.sleep(SLEEP_SECONDS)
+        await _maybe_regenerate_core_reports(source="loop")
+        await asyncio.sleep(runner_turbo_monitor.target_sleep_seconds(SLEEP_SECONDS, dry_run=DRY_RUN))
 
 
 # ╭─────────────────────── Entrypoint ───────────────────────────────────────╮

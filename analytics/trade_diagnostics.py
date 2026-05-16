@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import statistics
 from pathlib import Path
 from typing import Any
@@ -97,6 +98,7 @@ def build_trade_diagnostics(root: Path | None = None) -> dict[str, Any]:
             groups.setdefault(key, []).append(row)
 
     return {
+        "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "summary": _summarize(rows),
         "groups": {key: _summarize(value) for key, value in sorted(groups.items()) if value},
     }

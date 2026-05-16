@@ -199,6 +199,7 @@ class Position(Base):
     # Marca si ya se hizo una toma de ganancias parcial
     partial_taken: Mapped[bool] = mapped_column(Boolean, default=False)
     partial_count: Mapped[int] = mapped_column(Integer, default=0)
+    partial_ladder_state: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     first_partial_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_partial_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_partial_qty: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

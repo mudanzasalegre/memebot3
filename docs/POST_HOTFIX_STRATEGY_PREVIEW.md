@@ -27,9 +27,9 @@ Offline preview for `combined_hotfix_v1`. Live remains disabled; this report doe
 
 ## Research Rank Lane
 
-- Audit evaluated: `29`
-- Bought as own lane: `5`
-- Shadow as own lane: `4`
+- Audit evaluated: `0`
+- Bought as own lane: `0`
+- Shadow as own lane: `0`
 - Mixed lane detected: `0`
 
 ## Safety

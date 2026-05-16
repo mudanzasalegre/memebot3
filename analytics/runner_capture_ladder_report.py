@@ -126,7 +126,7 @@ def build_runner_capture_ladder_report(root: Path | None = None) -> dict[str, An
             "paper_enabled": bool(getattr(CFG, "BIRD_RUNNER_MULTI_PARTIAL_PAPER_ENABLED", True)),
             "live_enabled": bool(getattr(CFG, "BIRD_RUNNER_MULTI_PARTIAL_LIVE_ENABLED", False)),
             "steps": [step.__dict__ for step in configured_bird_runner_steps(CFG)],
-            "moonbag_fraction": float(getattr(CFG, "BIRD_MOONBAG_FRACTION", 0.15) or 0.15),
+            "moonbag_fraction": float(getattr(CFG, "BIRD_MOONBAG_FRACTION", 0.03) or 0.03),
             "emergency_giveback_enabled": bool(getattr(CFG, "RUNNER_GIVEBACK_EMERGENCY_ENABLED", True)),
             "emergency_giveback_live_enabled": bool(
                 getattr(CFG, "RUNNER_GIVEBACK_EMERGENCY_LIVE_ENABLED", False)

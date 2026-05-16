@@ -10,6 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from config.config import CFG
+from analytics.core_report_scheduler import REQUIRED_CORE_REPORTS
 from runtime.provider_health import provider_health_snapshot
 
 CRITICAL_MODEL_WARNINGS = {
@@ -209,6 +210,12 @@ def checks() -> list[str]:
         errors.append("AUTO_PROMOTE_LIVE must remain false")
     if _bool("MODEL_AUTO_PROMOTE", False):
         errors.append("MODEL_AUTO_PROMOTE must remain false")
+    if not _bool("REQUIRE_ENTRY_LANE_FOR_BUY", True):
+        errors.append("REQUIRE_ENTRY_LANE_FOR_BUY must remain true")
+    if _bool("ALLOW_UNTAGGED_STANDARD_BUY", False):
+        errors.append("ALLOW_UNTAGGED_STANDARD_BUY must remain false")
+    if not _bool("PUMPSWAP_PRIME_STRICT_ENABLED", True):
+        errors.append("PUMPSWAP_PRIME_STRICT_ENABLED must remain true")
     if _bool("PUMP_EARLY_PROFIT_LANE_ENABLED", False) and not _bool("PUMPSWAP_PRIME_STRICT_ENABLED", True):
         errors.append("PUMP_EARLY_PROFIT_LANE_ENABLED=true requires PUMPSWAP_PRIME_STRICT_ENABLED=true")
     if _bool("PUMPSWAP_PRIME_STRICT_ENABLED", True) and not _bool("PUMPSWAP_PRIME_SHADOW_IF_NOT_STRICT", True):
@@ -221,6 +228,8 @@ def checks() -> list[str]:
         errors.append("RUNNER_GIVEBACK_EMERGENCY_LIVE_ENABLED must remain false")
     if _bool("BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED", False):
         errors.append("BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED must remain false")
+    if _bool("STRATEGY_OPTIMIZATION_LOCK", True) and not _bool("RUNNER_TURBO_PAPER_ONLY", True):
+        errors.append("STRATEGY_OPTIMIZATION_LOCK=true requires RUNNER_TURBO_PAPER_ONLY=true")
     if _bool("LLM_TRADING_ENABLED", False):
         errors.append("LLM_TRADING_ENABLED must remain false")
     if _bool("SOCIALS_HOT_PATH_BLOCKING", False) or _bool("GREEN_SNIPER_REQUIRE_SOCIALS", False):
@@ -266,6 +275,16 @@ def checks() -> list[str]:
     if _bool("PAPER_SNIPER_MODE", False):
         if not _bool("GREEN_SNIPER_REJECT_SHADOW_ENABLED", True):
             errors.append("paper sniper requires GREEN_SNIPER_REJECT_SHADOW_ENABLED=true for high-risk shadows")
+    missing_core_reports = [
+        name
+        for name in REQUIRED_CORE_REPORTS
+        if not (ROOT / "data" / "metrics" / name).exists()
+    ]
+    if missing_core_reports and not _bool("CORE_REPORTS_AUTO_REGEN_ENABLED", True):
+        errors.append(
+            "CORE_REPORTS_AUTO_REGEN_ENABLED=false with missing critical reports: "
+            + ",".join(missing_core_reports)
+        )
     ranges = str(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES", "") or "")
     if "25:999" in ranges and _bool("GREEN_SNIPER_ENABLED", True):
         errors.append("price5m 25:999 block contradicts green sniper")
@@ -273,7 +292,10 @@ def checks() -> list[str]:
     if missed.exists():
         try:
             payload = json.loads(missed.read_text(encoding="utf-8", errors="ignore"))
-            if payload and "confirmed_later_peak_pct" not in payload[0]:
+            rows = payload
+            if isinstance(payload, dict):
+                rows = payload.get("data") or payload.get("rows") or []
+            if rows and isinstance(rows, list) and "confirmed_later_peak_pct" not in rows[0]:
                 errors.append("missed_pumps.json uses legacy schema; regenerate tools/missed_pumps_report.py")
         except Exception:
             errors.append("missed_pumps.json cannot be parsed")

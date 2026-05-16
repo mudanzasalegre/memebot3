@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from analytics import runner_ladder
 from config.config import CFG
 
 
@@ -17,8 +18,10 @@ DEFAULT_BIRD_RUNNER_STEPS = (
     BirdRunnerStep(50.0, 0.25),
     BirdRunnerStep(100.0, 0.20),
     BirdRunnerStep(300.0, 0.15),
+    BirdRunnerStep(700.0, 0.07),
+    BirdRunnerStep(1000.0, 0.05),
 )
-DEFAULT_MOONBAG_FRACTION = 0.15
+DEFAULT_MOONBAG_FRACTION = 0.03
 
 
 def _cfg_float(cfg: Any, name: str, default: float) -> float:
@@ -54,6 +57,8 @@ def configured_bird_runner_steps(cfg: Any = CFG) -> tuple[BirdRunnerStep, ...]:
         BirdRunnerStep(_cfg_float(cfg, "BIRD_TP2_PCT", 50.0), _cfg_float(cfg, "BIRD_TP2_FRACTION", 0.25)),
         BirdRunnerStep(_cfg_float(cfg, "BIRD_TP3_PCT", 100.0), _cfg_float(cfg, "BIRD_TP3_FRACTION", 0.20)),
         BirdRunnerStep(_cfg_float(cfg, "BIRD_TP4_PCT", 300.0), _cfg_float(cfg, "BIRD_TP4_FRACTION", 0.15)),
+        BirdRunnerStep(_cfg_float(cfg, "BIRD_TP5_PCT", 700.0), _cfg_float(cfg, "BIRD_TP5_FRACTION", 0.07)),
+        BirdRunnerStep(_cfg_float(cfg, "BIRD_TP6_PCT", 1000.0), _cfg_float(cfg, "BIRD_TP6_FRACTION", 0.05)),
     )
     valid = [step for step in steps if step.trigger_pct > 0 and 0.0 < step.fraction < 1.0]
     return tuple(sorted(valid, key=lambda step: step.trigger_pct))
@@ -106,6 +111,7 @@ def pending_partial_plan(
     cfg: Any = CFG,
     steps: tuple[BirdRunnerStep, ...] | None = None,
     moonbag_fraction: float | None = None,
+    state: Any = None,
 ) -> dict[str, Any]:
     entry = max(0, int(entry_qty or 0))
     remaining = max(0, int(remaining_qty or 0))
@@ -124,22 +130,22 @@ def pending_partial_plan(
     already_fraction = max(0.0, min(1.0, already_qty / float(entry)))
     active_steps = configured_bird_runner_steps(cfg) if steps is None else steps
     active_moonbag = configured_moonbag_fraction(cfg) if moonbag_fraction is None else float(moonbag_fraction)
-    target_fraction = secured_fraction_at_peak(float(pnl_pct), active_steps, moonbag_fraction=active_moonbag)
-    pending_entry_fraction = max(0.0, target_fraction - already_fraction)
-    pending_qty = min(remaining, int(round(entry * pending_entry_fraction)))
-    sell_fraction = max(0.0, min(1.0, pending_qty / float(remaining))) if remaining else 0.0
-    triggered = [
-        {"trigger_pct": step.trigger_pct, "fraction": step.fraction}
-        for step in active_steps
-        if float(pnl_pct) >= step.trigger_pct
-    ]
-    return {
-        "target_secured_fraction": round(target_fraction, 6),
-        "already_secured_fraction": round(already_fraction, 6),
-        "pending_entry_fraction": round(pending_entry_fraction, 6),
-        "sell_fraction_of_remaining": round(sell_fraction, 6),
-        "triggered_steps": triggered,
-    }
+    converted_steps = tuple(
+        runner_ladder.RunnerLadderStep(f"tp{idx}", step.trigger_pct, step.fraction)
+        for idx, step in enumerate(active_steps, start=1)
+    )
+    plan = runner_ladder.plan_ladder_partials(
+        pnl_pct=float(pnl_pct),
+        entry_qty=entry,
+        remaining_qty=remaining,
+        realized_qty=already_qty,
+        state=state,
+        steps=converted_steps,
+        moonbag_fraction=active_moonbag,
+    )
+    if already_fraction > float(plan.get("already_secured_fraction") or 0.0):
+        plan["already_secured_fraction"] = round(already_fraction, 6)
+    return plan
 
 
 def runner_giveback_emergency_reason(
