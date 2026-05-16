@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from ml.lane_taxonomy import (
+    LANE_BIRTH_PROBE_MICRO_CANARY,
     LANE_PUMP_EARLY_BIRTH_PROBE,
     LANE_PUMP_EARLY_GREEN_SNIPER,
     LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
+    LANE_PUMPSWAP_REBOUND_PRIME,
     LANE_RESEARCH_RANK_CANARY,
     LANE_RESEARCH_SNIPER,
     normalize_entry_lane,
@@ -18,7 +20,9 @@ POLICY_GREEN_SNIPER_SHADOW = "green_sniper_shadow"
 POLICY_RESEARCH_RANK_CANARY = "research_rank_canary"
 POLICY_PUMP_EARLY_SNIPER_RESEARCH = "pump_early_sniper_research"
 POLICY_PAPER_BIRTH_PROBE = "paper_birth_probe"
+POLICY_BIRTH_PROBE_MICRO_CANARY = "birth_probe_micro_canary"
 POLICY_LATE_MOMENTUM_WATCH = "late_momentum_watch"
+POLICY_PUMPSWAP_REBOUND_PRIME = "pumpswap_rebound_prime"
 POLICY_UNKNOWN = "unknown"
 
 POLICY_CATEGORIES = (
@@ -28,7 +32,9 @@ POLICY_CATEGORIES = (
     POLICY_RESEARCH_RANK_CANARY,
     POLICY_PUMP_EARLY_SNIPER_RESEARCH,
     POLICY_PAPER_BIRTH_PROBE,
+    POLICY_BIRTH_PROBE_MICRO_CANARY,
     POLICY_LATE_MOMENTUM_WATCH,
+    POLICY_PUMPSWAP_REBOUND_PRIME,
 )
 
 
@@ -53,12 +59,16 @@ def classify_policy_category(row: Mapping[str, Any]) -> str:
     tier = normalize_entry_lane(row.get("profit_lane_tier") or row.get("size_bucket"))
     action = _action(row)
 
+    if lane == LANE_BIRTH_PROBE_MICRO_CANARY or tier == LANE_BIRTH_PROBE_MICRO_CANARY or "birth_probe_micro_canary" in gate:
+        return POLICY_BIRTH_PROBE_MICRO_CANARY
     if subtype == "paper_birth_probe" or "birth_probe" in gate or lane == LANE_PUMP_EARLY_BIRTH_PROBE:
         return POLICY_PAPER_BIRTH_PROBE
     if lane == LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH or "late_momentum" in gate or "late_momentum" in sample_type:
         return POLICY_LATE_MOMENTUM_WATCH
     if lane == LANE_RESEARCH_RANK_CANARY or tier == LANE_RESEARCH_RANK_CANARY or "research_rank_canary" in gate:
         return POLICY_RESEARCH_RANK_CANARY
+    if lane == LANE_PUMPSWAP_REBOUND_PRIME or tier == LANE_PUMPSWAP_REBOUND_PRIME or "pumpswap_rebound_prime" in gate:
+        return POLICY_PUMPSWAP_REBOUND_PRIME
     if lane == LANE_RESEARCH_SNIPER or tier == LANE_RESEARCH_SNIPER:
         return POLICY_PUMP_EARLY_SNIPER_RESEARCH
     if lane == LANE_PUMP_EARLY_GREEN_SNIPER or gate.startswith("green_sniper"):
@@ -72,12 +82,14 @@ def classify_policy_category(row: Mapping[str, Any]) -> str:
 
 __all__ = [
     "POLICY_CATEGORIES",
+    "POLICY_BIRTH_PROBE_MICRO_CANARY",
     "POLICY_GREEN_SNIPER_PURE",
     "POLICY_GREEN_SNIPER_RESTRICTED_BUY",
     "POLICY_GREEN_SNIPER_SHADOW",
     "POLICY_LATE_MOMENTUM_WATCH",
     "POLICY_PAPER_BIRTH_PROBE",
     "POLICY_PUMP_EARLY_SNIPER_RESEARCH",
+    "POLICY_PUMPSWAP_REBOUND_PRIME",
     "POLICY_RESEARCH_RANK_CANARY",
     "POLICY_UNKNOWN",
     "classify_policy_category",

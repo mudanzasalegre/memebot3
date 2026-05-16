@@ -1,6 +1,6 @@
 # Model Training Report
 
-- Generated at UTC: `2026-05-03T21:13:09.566537+00:00`
+- Generated at UTC: `2026-05-13T22:38:10.620044+00:00`
 - Promotion attempted: `false`
 - Enforcement enabled: `false`
 - Ready for enforcement: `False`
@@ -8,9 +8,9 @@
 
 | Family | Status | Rows | Warnings | Critical |
 |---|---|---:|---|---|
-| risk | ok | 27 | in_sample_only, low_precision_at_k, not_ready_for_enforcement, unstable_by_lane | in_sample_only, low_precision_at_k, not_ready_for_enforcement, unstable_by_lane |
-| ev | ok | 27 | in_sample_only, not_ready_for_enforcement, unstable_by_lane | in_sample_only, not_ready_for_enforcement, unstable_by_lane |
-| runner | ok | 27 | in_sample_only, not_ready_for_enforcement, single_class | in_sample_only, not_ready_for_enforcement, single_class |
+| risk | ok | 10013 | in_sample_only, low_precision_at_k, not_ready_for_enforcement, unstable_by_lane | in_sample_only, low_precision_at_k, not_ready_for_enforcement, unstable_by_lane |
+| ev | ok | 10013 | in_sample_only, not_ready_for_enforcement, unstable_by_lane | in_sample_only, not_ready_for_enforcement, unstable_by_lane |
+| runner | ok | 10013 | in_sample_only, low_precision_at_k, not_ready_for_enforcement, unstable_by_lane | in_sample_only, low_precision_at_k, not_ready_for_enforcement, unstable_by_lane |
 | continuation | unknown | 0 | in_sample_only, not_enough_rows, not_ready_for_enforcement, single_class | in_sample_only, not_enough_rows, not_ready_for_enforcement, single_class |
 
 ## Notes

@@ -1,0 +1,96 @@
+{
+  "generated_at_utc": "2026-05-14T07:03:23Z",
+  "global": {
+    "threshold": 0.02297790437480652,
+    "activation_ready": true,
+    "mode_recommended": "enforce",
+    "reason": "expected_pnl_positive"
+  },
+  "by_lane": {
+    "pump_early_green_candle_sniper": {
+      "threshold": 0.022982929529717363,
+      "activation_ready": false,
+      "mode_recommended": "sizing_only",
+      "reason": "jackpot_capture",
+      "do_not_enforce": true,
+      "checks": {
+        "rows": 5393,
+        "positives": 126,
+        "unique_tokens": 5393,
+        "holdout_rows": 5393,
+        "holdout_positives": 126,
+        "selected_total_pnl": 76565.21249209621,
+        "baseline_total_pnl": 65430.320728866456,
+        "jackpot_capture_rate": 0.6428571428571429
+      }
+    },
+    "pump_early_late_momentum_watch": {
+      "threshold": 0.09172614646611035,
+      "activation_ready": false,
+      "mode_recommended": "shadow",
+      "reason": "positives",
+      "do_not_enforce": true,
+      "checks": {
+        "rows": 194,
+        "positives": 21,
+        "unique_tokens": 194,
+        "holdout_rows": 194,
+        "holdout_positives": 21,
+        "selected_total_pnl": -573.3823107667267,
+        "baseline_total_pnl": -1341.9830409414135,
+        "jackpot_capture_rate": 1.0
+      }
+    },
+    "pump_early_pumpswap_breakout_probe": {
+      "threshold": 0.01,
+      "activation_ready": false,
+      "mode_recommended": "sizing_only",
+      "reason": "rows,positives,unique_tokens,holdout_rows,holdout_positives",
+      "do_not_enforce": true,
+      "checks": {
+        "rows": 6,
+        "positives": 1,
+        "unique_tokens": 6,
+        "holdout_rows": 6,
+        "holdout_positives": 1,
+        "selected_total_pnl": -184.38780784606934,
+        "baseline_total_pnl": -196.35272979736328,
+        "jackpot_capture_rate": null
+      }
+    },
+    "pump_early_pumpswap_rebound_prime": {
+      "threshold": 0.010916239208037486,
+      "activation_ready": false,
+      "mode_recommended": "sizing_only",
+      "reason": "rows,positives,unique_tokens,holdout_rows,jackpot_capture",
+      "do_not_enforce": true,
+      "checks": {
+        "rows": 27,
+        "positives": 7,
+        "unique_tokens": 27,
+        "holdout_rows": 27,
+        "holdout_positives": 7,
+        "selected_total_pnl": -128.00954818725586,
+        "baseline_total_pnl": -429.96696558594704,
+        "jackpot_capture_rate": 0.0
+      }
+    },
+    "pump_early_research_rank_canary": {
+      "threshold": 0.06325867226556148,
+      "activation_ready": false,
+      "mode_recommended": "sizing_only",
+      "reason": "rows,positives,unique_tokens,holdout_rows,model_reduces_total_pnl,jackpot_capture",
+      "do_not_enforce": true,
+      "checks": {
+        "rows": 21,
+        "positives": 8,
+        "unique_tokens": 21,
+        "holdout_rows": 21,
+        "holdout_positives": 8,
+        "selected_total_pnl": 201.6747760772705,
+        "baseline_total_pnl": 220.92300724983215,
+        "jackpot_capture_rate": 0.75
+      }
+    }
+  }
+}

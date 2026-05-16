@@ -677,6 +677,28 @@ class BucketHealth:
     last_auto_demote_at: dt.datetime | None = None
 
 
+@dataclass
+class LaneHealth:
+    trade_pnls_pct: deque[float] = field(
+        default_factory=lambda: deque(
+            maxlen=max(8, int(getattr(CFG, "PUMP_EARLY_SUBLANE_HEALTH_WINDOW_TRADES", 40) or 40))
+        )
+    )
+    severe_exits: deque[bool] = field(
+        default_factory=lambda: deque(
+            maxlen=max(8, int(getattr(CFG, "PUMP_EARLY_SUBLANE_HEALTH_WINDOW_TRADES", 40) or 40))
+        )
+    )
+    liq_crush_exits: deque[bool] = field(
+        default_factory=lambda: deque(
+            maxlen=max(8, int(getattr(CFG, "PUMP_EARLY_SUBLANE_HEALTH_WINDOW_TRADES", 40) or 40))
+        )
+    )
+    cooldown_until: dt.datetime | None = None
+    last_disable_reason: str | None = None
+    last_auto_demote_at: dt.datetime | None = None
+
+
 @dataclass(frozen=True)
 class StrategyDecision:
     regime: str
@@ -699,6 +721,7 @@ _HEALTH: dict[str, RegimeHealth] = {
     "revival": RegimeHealth(),
 }
 _BUCKET_HEALTH: dict[str, BucketHealth] = {}
+_LANE_HEALTH: dict[str, LaneHealth] = {}
 
 
 _SEVERE_EXIT_REASONS = {"LIQUIDITY_CRUSH", "STOP_LOSS", "EARLY_DROP", "ADVERSE_TICK"}
@@ -946,6 +969,24 @@ def _bucket_key_from_token(token: dict[str, Any], regime: str) -> str:
     )
 
 
+def _lane_health_key(*, regime: str, entry_lane: Any = None, gate_profile: Any = None) -> str:
+    if _normalize_regime(regime) != "pump_early":
+        return ""
+    lane = str(entry_lane or "").strip().lower()
+    profile = str(gate_profile or "").strip().lower()
+    if not lane and not profile:
+        return ""
+    return f"{lane or 'unknown'}|{profile or 'unknown'}"
+
+
+def _lane_health_key_from_token(token: dict[str, Any], regime: str) -> str:
+    return _lane_health_key(
+        regime=regime,
+        entry_lane=token.get("entry_lane"),
+        gate_profile=token.get("gate_profile") or token.get("sniper_gate_profile"),
+    )
+
+
 def _is_severe_exit(exit_reason: str | None, pnl_pct: float) -> bool:
     reason = str(exit_reason or "").strip().upper()
     return reason in _SEVERE_EXIT_REASONS or float(pnl_pct) <= -25.0
@@ -1013,6 +1054,86 @@ def _record_bucket_close(
         health.last_auto_demote_at = now
 
 
+def _record_lane_close(
+    *,
+    regime: str,
+    pnl_pct: float,
+    exit_reason: str | None,
+    entry_lane: Any = None,
+    gate_profile: Any = None,
+) -> None:
+    if not bool(getattr(CFG, "PUMP_EARLY_SUBLANE_HEALTH_ENABLED", True)):
+        return
+    key = _lane_health_key(regime=regime, entry_lane=entry_lane, gate_profile=gate_profile)
+    if not key:
+        return
+
+    health = _LANE_HEALTH.setdefault(key, LaneHealth())
+    pnl = float(pnl_pct)
+    health.trade_pnls_pct.append(pnl)
+    severe = _is_severe_exit(exit_reason, pnl)
+    liq_crush = str(exit_reason or "").strip().upper() == "LIQUIDITY_CRUSH"
+    health.severe_exits.append(bool(severe))
+    health.liq_crush_exits.append(bool(liq_crush))
+
+    pnls = list(health.trade_pnls_pct)
+    avg_pnl = sum(pnls) / len(pnls)
+    severe_count = sum(1 for flag in health.severe_exits if flag)
+    liq_crush_count = sum(1 for flag in health.liq_crush_exits if flag)
+    canary_min_trades = max(
+        1,
+        int(getattr(CFG, "PUMP_EARLY_SUBLANE_HEALTH_MIN_CANARY_TRADES", 3) or 3),
+    )
+    if len(pnls) >= canary_min_trades:
+        canary_max_avg = float(
+            getattr(CFG, "PUMP_EARLY_SUBLANE_HEALTH_MAX_CANARY_AVG_PNL_PCT", -35.0) or -35.0
+        )
+        canary_max_severe = max(
+            1,
+            int(getattr(CFG, "PUMP_EARLY_SUBLANE_HEALTH_MAX_CANARY_SEVERE_EXITS", 3) or 3),
+        )
+        canary_max_liq_crush = max(
+            1,
+            int(getattr(CFG, "PUMP_EARLY_SUBLANE_HEALTH_MAX_CANARY_LIQ_CRUSH_EXITS", 2) or 2),
+        )
+        canary_reasons: list[str] = []
+        if avg_pnl <= canary_max_avg:
+            canary_reasons.append("sublane_canary_expectancy")
+        if avg_pnl <= 0.0 and severe_count >= canary_max_severe:
+            canary_reasons.append("sublane_canary_severe")
+        if avg_pnl <= 0.0 and liq_crush_count >= canary_max_liq_crush:
+            canary_reasons.append("sublane_canary_liq_crush")
+        if canary_reasons:
+            now = utc_now()
+            health.last_disable_reason = ",".join(canary_reasons)
+            health.cooldown_until = now + dt.timedelta(minutes=_regime_cooldown_minutes())
+            health.last_auto_demote_at = now
+            return
+
+    min_trades = max(1, int(getattr(CFG, "PUMP_EARLY_SUBLANE_HEALTH_MIN_TRADES", 8) or 8))
+    if len(pnls) < min_trades:
+        return
+
+    max_avg = float(getattr(CFG, "PUMP_EARLY_SUBLANE_HEALTH_MAX_AVG_PNL_PCT", -10.0) or -10.0)
+    max_severe = max(1, int(getattr(CFG, "PUMP_EARLY_SUBLANE_HEALTH_MAX_SEVERE_EXITS", 4) or 4))
+    max_liq_crush = max(1, int(getattr(CFG, "PUMP_EARLY_SUBLANE_HEALTH_MAX_LIQ_CRUSH_EXITS", 2) or 2))
+
+    reasons: list[str] = []
+    if avg_pnl <= max_avg:
+        reasons.append("sublane_expectancy")
+    if avg_pnl <= 0.0 and severe_count >= max_severe:
+        reasons.append("sublane_severe")
+    if avg_pnl <= 0.0 and liq_crush_count >= max_liq_crush:
+        reasons.append("sublane_liq_crush")
+    if not reasons:
+        return
+
+    now = utc_now()
+    health.last_disable_reason = ",".join(reasons)
+    health.cooldown_until = now + dt.timedelta(minutes=_regime_cooldown_minutes())
+    health.last_auto_demote_at = now
+
+
 def _bucket_disable_reason(token: dict[str, Any], regime: str, now: dt.datetime) -> str | None:
     key = _bucket_key_from_token(token, regime)
     if not key:
@@ -1022,6 +1143,20 @@ def _bucket_disable_reason(token: dict[str, Any], regime: str, now: dt.datetime)
         return None
     if health.cooldown_until and now < health.cooldown_until:
         return f"bucket:{health.last_disable_reason or 'cooldown'}"
+    if health.cooldown_until and now >= health.cooldown_until:
+        health.cooldown_until = None
+    return None
+
+
+def _lane_disable_reason(token: dict[str, Any], regime: str, now: dt.datetime) -> str | None:
+    key = _lane_health_key_from_token(token, regime)
+    if not key:
+        return None
+    health = _LANE_HEALTH.get(key)
+    if not health:
+        return None
+    if health.cooldown_until and now < health.cooldown_until:
+        return f"sublane:{health.last_disable_reason or 'cooldown'}"
     if health.cooldown_until and now >= health.cooldown_until:
         health.cooldown_until = None
     return None
@@ -1289,6 +1424,7 @@ def evaluate_candidate(
     live_sniper_continue = _live_sniper_continue_on_health(token, resolved_regime)
     live_aggressive_continue = _live_aggressive_continue_on_health(resolved_regime)
     bucket_disable_reason = _bucket_disable_reason(token, resolved_regime, now)
+    lane_disable_reason = _lane_disable_reason(token, resolved_regime, now)
 
     if requested_mode == "live":
         scorecard_signal = _scorecard_regime_signal(resolved_regime, now)
@@ -1298,6 +1434,10 @@ def evaluate_candidate(
         )
         if bucket_disable_reason:
             mode_override_reason = bucket_disable_reason
+            effective_mode = "shadow"
+            effective_execution_state = "shadow"
+        elif lane_disable_reason:
+            mode_override_reason = lane_disable_reason
             effective_mode = "shadow"
             effective_execution_state = "shadow"
         elif scorecard_signal and float(scorecard_signal["avg_pnl_pct"]) <= demote_avg_pnl_pct:
@@ -1593,6 +1733,13 @@ def record_trade_close(
         price5m_bucket=price5m_bucket,
         gate_profile=gate_profile,
     )
+    _record_lane_close(
+        regime=resolved_regime,
+        pnl_pct=pnl_pct,
+        exit_reason=exit_reason,
+        entry_lane=entry_lane,
+        gate_profile=gate_profile,
+    )
     if (
         resolved_regime == "pump_early"
         and bool(getattr(CFG, "PUMP_EARLY_BREAKOUT_HEALTH_ISOLATED", True))
@@ -1647,6 +1794,7 @@ def bootstrap_closed_trades(rows: list[tuple[Any, ...]]) -> None:
         health.last_auto_demote_at = None
         health.last_auto_recover_at = None
     _BUCKET_HEALTH.clear()
+    _LANE_HEALTH.clear()
 
     ordered = sorted(
         rows,
@@ -1719,6 +1867,30 @@ def describe_bucket_health(now: dt.datetime | None = None) -> dict[str, dict[str
             "avg_pnl_pct": avg_pnl_pct,
             "consecutive_losses": int(health.consecutive_losses),
             "severe_exit_count": sum(1 for flag in health.severe_exits if flag),
+            "cooldown_until": health.cooldown_until,
+            "blocked": cooldown_active,
+            "last_disable_reason": health.last_disable_reason,
+            "last_auto_demote_at": health.last_auto_demote_at,
+        }
+    return out
+
+
+def describe_lane_health(now: dt.datetime | None = None) -> dict[str, dict[str, Any]]:
+    now = now or utc_now()
+    out: dict[str, dict[str, Any]] = {}
+    for key, health in _LANE_HEALTH.items():
+        pnls = list(health.trade_pnls_pct)
+        trade_count = len(pnls)
+        avg_pnl_pct = (sum(pnls) / trade_count) if trade_count else None
+        parts = key.split("|")
+        cooldown_active = bool(health.cooldown_until and now < health.cooldown_until)
+        out[key] = {
+            "entry_lane": parts[0] if len(parts) > 0 else None,
+            "gate_profile": parts[1] if len(parts) > 1 else None,
+            "trade_count": trade_count,
+            "avg_pnl_pct": avg_pnl_pct,
+            "severe_exit_count": sum(1 for flag in health.severe_exits if flag),
+            "liq_crush_count": sum(1 for flag in health.liq_crush_exits if flag),
             "cooldown_until": health.cooldown_until,
             "blocked": cooldown_active,
             "last_disable_reason": health.last_disable_reason,
@@ -1800,6 +1972,7 @@ __all__ = [
     "bootstrap_closed_trades",
     "clear_candidate",
     "describe_bucket_health",
+    "describe_lane_health",
     "describe_regime_health",
     "describe_strategy_policy",
     "evaluate_candidate",

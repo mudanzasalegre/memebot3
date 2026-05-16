@@ -33,7 +33,7 @@ from ml.data_contract import (
 from ml.feature_matrix import coerce_feature_frame
 from ml.model_registry import promote_candidate, write_candidate
 from ml.segment_report import SEGMENT_JSON, build_segment_report, write_segment_outputs
-from ml.tune_threshold import tune_from_frame, write_threshold_result
+from ml.tune_threshold import tune_from_frame
 
 DATA_DIR: pathlib.Path = CFG.FEATURES_DIR
 MODEL_PATH: pathlib.Path = CFG.MODEL_PATH
@@ -1429,6 +1429,7 @@ def train_and_save() -> TrainResult:
             print(f"      {row['feature']:30s}  {row['importance']:.4f}")
 
     tune_result = selected.tune_result
+    _write_json(RECOMMENDED_JSON, tune_result)
     meta_payload = {
         "last_train_attempt_at": attempted_at,
         "last_train_status": "trained",
@@ -1445,6 +1446,7 @@ def train_and_save() -> TrainResult:
         "ai_threshold_recommended": tune_result.get("picked"),
         "threshold_metric": tune_result.get("objective_applied"),
         "activation_ready": tune_result.get("activation_ready"),
+        "threshold_result": tune_result,
         "dataset_quality_passed": quality.passed,
         "dataset_quality": asdict(quality),
         "rows": int(len(df_trainable)),
@@ -1481,8 +1483,28 @@ def train_and_save() -> TrainResult:
         val_preds_path=VAL_PREDS_CSV,
         segment_report_path=SEGMENT_JSON,
     )
-    promote_candidate(artifact, active_model_path=MODEL_PATH)
-    write_threshold_result(tune_result, out_path=RECOMMENDED_JSON, meta_path=META_PATH)
+    promotion_status: dict[str, Any] = {
+        "attempted": True,
+        "promoted": False,
+        "candidate_model_id": artifact.model_id,
+        "candidate_model_path": str(artifact.model_path),
+        "candidate_meta_path": str(artifact.meta_path),
+        "reason": "not_attempted",
+    }
+    try:
+        registry_payload = promote_candidate(artifact, active_model_path=MODEL_PATH)
+        promotion_status.update(
+            {
+                "promoted": True,
+                "reason": "promoted",
+                "registry": registry_payload,
+            }
+        )
+    except RuntimeError as exc:
+        if "STRATEGY_OPTIMIZATION_LOCK=true blocks model promotion" not in str(exc):
+            raise
+        promotion_status["reason"] = str(exc)
+        print(f"[ML] Promocion activa omitida: {exc}")
 
     train_status = _status_payload(
         status="trained",
@@ -1513,6 +1535,7 @@ def train_and_save() -> TrainResult:
             "precision_at_k_pct": float(PREC_AT_K_PCT),
             "precision_at_k_val": selected.precision_at_k,
             "threshold_result": tune_result,
+            "promotion": promotion_status,
             "candidate_summaries": {candidate.name: candidate.summary() for candidate in candidates},
             "candidate_errors": candidate_errors,
             "outcome_sample_types": list(OUTCOME_SAMPLE_TYPES),
@@ -1532,7 +1555,10 @@ def train_and_save() -> TrainResult:
             tune_result.get("activation_ready"),
         )
     )
-    print(f"[ML] Modelo + meta guardados en {MODEL_PATH}")
+    if promotion_status.get("promoted"):
+        print(f"[ML] Modelo activo + meta guardados en {MODEL_PATH}")
+    else:
+        print(f"[ML] Candidato guardado en {artifact.model_path} (activo bloqueado por lock)")
 
     return TrainResult(
         trained=True,
@@ -1540,8 +1566,8 @@ def train_and_save() -> TrainResult:
         dataset_quality=quality,
         selection_metric=selected.selection_metric,
         selection_score=selected.selection_score,
-        model_path=str(MODEL_PATH),
-        meta_path=str(META_PATH),
+        model_path=str(MODEL_PATH if promotion_status.get("promoted") else artifact.model_path),
+        meta_path=str(META_PATH if promotion_status.get("promoted") else artifact.meta_path),
         val_preds_path=str(VAL_PREDS_CSV),
         recommended_threshold_path=str(RECOMMENDED_JSON),
     )

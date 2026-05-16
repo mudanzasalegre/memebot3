@@ -105,8 +105,8 @@ def _validate_paper_rank_research_profile(errors: list[str]) -> None:
             errors.append(f"paper_rank_research_v1 requires {name}=false")
     if values.get("GREEN_SNIPER_POLICY_MODE", "").strip().lower() != "shadow":
         errors.append("paper_rank_research_v1 requires GREEN_SNIPER_POLICY_MODE=shadow")
-    if values.get("RESEARCH_RANK_CANARY_MIN_SCORE", "").strip() not in {"0.647", "64.7"}:
-        errors.append("paper_rank_research_v1 requires RESEARCH_RANK_CANARY_MIN_SCORE=0.647")
+    if values.get("RESEARCH_RANK_CANARY_MIN_SCORE", "").strip() not in {"0.647", "64.7", "64.81"}:
+        errors.append("paper_rank_research_v1 requires RESEARCH_RANK_CANARY_MIN_SCORE=64.81")
 
 
 def _model_enforcement_requested() -> bool:
@@ -190,6 +190,9 @@ def checks() -> list[str]:
             "RESEARCH_RANK_CANARY_LIVE_ENABLED",
             "LATE_MOMENTUM_WATCH_LIVE_ENABLED",
             "LIVE_AGGRESSIVE_TRADING_ENABLED",
+            "BIRD_RUNNER_MULTI_PARTIAL_LIVE_ENABLED",
+            "RUNNER_GIVEBACK_EMERGENCY_LIVE_ENABLED",
+            "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED",
             "AUTO_PROMOTE_LIVE",
             "MODEL_AUTO_PROMOTE",
             "ML_AUTO_PROMOTE_LANES",
@@ -206,6 +209,18 @@ def checks() -> list[str]:
         errors.append("AUTO_PROMOTE_LIVE must remain false")
     if _bool("MODEL_AUTO_PROMOTE", False):
         errors.append("MODEL_AUTO_PROMOTE must remain false")
+    if _bool("PUMP_EARLY_PROFIT_LANE_ENABLED", False) and not _bool("PUMPSWAP_PRIME_STRICT_ENABLED", True):
+        errors.append("PUMP_EARLY_PROFIT_LANE_ENABLED=true requires PUMPSWAP_PRIME_STRICT_ENABLED=true")
+    if _bool("PUMPSWAP_PRIME_STRICT_ENABLED", True) and not _bool("PUMPSWAP_PRIME_SHADOW_IF_NOT_STRICT", True):
+        errors.append("PUMPSWAP_PRIME_STRICT_ENABLED=true requires PUMPSWAP_PRIME_SHADOW_IF_NOT_STRICT=true")
+    if _bool("POST_PARTIAL_PROTECTION_LIVE_ENABLED", False):
+        errors.append("POST_PARTIAL_PROTECTION_LIVE_ENABLED must remain false")
+    if _bool("BIRD_RUNNER_MULTI_PARTIAL_LIVE_ENABLED", False):
+        errors.append("BIRD_RUNNER_MULTI_PARTIAL_LIVE_ENABLED must remain false")
+    if _bool("RUNNER_GIVEBACK_EMERGENCY_LIVE_ENABLED", False):
+        errors.append("RUNNER_GIVEBACK_EMERGENCY_LIVE_ENABLED must remain false")
+    if _bool("BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED", False):
+        errors.append("BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED must remain false")
     if _bool("LLM_TRADING_ENABLED", False):
         errors.append("LLM_TRADING_ENABLED must remain false")
     if _bool("SOCIALS_HOT_PATH_BLOCKING", False) or _bool("GREEN_SNIPER_REQUIRE_SOCIALS", False):

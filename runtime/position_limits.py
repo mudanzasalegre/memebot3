@@ -5,10 +5,12 @@ from typing import Any, Iterable
 
 from config.config import CFG
 from ml.lane_taxonomy import (
+    LANE_BIRTH_PROBE_MICRO_CANARY,
     LANE_PUMP_EARLY_BREAKOUT,
     LANE_PUMP_EARLY_GREEN_SNIPER,
     LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
     LANE_PUMP_EARLY_PROFIT,
+    LANE_PUMPSWAP_REBOUND_PRIME,
     LANE_RESEARCH_RANK_CANARY,
     LANE_RESEARCH_SNIPER,
     normalize_entry_lane,
@@ -47,8 +49,14 @@ def _cap_for_lane(lane: str, *, dry_run: bool, live: bool) -> int:
         if live:
             return _int_cfg("LATE_MOMENTUM_WATCH_MAX_OPEN_LIVE", 0)
         return _int_cfg("LATE_MOMENTUM_WATCH_MAX_OPEN_PAPER", 1)
+    if lane == LANE_BIRTH_PROBE_MICRO_CANARY:
+        if live:
+            return 0
+        return _int_cfg("BIRTH_PROBE_MICRO_CANARY_MAX_OPEN", 1)
     if lane == LANE_PUMP_EARLY_BREAKOUT:
         return _int_cfg("PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1)
+    if lane == LANE_PUMPSWAP_REBOUND_PRIME:
+        return _int_cfg("PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2)
     if lane == LANE_PUMP_EARLY_PROFIT:
         return _int_cfg("PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2)
     if lane == LANE_RESEARCH_SNIPER:
@@ -101,6 +109,10 @@ def describe_position_limits() -> dict[str, Any]:
             "paper": _cap_for_lane(LANE_PUMP_EARLY_BREAKOUT, dry_run=True, live=False),
             "live": _cap_for_lane(LANE_PUMP_EARLY_BREAKOUT, dry_run=False, live=True),
         },
+        "pumpswap_rebound_prime": {
+            "paper": _cap_for_lane(LANE_PUMPSWAP_REBOUND_PRIME, dry_run=True, live=False),
+            "live": _cap_for_lane(LANE_PUMPSWAP_REBOUND_PRIME, dry_run=False, live=True),
+        },
         "research_rank_canary": {
             "paper": _cap_for_lane(LANE_RESEARCH_RANK_CANARY, dry_run=True, live=False),
             "live": _cap_for_lane(LANE_RESEARCH_RANK_CANARY, dry_run=False, live=True),
@@ -108,6 +120,10 @@ def describe_position_limits() -> dict[str, Any]:
         "late_momentum_watch": {
             "paper": _cap_for_lane(LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, dry_run=True, live=False),
             "live": _cap_for_lane(LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, dry_run=False, live=True),
+        },
+        "birth_probe_micro_canary": {
+            "paper": _cap_for_lane(LANE_BIRTH_PROBE_MICRO_CANARY, dry_run=True, live=False),
+            "live": _cap_for_lane(LANE_BIRTH_PROBE_MICRO_CANARY, dry_run=False, live=True),
         },
     }
 

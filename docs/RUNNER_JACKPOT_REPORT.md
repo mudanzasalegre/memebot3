@@ -2,24 +2,30 @@
 
 ## Summary
 
-- Rows analysed: 3865
-- Runners >=300: 9
-- Runners >=500: 5
-- Runners >=1000: 0
+- Rows analysed: 91260
+- Runners >=300: 82
+- Runners >=500: 39
+- Runners >=1000: 16
 
 ## Top Runners
 
 | Symbol | Peak | Realized | Lane | Gate | Exit | Liquidity | Mcap | Price5m | Txns |
 |---|---:|---:|---|---|---|---:|---:|---:|---:|
-| HDeuwQ | 887.1% | 80.7% | pump_early_green_candle_sniper | green_sniper | POST_PARTIAL_TRAILING | 2400 | 10777 | 0.0 | 0 |
-| CHIMP | 628.9% | 628.9% | pump_early_sniper_research | pumpswap_profit_research | TIMEOUT_HARD | 19317 | 61534 | 46.1 | 784 |
-| CHIMP | 628.9% | 628.9% | pump_early_sniper_research | pumpswap_profit_research | TIMEOUT_HARD | 19317 | 61534 | 46.1 | 784 |
-| HDeuwQ | 581.6% | 581.6% |  |  |  | 0 | 0 | 0.0 | 0 |
-| CZwtNu | 512.4% | 410.2% | pump_early_green_candle_sniper | green_sniper_birth_probe | TRAILING_STOP | 1200 | 5468 | 0.0 | 0 |
-| HYmXAo | 411.9% | 411.9% |  |  |  | 0 | 0 | 0.0 | 0 |
-| HYmXAo | 411.9% | 411.9% | pump_early_green_candle_sniper | green_sniper_birth_probe | TIMEOUT_HARD | 1200 | 0 | 0.0 | 0 |
-| PLECO | 353.8% | 125.9% |  |  | POST_PARTIAL_TRAILING | 2423 | 8043 | 0.3 | 177 |
-| PLECO | 353.8% | 125.9% |  |  | POST_PARTIAL_TRAILING | 2423 | 8043 | 0.3 | 177 |
+| 7HgfXf | 152225.7% | 86499.7% | pump_early_green_candle_sniper | green_sniper_birth_probe | RUNNER_GIVEBACK_EMERGENCY | 1200 | 2870 | 0.0 | 0 |
+| 7HgfXf | 146327.3% | 146327.3% |  |  |  | 0 | 0 | 0.0 | 0 |
+| B5jkQN | 2606.7% | 460.2% | pump_early_green_candle_sniper | green_sniper | RUNNER_GIVEBACK_EMERGENCY | 19930 | 58289 | 0.0 | 0 |
+| 6AxUt7 | 2173.8% | 519.1% | unknown |  | RUNNER_GIVEBACK_EMERGENCY | 2765 | 9155 | 0.0 | 0 |
+| CGMa4a | 1530.2% | 969.1% | pump_early_green_candle_sniper | green_sniper_birth_probe | RUNNER_GIVEBACK_EMERGENCY | 1200 | 10027 | 0.0 | 0 |
+| 7wC3UB | 1449.7% | 1449.7% |  |  |  | 0 | 0 | 0.0 | 0 |
+| 7wC3UB | 1449.7% | 1449.7% | pump_early_late_momentum_watch | late_momentum_watch | TIMEOUT_HARD | 1200 | 13844 | 0.0 | 0 |
+| 7QUs6n | 1350.1% | 1350.1% |  |  |  | 0 | 0 | 0.0 | 0 |
+| 7QUs6n | 1350.1% | 1290.2% | pump_early_green_candle_sniper | green_sniper_birth_probe | RUNNER_GIVEBACK_EMERGENCY | 1200 | 0 | 0.0 | 0 |
+| 6KdcA5 | 1198.2% | 641.7% | pump_early_green_candle_sniper | green_sniper_birth_probe | RUNNER_GIVEBACK_EMERGENCY | 1200 | 9434 | 0.0 | 0 |
+| E3pPnp | 1174.0% | 1174.0% |  |  |  | 0 | 0 | 0.0 | 0 |
+| E3pPnp | 1174.0% | 1174.0% | pump_early_green_candle_sniper | green_sniper_birth_probe | TIMEOUT_HARD | 1200 | 4436 | 0.0 | 0 |
+| 72Faue | 1138.0% | 155.5% | pump_early_late_momentum_watch | late_momentum_watch | RUNNER_GIVEBACK_EMERGENCY | 1200 | 13936 | 0.0 | 0 |
+| G3w3bk | 1106.5% | 1106.5% |  |  |  | 0 | 0 | 0.0 | 0 |
+| G3w3bk | 1106.5% | 1106.5% | pump_early_late_momentum_watch | late_momentum_watch | TIMEOUT_HARD | 1200 | 26107 | 0.0 | 0 |
 
 ## Applied Policy
 

@@ -5,6 +5,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
@@ -277,8 +279,86 @@ def test_research_rank_pumpswap_runner_uses_jackpot_profile() -> None:
     assert policy.runner_exit_profile == "jackpot_runner"
     assert policy.runner_profile_state == "step3"
     assert policy.post_partial_lock_floor_pct == 320.0
-    assert policy.post_partial_max_giveback_pct == 35.0
+    assert policy.post_partial_max_giveback_pct == 120.0
     assert exit_policy.partial_fraction(subject) == 0.35
+
+
+def test_research_rank_canary_real_lane_uses_jackpot_ladder() -> None:
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_research_rank_canary",
+        "gate_profile": "research_rank_canary",
+        "buy_dex_id": "pumpswap",
+        "buy_liquidity_is_proxy": 0,
+        "buy_liquidity_usd": 22_000.0,
+        "buy_market_cap_usd": 38_000.0,
+        "buy_price_pct_5m": 40.0,
+        "buy_txns_last_5m": 320.0,
+        "research_rank_score": 60.0,
+        "highest_pnl_pct": 500.0,
+        "partial_taken": False,
+        "entry_qty": 1_000,
+        "qty": 1_000,
+        "realized_qty": 0,
+    }
+
+    policy = exit_policy.effective_exit_policy(subject)
+    plan = exit_policy.partial_ladder_plan(subject, 500.0)
+
+    assert policy.runner_exit_profile == "jackpot_runner"
+    assert plan["enabled"] is True
+    assert plan["target_secured_fraction"] == pytest.approx(0.55)
+    assert exit_policy.partial_sell_fraction(subject, 500.0) == pytest.approx(0.55)
+
+
+def test_jackpot_runner_waits_for_first_ladder_step_before_take_profit() -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_research_rank_canary",
+        "gate_profile": "research_rank_canary",
+        "buy_dex_id": "pumpswap",
+        "buy_liquidity_is_proxy": 0,
+        "buy_liquidity_usd": 22_000.0,
+        "buy_market_cap_usd": 38_000.0,
+        "buy_price_pct_5m": 40.0,
+        "buy_txns_last_5m": 320.0,
+        "research_rank_score": 60.0,
+        "opened_at": now,
+        "buy_price_usd": 1.0,
+        "highest_pnl_pct": 40.0,
+        "partial_taken": False,
+        "entry_qty": 1_000,
+        "qty": 1_000,
+        "realized_qty": 0,
+    }
+
+    policy = exit_policy.effective_exit_policy(subject)
+
+    assert policy.take_profit_pct == 100.0
+    assert exit_policy.should_take_partial(subject, 40.0) is False
+    assert exit_policy.should_exit(subject, price_now=1.4, now=now, pnl_pct=40.0) is None
+
+
+def test_green_birth_probe_moonshot_ladder_keeps_large_moonbag() -> None:
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_green_candle_sniper",
+        "gate_profile": "green_sniper_birth_probe",
+        "buy_dex_id": "pumpfun",
+        "highest_pnl_pct": 700.0,
+        "partial_taken": False,
+        "entry_qty": 1_000,
+        "qty": 1_000,
+        "realized_qty": 0,
+    }
+
+    policy = exit_policy.effective_exit_policy(subject)
+    plan = exit_policy.partial_ladder_plan(subject, 700.0)
+
+    assert policy.runner_exit_profile == "green_sniper_runner"
+    assert plan["target_secured_fraction"] == pytest.approx(0.60)
+    assert exit_policy.partial_sell_fraction(subject, 700.0) == pytest.approx(0.60)
 
 
 def test_research_rank_jackpot_profile_protects_without_rank_column() -> None:

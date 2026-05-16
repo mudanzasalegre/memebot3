@@ -78,39 +78,123 @@ _META_PATH: Path = _resolve_meta_path(_MODEL_PATH)
 _TRAIN_STATUS_PATH: Path = (PROJECT_ROOT / "data" / "metrics" / "train_status.json").resolve()
 _THRESHOLDS_BY_LANE_PATH: Path = (PROJECT_ROOT / "data" / "metrics" / "recommended_thresholds.by_lane.json").resolve()
 _LEGACY_THRESHOLD_PATH: Path = (PROJECT_ROOT / "data" / "metrics" / "recommended_threshold.json").resolve()
+_CANDIDATE_FAMILY_DIRS = {"risk", "ev", "runner", "continuation", "exit"}
 
 # ──────────────────── estado global ───────────────────────────
 _model_lock = threading.Lock()
 _model: Optional[Any] = None               # objeto LightGBM / sklearn
 _model_mtime: Optional[float] = None       # timestamp del .pkl
+_model_path_loaded: Optional[Path] = None
 _FEATURES: Optional[Sequence[str]] = None  # orden de columnas
 _meta_cache: Optional[dict[str, Any]] = None
 _meta_mtime: Optional[float] = None
+_meta_path_loaded: Optional[Path] = None
 
 
 # ╭────────────────── helpers internos ─────────────────╮
+def _candidate_fallback_allowed() -> bool:
+    if not bool(getattr(CFG, "ML_SHADOW_CANDIDATE_MODEL_FALLBACK_ENABLED", True)):
+        return False
+    mode = str(getattr(CFG, "ML_GATE_MODE", "shadow") or "shadow").strip().lower()
+    if mode in {"enforce", "legacy"}:
+        return False
+    if mode == "lane_aware":
+        lane_modes = {
+            str(getattr(CFG, "ML_RESEARCH_MODE", "shadow") or "shadow").strip().lower(),
+            str(getattr(CFG, "ML_LIVE_PROFIT_MODE", "sizing_only") or "sizing_only").strip().lower(),
+            str(getattr(CFG, "ML_UNKNOWN_LANE_MODE", "shadow") or "shadow").strip().lower(),
+        }
+        if "enforce" in lane_modes:
+            return False
+    return True
+
+
+def _latest_candidate_model_paths() -> tuple[Path, Path] | None:
+    root = PROJECT_ROOT / "ml" / "models"
+    if not root.exists():
+        return None
+    candidates: list[tuple[float, Path, Path]] = []
+    for child in root.iterdir():
+        if not child.is_dir() or child.name in _CANDIDATE_FAMILY_DIRS:
+            continue
+        model_path = child / "model.pkl"
+        meta_path = child / "model.meta.json"
+        if not model_path.exists() or not meta_path.exists():
+            continue
+        try:
+            mtime = max(model_path.stat().st_mtime, meta_path.stat().st_mtime)
+        except OSError:
+            continue
+        candidates.append((mtime, model_path.resolve(), meta_path.resolve()))
+    if not candidates:
+        return None
+    _mtime, model_path, meta_path = max(candidates, key=lambda item: item[0])
+    return model_path, meta_path
+
+
+def _effective_model_paths() -> tuple[Path, Path, bool]:
+    if _MODEL_PATH.exists():
+        return _MODEL_PATH, _META_PATH, False
+    if _candidate_fallback_allowed():
+        candidate = _latest_candidate_model_paths()
+        if candidate is not None:
+            return candidate[0], candidate[1], True
+    return _MODEL_PATH, _META_PATH, False
+
+
 def _load_model() -> None:
     """Carga modelo y lista de features en memoria (lazy, thread-safe)."""
-    global _model, _model_mtime, _FEATURES
+    global _model, _model_mtime, _model_path_loaded, _FEATURES
+
+    model_path, meta_path, candidate_fallback = _effective_model_paths()
+    if candidate_fallback:
+        mtime = model_path.stat().st_mtime
+        if _model is not None and mtime == _model_mtime and _model_path_loaded == model_path:
+            return
+        with _model_lock:
+            current_mtime = model_path.stat().st_mtime
+            if _model is None or current_mtime != _model_mtime or _model_path_loaded != model_path:
+                _model = joblib.load(model_path)
+                _model_mtime = current_mtime
+                _model_path_loaded = model_path
+                _FEATURES = None
+                if meta_path.exists():
+                    try:
+                        meta = json.loads(meta_path.read_text())
+                        _FEATURES = meta.get("features")
+                    except Exception as e:
+                        log.warning("No se pudo leer meta %s: %s", meta_path, e)
+                if not _FEATURES:
+                    try:
+                        _FEATURES = list(_model.feature_name())
+                    except Exception:
+                        raise RuntimeError(
+                            f"No se pudo determinar _FEATURES; falta {meta_path} "
+                            "y el modelo no expone feature_name()."
+                        )
+                log.info("ðŸ§  Modelo cargado (candidate): %s (mtime=%d)", model_path.name, int(_model_mtime))
+        return
 
     if not _MODEL_PATH.exists():  # primera ejecución: aún no hay modelo
         _model = None
         _model_mtime = None
+        _model_path_loaded = None
         _FEATURES = None
         log.debug("Modelo no encontrado en disco: %s", _MODEL_PATH)
         return
 
     mtime = _MODEL_PATH.stat().st_mtime
-    if _model is not None and mtime == _model_mtime:
+    if _model is not None and mtime == _model_mtime and _model_path_loaded == _MODEL_PATH:
         # Ya actualizado en memoria
         return
 
     with _model_lock:
         # doble-check por concurrencia
         current_mtime = _MODEL_PATH.stat().st_mtime
-        if _model is None or current_mtime != _model_mtime:
+        if _model is None or current_mtime != _model_mtime or _model_path_loaded != _MODEL_PATH:
             _model = joblib.load(_MODEL_PATH)
             _model_mtime = current_mtime
+            _model_path_loaded = _MODEL_PATH
 
             # lista de columnas entrenadas
             _FEATURES = None
@@ -135,15 +219,43 @@ def _load_model() -> None:
 
 
 def _load_meta() -> dict[str, Any]:
-    global _meta_cache, _meta_mtime
+    global _meta_cache, _meta_mtime, _meta_path_loaded
+
+    _model_path, meta_path, candidate_fallback = _effective_model_paths()
+    if candidate_fallback:
+        if not meta_path.exists():
+            _meta_cache = {}
+            _meta_mtime = None
+            _meta_path_loaded = None
+            return {}
+        mtime = meta_path.stat().st_mtime
+        if _meta_cache is not None and _meta_mtime == mtime and _meta_path_loaded == meta_path:
+            return dict(_meta_cache)
+        with _model_lock:
+            current_mtime = meta_path.stat().st_mtime if meta_path.exists() else None
+            if current_mtime is None:
+                _meta_cache = {}
+                _meta_mtime = None
+                _meta_path_loaded = None
+                return {}
+            if _meta_cache is None or _meta_mtime != current_mtime or _meta_path_loaded != meta_path:
+                try:
+                    _meta_cache = json.loads(meta_path.read_text(encoding="utf-8")) or {}
+                except Exception as exc:
+                    log.warning("No se pudo leer meta %s: %s", meta_path, exc)
+                    _meta_cache = {}
+                _meta_mtime = current_mtime
+                _meta_path_loaded = meta_path
+        return dict(_meta_cache or {})
 
     if not _META_PATH.exists():
         _meta_cache = {}
         _meta_mtime = None
+        _meta_path_loaded = None
         return {}
 
     mtime = _META_PATH.stat().st_mtime
-    if _meta_cache is not None and _meta_mtime == mtime:
+    if _meta_cache is not None and _meta_mtime == mtime and _meta_path_loaded == _META_PATH:
         return dict(_meta_cache)
 
     with _model_lock:
@@ -151,14 +263,16 @@ def _load_meta() -> dict[str, Any]:
         if current_mtime is None:
             _meta_cache = {}
             _meta_mtime = None
+            _meta_path_loaded = None
             return {}
-        if _meta_cache is None or _meta_mtime != current_mtime:
+        if _meta_cache is None or _meta_mtime != current_mtime or _meta_path_loaded != _META_PATH:
             try:
                 _meta_cache = json.loads(_META_PATH.read_text(encoding="utf-8")) or {}
             except Exception as exc:
                 log.warning("No se pudo leer meta %s: %s", _META_PATH, exc)
                 _meta_cache = {}
             _meta_mtime = current_mtime
+            _meta_path_loaded = _META_PATH
     return dict(_meta_cache or {})
 
 
@@ -227,12 +341,14 @@ def should_buy(vec: Any) -> float:
 
 def reload_model() -> None:
     """Borra el modelo en memoria para forzar recarga (p. ej. tras retrain)."""
-    global _model, _model_mtime, _meta_cache, _meta_mtime
+    global _model, _model_mtime, _model_path_loaded, _meta_cache, _meta_mtime, _meta_path_loaded
     with _model_lock:
         _model = None
         _model_mtime = None
+        _model_path_loaded = None
         _meta_cache = None
         _meta_mtime = None
+        _meta_path_loaded = None
     _load_model()
     log.info("🔄 Modelo recargado manualmente (forzando reload en memoria)")
 
@@ -296,9 +412,15 @@ def model_runtime_status() -> dict[str, Any]:
     blocker = train_status.get("blocker")
     if blocker is None and skip_reasons:
         blocker = ",".join(str(item) for item in skip_reasons if str(item))
+    effective_model_path, effective_meta_path, candidate_fallback = _effective_model_paths()
     return {
-        "model_exists": _MODEL_PATH.exists(),
-        "meta_exists": _META_PATH.exists(),
+        "model_exists": effective_model_path.exists(),
+        "meta_exists": effective_meta_path.exists(),
+        "active_model_exists": _MODEL_PATH.exists(),
+        "active_meta_exists": _META_PATH.exists(),
+        "candidate_fallback_used": bool(candidate_fallback),
+        "candidate_model_path": str(effective_model_path) if candidate_fallback else None,
+        "candidate_meta_path": str(effective_meta_path) if candidate_fallback else None,
         "model_loaded": _model is not None,
         "features_count": len(_FEATURES or ()),
         "activation_ready": meta.get("activation_ready"),
@@ -323,8 +445,10 @@ def model_runtime_status() -> dict[str, Any]:
         "holdout_rows_to_next_model": holdout_rows_to_next_model,
         "holdout_positives_to_next_model": holdout_positives_to_next_model,
         "blocker": blocker,
-        "model_path": str(_MODEL_PATH),
-        "meta_path": str(_META_PATH),
+        "model_path": str(effective_model_path),
+        "meta_path": str(effective_meta_path),
+        "active_model_path": str(_MODEL_PATH),
+        "active_meta_path": str(_META_PATH),
         "train_status_path": str(_TRAIN_STATUS_PATH),
     }
 

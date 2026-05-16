@@ -5,9 +5,14 @@ from typing import Any
 
 from config.config import CFG
 from analytics.lane_policy_categories import (
+    POLICY_BIRTH_PROBE_MICRO_CANARY,
     POLICY_GREEN_SNIPER_PURE,
     POLICY_GREEN_SNIPER_RESTRICTED_BUY,
     POLICY_GREEN_SNIPER_SHADOW,
+)
+from analytics.birth_probe_micro_canary import (
+    apply_birth_probe_micro_canary_context,
+    evaluate_birth_probe_micro_canary,
 )
 from analytics.green_sniper_score import score_green_sniper
 from analytics.green_sniper_risk_guard import evaluate_green_sniper_risk_guard
@@ -45,6 +50,8 @@ class GreenSniperDecision:
     liquidity_risk_reasons: tuple[str, ...] = ()
     route_proxy: bool = False
     policy_category: str = POLICY_GREEN_SNIPER_PURE
+    birth_probe_reason_group: str = ""
+    micro_canary_amount_sol: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -371,6 +378,17 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
         action = "shadow" if bool(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_SHADOW_FIRST", True)) else "buy"
         reason = "paper_birth_probe:" + ",".join(failures[:8])
         size_hint = "micro"
+        micro_decision = evaluate_birth_probe_micro_canary(
+            token,
+            failures,
+            dry_run=dry_run,
+            live=live,
+        )
+        if micro_decision.allowed:
+            action = "buy"
+            reason = micro_decision.reason
+            token["birth_probe_reason_group"] = micro_decision.reason_group
+            token["birth_probe_micro_canary_amount_sol"] = micro_decision.amount_sol
     elif not failures:
         action = "buy"
         reason = "green_sniper_pass"
@@ -386,7 +404,7 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
     risk_decision = evaluate_green_sniper_risk_guard(token, dry_run=dry_run, live=live)
     liq_decision = evaluate_liquidity_risk(token, live=live)
     if bool(getattr(CFG, "GREEN_SNIPER_RISK_GUARD_ENABLED", True)) and risk_decision.risk_level in {"high", "lethal"}:
-        if paper_birth_probe and dry_run and not live and action == "shadow":
+        if paper_birth_probe and dry_run and not live and action in {"shadow", "buy"}:
             pass
         elif risk_decision.risk_level == "lethal":
             action = "reject"
@@ -397,7 +415,7 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
         if not reason or reason in {"green_sniper_pass", "late_momentum_canary"}:
             reason = "risk_guard:" + ",".join(risk_decision.risk_reasons[:6])
     if bool(getattr(CFG, "GREEN_SNIPER_LIQ_GUARD_ENABLED", True)) and liq_decision.risk_level in {"high", "lethal"}:
-        if paper_birth_probe and dry_run and not live and action == "shadow":
+        if paper_birth_probe and dry_run and not live and action in {"shadow", "buy"}:
             pass
         elif live or liq_decision.risk_level == "lethal":
             action = "reject"
@@ -441,6 +459,9 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
                 reason = "green_sniper_restricted_block:" + ",".join(restricted_failures[:8])
     elif paper_birth_probe:
         policy_category = POLICY_GREEN_SNIPER_SHADOW if action == "shadow" else POLICY_GREEN_SNIPER_PURE
+        if action == "buy" and str(reason) == "birth_probe_micro_canary":
+            gate_profile = POLICY_BIRTH_PROBE_MICRO_CANARY
+            policy_category = POLICY_BIRTH_PROBE_MICRO_CANARY
 
     return GreenSniperDecision(
         action=action,
@@ -463,10 +484,24 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
         liquidity_risk_reasons=tuple(liq_decision.reasons),
         gate_profile=gate_profile,
         policy_category=policy_category,
+        birth_probe_reason_group=str(token.get("birth_probe_reason_group") or ""),
+        micro_canary_amount_sol=float(token.get("birth_probe_micro_canary_amount_sol") or 0.0),
     )
 
 
 def apply_green_sniper_context(token: dict[str, Any], decision: GreenSniperDecision) -> dict[str, Any]:
+    if decision.gate_profile == POLICY_BIRTH_PROBE_MICRO_CANARY:
+        from analytics.birth_probe_micro_canary import BirthProbeMicroCanaryDecision
+
+        return apply_birth_probe_micro_canary_context(
+            token,
+            BirthProbeMicroCanaryDecision(
+                allowed=True,
+                reason=decision.reason,
+                reason_group=str(decision.birth_probe_reason_group or ""),
+                amount_sol=float(decision.micro_canary_amount_sol or getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_AMOUNT_SOL", 0.01) or 0.01),
+            ),
+        )
     token["entry_lane"] = decision.lane
     token["gate_profile"] = "green_sniper_birth_probe" if decision.paper_birth_probe else decision.gate_profile
     token["sniper_gate_profile"] = token["gate_profile"]

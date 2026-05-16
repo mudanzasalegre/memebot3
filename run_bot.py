@@ -161,7 +161,13 @@ from analytics.green_sniper_gate import apply_green_sniper_context, evaluate_gre
 from analytics.green_sniper_rank_guard import evaluate_green_sniper_rank_guard  # noqa: E402
 from analytics.green_sniper_risk_guard import evaluate_green_sniper_risk_guard  # noqa: E402
 from analytics.green_sniper_sizing import compute_green_sniper_sizing  # noqa: E402
-from analytics.research_rank_canary import apply_research_rank_canary_context, evaluate_research_rank_canary  # noqa: E402
+from analytics.pumpswap_prime_strict import evaluate_pumpswap_prime_strict  # noqa: E402
+from analytics.pumpswap_rebound_prime import apply_pumpswap_rebound_prime_context, evaluate_pumpswap_rebound_prime  # noqa: E402
+from analytics.research_rank_canary import (  # noqa: E402
+    apply_research_rank_canary_context,
+    apply_research_rank_canary_shadow_context,
+    evaluate_research_rank_canary,
+)
 from analytics.profit_pnl_guard import evaluate_profit_pnl_guard  # noqa: E402
 from analytics.ml_policy import decide_ml_action  # noqa: E402
 from analytics.risk_predict import predict_risk  # noqa: E402
@@ -413,6 +419,9 @@ _BOOT_CONFIG_AUDIT_FLAGS = (
     "LATE_MOMENTUM_WATCH_BUY_ENABLED",
     "POST_PARTIAL_PROTECTION_ENABLED",
     "POST_PARTIAL_PROTECTION_PAPER_ENABLED",
+    "POST_PARTIAL_PROTECTION_EXECUTION_ENABLED",
+    "BIRD_RUNNER_MULTI_PARTIAL_ENABLED",
+    "RUNNER_GIVEBACK_EMERGENCY_ENABLED",
 )
 _BOOT_AUDIT_EMITTED = False
 
@@ -451,9 +460,11 @@ def _emit_boot_config_audit() -> dict[str, object]:
 def _emit_post_partial_activation_audit() -> dict[str, object]:
     payload = exit_policy.write_post_partial_activation_audit()
     log.info(
-        "Post-partial activation audit: surface=%s active=%s regimes=%s paper_flag=%s",
+        "Post-partial activation audit: surface=%s active=%s execution_changed=%s shadow_only=%s regimes=%s paper_flag=%s",
         payload.get("runtime_surface"),
         payload.get("runtime_protection_active"),
+        payload.get("execution_changed"),
+        payload.get("shadow_only"),
         ",".join(payload.get("active_regimes") or []) or "(none)",
         payload.get("post_partial_protection_paper_enabled"),
     )
@@ -463,6 +474,7 @@ def _emit_post_partial_activation_audit() -> dict[str, object]:
             "runtime",
             runtime_surface=str(payload.get("runtime_surface") or ""),
             runtime_protection_active=bool(payload.get("runtime_protection_active")),
+            execution_changed=bool(payload.get("execution_changed")),
             active_regimes=payload.get("active_regimes") or [],
             effective_dry_run=bool(payload.get("effective_dry_run")),
             post_partial_protection_paper_enabled=bool(
@@ -1913,6 +1925,29 @@ def _evaluate_pumpswap_profit_gate(
         and not (mcap >= 100_000.0 and liquidity < precision_high_mcap_min_liq and rank_score < 60.0)
         and age_min <= _PUMP_EARLY_PROFIT_MAX_AGE_MIN
     )
+    rebound_decision = evaluate_pumpswap_rebound_prime(token, cfg=cfg)
+    if rebound_decision.allowed:
+        apply_pumpswap_rebound_prime_context(token)
+        _set_profit_gate_context(
+            token,
+            entry_lane=str(token["entry_lane"]),
+            gate_profile=str(token["gate_profile"]),
+            failures=[],
+            blocked_bucket=None,
+            rank_score=rank_score,
+        )
+        token["profit_lane_tier"] = "pump_early_pumpswap_rebound_prime"
+        token["pumpswap_rebound_prime_failures"] = ""
+        token["profit_shape_guard_failures"] = ""
+        token["profit_pnl_guard_failures"] = ""
+        return {
+            "allowed": True,
+            "entry_lane": "pump_early_pumpswap_rebound_prime",
+            "gate_profile": "pumpswap_rebound_prime",
+            "reject_reasons": [],
+            "research_eligible": False,
+            "blocked_bucket": None,
+        }
 
     if dex_id not in _PUMP_EARLY_PROFIT_DEX_ALLOWLIST:
         failures.append(f"dex!={','.join(sorted(_PUMP_EARLY_PROFIT_DEX_ALLOWLIST)) or 'pumpswap'}")
@@ -1991,6 +2026,15 @@ def _evaluate_pumpswap_profit_gate(
         if prime
         else "pumpswap_profit_broad"
     )
+    strict_blocked = False
+    strict_decision = None
+    if allowed and gate_profile == "pumpswap_profit_prime":
+        strict_decision = evaluate_pumpswap_prime_strict(token, cfg=cfg)
+        if not strict_decision.allowed:
+            strict_blocked = True
+            allowed = False
+            blocked_bucket = blocked_bucket or "pumpswap_prime_strict_failed"
+            entry_lane = "pump_early_sniper_research"
     entry_lane = (
         "pump_early_pumpswap_breakout_probe"
         if allowed and gate_profile == "pumpswap_breakout_probe"
@@ -1999,6 +2043,8 @@ def _evaluate_pumpswap_profit_gate(
         else "pump_early_sniper_research"
     )
     context_failures = [] if allowed else effective_failures
+    if strict_blocked and strict_decision is not None:
+        context_failures = [strict_decision.block_reason]
     _set_profit_gate_context(
         token,
         entry_lane=entry_lane,
@@ -2007,7 +2053,13 @@ def _evaluate_pumpswap_profit_gate(
         blocked_bucket=None if allowed else blocked_bucket,
         rank_score=rank_score,
     )
-    if precision_allowed:
+    if strict_blocked and strict_decision is not None:
+        token["profit_lane_tier"] = "pumpswap_prime_strict_blocked"
+        token["pumpswap_prime_strict_blocked"] = 1
+        token["pumpswap_prime_strict_failures"] = ",".join(strict_decision.failures[:12])
+        token["profit_shape_guard_failures"] = ""
+        token["profit_pnl_guard_failures"] = ""
+    elif precision_allowed:
         token["profit_lane_tier"] = "pump_early_pumpswap_precision"
         token["profit_shape_guard_failures"] = ""
         token["profit_pnl_guard_failures"] = ""
@@ -2024,6 +2076,9 @@ def _evaluate_pumpswap_profit_gate(
         token["profit_pnl_guard_failures"] = ""
     elif prime:
         token["profit_lane_tier"] = "pump_early_pumpswap_prime"
+        if strict_decision is not None:
+            token["pumpswap_prime_strict_passed"] = 1
+            token["pumpswap_prime_strict_failures"] = ""
         token["profit_shape_guard_failures"] = ""
         token["profit_pnl_guard_failures"] = ""
     else:
@@ -2045,6 +2100,20 @@ def _tag_pump_sniper_gate(token: dict, rank_info: dict[str, object] | None = Non
         token["live_profit_gate_failed_count"] = 0
         token.setdefault("gate_profile", "green_sniper")
         token.setdefault("sniper_gate_profile", "green_sniper")
+        return True, ""
+    cfg = globals().get("CFG")
+    if (
+        bool(getattr(cfg, "RESEARCH_RANK_CANARY_FORCE_OWN_LANE", True))
+        and str(token.get("entry_lane") or "").strip().lower() == "pump_early_research_rank_canary"
+    ):
+        token["entry_lane"] = "pump_early_research_rank_canary"
+        token["gate_profile"] = "research_rank_canary"
+        token["sniper_gate_profile"] = "research_rank_canary"
+        token["profit_lane_tier"] = "pump_early_research_rank_canary"
+        token["lane_policy_category"] = "research_rank_canary"
+        token["live_profit_gate_profile"] = "research_rank_canary"
+        token["live_profit_gate_failed_count"] = 0
+        token["live_profit_gate_failures"] = ""
         return True, ""
     if _PUMP_EARLY_PROFIT_LANE_ENABLED:
         decision = _evaluate_pumpswap_profit_gate(token, rank_info)
@@ -2765,9 +2834,15 @@ async def _build_runtime_state_snapshot() -> RuntimeStateSnapshot:
     ml_gate = _ml_gate_state()
     strategy_health = strategy_runtime.describe_regime_health(now)
     bucket_health = strategy_runtime.describe_bucket_health(now)
+    lane_health = strategy_runtime.describe_lane_health(now)
     blocked_buckets = {
         key: value
         for key, value in bucket_health.items()
+        if bool((value or {}).get("blocked"))
+    }
+    blocked_lanes = {
+        key: value
+        for key, value in lane_health.items()
         if bool((value or {}).get("blocked"))
     }
     research_snapshot = _research_runtime_snapshot()
@@ -2785,7 +2860,9 @@ async def _build_runtime_state_snapshot() -> RuntimeStateSnapshot:
         "current_gate_rebased": bool(productive_health.get("current_gate_rebased")),
         "recovery_basis": productive_health.get("recovery_basis") or {},
         "bucket_health": bucket_health,
+        "lane_health": lane_health,
         "blocked_buckets": blocked_buckets,
+        "blocked_lanes": blocked_lanes,
     }
     pump_health = productive_health
     research_rank_gate = research_runtime.load_live_rank_gate("pump_early", now=now)
@@ -3895,6 +3972,36 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         vec = build_feature_vector(token)
         vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
         rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+    elif bool(getattr(research_canary_decision, "shadow_as_own_lane", False)):
+        apply_research_rank_canary_shadow_context(token, research_canary_decision)
+        vec = build_feature_vector(token)
+        _research_decision(
+            token,
+            action="shadow",
+            reason=research_canary_decision.reason,
+            stage="research_rank_canary",
+            proba=proba,
+            threshold=ai_threshold_eff,
+            rank_info=rank_info,
+            shadow_kind="shadow_rank_canary",
+            dedup_ttl_s=300,
+        )
+        await _open_shadow(
+            addr,
+            vec,
+            price_hint=token.get("price_usd"),
+            force=True,
+            regime="pump_early",
+            reason=research_canary_decision.reason,
+            stage="research_rank_canary",
+            proba=proba,
+            threshold=ai_threshold_eff,
+            rank_info=rank_info,
+            shadow_kind="shadow_rank_canary",
+        )
+        _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+        _remove_from_queue_if_present(addr)
+        return
     if str(token.get("entry_lane") or "").strip().lower() == "pump_early_green_candle_sniper":
         green_rank_guard = evaluate_green_sniper_rank_guard(rank_info)
         token["green_sniper_rank_score"] = float(green_rank_guard.rank_score)
@@ -4080,7 +4187,11 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         ai_threshold=ai_threshold_eff,
     )
     green_size_decision = None
-    if str(token.get("entry_lane") or "").strip().lower() in {"pump_early_green_candle_sniper", "pump_early_late_momentum_watch"}:
+    if str(token.get("entry_lane") or "").strip().lower() in {
+        "pump_early_green_candle_sniper",
+        "pump_early_late_momentum_watch",
+        "pump_early_birth_probe_micro_canary",
+    }:
         green_size_decision = compute_green_sniper_sizing(
             token,
             dry_run=DRY_RUN,
@@ -4327,6 +4438,27 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         _requeue_with_stats(addr, reason=f"lane_cap:{lane}", backoff=180, token=token)
         return
 
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_birth_probe_micro_canary":
+        daily_ok, daily_count, daily_cap = await _birth_probe_micro_daily_capacity(ses)
+        if not daily_ok:
+            _research_decision(
+                token,
+                action="wait",
+                reason="birth_probe_micro_daily_cap",
+                stage="capacity",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                dedup_ttl_s=900,
+            )
+            _requeue_with_stats(
+                addr,
+                reason=f"birth_probe_micro_daily_cap:{daily_count}/{daily_cap}",
+                backoff=900,
+                token=token,
+            )
+            return
+
     # IMPORTANTE: no etiquetar 1 en T0; guardamos el vector para el cierre
     _pending_ai_vectors[addr] = vec
 
@@ -4347,6 +4479,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         amount_sol = float(green_size_decision.amount_sol)
     if research_rank_canary_fast_path:
         amount_sol = float(research_canary_decision.amount_sol)
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_birth_probe_micro_canary":
+        amount_sol = float(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_AMOUNT_SOL", 0.01) or 0.01)
     effective_min_buy_sol = float(getattr(CFG, "GREEN_SNIPER_LIVE_SIZE_SOL", MIN_BUY_SOL) or MIN_BUY_SOL) if green_fast_path else float(MIN_BUY_SOL)
     if amount_sol < effective_min_buy_sol:
         # Shadow si pasa IA pero no se compra por importe
@@ -4815,12 +4949,18 @@ async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[boo
         "pump_early_pumpswap_profit",
         "pump_early_pumpswap_breakout_probe",
         "pump_early_green_candle_sniper",
+        "pump_early_birth_probe_micro_canary",
         "pump_early_research_rank_canary",
         "pump_early_late_momentum_watch",
     }:
         return True, 0, int(CFG.MAX_ACTIVE_POSITIONS)
     open_lanes = await _load_open_position_lanes(ses)
-    if lane in {"pump_early_green_candle_sniper", "pump_early_research_rank_canary", "pump_early_late_momentum_watch"}:
+    if lane in {
+        "pump_early_green_candle_sniper",
+        "pump_early_birth_probe_micro_canary",
+        "pump_early_research_rank_canary",
+        "pump_early_late_momentum_watch",
+    }:
         decision = evaluate_lane_position_limit(
             lane,
             [{"entry_lane": value} for value in open_lanes],
@@ -4843,6 +4983,21 @@ async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[boo
         )
     limit = min(int(CFG.MAX_ACTIVE_POSITIONS), max(1, int(limit or 1)))
     return current < limit, current, limit
+
+
+async def _birth_probe_micro_daily_capacity(ses: SessionLocal) -> tuple[bool, int, int]:
+    if not DRY_RUN:
+        return False, 0, 0
+    max_daily = max(0, int(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_MAX_DAILY_BUYS", 5) or 5))
+    if max_daily <= 0:
+        return False, 0, 0
+    start = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    stmt = select(func.count()).select_from(Position).where(
+        Position.entry_lane == "pump_early_birth_probe_micro_canary",
+        Position.opened_at >= start,
+    )
+    count = int((await ses.execute(stmt)).scalar() or 0)
+    return count < max_daily, count, max_daily
 
 
 async def _regime_capacity(ses: SessionLocal, regime: str) -> tuple[bool, int, int]:
@@ -5546,7 +5701,7 @@ async def _check_positions(ses: SessionLocal) -> None:
             sells_done += 1
             continue  # siguiente posición
 
-        # ── TP parcial único al tocar TP (antes de decidir salida total) ──
+        # ── TP parcial / ladder paper al tocar umbrales (antes de salida total) ──
         if (
             pos_exit_policy.tp_partial_enabled
             and price is not None
@@ -5556,7 +5711,8 @@ async def _check_positions(ses: SessionLocal) -> None:
             qty_total = int(getattr(pos, "qty", 0) or 0)
             # si no hay margen, no hacemos parcial → dejamos que el exit TP cierre total si toca
             if qty_total > 0:
-                qty_to_sell = int(round(qty_total * float(pos_exit_policy.tp_partial_fraction)))
+                sell_fraction = float(exit_policy.partial_sell_fraction(pos, pnl_pct))
+                qty_to_sell = int(round(qty_total * sell_fraction))
                 qty_to_sell = max(1, qty_to_sell)
 
                 # asegurar remanente mínimo si se puede
@@ -5574,7 +5730,7 @@ async def _check_positions(ses: SessionLocal) -> None:
                         _fmt(pnl_pct, "{:.1f}"),
                         qty_to_sell,
                         qty_total,
-                        pos_exit_policy.tp_partial_fraction * 100.0,
+                        sell_fraction * 100.0,
                     )
                     part_resp = await seller.sell(
                         pos.address,
@@ -6047,7 +6203,19 @@ async def _bootstrap_strategy_runtime(ses: SessionLocal) -> None:
             continue
         rebased_lane = str(entry_lane) if entry_lane else None
         rebased_profile = str(gate_profile) if gate_profile else None
-        if _PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE and str(regime or "").strip().lower() == "pump_early":
+        original_lane = str(entry_lane or "").strip().lower()
+        preserve_own_lane = original_lane in {
+            "pump_early_research_rank_canary",
+            "pump_early_pumpswap_rebound_prime",
+            "pump_early_late_momentum_watch",
+            "pump_early_green_candle_sniper",
+            "pump_early_birth_probe_micro_canary",
+        }
+        if (
+            _PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE
+            and str(regime or "").strip().lower() == "pump_early"
+            and not preserve_own_lane
+        ):
             rebased_current_gate += 1
             rebased_profile = _historical_profit_gate_profile(
                 buy_dex_id=buy_dex_id,
@@ -6506,6 +6674,17 @@ async def main_loop() -> None:
         _fmt(exit_cfg["time_stop_min"], "{:.0f}"),
         _fmt(exit_cfg["time_stop_min_peak_pct"], "{:.0f}"),
         _fmt(exit_cfg["time_stop_max_pnl_pct"], "{:.0f}"),
+    )
+    bird_cfg = exit_cfg.get("bird_runner_multi_partial") or {}
+    giveback_cfg = exit_cfg.get("runner_giveback_emergency") or {}
+    log.info(
+        "⚙️  Runner ladder: multi_partial=%s paper=%s live=%s · giveback_emergency=%s paper=%s live=%s",
+        str(bird_cfg.get("enabled")),
+        str(bird_cfg.get("paper_enabled")),
+        str(bird_cfg.get("live_enabled")),
+        str(giveback_cfg.get("enabled")),
+        str(giveback_cfg.get("paper_enabled")),
+        str(giveback_cfg.get("live_enabled")),
     )
     ml_gate = _ml_gate_state()
     log.info(

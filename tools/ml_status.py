@@ -34,7 +34,9 @@ def main() -> int:
     if not status.get("model_exists") and not args.no_fail_if_missing_model:
         return 1
     lines = [
-        f"Active model: {status.get('model_path')}",
+        f"Model path: {status.get('model_path')}",
+        f"Active model exists: {status.get('active_model_exists')}",
+        f"Candidate fallback used: {status.get('candidate_fallback_used')}",
         f"Global threshold: {(thresholds.get('global') or {}).get('threshold')}",
         f"ML_GATE_MODE: {getattr(CFG, 'ML_GATE_MODE', None)}",
         f"Last train: {status.get('last_train_attempt_at') or train_status.get('last_train_attempt_at')}",

@@ -122,6 +122,16 @@ def _make_cfg(**overrides: object) -> SimpleNamespace:
         "PUMP_EARLY_SHADOW_RECOVERY_MAX_LIQ_CRUSH": 1,
         "PUMP_EARLY_SHADOW_RECOVERY_MAX_CONSECUTIVE_LOSSES": 3,
         "PUMP_EARLY_SHADOW_RECOVERY_MAX_AGE_H": 36.0,
+        "PUMP_EARLY_SUBLANE_HEALTH_ENABLED": True,
+        "PUMP_EARLY_SUBLANE_HEALTH_WINDOW_TRADES": 40,
+        "PUMP_EARLY_SUBLANE_HEALTH_MIN_TRADES": 8,
+        "PUMP_EARLY_SUBLANE_HEALTH_MAX_AVG_PNL_PCT": -10.0,
+        "PUMP_EARLY_SUBLANE_HEALTH_MAX_SEVERE_EXITS": 4,
+        "PUMP_EARLY_SUBLANE_HEALTH_MAX_LIQ_CRUSH_EXITS": 2,
+        "PUMP_EARLY_SUBLANE_HEALTH_MIN_CANARY_TRADES": 3,
+        "PUMP_EARLY_SUBLANE_HEALTH_MAX_CANARY_AVG_PNL_PCT": -35.0,
+        "PUMP_EARLY_SUBLANE_HEALTH_MAX_CANARY_SEVERE_EXITS": 3,
+        "PUMP_EARLY_SUBLANE_HEALTH_MAX_CANARY_LIQ_CRUSH_EXITS": 2,
     }
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -156,6 +166,7 @@ def _reset_strategy_state() -> None:
     strategy_runtime._SHADOW_RECOVERY_SIZE = None
     strategy_runtime._CANDIDATES.clear()
     strategy_runtime._BUCKET_HEALTH.clear()
+    strategy_runtime._LANE_HEALTH.clear()
     for health in strategy_runtime._HEALTH.values():
         health.trade_pnls_pct.clear()
         health.trade_wins.clear()
@@ -719,7 +730,7 @@ def test_recovery_promotes_back_to_normal_after_10_good_canary_closes(monkeypatc
 
 def test_bucket_health_blocks_toxic_profit_bucket_without_global_shutdown(monkeypatch, tmp_path: Path) -> None:
     now = dt.datetime(2026, 4, 6, 13, 0, tzinfo=dt.timezone.utc)
-    monkeypatch.setattr(strategy_runtime, "CFG", _make_cfg())
+    monkeypatch.setattr(strategy_runtime, "CFG", _make_cfg(PUMP_EARLY_SUBLANE_HEALTH_ENABLED=False))
     monkeypatch.setattr(strategy_runtime, "_SCORECARD_PATH", tmp_path / "missing_scorecard.json")
     monkeypatch.setattr(strategy_runtime.research_runtime, "load_live_rank_gate", lambda *args, **kwargs: _rank_gate())
     _reset_strategy_state()
@@ -784,6 +795,96 @@ def test_bucket_health_blocks_toxic_profit_bucket_without_global_shutdown(monkey
     assert blocked.effective_mode == "shadow"
     assert "bucket:" in blocked.reason
     assert other_bucket.effective_mode == "live"
+
+
+def test_sublane_health_blocks_toxic_lane_without_blocking_other_lanes(monkeypatch, tmp_path: Path) -> None:
+    now = dt.datetime(2026, 4, 6, 13, 0, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(strategy_runtime, "CFG", _make_cfg())
+    monkeypatch.setattr(strategy_runtime, "_SCORECARD_PATH", tmp_path / "missing_scorecard.json")
+    monkeypatch.setattr(strategy_runtime.research_runtime, "load_live_rank_gate", lambda *args, **kwargs: _rank_gate())
+    _reset_strategy_state()
+
+    for _ in range(8):
+        strategy_runtime.record_trade_close(
+            "pump_early",
+            -28.0,
+            exit_reason="LIQUIDITY_CRUSH",
+            execution_state="live",
+            entry_lane="pump_early_pumpswap_breakout_probe",
+            gate_profile="pumpswap_breakout_probe",
+        )
+
+    blocked = strategy_runtime.evaluate_candidate(
+        {
+            "address": "lane-blocked",
+            "entry_lane": "pump_early_pumpswap_breakout_probe",
+            "gate_profile": "pumpswap_breakout_probe",
+            "dex_id": "pumpswap",
+            "liquidity_is_proxy": 0,
+            "mcap_bucket": "25_50k",
+            "price5m_bucket": "25_50",
+            "age_min": 6.0,
+        },
+        regime="pump_early",
+        has_route=True,
+        now=now,
+    )
+    other_lane = strategy_runtime.evaluate_candidate(
+        {
+            "address": "lane-open",
+            "entry_lane": "pump_early_research_rank_canary",
+            "gate_profile": "research_rank_canary",
+            "dex_id": "pumpswap",
+            "liquidity_is_proxy": 0,
+            "mcap_bucket": "25_50k",
+            "price5m_bucket": "25_50",
+            "age_min": 6.0,
+        },
+        regime="pump_early",
+        has_route=True,
+        now=now,
+    )
+
+    assert blocked.effective_mode == "shadow"
+    assert "sublane:" in blocked.reason
+    assert other_lane.effective_mode == "live"
+
+
+def test_sublane_canary_blocks_extreme_small_sample(monkeypatch, tmp_path: Path) -> None:
+    now = dt.datetime(2026, 4, 6, 13, 0, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(strategy_runtime, "CFG", _make_cfg())
+    monkeypatch.setattr(strategy_runtime, "_SCORECARD_PATH", tmp_path / "missing_scorecard.json")
+    monkeypatch.setattr(strategy_runtime.research_runtime, "load_live_rank_gate", lambda *args, **kwargs: _rank_gate())
+    _reset_strategy_state()
+
+    for _ in range(3):
+        strategy_runtime.record_trade_close(
+            "pump_early",
+            -55.0,
+            exit_reason="LIQUIDITY_CRUSH",
+            execution_state="live",
+            entry_lane="pump_early_pumpswap_profit",
+            gate_profile="pumpswap_profit_prime",
+        )
+
+    decision = strategy_runtime.evaluate_candidate(
+        {
+            "address": "lane-canary-blocked",
+            "entry_lane": "pump_early_pumpswap_profit",
+            "gate_profile": "pumpswap_profit_prime",
+            "dex_id": "pumpswap",
+            "liquidity_is_proxy": 0,
+            "mcap_bucket": "50_100k",
+            "price5m_bucket": "25_50",
+            "age_min": 6.0,
+        },
+        regime="pump_early",
+        has_route=True,
+        now=now,
+    )
+
+    assert decision.effective_mode == "shadow"
+    assert "sublane:sublane_canary" in decision.reason
 
 
 def test_severe_exit_count_includes_stop_early_adverse_and_large_loss(monkeypatch, tmp_path: Path) -> None:

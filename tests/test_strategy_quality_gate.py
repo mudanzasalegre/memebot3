@@ -67,6 +67,70 @@ def test_optimization_lock_allows_paper_config(monkeypatch, tmp_path) -> None:
     assert gate.checks() == []
 
 
+def test_quality_gate_blocks_broad_pumpswap_without_strict(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        gate,
+        "CFG",
+        SimpleNamespace(
+            STRATEGY_OPTIMIZATION_LOCK=False,
+            PUMP_EARLY_PROFIT_LANE_ENABLED=True,
+            PUMPSWAP_PRIME_STRICT_ENABLED=False,
+            LIVE_CANARY_ENABLED=False,
+            AUTO_PROMOTE_LIVE=False,
+            MODEL_AUTO_PROMOTE=False,
+            LLM_TRADING_ENABLED=False,
+            SOCIALS_HOT_PATH_BLOCKING=False,
+            GREEN_SNIPER_REQUIRE_SOCIALS=False,
+            GREEN_SNIPER_POLICY_MODE="shadow",
+            LATE_MOMENTUM_POLICY_MODE="shadow",
+            RESEARCH_RANK_POLICY_MODE="shadow",
+            GREEN_SNIPER_LIVE_ENABLED=False,
+            PAPER_SNIPER_MODE=False,
+            GREEN_SNIPER_ENABLED=False,
+        ),
+    )
+
+    assert "PUMP_EARLY_PROFIT_LANE_ENABLED=true requires PUMPSWAP_PRIME_STRICT_ENABLED=true" in gate.checks()
+
+
+def test_quality_gate_blocks_hotfix_live_surfaces(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        gate,
+        "CFG",
+        SimpleNamespace(
+            STRATEGY_OPTIMIZATION_LOCK=False,
+            LIVE_CANARY_ENABLED=False,
+            AUTO_PROMOTE_LIVE=False,
+            MODEL_AUTO_PROMOTE=False,
+            POST_PARTIAL_PROTECTION_LIVE_ENABLED=True,
+            BIRD_RUNNER_MULTI_PARTIAL_LIVE_ENABLED=True,
+            RUNNER_GIVEBACK_EMERGENCY_LIVE_ENABLED=True,
+            BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED=True,
+            PUMP_EARLY_PROFIT_LANE_ENABLED=True,
+            PUMPSWAP_PRIME_STRICT_ENABLED=True,
+            PUMPSWAP_PRIME_SHADOW_IF_NOT_STRICT=True,
+            LLM_TRADING_ENABLED=False,
+            SOCIALS_HOT_PATH_BLOCKING=False,
+            GREEN_SNIPER_REQUIRE_SOCIALS=False,
+            GREEN_SNIPER_POLICY_MODE="shadow",
+            LATE_MOMENTUM_POLICY_MODE="shadow",
+            RESEARCH_RANK_POLICY_MODE="shadow",
+            GREEN_SNIPER_LIVE_ENABLED=False,
+            PAPER_SNIPER_MODE=False,
+            GREEN_SNIPER_ENABLED=False,
+        ),
+    )
+
+    errors = gate.checks()
+
+    assert "POST_PARTIAL_PROTECTION_LIVE_ENABLED must remain false" in errors
+    assert "BIRD_RUNNER_MULTI_PARTIAL_LIVE_ENABLED must remain false" in errors
+    assert "RUNNER_GIVEBACK_EMERGENCY_LIVE_ENABLED must remain false" in errors
+    assert "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED must remain false" in errors
+
+
 def test_live_canary_enabled_is_read_from_cfg(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(gate, "ROOT", tmp_path)
     monkeypatch.setattr(

@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import analytics.green_sniper_gate as gate
+from analytics.birth_probe_micro_canary import BirthProbeMicroCanaryDecision
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "sniper"
@@ -157,3 +158,34 @@ def test_paper_birth_probe_is_shadow_first(monkeypatch) -> None:
     assert decision.paper_birth_probe is True
     assert decision.size_hint == "micro"
     assert "paper_birth_probe" in decision.reason
+
+
+def test_paper_birth_probe_micro_canary_can_buy_with_own_lane(monkeypatch) -> None:
+    monkeypatch.setattr(gate, "CFG", _cfg(GREEN_SNIPER_ALLOW_PROXY_LIQUIDITY_PAPER=True))
+    monkeypatch.setattr(
+        gate,
+        "evaluate_birth_probe_micro_canary",
+        lambda *args, **kwargs: BirthProbeMicroCanaryDecision(
+            True,
+            "birth_probe_micro_canary",
+            "paper_birth_probe_proxy_low_txns",
+            0.01,
+        ),
+    )
+    token = {
+        "address": "Probe222222222222222222222222222222222222pump",
+        "discovered_via": "pumpfun",
+        "age_minutes": 0.4,
+        "liquidity_usd": 1200.0,
+        "liquidity_is_proxy": 1,
+        "price_impact_pct": 0.0,
+        "txns_last_5m": 10,
+    }
+
+    decision = gate.evaluate_green_sniper(token, dry_run=True, live=False)
+    gate.apply_green_sniper_context(token, decision)
+
+    assert decision.action == "buy"
+    assert decision.gate_profile == "birth_probe_micro_canary"
+    assert token["entry_lane"] == "pump_early_birth_probe_micro_canary"
+    assert token["birth_probe_micro_canary_amount_sol"] == 0.01

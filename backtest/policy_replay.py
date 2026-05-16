@@ -13,6 +13,8 @@ from analytics.lane_policy_categories import (
     POLICY_LATE_MOMENTUM_WATCH,
     classify_policy_category,
 )
+from analytics.pumpswap_prime_strict import evaluate_pumpswap_prime_strict, is_pumpswap_prime
+from analytics.pumpswap_rebound_prime import evaluate_pumpswap_rebound_prime
 from analytics.report_utils import fnum, is_severe_exit, load_candidate_outcomes, load_paper_positions, load_sqlite_positions, metrics_dir, write_json, write_markdown
 from config.config import PROJECT_ROOT
 
@@ -30,6 +32,8 @@ POLICIES = (
     "score_recalibrated",
     "ev_model_only",
     "runner_model_only",
+    "pumpswap_prime_strict",
+    "pumpswap_rebound_prime",
     "late_momentum_watch",
     "continuation_model",
     "early_dump",
@@ -73,6 +77,12 @@ def _simulate(row: dict[str, Any], policy: str) -> float:
     if policy == "runner_model_only":
         peak = fnum(row.get("max_pnl_pct_seen") or row.get("peak_pnl_pct") or row.get("max_pnl_pct"), pnl)
         return max(pnl, peak * 0.30) if peak >= 100 else pnl
+    if policy == "pumpswap_prime_strict":
+        if is_pumpswap_prime(row) and not evaluate_pumpswap_prime_strict(row).allowed:
+            return 0.0
+        return pnl
+    if policy == "pumpswap_rebound_prime":
+        return pnl if evaluate_pumpswap_rebound_prime(row).allowed else 0.0
     if policy == "continuation_model" and str(row.get("entry_lane") or "") == "pump_early_late_momentum_watch":
         return max(pnl, fnum(row.get("continuation_peak_after_seen_3m"), pnl) * 0.25)
     if policy in {"early_dump", "early_dump_cut"} or combined:
