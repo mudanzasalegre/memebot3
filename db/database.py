@@ -108,6 +108,8 @@ async def _ensure_position_columns() -> None:
         ("entry_ai_proba", "REAL"),
         ("entry_score_total", "INTEGER"),
         ("entry_lane", "VARCHAR(32)"),
+        ("entry_subprofile", "VARCHAR(48)"),
+        ("entry_reason", "TEXT"),
         ("gate_profile", "VARCHAR(32)"),
         ("strategy_version", "VARCHAR(48)"),
         ("experiment_id", "VARCHAR(48)"),

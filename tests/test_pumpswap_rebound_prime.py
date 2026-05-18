@@ -8,6 +8,7 @@ from analytics.pumpswap_rebound_prime import (
     LANE_PUMPSWAP_REBOUND_PRIME,
     apply_pumpswap_rebound_prime_context,
     evaluate_pumpswap_rebound_prime,
+    write_pumpswap_rebound_confirmation_report,
     write_pumpswap_rebound_prime_report,
 )
 from test_pump_live_floor import _load_entry_quality_gate
@@ -24,6 +25,7 @@ def _rebound_token(**overrides: object) -> dict[str, object]:
         "liquidity_usd_is_proxy": 0,
         "has_jupiter_route": 1,
         "price_impact_pct": 6.0,
+        "price_recovered_pct": 12.0,
         "total_pnl_pct": 20.0,
     }
     token.update(overrides)
@@ -35,6 +37,18 @@ def test_rebound_prime_allows_supported_pumpswap_rebound() -> None:
 
     assert decision.allowed is True
     assert decision.failures == ()
+    assert decision.recovery_confirmation is True
+
+
+def test_rebound_prime_without_confirmation_stays_shadow_watch() -> None:
+    token = _rebound_token(price_recovered_pct=0)
+
+    decision = evaluate_pumpswap_rebound_prime(token)
+
+    assert decision.allowed is False
+    assert decision.action == "shadow"
+    assert decision.reason == "shadow_rebound_watch"
+    assert decision.base_pattern_matched is True
 
 
 def test_rebound_context_sets_own_lane() -> None:
@@ -86,6 +100,18 @@ def test_rebound_prime_runtime_lane_precedes_deep_negative_shape_block() -> None
     assert token["profit_shape_guard_failures"] == ""
 
 
+def test_rebound_prime_runtime_without_confirmation_does_not_buy() -> None:
+    gate = _load_entry_quality_gate(_PUMP_EARLY_SNIPER_ENABLED=True, _PUMP_EARLY_PROFIT_LANE_ENABLED=True)
+    token = _rebound_token(age_min=7.0, score_total=45, volume_24h_usd=120_000.0, price_recovered_pct=0)
+
+    ok, reason = gate(token, "pump_early", quality_points=0, rank_info={"rank_score": 40.0})
+
+    assert ok is False
+    assert "shadow_rebound_watch" in reason
+    assert token["entry_lane"] == "pump_early_sniper_research"
+    assert token["pumpswap_rebound_confirmation_reason"] == "shadow_rebound_watch"
+
+
 def test_rebound_prime_report_outputs_json_and_markdown(tmp_path: Path) -> None:
     metrics = tmp_path / "data" / "metrics"
     metrics.mkdir(parents=True)
@@ -103,6 +129,22 @@ def test_rebound_prime_report_outputs_json_and_markdown(tmp_path: Path) -> None:
     assert (tmp_path / "docs" / "PUMPSWAP_REBOUND_PRIME.md").exists()
 
 
+def test_rebound_confirmation_report_splits_confirmed_and_shadow(tmp_path: Path) -> None:
+    metrics = tmp_path / "data" / "metrics"
+    metrics.mkdir(parents=True)
+    rows = [
+        _rebound_token(address="A", total_pnl_pct=40, max_pnl_pct_seen=150, price_recovered_pct=12),
+        _rebound_token(address="B", total_pnl_pct=-20, price_recovered_pct=0),
+    ]
+    (metrics / "candidate_outcomes.jsonl").write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+
+    report = write_pumpswap_rebound_confirmation_report(tmp_path)
+
+    assert report["confirmed_buy"]["count"] == 1
+    assert report["shadow_rebound_watch"]["count"] == 1
+    assert (metrics / "pumpswap_rebound_confirmation_report.json").exists()
+
+
 def test_env_files_have_rebound_flags_once() -> None:
     required = {
         "PUMPSWAP_REBOUND_PRIME_ENABLED",
@@ -114,6 +156,11 @@ def test_env_files_have_rebound_flags_once() -> None:
         "PUMPSWAP_REBOUND_PRIME_REQUIRE_REAL_LIQUIDITY",
         "PUMPSWAP_REBOUND_PRIME_REQUIRE_ROUTE",
         "PUMPSWAP_REBOUND_PRIME_MAX_PRICE_IMPACT_PCT",
+        "PUMPSWAP_REBOUND_PRIME_REQUIRE_CONFIRMATION",
+        "PUMPSWAP_REBOUND_CONFIRMATION_MIN_RECOVERY_PCT",
+        "PUMPSWAP_REBOUND_CONFIRMATION_HARD_RECOVERY_PCT",
+        "PUMPSWAP_REBOUND_CONFIRMATION_MIN_PRE_ENTRY_PEAK_PCT",
+        "PUMPSWAP_REBOUND_CONFIRMATION_HARD_PRE_ENTRY_PEAK_PCT",
     }
     for name in (".env", ".env.example"):
         keys = []

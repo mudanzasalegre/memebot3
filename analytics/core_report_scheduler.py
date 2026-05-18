@@ -17,6 +17,8 @@ REQUIRED_CORE_REPORTS = (
     "runner_capture_ladder_report.json",
     "untagged_buy_block_report.json",
     "sniper_research_subprofile_report.json",
+    "pumpswap_rebound_confirmation_report.json",
+    "research_rank_canary_audit.json",
     "runner_turbo_monitor_report.json",
 )
 
@@ -91,6 +93,8 @@ def _generators(root: Path) -> dict[str, Callable[[], Any]]:
     from analytics.post_hotfix_strategy_preview import write_post_hotfix_strategy_preview
     from analytics.runner_capture_ladder_report import write_runner_capture_ladder_report
     from analytics.runner_turbo_monitor import write_runner_turbo_monitor_report
+    from analytics.pumpswap_rebound_prime import write_pumpswap_rebound_confirmation_report
+    from analytics.research_rank_canary import write_research_rank_canary_audit_report
     from analytics.sniper_research_subprofiles import write_sniper_research_subprofile_report
     from analytics.trade_diagnostics import write_trade_diagnostics_report
     from analytics.untagged_buy_block import write_untagged_buy_block_report
@@ -104,6 +108,8 @@ def _generators(root: Path) -> dict[str, Callable[[], Any]]:
         "runner_capture_ladder_report.json": lambda: write_runner_capture_ladder_report(root),
         "untagged_buy_block_report.json": lambda: write_untagged_buy_block_report(root),
         "sniper_research_subprofile_report.json": lambda: write_sniper_research_subprofile_report(root),
+        "pumpswap_rebound_confirmation_report.json": lambda: write_pumpswap_rebound_confirmation_report(root),
+        "research_rank_canary_audit.json": lambda: write_research_rank_canary_audit_report(root),
         "runner_turbo_monitor_report.json": lambda: write_runner_turbo_monitor_report(root),
     }
 

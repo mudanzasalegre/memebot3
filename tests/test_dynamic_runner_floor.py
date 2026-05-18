@@ -29,7 +29,17 @@ def test_peak_1000_does_not_fall_to_100() -> None:
     reason = exit_policy.should_exit(_subject(highest_pnl_pct=1000.0), price_now=2.0, now=now, pnl_pct=100.0)
 
     assert reason == "DYNAMIC_RUNNER_FLOOR"
-    assert exit_policy.dynamic_runner_floor_pct(_subject(highest_pnl_pct=1000.0), peak=1000.0) == 500.0
+    assert exit_policy.dynamic_runner_floor_pct(_subject(highest_pnl_pct=1000.0), peak=1000.0) == 700.0
+
+
+def test_runner_floor_ladder_thresholds() -> None:
+    subject = _subject()
+
+    assert exit_policy.dynamic_runner_floor_pct(subject, peak=100.0) == 70.0
+    assert exit_policy.dynamic_runner_floor_pct(subject, peak=300.0) == 200.0
+    assert exit_policy.dynamic_runner_floor_pct(subject, peak=700.0) == 450.0
+    assert exit_policy.dynamic_runner_floor_pct(subject, peak=1000.0) == 700.0
+    assert exit_policy.dynamic_runner_floor_pct(subject, peak=2000.0) == 1200.0
 
 
 def test_floor_does_not_apply_before_runner() -> None:

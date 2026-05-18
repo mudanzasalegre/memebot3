@@ -78,7 +78,6 @@ def _validate_paper_rank_research_profile(errors: list[str]) -> None:
         "RESEARCH_RANK_CANARY_PREFER_REAL_LIQUIDITY",
         "GREEN_SNIPER_BUY_RESTRICTED_ENABLED",
         "LATE_MOMENTUM_WATCH_RESEARCH_ENABLED",
-        "LATE_MOMENTUM_WATCH_AUTORESEARCH_ENABLED",
         "POST_PARTIAL_PROTECTION_ENABLED",
         "POST_PARTIAL_PROTECTION_PAPER_ENABLED",
     )
@@ -93,6 +92,7 @@ def _validate_paper_rank_research_profile(errors: list[str]) -> None:
         "RESEARCH_RANK_CANARY_LIVE_ENABLED",
         "GREEN_SNIPER_LIVE_ENABLED",
         "LATE_MOMENTUM_WATCH_BUY_ENABLED",
+        "LATE_MOMENTUM_WATCH_AUTORESEARCH_ENABLED",
         "LATE_MOMENTUM_WATCH_LIVE_ENABLED",
         "POST_PARTIAL_PROTECTION_LIVE_ENABLED",
         "SOCIALS_HOT_PATH_BLOCKING",
@@ -210,6 +210,8 @@ def checks() -> list[str]:
         errors.append("AUTO_PROMOTE_LIVE must remain false")
     if _bool("MODEL_AUTO_PROMOTE", False):
         errors.append("MODEL_AUTO_PROMOTE must remain false")
+    if _bool("LATE_MOMENTUM_WATCH_AUTORESEARCH_ENABLED", False):
+        errors.append("LATE_MOMENTUM_WATCH_AUTORESEARCH_ENABLED must remain false")
     if not _bool("REQUIRE_ENTRY_LANE_FOR_BUY", True):
         errors.append("REQUIRE_ENTRY_LANE_FOR_BUY must remain true")
     if _bool("ALLOW_UNTAGGED_STANDARD_BUY", False):

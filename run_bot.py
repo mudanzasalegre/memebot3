@@ -168,7 +168,7 @@ from analytics.green_sniper_rank_guard import evaluate_green_sniper_rank_guard  
 from analytics.green_sniper_risk_guard import evaluate_green_sniper_risk_guard  # noqa: E402
 from analytics.green_sniper_sizing import compute_green_sniper_sizing  # noqa: E402
 from analytics.pumpswap_prime_strict import evaluate_pumpswap_prime_strict  # noqa: E402
-from analytics.pumpswap_rebound_prime import apply_pumpswap_rebound_prime_context, evaluate_pumpswap_rebound_prime  # noqa: E402
+from analytics.pumpswap_rebound_prime import apply_pumpswap_rebound_prime_context, apply_pumpswap_rebound_watch_context, evaluate_pumpswap_rebound_prime  # noqa: E402
 from analytics.sniper_research_subprofiles import (  # noqa: E402
     apply_sniper_research_subprofile_context,
     evaluate_sniper_research_subprofile,
@@ -2028,6 +2028,27 @@ def _evaluate_pumpswap_profit_gate(
             "reject_reasons": [],
             "research_eligible": False,
             "blocked_bucket": None,
+        }
+    if rebound_decision.action == "shadow":
+        apply_pumpswap_rebound_watch_context(token, rebound_decision)
+        _set_profit_gate_context(
+            token,
+            entry_lane="pump_early_sniper_research",
+            gate_profile="pumpswap_rebound_prime",
+            failures=[rebound_decision.reason or "shadow_rebound_watch"],
+            blocked_bucket="shadow_rebound_watch",
+            rank_score=rank_score,
+        )
+        token["profit_lane_tier"] = "pumpswap_rebound_prime_shadow"
+        token["profit_shape_guard_failures"] = ""
+        token["profit_pnl_guard_failures"] = ""
+        return {
+            "allowed": False,
+            "entry_lane": "pump_early_sniper_research",
+            "gate_profile": "pumpswap_rebound_prime",
+            "reject_reasons": [rebound_decision.reason or "shadow_rebound_watch"],
+            "research_eligible": True,
+            "blocked_bucket": "shadow_rebound_watch",
         }
 
     if dex_id not in _PUMP_EARLY_PROFIT_DEX_ALLOWLIST:
@@ -4390,6 +4411,46 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             size_decision.multiplier,
         )
     if strategy_decision.action == "live" and not quality_ok_live:
+        rebound_shadow_watch = (
+            str(token.get("pumpswap_rebound_confirmation_reason") or "").strip() == "shadow_rebound_watch"
+            or str(token.get("blocked_bucket") or "").strip() == "shadow_rebound_watch"
+        )
+        if rebound_shadow_watch:
+            shadow_reason = "shadow_rebound_watch"
+            log.info(
+                "Rebound shadow watch %s regime=%s %s",
+                addr[:6],
+                size_decision.regime,
+                quality_reason_live,
+            )
+            _stats["filtered_out"] += 1
+            _store_policy_reject(vec, already_vector=True, reason=shadow_reason)
+            _research_decision(
+                token,
+                action="shadow",
+                reason=shadow_reason,
+                stage="pumpswap_rebound_confirmation",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="execution",
+            )
+            await _open_shadow(
+                addr,
+                vec,
+                price_hint=token.get("price_usd"),
+                force=True,
+                regime=size_decision.regime,
+                reason=shadow_reason,
+                stage="pumpswap_rebound_confirmation",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="execution",
+            )
+            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+            _remove_from_queue_if_present(addr)
+            return
         log.info(
             "🧪 Entry quality wait %s regime=%s %s",
             addr[:6],
@@ -4982,6 +5043,14 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         entry_ai_proba=float(proba),
         entry_score_total=_metric_int(token, "score_total"),
         entry_lane=str(token.get("entry_lane") or "") or None,
+        entry_subprofile=str(token.get("entry_subprofile") or token.get("sniper_research_subprofile") or "") or None,
+        entry_reason=str(
+            token.get("sniper_research_subprofile_reason")
+            or token.get("pumpswap_rebound_confirmation_reason")
+            or token.get("green_sniper_reason")
+            or ""
+        )
+        or None,
         gate_profile=str(token.get("gate_profile") or token.get("sniper_gate_profile") or "") or None,
         strategy_version=str(token.get("strategy_version") or "") or None,
         experiment_id=str(token.get("experiment_id") or "") or None,
@@ -5244,6 +5313,8 @@ def _position_execution_state(pos: Position) -> str:
 def _position_health_metadata(pos: Position) -> dict[str, object]:
     return {
         "entry_lane": getattr(pos, "entry_lane", None),
+        "entry_subprofile": getattr(pos, "entry_subprofile", None),
+        "entry_reason": getattr(pos, "entry_reason", None),
         "dex_id": getattr(pos, "buy_dex_id", None),
         "liquidity_proxy_flag": bool(getattr(pos, "buy_liquidity_is_proxy", False)),
         "mcap_bucket": getattr(pos, "mcap_bucket", None),
@@ -5255,6 +5326,8 @@ def _position_health_metadata(pos: Position) -> dict[str, object]:
 def _position_research_metrics(pos: Position) -> dict[str, object]:
     return {
         "runner_exit_profile": getattr(pos, "runner_exit_profile", None),
+        "entry_subprofile": getattr(pos, "entry_subprofile", None),
+        "entry_reason": getattr(pos, "entry_reason", None),
         "max_pnl_pct_seen": getattr(pos, "max_pnl_pct_seen", getattr(pos, "highest_pnl_pct", None)),
         "time_to_partial_sec": getattr(pos, "time_to_partial_sec", None),
         "time_to_peak_sec": getattr(pos, "time_to_peak_sec", None),
@@ -5267,6 +5340,12 @@ def _entry_vector_for_close(vec: object, pos: Position) -> dict[str, object]:
     payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec or {})
     if not payload.get("entry_lane"):
         payload["entry_lane"] = getattr(pos, "entry_lane", None)
+    if not payload.get("entry_subprofile"):
+        payload["entry_subprofile"] = getattr(pos, "entry_subprofile", None)
+    if not payload.get("sniper_research_subprofile"):
+        payload["sniper_research_subprofile"] = getattr(pos, "entry_subprofile", None)
+    if not payload.get("sniper_research_subprofile_reason"):
+        payload["sniper_research_subprofile_reason"] = getattr(pos, "entry_reason", None)
     if not payload.get("gate_profile"):
         payload["gate_profile"] = getattr(pos, "gate_profile", None)
     if not payload.get("profit_lane_tier"):
@@ -6032,6 +6111,18 @@ async def _check_positions(ses: SessionLocal) -> None:
         exit_reason = await _should_exit(pos, price, now, liq_now=liq_now, pnl_pct=pnl_pct)
         if exit_reason is None:
             continue
+
+        try:
+            runner_turbo_monitor.record_close_triggered(
+                pos.address,
+                reason=str(exit_reason),
+                peak_pct=float(getattr(pos, "highest_pnl_pct", 0.0) or 0.0),
+                pnl_pct=float(pnl_pct or 0.0),
+                dry_run=DRY_RUN,
+                now=now,
+            )
+        except Exception:
+            log.debug("runner turbo close trigger event failed for %s", pos.address[:6], exc_info=True)
 
         sell_price_hint = price
         sell_price_source_hint = price_src

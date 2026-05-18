@@ -64,6 +64,7 @@ def test_post_hotfix_strategy_preview_writes_combined_artifacts(tmp_path: Path) 
                 "liquidity_usd_is_proxy": 0,
                 "has_jupiter_route": 1,
                 "price_impact_pct": 4,
+                "price_recovered_pct": 12,
                 "total_pnl_pct": 25,
                 "max_pnl_pct_seen": 120,
             },

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import statistics
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -9,6 +10,15 @@ from typing import Any
 
 from config.config import CFG, PROJECT_ROOT
 from analytics.lane_policy_categories import POLICY_RESEARCH_RANK_CANARY
+from analytics.report_utils import (
+    fnum,
+    is_severe_exit,
+    load_candidate_outcomes,
+    load_paper_positions,
+    load_sqlite_positions,
+    metrics_dir,
+    write_json,
+)
 from ml.lane_taxonomy import LANE_RESEARCH_RANK_CANARY, LANE_RESEARCH_SNIPER, normalize_entry_lane
 
 
@@ -99,6 +109,8 @@ def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
             "min_score_raw": decision.min_score_raw,
             "min_score_normalized": decision.min_score,
             "min_score_scale": decision.min_score_scale,
+            "min_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 50.0), 50.0),
+            "max_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_PRICE5M", 100.0), 100.0),
             "force_own_lane": bool(getattr(CFG, "RESEARCH_RANK_CANARY_FORCE_OWN_LANE", True)),
             "shadow_if_not_executable": bool(getattr(CFG, "RESEARCH_RANK_CANARY_SHADOW_IF_NOT_EXECUTABLE", True)),
             "require_route_paper": bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)),
@@ -132,6 +144,8 @@ def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
                 "min_score_raw": decision.min_score_raw,
                 "min_score_normalized": decision.min_score,
                 "min_score_scale": decision.min_score_scale,
+                "min_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 50.0), 50.0),
+                "max_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_PRICE5M", 100.0), 100.0),
                 "force_own_lane": bool(getattr(CFG, "RESEARCH_RANK_CANARY_FORCE_OWN_LANE", True)),
                 "shadow_if_not_executable": bool(
                     getattr(CFG, "RESEARCH_RANK_CANARY_SHADOW_IF_NOT_EXECUTABLE", True)
@@ -287,9 +301,11 @@ def evaluate_research_rank_canary(
     if rank_score < min_score:
         return decision(False, "rank_below_min")
     price5m = _field_float(token, "price_pct_5m", "buy_price_pct_5m", default=0.0)
-    min_price5m = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 25.0), 25.0)
+    min_price5m = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 50.0), 50.0)
     max_price5m = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_PRICE5M", 100.0), 100.0)
-    if price5m < min_price5m or price5m > max_price5m:
+    if price5m < min_price5m:
+        return decision(False, "price5m_below_min", shadow_as_own_lane=True, executable=False)
+    if price5m > max_price5m:
         return decision(False, "price5m_out_of_band")
     mcap = _field_float(token, "market_cap_usd", "buy_market_cap_usd", default=0.0)
     min_mcap = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_MCAP_USD", 25_000.0), 25_000.0)
@@ -350,11 +366,132 @@ def apply_research_rank_canary_shadow_context(token: dict[str, Any], decision: R
     return token
 
 
+def _first(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = row.get(key)
+        if value is not None and not (isinstance(value, str) and not value.strip()):
+            return value
+    return None
+
+
+def _pnl(row: dict[str, Any]) -> float:
+    return fnum(_first(row, "realized_pnl_pct", "total_pnl_pct", "pnl_pct", "target_total_pnl_pct"), 0.0)
+
+
+def _is_rank_canary_row(row: dict[str, Any]) -> bool:
+    haystack = " ".join(
+        str(_first(row, key) or "")
+        for key in (
+            "entry_lane",
+            "gate_profile",
+            "sniper_gate_profile",
+            "profit_lane_tier",
+            "lane_policy_category",
+            "reason",
+            "green_sniper_reason",
+        )
+    ).lower()
+    return "research_rank_canary" in haystack
+
+
+def _price5m(row: dict[str, Any]) -> float:
+    return fnum(_first(row, "buy_price_pct_5m", "price_pct_5m", "price5m"), 0.0)
+
+
+def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    pnls = [_pnl(row) for row in rows]
+    if not rows:
+        return {
+            "rows": 0,
+            "win_rate_pct": 0.0,
+            "avg_pnl_pct": 0.0,
+            "median_pnl_pct": 0.0,
+            "total_pnl_pct_points": 0.0,
+            "severe_loss_count": 0,
+        }
+    return {
+        "rows": len(rows),
+        "win_rate_pct": round(100.0 * sum(1 for value in pnls if value > 0.0) / len(pnls), 3),
+        "avg_pnl_pct": round(sum(pnls) / len(pnls), 3),
+        "median_pnl_pct": round(statistics.median(pnls), 3),
+        "total_pnl_pct_points": round(sum(pnls), 3),
+        "severe_loss_count": sum(1 for row, pnl in zip(rows, pnls) if is_severe_exit(row) or pnl <= -25.0),
+    }
+
+
+def build_research_rank_canary_audit_report(root: Path | None = None) -> dict[str, Any]:
+    root = root or PROJECT_ROOT
+    runtime_audit = _read_audit() if root == PROJECT_ROOT else {}
+    if isinstance(runtime_audit.get("runtime_audit"), dict):
+        runtime_audit = runtime_audit["runtime_audit"]
+    rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rank_rows = [row for row in rows if _is_rank_canary_row(row)]
+    band_25_50 = [row for row in rank_rows if 25.0 <= _price5m(row) < 50.0]
+    band_50_100 = [row for row in rank_rows if 50.0 <= _price5m(row) <= 100.0]
+    own_lane = [
+        row
+        for row in rank_rows
+        if normalize_entry_lane(_first(row, "entry_lane")) == LANE_RESEARCH_RANK_CANARY
+        and str(_first(row, "gate_profile", "sniper_gate_profile") or "").strip().lower() == "research_rank_canary"
+    ]
+    mixed_lane = [
+        row
+        for row in rank_rows
+        if row not in own_lane
+        or str(_first(row, "profit_lane_tier") or "").strip().lower() == "pump_early_pumpswap_prime"
+        or str(_first(row, "gate_profile", "sniper_gate_profile") or "").strip().lower() == "pumpswap_profit_prime"
+    ]
+    report = {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "evaluated": int(runtime_audit.get("evaluated") or runtime_audit.get("total_evaluations") or 0),
+        "allowed": int(runtime_audit.get("allowed") or 0),
+        "rejected": int(runtime_audit.get("rejected") or 0),
+        "bought_as_own_lane": int(runtime_audit.get("bought_as_own_lane") or 0),
+        "shadow_as_own_lane": int(runtime_audit.get("shadow_as_own_lane") or 0),
+        "mixed_lane_detected": int(runtime_audit.get("mixed_lane_detected") or 0) + len(mixed_lane),
+        "blocked_by_reason": runtime_audit.get("blocked_by_reason") if isinstance(runtime_audit.get("blocked_by_reason"), dict) else {},
+        "runtime_audit": runtime_audit,
+        "config": {
+            "enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_ENABLED", True)),
+            "paper_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_ENABLED", True)),
+            "live_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_LIVE_ENABLED", False)),
+            "min_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 50.0), 50.0),
+            "max_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_PRICE5M", 100.0), 100.0),
+            "force_own_lane": bool(getattr(CFG, "RESEARCH_RANK_CANARY_FORCE_OWN_LANE", True)),
+        },
+        "price5m_band_comparison": {
+            "price5m_25_50_shadow_candidate": _summary(band_25_50),
+            "price5m_50_100_executable": _summary(band_50_100),
+        },
+        "lane_mix_audit": {
+            "rank_canary_rows": len(rank_rows),
+            "own_lane_rows": len(own_lane),
+            "mixed_lane_rows": len(mixed_lane),
+            "pumpswap_profit_prime_leak_rows": sum(
+                1
+                for row in rank_rows
+                if str(_first(row, "profit_lane_tier") or "").strip().lower() == "pump_early_pumpswap_prime"
+                or str(_first(row, "gate_profile", "sniper_gate_profile") or "").strip().lower() == "pumpswap_profit_prime"
+            ),
+        },
+    }
+    return report
+
+
+def write_research_rank_canary_audit_report(root: Path | None = None) -> dict[str, Any]:
+    root = root or PROJECT_ROOT
+    report = build_research_rank_canary_audit_report(root)
+    write_json(metrics_dir(root) / "research_rank_canary_audit.json", report)
+    return report
+
+
 __all__ = [
     "AUDIT_PATH",
     "ResearchRankCanaryDecision",
     "apply_research_rank_canary_context",
     "apply_research_rank_canary_shadow_context",
+    "build_research_rank_canary_audit_report",
     "evaluate_research_rank_canary",
     "normalize_score",
+    "write_research_rank_canary_audit_report",
 ]

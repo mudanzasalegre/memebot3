@@ -117,3 +117,24 @@ def test_research_rank_canary_no_route_shadows_as_own_lane() -> None:
     assert decision.reason == "research_rank_canary_not_executable:no_route_paper"
     assert token["entry_lane"] == "pump_early_research_rank_canary"
     assert token["research_rank_canary_shadow"] == 1
+
+
+def test_research_rank_canary_price5m_below_50_shadows_rank_canary() -> None:
+    token = {
+        "entry_lane": "pump_early_sniper_research",
+        "liquidity_usd": 3000,
+        "market_cap_usd": 50_000,
+        "price_pct_5m": 35,
+        "txns_last_5m": 350,
+        "has_jupiter_route": True,
+        "liquidity_is_proxy": 0,
+    }
+    decision = evaluate_research_rank_canary(token, {"rank_score": 70}, dry_run=True, live=False)
+
+    apply_research_rank_canary_shadow_context(token, decision)
+
+    assert not decision.allowed
+    assert decision.shadow_as_own_lane is True
+    assert decision.reason == "price5m_below_min"
+    assert token["entry_lane"] == "pump_early_research_rank_canary"
+    assert token["research_rank_canary_shadow"] == 1

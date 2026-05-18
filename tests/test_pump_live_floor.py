@@ -7,7 +7,11 @@ from types import SimpleNamespace
 
 from analytics.profit_pnl_guard import evaluate_profit_pnl_guard
 from analytics.pumpswap_prime_strict import evaluate_pumpswap_prime_strict
-from analytics.pumpswap_rebound_prime import apply_pumpswap_rebound_prime_context, evaluate_pumpswap_rebound_prime
+from analytics.pumpswap_rebound_prime import (
+    apply_pumpswap_rebound_prime_context,
+    apply_pumpswap_rebound_watch_context,
+    evaluate_pumpswap_rebound_prime,
+)
 
 
 def _load_entry_quality_gate(**overrides: object):
@@ -66,6 +70,7 @@ def _load_quality_namespace(**overrides: object):
         "evaluate_pumpswap_prime_strict": evaluate_pumpswap_prime_strict,
         "evaluate_pumpswap_rebound_prime": evaluate_pumpswap_rebound_prime,
         "apply_pumpswap_rebound_prime_context": apply_pumpswap_rebound_prime_context,
+        "apply_pumpswap_rebound_watch_context": apply_pumpswap_rebound_watch_context,
         "DRY_RUN": False,
         "_stats": {"sold": 0},
         "_PUMP_EARLY_LIVE_HARD_MIN_AGE_MIN": 8.0,

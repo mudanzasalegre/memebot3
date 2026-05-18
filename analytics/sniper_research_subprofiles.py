@@ -21,8 +21,8 @@ from analytics.report_utils import (
 from config.config import CFG, PROJECT_ROOT
 
 
-SUBPROFILE_HIGH_ACTIVITY = "sniper_research_high_activity"
 SUBPROFILE_MOMENTUM_IGNITION = "sniper_research_momentum_ignition"
+SUBPROFILE_DEEP_REVERSAL = "sniper_research_deep_reversal"
 
 
 @dataclass(frozen=True)
@@ -65,20 +65,6 @@ def _is_sniper_research(row: dict[str, Any]) -> bool:
     return str(_first(row, "entry_lane", "lane") or "").strip().lower() == "pump_early_sniper_research"
 
 
-def _high_activity_failures(row: dict[str, Any], *, cfg: Any = CFG) -> list[str]:
-    failures: list[str] = []
-    min_txns = float(getattr(cfg, "SNIPER_RESEARCH_HIGH_ACTIVITY_MIN_TXNS_5M", 500) or 500)
-    if _field_float(row, "buy_txns_last_5m", "txns_last_5m", "txns_5m") < min_txns:
-        failures.append(f"high_activity:txns5m<{min_txns:g}")
-    if _dex_id(row) != "pumpswap":
-        failures.append("high_activity:dex!=pumpswap")
-    if bool(getattr(cfg, "SNIPER_RESEARCH_HIGH_ACTIVITY_REQUIRE_ROUTE", True)) and not _route_ok(row):
-        failures.append("high_activity:route_required")
-    if _proxy_liquidity(row):
-        failures.append("high_activity:proxy_liquidity")
-    return failures
-
-
 def _momentum_ignition_failures(row: dict[str, Any], *, cfg: Any = CFG) -> list[str]:
     failures: list[str] = []
     price5m = _field_float(row, "buy_price_pct_5m", "price_pct_5m", "price5m")
@@ -86,22 +72,37 @@ def _momentum_ignition_failures(row: dict[str, Any], *, cfg: Any = CFG) -> list[
     max_price = float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_MAX_PRICE5M", 180) or 180)
     liq = _field_float(row, "buy_liquidity_usd", "liquidity_usd")
     min_liq = float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_MIN_LIQUIDITY_USD", 10_000.0) or 10_000.0)
-    txns = _field_float(row, "buy_txns_last_5m", "txns_last_5m", "txns_5m")
-    min_txns = float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_MIN_TXNS_5M", 100) or 100)
-    max_txns = float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_MAX_TXNS_5M", 500) or 500)
     mcap = _field_float(row, "buy_market_cap_usd", "market_cap_usd", "mcap")
     min_mcap = float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_MIN_MCAP_USD", 10_000.0) or 10_000.0)
-    max_mcap = float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_MAX_MCAP_USD", 50_000.0) or 50_000.0)
+    max_mcap = float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_MAX_MCAP_USD", 80_000.0) or 80_000.0)
     if price5m < min_price or price5m > max_price:
         failures.append(f"momentum:price5m_not_{min_price:g}_{max_price:g}")
     if liq < min_liq:
         failures.append(f"momentum:liq<{min_liq:g}")
-    if txns < min_txns or txns > max_txns:
-        failures.append(f"momentum:txns5m_not_{min_txns:g}_{max_txns:g}")
     if mcap < min_mcap or mcap > max_mcap:
         failures.append(f"momentum:mcap_not_{min_mcap:g}_{max_mcap:g}")
     if not _route_ok(row):
         failures.append("momentum:route_required")
+    return failures
+
+
+def _deep_reversal_failures(row: dict[str, Any], *, cfg: Any = CFG) -> list[str]:
+    failures: list[str] = []
+    price5m = _field_float(row, "buy_price_pct_5m", "price_pct_5m", "price5m")
+    min_price = float(getattr(cfg, "SNIPER_RESEARCH_DEEP_REVERSAL_MIN_PRICE5M", -90.0) or -90.0)
+    max_price = float(getattr(cfg, "SNIPER_RESEARCH_DEEP_REVERSAL_MAX_PRICE5M", -50.0) or -50.0)
+    txns = _field_float(row, "buy_txns_last_5m", "txns_last_5m", "txns_5m")
+    min_txns = float(getattr(cfg, "SNIPER_RESEARCH_DEEP_REVERSAL_MIN_TXNS_5M", 500) or 500)
+    mcap = _field_float(row, "buy_market_cap_usd", "market_cap_usd", "mcap")
+    max_mcap = float(getattr(cfg, "SNIPER_RESEARCH_DEEP_REVERSAL_MAX_MCAP_USD", 25_000.0) or 25_000.0)
+    if price5m < min_price or price5m > max_price:
+        failures.append(f"deep_reversal:price5m_not_{min_price:g}_{max_price:g}")
+    if txns < min_txns:
+        failures.append(f"deep_reversal:txns5m<{min_txns:g}")
+    if mcap <= 0 or mcap >= max_mcap:
+        failures.append(f"deep_reversal:mcap>={max_mcap:g}")
+    if not _route_ok(row):
+        failures.append("deep_reversal:route_required")
     return failures
 
 
@@ -116,16 +117,16 @@ def evaluate_sniper_research_subprofile(
         return SniperResearchSubprofileDecision(True, None, "not_sniper_research", ())
 
     failures: list[str] = []
-    if bool(getattr(cfg, "SNIPER_RESEARCH_HIGH_ACTIVITY_ENABLED", True)):
-        high_failures = _high_activity_failures(row, cfg=cfg)
-        if not high_failures:
-            return SniperResearchSubprofileDecision(True, SUBPROFILE_HIGH_ACTIVITY, SUBPROFILE_HIGH_ACTIVITY, ())
-        failures.extend(high_failures)
     if bool(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_IGNITION_ENABLED", True)):
         momentum_failures = _momentum_ignition_failures(row, cfg=cfg)
         if not momentum_failures:
             return SniperResearchSubprofileDecision(True, SUBPROFILE_MOMENTUM_IGNITION, SUBPROFILE_MOMENTUM_IGNITION, ())
         failures.extend(momentum_failures)
+    if bool(getattr(cfg, "SNIPER_RESEARCH_DEEP_REVERSAL_ENABLED", True)):
+        deep_failures = _deep_reversal_failures(row, cfg=cfg)
+        if not deep_failures:
+            return SniperResearchSubprofileDecision(True, SUBPROFILE_DEEP_REVERSAL, SUBPROFILE_DEEP_REVERSAL, ())
+        failures.extend(deep_failures)
 
     compact = tuple(dict.fromkeys(failures or ["no_subprofile_enabled"]))
     return SniperResearchSubprofileDecision(
@@ -144,10 +145,16 @@ def apply_sniper_research_subprofile_context(
         row["sniper_research_subprofile"] = decision.subprofile
         row["entry_subprofile"] = decision.subprofile
         row["sniper_research_subprofile_reason"] = decision.reason
+        row["sniper_research_subprofile_failures"] = ""
+        row["green_sniper_reason"] = decision.reason
+        if decision.subprofile == SUBPROFILE_DEEP_REVERSAL:
+            row["exit_profile"] = "sniper_deep_reversal_defensive"
+            row["sniper_research_defensive_exit"] = 1
     else:
         row["sniper_research_subprofile_shadow"] = 1
         row["sniper_research_subprofile_reason"] = decision.reason
         row["sniper_research_subprofile_failures"] = ",".join(decision.failures)
+        row["green_sniper_reason"] = decision.reason
     return row
 
 
@@ -190,8 +197,21 @@ def build_sniper_research_subprofile_report(root: Path | None = None) -> dict[st
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "config": {
             "enabled": bool(getattr(CFG, "SNIPER_RESEARCH_SUBPROFILES_ENABLED", True)),
-            "high_activity_enabled": bool(getattr(CFG, "SNIPER_RESEARCH_HIGH_ACTIVITY_ENABLED", True)),
             "momentum_ignition_enabled": bool(getattr(CFG, "SNIPER_RESEARCH_MOMENTUM_IGNITION_ENABLED", True)),
+            "deep_reversal_enabled": bool(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_ENABLED", True)),
+            "momentum": {
+                "price5m_min": float(getattr(CFG, "SNIPER_RESEARCH_MOMENTUM_MIN_PRICE5M", 100.0) or 100.0),
+                "price5m_max": float(getattr(CFG, "SNIPER_RESEARCH_MOMENTUM_MAX_PRICE5M", 180.0) or 180.0),
+                "min_liquidity_usd": float(getattr(CFG, "SNIPER_RESEARCH_MOMENTUM_MIN_LIQUIDITY_USD", 10_000.0) or 10_000.0),
+                "min_mcap_usd": float(getattr(CFG, "SNIPER_RESEARCH_MOMENTUM_MIN_MCAP_USD", 10_000.0) or 10_000.0),
+                "max_mcap_usd": float(getattr(CFG, "SNIPER_RESEARCH_MOMENTUM_MAX_MCAP_USD", 80_000.0) or 80_000.0),
+            },
+            "deep_reversal": {
+                "price5m_min": float(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_MIN_PRICE5M", -90.0) or -90.0),
+                "price5m_max": float(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_MAX_PRICE5M", -50.0) or -50.0),
+                "min_txns_5m": int(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_MIN_TXNS_5M", 500) or 500),
+                "max_mcap_usd": float(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_MAX_MCAP_USD", 25_000.0) or 25_000.0),
+            },
         },
         "summary": {
             "sniper_research_rows": len(sniper_rows),
@@ -204,6 +224,7 @@ def build_sniper_research_subprofile_report(root: Path | None = None) -> dict[st
             {
                 "address": address_of(row),
                 "subprofile": (evaluate_sniper_research_subprofile(row).subprofile or "shadow"),
+                "reason": evaluate_sniper_research_subprofile(row).reason,
                 "pnl_pct": _pnl(row),
                 "entry_lane": row.get("entry_lane"),
                 "gate_profile": row.get("gate_profile") or row.get("sniper_gate_profile"),
@@ -238,7 +259,7 @@ def write_sniper_research_subprofile_report(root: Path | None = None) -> dict[st
 
 
 __all__ = [
-    "SUBPROFILE_HIGH_ACTIVITY",
+    "SUBPROFILE_DEEP_REVERSAL",
     "SUBPROFILE_MOMENTUM_IGNITION",
     "SniperResearchSubprofileDecision",
     "apply_sniper_research_subprofile_context",

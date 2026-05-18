@@ -180,7 +180,7 @@ def test_paper_rank_research_profile_is_validated(monkeypatch, tmp_path) -> None
                 "GREEN_SNIPER_LIVE_ENABLED=false",
                 "LATE_MOMENTUM_WATCH_BUY_ENABLED=false",
                 "LATE_MOMENTUM_WATCH_RESEARCH_ENABLED=true",
-                "LATE_MOMENTUM_WATCH_AUTORESEARCH_ENABLED=true",
+                "LATE_MOMENTUM_WATCH_AUTORESEARCH_ENABLED=false",
                 "LATE_MOMENTUM_WATCH_LIVE_ENABLED=false",
                 "POST_PARTIAL_PROTECTION_ENABLED=true",
                 "POST_PARTIAL_PROTECTION_PAPER_ENABLED=true",
@@ -240,7 +240,7 @@ def test_paper_rank_research_profile_rejects_live_flags(monkeypatch, tmp_path) -
         "GREEN_SNIPER_LIVE_ENABLED=false\n"
         "LATE_MOMENTUM_WATCH_BUY_ENABLED=false\n"
         "LATE_MOMENTUM_WATCH_RESEARCH_ENABLED=true\n"
-        "LATE_MOMENTUM_WATCH_AUTORESEARCH_ENABLED=true\n"
+        "LATE_MOMENTUM_WATCH_AUTORESEARCH_ENABLED=false\n"
         "LATE_MOMENTUM_WATCH_LIVE_ENABLED=false\n"
         "POST_PARTIAL_PROTECTION_ENABLED=true\n"
         "POST_PARTIAL_PROTECTION_PAPER_ENABLED=true\n"

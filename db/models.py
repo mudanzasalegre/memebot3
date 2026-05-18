@@ -144,6 +144,8 @@ class Position(Base):
     entry_ai_proba: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     entry_score_total: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     entry_lane: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    entry_subprofile: Mapped[Optional[str]] = mapped_column(String(48), nullable=True)
+    entry_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     gate_profile: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     strategy_version: Mapped[Optional[str]] = mapped_column(String(48), nullable=True)
     experiment_id: Mapped[Optional[str]] = mapped_column(String(48), nullable=True)

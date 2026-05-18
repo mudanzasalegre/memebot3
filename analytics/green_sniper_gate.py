@@ -389,6 +389,11 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
             reason = micro_decision.reason
             token["birth_probe_reason_group"] = micro_decision.reason_group
             token["birth_probe_micro_canary_amount_sol"] = micro_decision.amount_sol
+        else:
+            action = "shadow"
+            token["birth_probe_reason_group"] = micro_decision.reason_group
+            token["birth_probe_micro_canary_amount_sol"] = micro_decision.amount_sol
+            token["birth_probe_micro_canary_shadow_reason"] = micro_decision.reason
     elif not failures:
         action = "buy"
         reason = "green_sniper_pass"

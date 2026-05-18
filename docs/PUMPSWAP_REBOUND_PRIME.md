@@ -2,17 +2,18 @@
 
 | Candidates | Win | Avg PnL | Median PnL | Severe | >=100 | >=500 |
 |---:|---:|---:|---:|---:|---:|---:|
-| 15 | 6.67% | -6.06% | 0.00% | 2 | 0 | 0 |
+| 0 | 0.00% | 0.00% | 0.00% | 0 | 0 | 0 |
 
 ## Top Failures
 
-- `dex!=pumpswap`: 31382
-- `txns5m<500`: 31363
-- `liq<10000`: 31322
-- `mcap<10000`: 30231
-- `proxy_liquidity`: 29846
-- `route_required`: 18860
-- `price5m_missing`: 16942
-- `price5m>-25`: 10634
-- `impact>12`: 523
-- `mcap>50000`: 370
+- `dex!=pumpswap`: 38457
+- `txns5m<500`: 38433
+- `liq<10000`: 38368
+- `mcap<10000`: 36993
+- `proxy_liquidity`: 36432
+- `route_required`: 23063
+- `price5m_missing`: 20698
+- `price5m>-25`: 13117
+- `impact>12`: 608
+- `mcap>50000`: 457
+- `shadow_rebound_watch`: 17

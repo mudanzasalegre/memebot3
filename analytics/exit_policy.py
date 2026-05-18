@@ -393,6 +393,15 @@ def _is_aggressive_research_subject(subject: Any) -> bool:
     }
 
 
+def _is_sniper_deep_reversal_subject(subject: Any) -> bool:
+    subprofile = str(
+        _get(subject, "entry_subprofile", "")
+        or _get(subject, "sniper_research_subprofile", "")
+        or _get(subject, "buy_entry_subprofile", "")
+    ).strip().lower()
+    return subprofile == "sniper_research_deep_reversal"
+
+
 def _resolve_aggressive_research_runner_profile(subject: Any) -> str:
     if _is_jackpot_research_subject(subject):
         return "jackpot_runner"
@@ -1081,6 +1090,28 @@ def should_exit(
         peak = _to_float(_get(subject, "peak_pnl_pct"), 0.0)
     partial_taken = _to_bool(_get(subject, "partial_taken"), False)
 
+    if pnl_pct is not None and _is_sniper_deep_reversal_subject(subject):
+        deep_tp = max(0.0, _to_float(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_TAKE_PROFIT_PCT", 12.0), 12.0))
+        deep_stop = max(0.0, _to_float(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_STOP_LOSS_PCT", 4.0), 4.0))
+        deep_trailing = max(0.0, _to_float(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_TRAILING_PCT", 6.0), 6.0))
+        deep_time_stop_min = max(0.0, _to_float(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_TIME_STOP_MIN", 2.0), 2.0))
+        deep_time_stop_max_pnl = _to_float(
+            getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_TIME_STOP_MAX_PNL_PCT", 5.0),
+            5.0,
+        )
+        deep_time_stop_min_peak = _to_float(
+            getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_TIME_STOP_MIN_PEAK_PCT", 8.0),
+            8.0,
+        )
+        if deep_tp > 0.0 and float(pnl_pct) >= deep_tp:
+            return "DEEP_REVERSAL_TP"
+        if deep_stop > 0.0 and float(pnl_pct) <= -deep_stop:
+            return "DEEP_REVERSAL_STOP"
+        if deep_trailing > 0.0 and peak >= deep_time_stop_min_peak and float(pnl_pct) <= (peak - deep_trailing):
+            return "DEEP_REVERSAL_TRAIL"
+        if deep_time_stop_min > 0.0 and age_min >= deep_time_stop_min and peak < deep_time_stop_min_peak and float(pnl_pct) <= deep_time_stop_max_pnl:
+            return "DEEP_REVERSAL_TIME_STOP"
+
     if partial_taken and pnl_pct is not None:
         floor_reason = dynamic_runner_floor_reason(subject, pnl_pct=float(pnl_pct), peak=peak)
         if floor_reason is not None:
@@ -1277,11 +1308,11 @@ def describe_exit_policy() -> dict[str, Any]:
             "moonbag_fraction": float(getattr(CFG, "BIRD_MOONBAG_FRACTION", 0.03) or 0.03),
             "dynamic_floor_enabled": bool(getattr(CFG, "DYNAMIC_RUNNER_FLOOR_ENABLED", True)),
             "dynamic_floors": {
-                "peak_100": float(getattr(CFG, "RUNNER_FLOOR_PEAK_100", 50.0) or 50.0),
-                "peak_300": float(getattr(CFG, "RUNNER_FLOOR_PEAK_300", 150.0) or 150.0),
-                "peak_700": float(getattr(CFG, "RUNNER_FLOOR_PEAK_700", 350.0) or 350.0),
-                "peak_1000": float(getattr(CFG, "RUNNER_FLOOR_PEAK_1000", 500.0) or 500.0),
-                "peak_2000": float(getattr(CFG, "RUNNER_FLOOR_PEAK_2000", 800.0) or 800.0),
+                "peak_100": float(getattr(CFG, "RUNNER_FLOOR_PEAK_100", 70.0) or 70.0),
+                "peak_300": float(getattr(CFG, "RUNNER_FLOOR_PEAK_300", 200.0) or 200.0),
+                "peak_700": float(getattr(CFG, "RUNNER_FLOOR_PEAK_700", 450.0) or 450.0),
+                "peak_1000": float(getattr(CFG, "RUNNER_FLOOR_PEAK_1000", 700.0) or 700.0),
+                "peak_2000": float(getattr(CFG, "RUNNER_FLOOR_PEAK_2000", 1200.0) or 1200.0),
             },
             "jackpot_steps": [
                 step.__dict__

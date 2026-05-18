@@ -5,10 +5,15 @@ import json
 from pathlib import Path
 from typing import Any
 
-from analytics.report_utils import metrics_dir, write_json
+from analytics.report_utils import metrics_dir, read_jsonl, write_json
 from config.config import CFG, PROJECT_ROOT
 
 
+EVENTS_FILE = "runner_turbo_events.jsonl"
+EVENT_RUNNER_TURBO_ENTER = "RUNNER_TURBO_ENTER"
+EVENT_RUNNER_TURBO_TICK = "RUNNER_TURBO_TICK"
+EVENT_RUNNER_TURBO_EXIT = "RUNNER_TURBO_EXIT"
+EVENT_RUNNER_TURBO_CLOSE_TRIGGERED = "RUNNER_TURBO_CLOSE_TRIGGERED"
 _STATE: dict[str, Any] = {"active": {}, "events": []}
 
 
@@ -45,13 +50,44 @@ def _now(now: dt.datetime | None = None) -> dt.datetime:
     return now if now.tzinfo else now.replace(tzinfo=dt.timezone.utc)
 
 
-def _event(event: str, address: str, *, now: dt.datetime, **extra: Any) -> None:
+def _event_path(root: Path | None = None) -> Path:
+    return metrics_dir(root or PROJECT_ROOT) / EVENTS_FILE
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dt.datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=dt.timezone.utc)
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def _persist_event(row: dict[str, Any], *, root: Path | None = None) -> None:
+    path = _event_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(_json_safe(row), ensure_ascii=True, sort_keys=True) + "\n")
+
+
+def _event(event: str, address: str, *, now: dt.datetime, persist: bool = True, **extra: Any) -> None:
+    row = {"event": event, "address": address, "ts_utc": now.isoformat(), **extra}
     events = _STATE.setdefault("events", [])
     if not isinstance(events, list):
         events = []
         _STATE["events"] = events
-    events.append({"event": event, "address": address, "ts_utc": now.isoformat(), **extra})
+    events.append(row)
     del events[:-200]
+    if persist:
+        try:
+            _persist_event(row)
+        except Exception:
+            return
 
 
 def observe_position(
@@ -81,9 +117,10 @@ def observe_position(
             expires_at = expires_at.replace(tzinfo=dt.timezone.utc)
         if ts >= expires_at:
             active.pop(key, None)
-            _event("turbo_exit", key, now=ts, reason="expired")
+            _event(EVENT_RUNNER_TURBO_EXIT, key, now=ts, reason="expired", peak_pct=float(peak_pct or 0.0), dry_run=bool(dry_run))
             write_runner_turbo_monitor_report()
             return {"active": False, "reason": "expired"}
+        _event(EVENT_RUNNER_TURBO_TICK, key, now=ts, peak_pct=float(peak_pct or 0.0), dry_run=bool(dry_run))
         return {"active": True, "reason": "already_active", **existing}
 
     threshold = _cfg_float(cfg, "RUNNER_TURBO_PEAK_PCT", 100.0)
@@ -101,9 +138,43 @@ def observe_position(
         "paper_only": _cfg_bool(cfg, "RUNNER_TURBO_PAPER_ONLY", True),
     }
     active[key] = state
-    _event("turbo_enter", key, now=ts, peak_pct=float(peak_pct))
+    _event(
+        EVENT_RUNNER_TURBO_ENTER,
+        key,
+        now=ts,
+        peak_pct=float(peak_pct),
+        dry_run=bool(dry_run),
+        paper_only=_cfg_bool(cfg, "RUNNER_TURBO_PAPER_ONLY", True),
+    )
     write_runner_turbo_monitor_report()
     return {"active": True, "reason": "entered", **state}
+
+
+def record_close_triggered(
+    address: str,
+    *,
+    reason: str,
+    peak_pct: float | None = None,
+    pnl_pct: float | None = None,
+    dry_run: bool = True,
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    ts = _now(now)
+    key = str(address or "")
+    active = _STATE.get("active")
+    if not key or not isinstance(active, dict) or key not in active:
+        return {"active": False, "reason": "not_active"}
+    _event(
+        EVENT_RUNNER_TURBO_CLOSE_TRIGGERED,
+        key,
+        now=ts,
+        reason=str(reason or ""),
+        peak_pct=float(peak_pct or 0.0),
+        pnl_pct=float(pnl_pct or 0.0),
+        dry_run=bool(dry_run),
+    )
+    write_runner_turbo_monitor_report()
+    return {"active": True, "reason": "close_triggered"}
 
 
 def mark_closed(address: str, *, now: dt.datetime | None = None) -> dict[str, Any]:
@@ -112,7 +183,7 @@ def mark_closed(address: str, *, now: dt.datetime | None = None) -> dict[str, An
     active = _STATE.setdefault("active", {})
     if isinstance(active, dict) and key in active:
         active.pop(key, None)
-        _event("turbo_exit", key, now=ts, reason="closed")
+        _event(EVENT_RUNNER_TURBO_EXIT, key, now=ts, reason="closed")
         write_runner_turbo_monitor_report()
         return {"active": False, "reason": "closed"}
     return {"active": False, "reason": "not_active"}
@@ -131,7 +202,25 @@ def target_sleep_seconds(default_sleep_s: float, *, dry_run: bool = True, cfg: A
 def build_runner_turbo_monitor_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
     active = _STATE.get("active") if isinstance(_STATE.get("active"), dict) else {}
-    events = _STATE.get("events") if isinstance(_STATE.get("events"), list) else []
+    persisted_events = read_jsonl(_event_path(root))
+    memory_events = _STATE.get("events") if isinstance(_STATE.get("events"), list) else []
+    merged_events = [*persisted_events, *memory_events]
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for event in merged_events:
+        key = (
+            str(event.get("event") or ""),
+            str(event.get("address") or ""),
+            str(event.get("ts_utc") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(event)
+    event_counts: dict[str, int] = {}
+    for event in deduped:
+        name = str(event.get("event") or "unknown")
+        event_counts[name] = event_counts.get(name, 0) + 1
     return {
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "config": {
@@ -143,7 +232,9 @@ def build_runner_turbo_monitor_report(root: Path | None = None) -> dict[str, Any
         },
         "active_count": len(active or {}),
         "active": active,
-        "events": events[-100:],
+        "events_path": str(_event_path(root)),
+        "event_counts": dict(sorted(event_counts.items())),
+        "events": deduped[-100:],
         "best_effort_note": "The main loop uses the turbo interval as a target sleep while active; provider latency can make real polling slower.",
     }
 
@@ -155,16 +246,27 @@ def write_runner_turbo_monitor_report(root: Path | None = None) -> dict[str, Any
     return report
 
 
-def reset_state() -> None:
+def reset_state(*, clear_persisted: bool = False) -> None:
     _STATE["active"] = {}
     _STATE["events"] = []
+    if clear_persisted:
+        try:
+            _event_path().unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 __all__ = [
+    "EVENT_RUNNER_TURBO_CLOSE_TRIGGERED",
+    "EVENT_RUNNER_TURBO_ENTER",
+    "EVENT_RUNNER_TURBO_EXIT",
+    "EVENT_RUNNER_TURBO_TICK",
+    "EVENTS_FILE",
     "build_runner_turbo_monitor_report",
     "enabled",
     "mark_closed",
     "observe_position",
+    "record_close_triggered",
     "reset_state",
     "target_sleep_seconds",
     "write_runner_turbo_monitor_report",

@@ -227,11 +227,11 @@ def dynamic_runner_floor_pct(peak_pct: float, *, cfg: Any = CFG) -> float | None
         return None
     peak = float(peak_pct or 0.0)
     thresholds = (
-        (2000.0, _cfg_float(cfg, "RUNNER_FLOOR_PEAK_2000", 800.0)),
-        (1000.0, _cfg_float(cfg, "RUNNER_FLOOR_PEAK_1000", 500.0)),
-        (700.0, _cfg_float(cfg, "RUNNER_FLOOR_PEAK_700", 350.0)),
-        (300.0, _cfg_float(cfg, "RUNNER_FLOOR_PEAK_300", 150.0)),
-        (100.0, _cfg_float(cfg, "RUNNER_FLOOR_PEAK_100", 50.0)),
+        (2000.0, _cfg_float(cfg, "RUNNER_FLOOR_PEAK_2000", 1200.0)),
+        (1000.0, _cfg_float(cfg, "RUNNER_FLOOR_PEAK_1000", 700.0)),
+        (700.0, _cfg_float(cfg, "RUNNER_FLOOR_PEAK_700", 450.0)),
+        (300.0, _cfg_float(cfg, "RUNNER_FLOOR_PEAK_300", 200.0)),
+        (100.0, _cfg_float(cfg, "RUNNER_FLOOR_PEAK_100", 70.0)),
     )
     for min_peak, floor in thresholds:
         if peak >= min_peak:

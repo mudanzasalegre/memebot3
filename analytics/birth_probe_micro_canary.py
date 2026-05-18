@@ -286,6 +286,13 @@ def evaluate_birth_probe_micro_canary(
     if group not in allowed_groups:
         return decision(False, "reason_group_not_allowed")
     stats_by_group = group_stats if group_stats is not None else load_reason_group_stats(PROJECT_ROOT)
+    recommended_groups = {
+        str(name): value
+        for name, value in (stats_by_group or {}).items()
+        if isinstance(value, dict) and _bool(value.get("recommended_micro_enabled"), False)
+    }
+    if not recommended_groups:
+        return decision(False, "no_recommended_groups")
     stats = stats_by_group.get(group) if isinstance(stats_by_group, dict) else None
     if not isinstance(stats, dict):
         return decision(False, "reason_group_stats_missing")

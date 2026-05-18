@@ -157,6 +157,23 @@ def test_dynamic_runner_floor_precedes_green_post_partial_trailing() -> None:
     assert reason == "DYNAMIC_RUNNER_FLOOR"
 
 
+def test_sniper_deep_reversal_uses_defensive_exit() -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_sniper_research",
+        "entry_subprofile": "sniper_research_deep_reversal",
+        "opened_at": now - dt.timedelta(minutes=3),
+        "buy_price_usd": 1.0,
+        "highest_pnl_pct": 0.0,
+        "partial_taken": False,
+    }
+
+    reason = exit_policy.should_exit(subject, price_now=1.01, now=now, pnl_pct=1.0)
+
+    assert reason == "DEEP_REVERSAL_TIME_STOP"
+
+
 def test_prime_runner_escalates_lock_floor_after_peak_threshold() -> None:
     subject = {
         "entry_regime": "pump_early",

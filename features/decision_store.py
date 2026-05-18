@@ -80,6 +80,8 @@ def append_decision(row: Mapping[str, Any], *, path: Path | None = None) -> dict
         "lane": lane,
         "gate_profile": row.get("gate_profile"),
         "entry_subtype": row.get("entry_subtype"),
+        "entry_subprofile": row.get("entry_subprofile") or row.get("sniper_research_subprofile"),
+        "sniper_research_subprofile_reason": row.get("sniper_research_subprofile_reason"),
         "source": row.get("source") or row.get("event_type") or "runtime",
         "features_snapshot": _json_safe(row.get("features_snapshot") or row.get("feature_snapshot") or {}),
         "green_score": row.get("green_score") or row.get("green_sniper_score"),
