@@ -416,6 +416,26 @@ def test_three_loss_streak_demotes_live_pump_to_shadow(monkeypatch, tmp_path: Pa
     assert decision.health_state == "cooldown"
 
 
+def test_record_trade_close_accepts_entry_subprofile_metadata(monkeypatch) -> None:
+    monkeypatch.setattr(strategy_runtime, "CFG", _make_cfg(REGIME_HEALTH_MIN_TRADES=1))
+    _reset_strategy_state()
+
+    strategy_runtime.record_trade_close(
+        "pump_early",
+        -49.58,
+        exit_reason="LIQUIDITY_CRUSH",
+        execution_state="live",
+        entry_lane="pump_early_sniper_research",
+        entry_subprofile="sniper_research_momentum_ignition",
+        entry_reason="sniper_research_momentum_ignition",
+        gate_profile="pumpswap_profit_research",
+    )
+
+    health = strategy_runtime.describe_regime_health()["pump_early"]
+    assert health["trade_count"] == 1
+    assert health["liq_crush_count"] == 1
+
+
 def test_sniper_mode_demotes_after_four_loss_streak(monkeypatch, tmp_path: Path) -> None:
     now = dt.datetime(2026, 4, 6, 13, 0, tzinfo=dt.timezone.utc)
     monkeypatch.setattr(

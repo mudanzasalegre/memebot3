@@ -108,6 +108,8 @@ def _validate_paper_rank_research_profile(errors: list[str]) -> None:
         errors.append("paper_rank_research_v1 requires GREEN_SNIPER_POLICY_MODE=shadow")
     if values.get("RESEARCH_RANK_CANARY_MIN_SCORE", "").strip() not in {"0.647", "64.7", "64.81"}:
         errors.append("paper_rank_research_v1 requires RESEARCH_RANK_CANARY_MIN_SCORE=64.81")
+    if values.get("RESEARCH_RANK_CANARY_MIN_PRICE5M", "").strip() != "40":
+        errors.append("paper_rank_research_v1 requires RESEARCH_RANK_CANARY_MIN_PRICE5M=40")
 
 
 def _model_enforcement_requested() -> bool:

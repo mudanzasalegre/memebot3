@@ -4,8 +4,7 @@ Paper-only micro-canary for selected birth-probe reason groups. Live remains dis
 
 | Reason group | Samples | Avg PnL | Capped Avg | Win | Peak100 | Peak500 | Severe | Recommended |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
-| paper_birth_probe_low_green_proxy_low_txns | 5280 | -0.45% | -0.45% | 1.27% | 6 | 0 | 37 | False |
-| paper_birth_probe_other | 15 | -11.96% | -11.96% | 6.67% | 0 | 0 | 3 | False |
-| paper_birth_probe_proxy | 2015 | -1.92% | -2.26% | 2.03% | 13 | 3 | 128 | False |
-| paper_birth_probe_proxy_low_txns | 4844 | -1.15% | -1.61% | 3.03% | 17 | 7 | 226 | False |
-| paper_birth_probe_weak_ratio | 18 | -9.82% | -9.82% | 5.56% | 1 | 0 | 5 | False |
+| paper_birth_probe_low_green_proxy_low_txns | 1011 | -0.25% | -0.25% | 1.38% | 0 | 0 | 4 | False |
+| paper_birth_probe_proxy | 396 | 1.40% | 0.73% | 1.77% | 4 | 1 | 16 | False |
+| paper_birth_probe_proxy_low_txns | 944 | 4.23% | -2.25% | 1.91% | 4 | 1 | 50 | False |
+| paper_birth_probe_weak_ratio | 3 | 10.86% | 10.86% | 33.33% | 0 | 0 | 0 | False |

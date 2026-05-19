@@ -174,6 +174,7 @@ def test_paper_rank_research_profile_is_validated(monkeypatch, tmp_path) -> None
                 "RESEARCH_RANK_CANARY_PAPER_ENABLED=true",
                 "RESEARCH_RANK_CANARY_LIVE_ENABLED=false",
                 "RESEARCH_RANK_CANARY_MIN_SCORE=0.647",
+                "RESEARCH_RANK_CANARY_MIN_PRICE5M=40",
                 "RESEARCH_RANK_CANARY_PREFER_REAL_LIQUIDITY=true",
                 "GREEN_SNIPER_POLICY_MODE=shadow",
                 "GREEN_SNIPER_BUY_RESTRICTED_ENABLED=true",
@@ -234,6 +235,7 @@ def test_paper_rank_research_profile_rejects_live_flags(monkeypatch, tmp_path) -
         "RESEARCH_RANK_CANARY_PAPER_ENABLED=true\n"
         "RESEARCH_RANK_CANARY_LIVE_ENABLED=false\n"
         "RESEARCH_RANK_CANARY_MIN_SCORE=0.647\n"
+        "RESEARCH_RANK_CANARY_MIN_PRICE5M=40\n"
         "RESEARCH_RANK_CANARY_PREFER_REAL_LIQUIDITY=true\n"
         "GREEN_SNIPER_POLICY_MODE=shadow\n"
         "GREEN_SNIPER_BUY_RESTRICTED_ENABLED=true\n"

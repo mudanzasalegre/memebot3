@@ -1712,11 +1712,14 @@ def record_trade_close(
     exit_reason: str | None = None,
     execution_state: str | None = None,
     entry_lane: str | None = None,
+    entry_subprofile: str | None = None,
+    entry_reason: str | None = None,
     dex_id: str | None = None,
     liquidity_proxy_flag: bool | int | None = None,
     mcap_bucket: str | None = None,
     price5m_bucket: str | None = None,
     gate_profile: str | None = None,
+    **_metadata: Any,
 ) -> None:
     if total_pnl_pct is None:
         return

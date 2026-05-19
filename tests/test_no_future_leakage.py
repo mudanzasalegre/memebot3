@@ -5,6 +5,7 @@ import pytest
 
 from features.builder import build_feature_vector
 from ml.train import _select_feature_columns
+from analytics.sniper_research_subprofiles import apply_sniper_research_subprofile_context, evaluate_sniper_research_subprofile
 
 
 def test_builder_rejects_future_key() -> None:
@@ -27,6 +28,36 @@ def test_builder_allows_t0_exit_policy_metadata() -> None:
 
     assert row["exit_profile"] == "green_sniper_runner"
     assert row["profit_pnl_guard_failures"] == "blocked_price5m_50_100"
+
+
+def test_deep_reversal_context_does_not_emit_future_exit_key() -> None:
+    token = {
+        "address": "x",
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_sniper_research",
+        "price_pct_5m": -72,
+        "txns_last_5m": 650,
+        "market_cap_usd": 20_000,
+        "has_jupiter_route": True,
+    }
+    decision = evaluate_sniper_research_subprofile(token)
+    apply_sniper_research_subprofile_context(token, decision)
+
+    assert "sniper_research_defensive_exit" not in token
+    row = build_feature_vector(token)
+    assert row["exit_profile"] == "sniper_deep_reversal_defensive"
+
+
+def test_builder_strips_legacy_sniper_defensive_exit_key() -> None:
+    row = build_feature_vector(
+        {
+            "address": "x",
+            "entry_regime": "pump_early",
+            "sniper_research_defensive_exit": 1,
+        }
+    )
+
+    assert "sniper_research_defensive_exit" not in row.index
 
 
 def test_builder_still_rejects_true_exit_outcome_key() -> None:

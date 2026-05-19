@@ -119,7 +119,7 @@ def test_research_rank_canary_no_route_shadows_as_own_lane() -> None:
     assert token["research_rank_canary_shadow"] == 1
 
 
-def test_research_rank_canary_price5m_below_50_shadows_rank_canary() -> None:
+def test_research_rank_canary_price5m_below_40_shadows_rank_canary() -> None:
     token = {
         "entry_lane": "pump_early_sniper_research",
         "liquidity_usd": 3000,
@@ -138,3 +138,27 @@ def test_research_rank_canary_price5m_below_50_shadows_rank_canary() -> None:
     assert decision.reason == "price5m_below_min"
     assert token["entry_lane"] == "pump_early_research_rank_canary"
     assert token["research_rank_canary_shadow"] == 1
+
+
+def test_research_rank_canary_price5m_40_50_requires_rank70_or_liq20k() -> None:
+    token = {
+        "entry_lane": "pump_early_sniper_research",
+        "liquidity_usd": 3000,
+        "market_cap_usd": 50_000,
+        "price_pct_5m": 45,
+        "txns_last_5m": 350,
+        "has_jupiter_route": True,
+        "liquidity_is_proxy": 0,
+    }
+
+    blocked = evaluate_research_rank_canary(token, {"rank_score": 66}, dry_run=True, live=False)
+    assert not blocked.allowed
+    assert blocked.shadow_as_own_lane is True
+    assert blocked.reason == "price5m_40_50_requires_rank70_or_liq20k"
+
+    allowed_by_rank = evaluate_research_rank_canary(token, {"rank_score": 70}, dry_run=True, live=False)
+    assert allowed_by_rank.allowed
+
+    token["liquidity_usd"] = 20_000
+    allowed_by_liq = evaluate_research_rank_canary(token, {"rank_score": 66}, dry_run=True, live=False)
+    assert allowed_by_liq.allowed

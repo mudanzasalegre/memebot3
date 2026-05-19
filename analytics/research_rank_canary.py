@@ -109,7 +109,7 @@ def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
             "min_score_raw": decision.min_score_raw,
             "min_score_normalized": decision.min_score,
             "min_score_scale": decision.min_score_scale,
-            "min_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 50.0), 50.0),
+            "min_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 40.0), 40.0),
             "max_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_PRICE5M", 100.0), 100.0),
             "force_own_lane": bool(getattr(CFG, "RESEARCH_RANK_CANARY_FORCE_OWN_LANE", True)),
             "shadow_if_not_executable": bool(getattr(CFG, "RESEARCH_RANK_CANARY_SHADOW_IF_NOT_EXECUTABLE", True)),
@@ -144,7 +144,7 @@ def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
                 "min_score_raw": decision.min_score_raw,
                 "min_score_normalized": decision.min_score,
                 "min_score_scale": decision.min_score_scale,
-                "min_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 50.0), 50.0),
+                "min_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 40.0), 40.0),
                 "max_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_PRICE5M", 100.0), 100.0),
                 "force_own_lane": bool(getattr(CFG, "RESEARCH_RANK_CANARY_FORCE_OWN_LANE", True)),
                 "shadow_if_not_executable": bool(
@@ -301,12 +301,21 @@ def evaluate_research_rank_canary(
     if rank_score < min_score:
         return decision(False, "rank_below_min")
     price5m = _field_float(token, "price_pct_5m", "buy_price_pct_5m", default=0.0)
-    min_price5m = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 50.0), 50.0)
+    min_price5m = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 40.0), 40.0)
     max_price5m = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_PRICE5M", 100.0), 100.0)
     if price5m < min_price5m:
         return decision(False, "price5m_below_min", shadow_as_own_lane=True, executable=False)
     if price5m > max_price5m:
         return decision(False, "price5m_out_of_band")
+    liq = _field_float(token, "liquidity_usd", "buy_liquidity_usd", default=0.0)
+    if 40.0 <= price5m < 50.0:
+        low_band_min_rank = _float(getattr(CFG, "RESEARCH_RANK_CANARY_LOW_BAND_MIN_RANK_SCORE", 70.0), 70.0)
+        low_band_min_liq = _float(
+            getattr(CFG, "RESEARCH_RANK_CANARY_LOW_BAND_MIN_LIQUIDITY_USD", 20_000.0),
+            20_000.0,
+        )
+        if rank_score < low_band_min_rank and liq < low_band_min_liq:
+            return decision(False, "price5m_40_50_requires_rank70_or_liq20k", shadow_as_own_lane=True, executable=False)
     mcap = _field_float(token, "market_cap_usd", "buy_market_cap_usd", default=0.0)
     min_mcap = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_MCAP_USD", 25_000.0), 25_000.0)
     max_mcap = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_MCAP_USD", 100_000.0), 100_000.0)
@@ -316,7 +325,6 @@ def evaluate_research_rank_canary(
     min_txns = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_TXNS_5M", 300), 300.0)
     if txns < min_txns:
         return decision(False, "txns_below_min")
-    liq = _field_float(token, "liquidity_usd", "buy_liquidity_usd", default=0.0)
     min_liq = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_LIQUIDITY_USD", 2000.0), 2000.0)
     if liq < min_liq:
         return not_executable("liquidity_below_min")
@@ -426,7 +434,8 @@ def build_research_rank_canary_audit_report(root: Path | None = None) -> dict[st
         runtime_audit = runtime_audit["runtime_audit"]
     rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
     rank_rows = [row for row in rows if _is_rank_canary_row(row)]
-    band_25_50 = [row for row in rank_rows if 25.0 <= _price5m(row) < 50.0]
+    band_25_40 = [row for row in rank_rows if 25.0 <= _price5m(row) < 40.0]
+    band_40_50 = [row for row in rank_rows if 40.0 <= _price5m(row) < 50.0]
     band_50_100 = [row for row in rank_rows if 50.0 <= _price5m(row) <= 100.0]
     own_lane = [
         row
@@ -455,12 +464,18 @@ def build_research_rank_canary_audit_report(root: Path | None = None) -> dict[st
             "enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_ENABLED", True)),
             "paper_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_ENABLED", True)),
             "live_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_LIVE_ENABLED", False)),
-            "min_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 50.0), 50.0),
+            "min_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 40.0), 40.0),
             "max_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_PRICE5M", 100.0), 100.0),
+            "low_band_min_rank_score": _float(getattr(CFG, "RESEARCH_RANK_CANARY_LOW_BAND_MIN_RANK_SCORE", 70.0), 70.0),
+            "low_band_min_liquidity_usd": _float(
+                getattr(CFG, "RESEARCH_RANK_CANARY_LOW_BAND_MIN_LIQUIDITY_USD", 20_000.0),
+                20_000.0,
+            ),
             "force_own_lane": bool(getattr(CFG, "RESEARCH_RANK_CANARY_FORCE_OWN_LANE", True)),
         },
         "price5m_band_comparison": {
-            "price5m_25_50_shadow_candidate": _summary(band_25_50),
+            "price5m_25_40_shadow_candidate": _summary(band_25_40),
+            "price5m_40_50_conditional": _summary(band_40_50),
             "price5m_50_100_executable": _summary(band_50_100),
         },
         "lane_mix_audit": {

@@ -482,6 +482,41 @@ def _extract_created_at(token: dict[str, Any]) -> Optional[datetime]:
 
 
 # ─────────────────────────── FILTRO DURO ────────────────────────────
+def _token_age_seconds(token: dict[str, Any]) -> Optional[float]:
+    age_min = _to_float_or_none(token.get("age_min") or token.get("age_minutes"))
+    created = _extract_created_at(token)
+    if created is None and age_min is not None:
+        created = utc_now() - timedelta(minutes=float(age_min))
+    if created is None:
+        return None
+    return (utc_now() - created).total_seconds()
+
+
+def has_toxic_initial_sell_pressure(token: dict[str, Any]) -> bool:
+    age_sec = _token_age_seconds(token)
+    if age_sec is None or age_sec < 0 or age_sec >= 600:
+        return False
+    sells = int(_to_float_or_none(token.get("txns_last_5m_sells")) or 0)
+    total_5m = int(_to_float_or_none(token.get("txns_last_5m")) or 0)
+    buys = max(0, total_5m - sells) if total_5m else int(_to_float_or_none(token.get("txns_last_5m_buys")) or 0)
+    denom = sells + buys
+    if denom <= 0 or (sells / denom) <= 0.7:
+        return False
+
+    pc5 = None
+    price_change = token.get("priceChange")
+    if isinstance(price_change, dict):
+        pc5 = price_change.get("m5")
+    if pc5 is None:
+        pc5 = token.get("price_change_5m")
+    if pc5 is None:
+        pc5 = token.get("price_pct_5m")
+    pc5_val = _to_float_or_none(pc5) or 0.0
+    if abs(pc5_val) < 1.0 and pc5_val != 0.0:
+        pc5_val *= 100.0
+    return -5.0 < pc5_val < 5.0
+
+
 def basic_filters(token: dict[str, Any]) -> Optional[bool]:
     """
     True   → pasa el filtro duro
@@ -670,6 +705,9 @@ def basic_filters(token: dict[str, Any]) -> Optional[bool]:
     # 5) early sell-off --------------------------------------------------------------
     # OJO: Aquí NO miramos “sell” como substring genérico (QW#1),
     # solo la métrica concreta txns_last_5m_sells.
+    if has_toxic_initial_sell_pressure(token):
+        log.debug("toxic initial sell pressure %s", sym)
+        return False
     if age_sec < 600:
         sells = int(_to_float_or_none(token.get("txns_last_5m_sells")) or 0)
 
@@ -782,6 +820,7 @@ __all__ = [
     "effective_soft_score_min",
     "effective_ai_threshold",
     "effective_require_jupiter_for_buy",
+    "has_toxic_initial_sell_pressure",
     "snapshot_quality_gate",
     "describe_filter_policy",
 ]

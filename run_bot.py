@@ -1406,6 +1406,7 @@ _PUMP_EARLY_PROFIT_HIGH_MCAP_MID_MIN_MCAP_USD = max(
 
 _policy_reject_seen: dict[str, float] = {}
 _stream_candidate_cooldown_until: dict[str, float] = {}
+_toxic_initial_sell_pressure_until: dict[str, float] = {}
 
 
 def _sample_address(sample: dict | object) -> str:
@@ -1442,6 +1443,38 @@ def _stream_candidate_is_cooled(addr: str) -> bool:
     now = time.monotonic()
     _prune_expiring(_stream_candidate_cooldown_until, now=now)
     return _stream_candidate_cooldown_until.get(addr, 0.0) > now
+
+
+def _remember_toxic_initial_sell_pressure(addr: str, token: dict, *, ttl_s: int | None = None) -> None:
+    if not addr:
+        return
+    ttl = int(
+        ttl_s
+        if ttl_s is not None
+        else int(getattr(CFG, "TOXIC_INITIAL_SELL_PRESSURE_TTL_S", 900) or 900)
+    )
+    if ttl <= 0:
+        return
+    now = time.monotonic()
+    _prune_expiring(_toxic_initial_sell_pressure_until, now=now)
+    _toxic_initial_sell_pressure_until[addr] = max(
+        _toxic_initial_sell_pressure_until.get(addr, 0.0),
+        now + float(ttl),
+    )
+    token["toxic_initial_sell_pressure"] = 1
+    token["toxic_initial_sell_pressure_reason"] = "toxic_initial_sell_pressure"
+
+
+def _toxic_initial_sell_pressure_active(addr: str, token: dict) -> bool:
+    if not addr:
+        return False
+    now = time.monotonic()
+    _prune_expiring(_toxic_initial_sell_pressure_until, now=now)
+    active = _toxic_initial_sell_pressure_until.get(addr, 0.0) > now
+    if active:
+        token["toxic_initial_sell_pressure"] = 1
+        token["toxic_initial_sell_pressure_reason"] = "toxic_initial_sell_pressure"
+    return active
 
 
 def _stream_candidate_cooldown_s(token: dict, reason: str) -> int:
@@ -3893,6 +3926,25 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["queue_age_minutes"] = max(0.0, (time.time() - first_seen_epoch_s) / 60.0)
     token["entry_regime"] = entry_sizing.classify_entry_regime(token, queue_attempts=queue_attempts)
     token["require_jupiter_for_buy"] = int(require_jup_for_buy)
+    if filters.has_toxic_initial_sell_pressure(token):
+        _remember_toxic_initial_sell_pressure(addr, token)
+    if _toxic_initial_sell_pressure_active(addr, token):
+        reason = "toxic_initial_sell_pressure"
+        token["blocked_bucket"] = reason
+        token["green_sniper_reason"] = reason
+        _stats["filtered_out"] += 1
+        _store_policy_reject(token, reason=reason)
+        _research_decision(
+            token,
+            action="shadow",
+            reason=reason,
+            stage="toxic_memory",
+            shadow_kind="toxic_initial_sell_pressure",
+            dedup_ttl_s=300,
+        )
+        _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, reason))
+        _remove_from_queue_if_present(addr)
+        return
 
     # 6) — señales baratas (social, trend, insider…) —
     token["strategy_version"] = str(getattr(CFG, "SNIPER_STRATEGY_VERSION", "2026-04-green-sniper-v1") or "")

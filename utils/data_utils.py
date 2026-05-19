@@ -256,6 +256,7 @@ def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
     """
     clean = token
     ctx = clean.get("symbol") or clean.get("address", "")[:4]
+    clean.pop("sniper_research_defensive_exit", None)
 
     try:
         _sanitize_address_inplace(clean)

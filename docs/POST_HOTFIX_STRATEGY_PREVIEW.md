@@ -4,32 +4,32 @@ Offline preview for `combined_hotfix_v1`. Live remains disabled; this report doe
 
 ## Combined Estimate
 
-- Baseline closed rows: `61`
-- Expected total PnL delta: `16899.4922` pct-points
-- Expected severe loss delta: `-1`
-- Expected runner capture delta: `0.001800`
+- Baseline closed rows: `1`
+- Expected total PnL delta: `3004.1240` pct-points
+- Expected severe loss delta: `0`
+- Expected runner capture delta: `0.002200`
 - Estimate note: Offline additive preview. Entry and exit effects can overlap; use as directional validation before paper forward.
 
 ## Entry Changes
 
 | Surface | Count | Total PnL delta | Severe delta | Peak100 | Peak500 |
 |---|---:|---:|---:|---:|---:|
-| Pumpswap strict blocked current | 1 | 23.3472 | -1 | 0 | 0 |
+| Pumpswap strict blocked current | 0 | 0.0000 | 0 | 0 | 0 |
 | Rebound incremental candidates | 0 | 0.0000 | 0 | 0 | 0 |
 | Birth micro candidates | 0 | 0.0000 | 0 | 0 | 0 |
 
 ## Exit Changes
 
-- Post-partial expected total delta: `16876.1450`
+- Post-partial expected total delta: `3004.1240`
 - Multi-partial runner rows: `0`
 - Multi-partial expected total delta: `0.0000`
 - Emergency sells simulated: `0`
 
 ## Research Rank Lane
 
-- Audit evaluated: `6861`
-- Bought as own lane: `17`
-- Shadow as own lane: `11`
+- Audit evaluated: `11`
+- Bought as own lane: `1`
+- Shadow as own lane: `2`
 - Mixed lane detected: `0`
 
 ## Safety
