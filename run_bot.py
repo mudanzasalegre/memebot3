@@ -167,8 +167,13 @@ from analytics.green_sniper_gate import apply_green_sniper_context, evaluate_gre
 from analytics.green_sniper_rank_guard import evaluate_green_sniper_rank_guard  # noqa: E402
 from analytics.green_sniper_risk_guard import evaluate_green_sniper_risk_guard  # noqa: E402
 from analytics.green_sniper_sizing import compute_green_sniper_sizing  # noqa: E402
+from analytics.moonshot_micro_lottery import (  # noqa: E402
+    apply_moonshot_micro_lottery_context,
+    evaluate_moonshot_micro_lottery,
+)
 from analytics.pumpswap_prime_strict import evaluate_pumpswap_prime_strict  # noqa: E402
 from analytics.pumpswap_rebound_prime import apply_pumpswap_rebound_prime_context, apply_pumpswap_rebound_watch_context, evaluate_pumpswap_rebound_prime  # noqa: E402
+from analytics.paper_exploration_quota import should_allow_paper_exploration  # noqa: E402
 from analytics.sniper_research_subprofiles import (  # noqa: E402
     apply_sniper_research_subprofile_context,
     evaluate_sniper_research_subprofile,
@@ -217,6 +222,7 @@ from utils.lista_pares import (  # noqa: E402
 )
 from utils.data_utils import sanitize_token_data, apply_default_values, prepare_token_for_db  # noqa: E402
 from utils.logger import enable_file_logging, warn_if_nulls, log_funnel  # noqa: E402
+from utils.runtime_context import set_runtime_context  # noqa: E402
 from utils.runtime_telemetry import (  # noqa: E402
     log_buy_event,
     log_execution_event,
@@ -539,7 +545,14 @@ else:  # modo real
 
 if args.log:
     run_id = enable_file_logging()
+    set_runtime_context(
+        run_id=f"{dt.datetime.now(dt.timezone.utc):%Y%m%d}-{run_id}",
+        started_at=dt.datetime.now(dt.timezone.utc),
+        test_event=False,
+    )
     log.info("📂 File-logging activo (run_id %s)", run_id)
+else:
+    set_runtime_context(started_at=dt.datetime.now(dt.timezone.utc), test_event=False)
 
 # ╭─────────────────────── Constantes de configuración ───────────────────────╮
 DISCOVERY_INTERVAL     = CFG.DISCOVERY_INTERVAL
@@ -2231,6 +2244,16 @@ def _evaluate_pumpswap_profit_gate(
 
 
 def _tag_pump_sniper_gate(token: dict, rank_info: dict[str, object] | None = None) -> tuple[bool, str]:
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_moonshot_micro_lottery":
+        token["entry_lane"] = "pump_early_moonshot_micro_lottery"
+        token["gate_profile"] = "moonshot_micro_lottery"
+        token["sniper_gate_profile"] = "moonshot_micro_lottery"
+        token["profit_lane_tier"] = "pump_early_moonshot_micro_lottery"
+        token["lane_policy_category"] = "moonshot_micro_lottery"
+        token["live_profit_gate_profile"] = "moonshot_micro_lottery"
+        token["live_profit_gate_failed_count"] = 0
+        token["live_profit_gate_failures"] = ""
+        return True, ""
     if str(token.get("entry_lane") or "").strip().lower() == "pump_early_green_candle_sniper":
         token["live_profit_gate_failed_count"] = 0
         token.setdefault("gate_profile", "green_sniper")
@@ -3969,7 +3992,11 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             _requeue_with_stats(addr, reason=f"green_sniper:{green_decision.reason}", backoff=2, token=token)
             return
         green_shadow_canary_continue = _green_shadow_can_continue_to_runner_canary(token, green_decision)
-        if green_decision.action == "shadow" and not green_shadow_canary_continue:
+        if (
+            green_decision.action == "shadow"
+            and not green_shadow_canary_continue
+            and not evaluate_moonshot_micro_lottery(token, dry_run=DRY_RUN, live=not DRY_RUN).allowed
+        ):
             vec_shadow = build_feature_vector(token)
             _research_decision(
                 token,
@@ -4001,6 +4028,11 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 dedup_ttl_s=120,
             )
     green_fast_path = bool(green_decision and green_decision.action == "buy")
+    moonshot_decision = evaluate_moonshot_micro_lottery(token, dry_run=DRY_RUN, live=not DRY_RUN)
+    moonshot_fast_path = bool(moonshot_decision.allowed)
+    if moonshot_fast_path:
+        apply_moonshot_micro_lottery_context(token, moonshot_decision)
+        token.setdefault("require_jupiter_for_buy", 0)
     if green_fast_path:
         require_jup_for_buy = bool(
             getattr(CFG, "GREEN_SNIPER_REQUIRE_ROUTE_LIVE", True)
@@ -4034,7 +4066,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         token["score_total"] = filters.total_score(token)
 
     # 7) — filtro duro —
-    if (not green_fast_path) and filters.basic_filters(token) is not True:
+    if (not (green_fast_path or moonshot_fast_path)) and filters.basic_filters(token) is not True:
         attempts = int((meta := lista_pares.meta(addr) or {}).get("attempts", 0))
         keep, delay, reason = requeue_policy.decide(token, attempts,
                                                     meta.get("first_seen", time.time()))
@@ -4057,8 +4089,36 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         token["rug_score"]   = await rugcheck.check_token(addr)
         token["cluster_bad"] = await clusters.suspicious_cluster(addr)
     token["score_total"] = filters.total_score(token)
+    if moonshot_fast_path:
+        moonshot_decision = evaluate_moonshot_micro_lottery(token, dry_run=DRY_RUN, live=not DRY_RUN)
+        if not moonshot_decision.allowed:
+            _stats["filtered_out"] += 1
+            vec_shadow = build_feature_vector(token)
+            _store_policy_reject(vec_shadow, already_vector=True, reason=moonshot_decision.reason)
+            _research_decision(
+                token,
+                action="shadow",
+                reason=moonshot_decision.reason,
+                stage="moonshot_micro_lottery",
+                shadow_kind="moonshot_micro_lottery",
+                dedup_ttl_s=300,
+            )
+            await _open_shadow(
+                addr,
+                vec_shadow,
+                price_hint=token.get("price_usd"),
+                force=True,
+                regime="pump_early",
+                reason=moonshot_decision.reason,
+                stage="moonshot_micro_lottery",
+                shadow_kind="moonshot_micro_lottery",
+            )
+            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+            _remove_from_queue_if_present(addr)
+            return
+        apply_moonshot_micro_lottery_context(token, moonshot_decision)
 
-    quality_ok, quality_reason = (True, "") if green_fast_path else filters.snapshot_quality_gate(token)
+    quality_ok, quality_reason = (True, "") if (green_fast_path or moonshot_fast_path) else filters.snapshot_quality_gate(token)
     if not quality_ok:
         log.debug("🧱 Snapshot quality gate: %s (%s)", addr[:6], quality_reason or "blocked")
         _stats["filtered_out"] += 1
@@ -4087,6 +4147,10 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         token["has_jupiter_route"] = int(bool(route_probe["has_route"]))
     if token.get("price_impact_pct") in (None, 0, 0.0) and route_probe.get("price_impact_pct") is not None:
         token["price_impact_pct"] = route_probe["price_impact_pct"]
+    if moonshot_fast_path:
+        moonshot_decision = evaluate_moonshot_micro_lottery(token, dry_run=DRY_RUN, live=not DRY_RUN)
+        if moonshot_decision.allowed:
+            apply_moonshot_micro_lottery_context(token, moonshot_decision)
 
     # 9) — IA + soft score gate —
     vec = build_feature_vector(token)
@@ -4265,7 +4329,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         score_total=_metric_int(token, "score_total"),
     )
     log_ml_policy_decision_event(addr, ml_decision, base_rules_passed=True)
-    if not ml_decision.allow_buy:
+    if not ml_decision.allow_buy and not moonshot_fast_path:
         _stats["filtered_out"] += 1
         reject_reason = f"ml_policy:{ml_decision.reason}"
         _store_policy_reject(vec, already_vector=True, reason=reject_reason)
@@ -4300,7 +4364,14 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     sniper_gate_ok_preview = bool(
         _PUMP_EARLY_SNIPER_ENABLED
         and str(token.get("entry_lane") or "").strip().lower()
-        in {"pump_early_sniper", "pump_early_pumpswap_profit", "pump_early_green_candle_sniper", "pump_early_research_rank_canary", "pump_early_late_momentum_watch"}
+        in {
+            "pump_early_sniper",
+            "pump_early_pumpswap_profit",
+            "pump_early_green_candle_sniper",
+            "pump_early_research_rank_canary",
+            "pump_early_late_momentum_watch",
+            "pump_early_moonshot_micro_lottery",
+        }
         and _metric_int(token, "live_profit_gate_failed_count") == 0
     )
     if (
@@ -4353,6 +4424,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         "pump_early_green_candle_sniper",
         "pump_early_late_momentum_watch",
         "pump_early_birth_probe_micro_canary",
+        "pump_early_moonshot_micro_lottery",
     }:
         green_size_decision = compute_green_sniper_sizing(
             token,
@@ -4371,7 +4443,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         has_route=route_probe.get("has_route"),
     )
     green_paper_health_bypass = bool(
-        (green_fast_path or research_rank_canary_fast_path)
+        (green_fast_path or research_rank_canary_fast_path or moonshot_fast_path)
         and DRY_RUN
         and bool(getattr(CFG, "PAPER_SNIPER_MODE", False))
         and bool(getattr(CFG, "PAPER_SNIPER_CONTINUE_ON_HEALTH", True))
@@ -4661,12 +4733,81 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             )
             return
 
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_moonshot_micro_lottery":
+        daily_ok, daily_count, daily_cap = await _moonshot_micro_daily_capacity(ses)
+        if not daily_ok:
+            _research_decision(
+                token,
+                action="wait",
+                reason="moonshot_micro_daily_cap",
+                stage="capacity",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                dedup_ttl_s=900,
+            )
+            _requeue_with_stats(
+                addr,
+                reason=f"moonshot_micro_daily_cap:{daily_count}/{daily_cap}",
+                backoff=900,
+                token=token,
+            )
+            return
+
     if str(token.get("entry_lane") or "").strip().lower() == "pump_early_sniper_research":
         subprofile_decision = evaluate_sniper_research_subprofile(token)
         apply_sniper_research_subprofile_context(token, subprofile_decision)
         vec = build_feature_vector(token)
         vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
         if not subprofile_decision.allowed:
+            hours_without_buy, exploration_open, exploration_daily = await _paper_exploration_quota_state(ses)
+            exploration_decision = should_allow_paper_exploration(
+                token,
+                hours_without_buy=hours_without_buy,
+                open_count=exploration_open,
+                daily_buys=exploration_daily,
+            )
+            if exploration_decision.allowed:
+                token["paper_exploration_quota"] = 1
+                token["green_sniper_reason"] = exploration_decision.reason
+                token["sniper_research_subprofile"] = "sniper_research_momentum_ignition"
+                token["entry_subprofile"] = "sniper_research_momentum_ignition"
+                token["sniper_research_subprofile_reason"] = exploration_decision.reason
+                token["sniper_research_subprofile_failures"] = ""
+                token["live_profit_gate_failed_count"] = 0
+                token["live_profit_gate_failures"] = ""
+                rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+            else:
+                _stats["filtered_out"] += 1
+                _store_policy_reject(vec, already_vector=True, reason=subprofile_decision.reason)
+                _research_decision(
+                    token,
+                    action="shadow",
+                    reason=subprofile_decision.reason,
+                    stage="sniper_research_subprofile",
+                    proba=proba,
+                    threshold=ai_threshold_eff,
+                    rank_info=rank_info,
+                    shadow_kind="research",
+                    dedup_ttl_s=300,
+                )
+                await _open_shadow(
+                    addr,
+                    vec,
+                    price_hint=token.get("price_usd"),
+                    force=True,
+                    regime=size_decision.regime,
+                    reason=subprofile_decision.reason,
+                    stage="sniper_research_subprofile",
+                    proba=proba,
+                    threshold=ai_threshold_eff,
+                    rank_info=rank_info,
+                    shadow_kind="research",
+                )
+                _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+                _remove_from_queue_if_present(addr)
+                return
+        if not subprofile_decision.allowed and not bool(token.get("paper_exploration_quota")):
             _stats["filtered_out"] += 1
             _store_policy_reject(vec, already_vector=True, reason=subprofile_decision.reason)
             _research_decision(
@@ -4696,7 +4837,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
             _remove_from_queue_if_present(addr)
             return
-        rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+        if subprofile_decision.allowed:
+            rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
 
     if DRY_RUN and bool(getattr(CFG, "REQUIRE_ENTRY_LANE_FOR_BUY", True)):
         untagged_decision = evaluate_untagged_buy_guard(token)
@@ -4756,7 +4898,17 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         amount_sol = float(research_canary_decision.amount_sol)
     if str(token.get("entry_lane") or "").strip().lower() == "pump_early_birth_probe_micro_canary":
         amount_sol = float(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_AMOUNT_SOL", 0.01) or 0.01)
-    effective_min_buy_sol = float(getattr(CFG, "GREEN_SNIPER_LIVE_SIZE_SOL", MIN_BUY_SOL) or MIN_BUY_SOL) if green_fast_path else float(MIN_BUY_SOL)
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_moonshot_micro_lottery":
+        amount_sol = min(float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.002) or 0.002), 0.005)
+    if bool(token.get("paper_exploration_quota")):
+        amount_sol = min(float(getattr(CFG, "PAPER_EXPLORATION_AMOUNT_SOL", 0.005) or 0.005), 0.01)
+    effective_min_buy_sol = (
+        float(getattr(CFG, "GREEN_SNIPER_LIVE_SIZE_SOL", MIN_BUY_SOL) or MIN_BUY_SOL)
+        if green_fast_path
+        else 0.0
+        if str(token.get("entry_lane") or "").strip().lower() == "pump_early_moonshot_micro_lottery"
+        else float(MIN_BUY_SOL)
+    )
     if amount_sol < effective_min_buy_sol:
         # Shadow si pasa IA pero no se compra por importe
         _research_decision(
@@ -5234,6 +5386,7 @@ async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[boo
         "pump_early_pumpswap_breakout_probe",
         "pump_early_green_candle_sniper",
         "pump_early_birth_probe_micro_canary",
+        "pump_early_moonshot_micro_lottery",
         "pump_early_research_rank_canary",
         "pump_early_late_momentum_watch",
     }:
@@ -5242,6 +5395,7 @@ async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[boo
     if lane in {
         "pump_early_green_candle_sniper",
         "pump_early_birth_probe_micro_canary",
+        "pump_early_moonshot_micro_lottery",
         "pump_early_research_rank_canary",
         "pump_early_late_momentum_watch",
     }:
@@ -5282,6 +5436,46 @@ async def _birth_probe_micro_daily_capacity(ses: SessionLocal) -> tuple[bool, in
     )
     count = int((await ses.execute(stmt)).scalar() or 0)
     return count < max_daily, count, max_daily
+
+
+async def _moonshot_micro_daily_capacity(ses: SessionLocal) -> tuple[bool, int, int]:
+    if not DRY_RUN:
+        return False, 0, 0
+    if bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED", False)):
+        return False, 0, 0
+    max_daily = max(0, int(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MAX_DAILY_BUYS", 3) or 3))
+    if max_daily <= 0:
+        return False, 0, 0
+    start = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    stmt = select(func.count()).select_from(Position).where(
+        Position.entry_lane == "pump_early_moonshot_micro_lottery",
+        Position.opened_at >= start,
+    )
+    count = int((await ses.execute(stmt)).scalar() or 0)
+    return count < max_daily, count, max_daily
+
+
+async def _paper_exploration_quota_state(ses: SessionLocal) -> tuple[float, int, int]:
+    now = dt.datetime.now(dt.timezone.utc)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    open_stmt = select(func.count()).select_from(Position).where(
+        Position.closed.is_(False),
+        Position.entry_reason == "paper_exploration_quota",
+    )
+    daily_stmt = select(func.count()).select_from(Position).where(
+        Position.entry_reason == "paper_exploration_quota",
+        Position.opened_at >= start,
+    )
+    last_stmt = select(func.max(Position.opened_at)).select_from(Position)
+    open_count = int((await ses.execute(open_stmt)).scalar() or 0)
+    daily_count = int((await ses.execute(daily_stmt)).scalar() or 0)
+    last_opened = (await ses.execute(last_stmt)).scalar()
+    if isinstance(last_opened, dt.datetime):
+        last_opened = last_opened if last_opened.tzinfo else last_opened.replace(tzinfo=dt.timezone.utc)
+        hours_without_buy = max(0.0, (now - last_opened).total_seconds() / 3600.0)
+    else:
+        hours_without_buy = 999.0
+    return hours_without_buy, open_count, daily_count
 
 
 async def _regime_capacity(ses: SessionLocal, regime: str) -> tuple[bool, int, int]:
@@ -6160,6 +6354,33 @@ async def _check_positions(ses: SessionLocal) -> None:
                     continue  # tras parcial, NO cierres en este tick
 
         # ③ Evaluar salida con el precio disponible (puede ser None)
+        if (
+            pos_exit_policy.tp_partial_enabled
+            and price is not None
+            and pnl_pct is not None
+            and not bool(getattr(pos, "partial_taken", False))
+        ):
+            try:
+                peak_for_partial = float(getattr(pos, "highest_pnl_pct", 0.0) or 0.0)
+                peak_plan = exit_policy.partial_ladder_plan(pos, peak_for_partial)
+                current_plan = exit_policy.partial_ladder_plan(pos, float(pnl_pct))
+                if (
+                    bool(peak_plan.get("enabled"))
+                    and float(peak_plan.get("sell_fraction_of_remaining") or 0.0) > 0.0
+                    and float(current_plan.get("sell_fraction_of_remaining") or 0.0) <= 0.0
+                ):
+                    record_runtime_event(
+                        "missed_partial_due_to_tick_gap",
+                        pos.address,
+                        entry_lane=getattr(pos, "entry_lane", None),
+                        gate_profile=getattr(pos, "gate_profile", None),
+                        peak_pct=peak_for_partial,
+                        pnl_pct=float(pnl_pct),
+                        pending_steps=peak_plan.get("triggered_steps") or [],
+                    )
+            except Exception:
+                log.debug("missed partial tick-gap audit failed for %s", pos.address[:6], exc_info=True)
+
         exit_reason = await _should_exit(pos, price, now, liq_now=liq_now, pnl_pct=pnl_pct)
         if exit_reason is None:
             continue
@@ -6560,6 +6781,7 @@ async def _bootstrap_strategy_runtime(ses: SessionLocal) -> None:
             "pump_early_late_momentum_watch",
             "pump_early_green_candle_sniper",
             "pump_early_birth_probe_micro_canary",
+            "pump_early_moonshot_micro_lottery",
         }
         if (
             _PUMP_EARLY_PROFIT_HEALTH_REBASE_CURRENT_GATE

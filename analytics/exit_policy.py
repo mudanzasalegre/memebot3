@@ -675,6 +675,17 @@ def _is_green_birth_probe_subject(subject: Any) -> bool:
     return profile == "green_sniper_birth_probe" or tier == "green_sniper_birth_probe"
 
 
+def _is_moonshot_micro_subject(subject: Any) -> bool:
+    lane = str(_get(subject, "entry_lane", "") or "").strip().lower()
+    profile = str(_get(subject, "gate_profile", "") or _get(subject, "sniper_gate_profile", "") or "").strip().lower()
+    tier = str(_get(subject, "profit_lane_tier", "") or "").strip().lower()
+    return (
+        lane == "pump_early_moonshot_micro_lottery"
+        or tier == "pump_early_moonshot_micro_lottery"
+        or profile == "moonshot_micro_lottery"
+    )
+
+
 def _cfg_runner_step(prefix: str, index: int, trigger_default: float, fraction_default: float) -> bird_runner_exit.BirdRunnerStep:
     trigger = _to_float(getattr(CFG, f"{prefix}_TP{index}_PCT", trigger_default), trigger_default)
     fraction = _to_float(getattr(CFG, f"{prefix}_TP{index}_FRACTION", fraction_default), fraction_default)
@@ -697,34 +708,76 @@ def _configured_runner_steps(
     )
 
 
+def _merge_global_bird_tp1(
+    subject: Any,
+    steps: tuple[bird_runner_exit.BirdRunnerStep, ...],
+) -> tuple[bird_runner_exit.BirdRunnerStep, ...]:
+    if _is_moonshot_micro_subject(subject) or not _effective_dry_run(subject):
+        return steps
+    if not bird_runner_exit.bird_runner_multi_partial_enabled(dry_run=True, cfg=CFG):
+        return steps
+    bird_steps = bird_runner_exit.configured_bird_runner_steps(CFG)
+    if not bird_steps:
+        return steps
+    bird_tp1 = bird_steps[0]
+    merged: list[bird_runner_exit.BirdRunnerStep] = []
+    matched = False
+    for step in steps:
+        if abs(float(step.trigger_pct) - float(bird_tp1.trigger_pct)) < 1e-9:
+            merged.append(
+                bird_runner_exit.BirdRunnerStep(
+                    trigger_pct=float(step.trigger_pct),
+                    fraction=max(float(step.fraction), float(bird_tp1.fraction)),
+                )
+            )
+            matched = True
+        else:
+            merged.append(step)
+    if not matched:
+        merged.append(bird_tp1)
+    return tuple(sorted(merged, key=lambda item: item.trigger_pct))
+
+
 def _runner_ladder_overrides(
     subject: Any,
 ) -> tuple[tuple[bird_runner_exit.BirdRunnerStep, ...] | None, float | None]:
-    if _is_birth_probe_micro_subject(subject):
+    if _is_moonshot_micro_subject(subject):
         return (
             _configured_runner_steps(
+                "MOONSHOT_MICRO_LOTTERY",
+                ((50.0, 0.40), (100.0, 0.25), (300.0, 0.20), (700.0, 0.10)),
+            ),
+            _to_float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MOONBAG_FRACTION", 0.05), 0.05),
+        )
+
+    if _is_birth_probe_micro_subject(subject):
+        steps = _configured_runner_steps(
                 "BIRTH_PROBE_MICRO_CANARY",
                 ((25.0, 0.15), (100.0, 0.20), (300.0, 0.20), (700.0, 0.15)),
-            ),
+        )
+        return (
+            _merge_global_bird_tp1(subject, steps),
             _to_float(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_MOONBAG_FRACTION", 0.30), 0.30),
         )
 
     profile = resolve_runner_exit_profile(subject)
     if profile == "jackpot_runner":
-        return (
-            _configured_runner_steps(
+        steps = _configured_runner_steps(
                 "PUMP_EARLY_PROFIT_RUNNER_JACKPOT",
                 ((100.0, 0.20), (300.0, 0.20), (500.0, 0.15), (1000.0, 0.15)),
-            ),
+        )
+        return (
+            _merge_global_bird_tp1(subject, steps),
             _to_float(getattr(CFG, "PUMP_EARLY_PROFIT_RUNNER_JACKPOT_MOONBAG_FRACTION", 0.30), 0.30),
         )
 
     if profile == "green_sniper_runner" or _is_green_birth_probe_subject(subject) or _is_late_momentum_subject(subject):
-        return (
-            _configured_runner_steps(
+        steps = _configured_runner_steps(
                 "GREEN_SNIPER_MOONSHOT",
                 ((25.0, 0.15), (100.0, 0.15), (300.0, 0.15), (700.0, 0.15)),
-            ),
+        )
+        return (
+            _merge_global_bird_tp1(subject, steps),
             _to_float(getattr(CFG, "GREEN_SNIPER_MOONSHOT_MOONBAG_FRACTION", 0.40), 0.40),
         )
 
@@ -1123,6 +1176,30 @@ def should_exit(
         if post_partial_reason is not None:
             return post_partial_reason
 
+    if pnl_pct is not None and _is_moonshot_micro_subject(subject):
+        hard_stop = max(
+            0.0,
+            _to_float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_HARD_STOP_PCT", 20.0), 20.0),
+        )
+        if hard_stop > 0.0 and float(pnl_pct) <= -hard_stop:
+            return "MOONSHOT_HARD_STOP"
+        no_expansion_s = max(
+            0.0,
+            _to_float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_NO_EXPANSION_EXIT_S", 90), 90.0),
+        )
+        time_stop_min = max(
+            0.0,
+            _to_float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_TIME_STOP_MIN", 2.0), 2.0),
+        )
+        time_stop_max_pnl = _to_float(
+            getattr(CFG, "MOONSHOT_MICRO_LOTTERY_TIME_STOP_MAX_PNL_PCT", 10.0),
+            10.0,
+        )
+        if no_expansion_s > 0.0 and age_s >= no_expansion_s and peak < time_stop_max_pnl and float(pnl_pct) < time_stop_max_pnl:
+            return "MOONSHOT_NO_EXPANSION"
+        if time_stop_min > 0.0 and age_min >= time_stop_min and float(pnl_pct) < time_stop_max_pnl:
+            return "MOONSHOT_TIME_STOP"
+
     if pnl_pct is not None and _is_birth_probe_micro_subject(subject):
         no_expansion_min = max(
             0.0,
@@ -1237,8 +1314,21 @@ def should_exit(
     if float(policy.trailing_pct) > 0 and float(pnl_pct) <= (peak - float(policy.trailing_pct)):
         return "TRAILING_STOP"
 
-    green_waiting_for_partial = _is_green_sniper_subject(subject) and not partial_taken and policy.tp_partial_enabled
-    if not green_waiting_for_partial and float(pnl_pct) >= float(policy.take_profit_pct):
+    waiting_ladder_partial = False
+    if not partial_taken and policy.tp_partial_enabled:
+        try:
+            waiting_ladder_partial = float(partial_ladder_plan(subject, float(pnl_pct)).get("sell_fraction_of_remaining") or 0.0) > 0.0
+        except Exception:
+            waiting_ladder_partial = False
+    runner_waiting_for_partial = (
+        waiting_ladder_partial
+        or (
+            (_is_green_sniper_subject(subject) or _is_moonshot_micro_subject(subject))
+            and not partial_taken
+            and policy.tp_partial_enabled
+        )
+    )
+    if not runner_waiting_for_partial and float(pnl_pct) >= float(policy.take_profit_pct):
         if not (policy.tp_partial_enabled and partial_taken):
             return "TAKE_PROFIT"
 

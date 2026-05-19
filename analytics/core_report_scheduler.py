@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from analytics.report_utils import metrics_dir, write_json
+from analytics.report_utils import metrics_dir, set_include_test_events, write_json
 from config.config import PROJECT_ROOT
 
 
@@ -21,6 +21,13 @@ REQUIRED_CORE_REPORTS = (
     "research_rank_canary_audit.json",
     "runner_turbo_monitor_report.json",
     "entry_funnel_blockers_report.json",
+    "partial_ladder_execution_audit.json",
+    "research_rank_priority_report.json",
+    "momentum_ignition_fallback_report.json",
+    "moonshot_micro_lottery_report.json",
+    "current_run_summary.json",
+    "entry_funnel_blocker_samples.json",
+    "paper_exploration_quota_report.json",
 )
 
 
@@ -89,14 +96,19 @@ def report_freshness(root: Path | None = None) -> dict[str, Any]:
     return out
 
 
-def _generators(root: Path) -> dict[str, Callable[[], Any]]:
+def _generators(root: Path, *, include_test_events: bool = False) -> dict[str, Callable[[], Any]]:
+    from analytics.current_run_summary import write_current_run_summary
+    from analytics.momentum_ignition_fallback_report import write_momentum_ignition_fallback_report
     from analytics.missed_pumps import write_missed_pumps_report
+    from analytics.moonshot_micro_lottery import write_moonshot_micro_lottery_report
+    from analytics.paper_exploration_quota import write_paper_exploration_quota_report
+    from analytics.partial_ladder_execution_audit import write_partial_ladder_execution_audit
     from analytics.post_hotfix_strategy_preview import write_post_hotfix_strategy_preview
     from analytics.runner_capture_ladder_report import write_runner_capture_ladder_report
     from analytics.runner_turbo_monitor import write_runner_turbo_monitor_report
     from analytics.entry_funnel_blockers_report import write_entry_funnel_blockers_report
     from analytics.pumpswap_rebound_prime import write_pumpswap_rebound_confirmation_report
-    from analytics.research_rank_canary import write_research_rank_canary_audit_report
+    from analytics.research_rank_canary import write_research_rank_canary_audit_report, write_research_rank_priority_report
     from analytics.sniper_research_subprofiles import write_sniper_research_subprofile_report
     from analytics.trade_diagnostics import write_trade_diagnostics_report
     from analytics.untagged_buy_block import write_untagged_buy_block_report
@@ -112,18 +124,29 @@ def _generators(root: Path) -> dict[str, Callable[[], Any]]:
         "sniper_research_subprofile_report.json": lambda: write_sniper_research_subprofile_report(root),
         "pumpswap_rebound_confirmation_report.json": lambda: write_pumpswap_rebound_confirmation_report(root),
         "research_rank_canary_audit.json": lambda: write_research_rank_canary_audit_report(root),
-        "runner_turbo_monitor_report.json": lambda: write_runner_turbo_monitor_report(root),
+        "runner_turbo_monitor_report.json": lambda: write_runner_turbo_monitor_report(
+            root,
+            include_test_events=include_test_events,
+        ),
         "entry_funnel_blockers_report.json": lambda: write_entry_funnel_blockers_report(root),
+        "partial_ladder_execution_audit.json": lambda: write_partial_ladder_execution_audit(root),
+        "research_rank_priority_report.json": lambda: write_research_rank_priority_report(root),
+        "momentum_ignition_fallback_report.json": lambda: write_momentum_ignition_fallback_report(root),
+        "moonshot_micro_lottery_report.json": lambda: write_moonshot_micro_lottery_report(root),
+        "current_run_summary.json": lambda: write_current_run_summary(root),
+        "entry_funnel_blocker_samples.json": lambda: write_entry_funnel_blockers_report(root),
+        "paper_exploration_quota_report.json": lambda: write_paper_exploration_quota_report(root),
     }
 
 
-def regenerate_core_reports(root: Path | None = None) -> dict[str, Any]:
+def regenerate_core_reports(root: Path | None = None, *, include_test_events: bool = False) -> dict[str, Any]:
     root = root or PROJECT_ROOT
+    set_include_test_events(include_test_events)
     target_dir = metrics_dir(root)
     target_dir.mkdir(parents=True, exist_ok=True)
     generated: dict[str, Any] = {}
     warnings: dict[str, str] = {}
-    generators = _generators(root)
+    generators = _generators(root, include_test_events=include_test_events)
     for name in REQUIRED_CORE_REPORTS:
         path = target_dir / name
         try:

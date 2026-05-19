@@ -324,8 +324,8 @@ def test_research_rank_canary_real_lane_uses_jackpot_ladder() -> None:
 
     assert policy.runner_exit_profile == "jackpot_runner"
     assert plan["enabled"] is True
-    assert plan["target_secured_fraction"] == pytest.approx(0.55)
-    assert exit_policy.partial_sell_fraction(subject, 500.0) == pytest.approx(0.55)
+    assert plan["target_secured_fraction"] == pytest.approx(0.70)
+    assert exit_policy.partial_sell_fraction(subject, 500.0) == pytest.approx(0.70)
 
 
 def test_jackpot_runner_waits_for_first_ladder_step_before_take_profit() -> None:
@@ -352,8 +352,8 @@ def test_jackpot_runner_waits_for_first_ladder_step_before_take_profit() -> None
 
     policy = exit_policy.effective_exit_policy(subject)
 
-    assert policy.take_profit_pct == 100.0
-    assert exit_policy.should_take_partial(subject, 40.0) is False
+    assert policy.take_profit_pct == 25.0
+    assert exit_policy.should_take_partial(subject, 40.0) is True
     assert exit_policy.should_exit(subject, price_now=1.4, now=now, pnl_pct=40.0) is None
 
 
@@ -376,6 +376,37 @@ def test_green_birth_probe_moonshot_ladder_keeps_large_moonbag() -> None:
     assert policy.runner_exit_profile == "green_sniper_runner"
     assert plan["target_secured_fraction"] == pytest.approx(0.60)
     assert exit_policy.partial_sell_fraction(subject, 700.0) == pytest.approx(0.60)
+
+
+def test_wlc_style_rank_canary_peak_40_triggers_bird_tp1_before_retrace() -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_research_rank_canary",
+        "gate_profile": "research_rank_canary",
+        "buy_dex_id": "pumpswap",
+        "buy_liquidity_is_proxy": 0,
+        "buy_liquidity_usd": 21_689.0,
+        "buy_market_cap_usd": 77_057.0,
+        "buy_price_pct_5m": 76.33,
+        "buy_txns_last_5m": 1754.0,
+        "research_rank_score": 75.0,
+        "opened_at": now,
+        "buy_price_usd": 1.0,
+        "highest_pnl_pct": 40.2,
+        "partial_taken": False,
+        "partial_count": 0,
+        "entry_qty": 1_000,
+        "qty": 1_000,
+        "realized_qty": 0,
+    }
+
+    plan = exit_policy.partial_ladder_plan(subject, 40.2)
+
+    assert plan["sell_fraction_of_remaining"] == pytest.approx(0.25)
+    assert plan["pending_step_count"] == 1
+    assert exit_policy.should_take_partial(subject, 40.2) is True
+    assert exit_policy.should_exit(subject, price_now=1.402, now=now, pnl_pct=40.2) is None
 
 
 def test_research_rank_jackpot_profile_protects_without_rank_column() -> None:

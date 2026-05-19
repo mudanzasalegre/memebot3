@@ -126,3 +126,42 @@ def test_multi_partial_is_not_live_enabled_by_default() -> None:
         assert exit_policy.runner_giveback_emergency_reason(subject, pnl_pct=850.0, peak=1000.0) is None
     finally:
         exit_policy.CFG = original_cfg
+
+
+def test_jackpot_runner_cannot_suppress_global_bird_tp1_in_paper() -> None:
+    original_cfg = exit_policy.CFG
+    exit_policy.CFG = replace(
+        _cfg(),
+        PUMP_EARLY_PROFIT_RUNNER_JACKPOT_TP1_PCT=100.0,
+        PUMP_EARLY_PROFIT_RUNNER_JACKPOT_TP1_FRACTION=0.20,
+    )
+    try:
+        subject = _subject(
+            entry_lane="pump_early_research_rank_canary",
+            gate_profile="research_rank_canary",
+            buy_dex_id="pumpswap",
+            buy_liquidity_is_proxy=0,
+            buy_liquidity_usd=22_000.0,
+            buy_market_cap_usd=77_000.0,
+            buy_price_pct_5m=76.0,
+            buy_txns_last_5m=1700.0,
+            research_rank_score=75.0,
+            highest_pnl_pct=40.2,
+        )
+        plan = exit_policy.partial_ladder_plan(subject, 40.2)
+        assert plan["triggered_steps"][0]["trigger_pct"] == pytest.approx(25.0)
+        assert plan["sell_fraction_of_remaining"] == pytest.approx(0.25)
+    finally:
+        exit_policy.CFG = original_cfg
+
+
+def test_moonshot_lottery_uses_own_ladder_not_bird_tp1() -> None:
+    original_cfg = exit_policy.CFG
+    exit_policy.CFG = _cfg()
+    try:
+        subject = _subject(entry_lane="pump_early_moonshot_micro_lottery", gate_profile="moonshot_micro_lottery")
+        assert exit_policy.should_take_partial(subject, 40.0) is False
+        assert exit_policy.should_take_partial(subject, 50.0) is True
+        assert exit_policy.partial_sell_fraction(subject, 50.0) == pytest.approx(0.40)
+    finally:
+        exit_policy.CFG = original_cfg

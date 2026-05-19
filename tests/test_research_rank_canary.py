@@ -4,6 +4,7 @@ from analytics.research_rank_canary import (
     apply_research_rank_canary_context,
     apply_research_rank_canary_shadow_context,
     evaluate_research_rank_canary,
+    write_research_rank_priority_report,
 )
 
 
@@ -162,3 +163,58 @@ def test_research_rank_canary_price5m_40_50_requires_rank70_or_liq20k() -> None:
     token["liquidity_usd"] = 20_000
     allowed_by_liq = evaluate_research_rank_canary(token, {"rank_score": 66}, dry_run=True, live=False)
     assert allowed_by_liq.allowed
+
+
+def test_research_rank_canary_priority_allows_high_quality_50_120_band() -> None:
+    token = {
+        "entry_lane": "pump_early_sniper_research",
+        "liquidity_usd": 22_000,
+        "market_cap_usd": 77_000,
+        "price_pct_5m": 116,
+        "txns_last_5m": 1500,
+        "has_jupiter_route": True,
+        "liquidity_is_proxy": 0,
+    }
+    decision = evaluate_research_rank_canary(token, {"rank_score": 75}, dry_run=True, live=False)
+
+    assert decision.allowed
+    assert decision.priority is True
+    assert decision.reason == "research_rank_canary_priority"
+
+
+def test_research_rank_canary_priority_requires_route_and_real_liquidity() -> None:
+    token = {
+        "entry_lane": "pump_early_sniper_research",
+        "liquidity_usd": 22_000,
+        "market_cap_usd": 77_000,
+        "price_pct_5m": 116,
+        "txns_last_5m": 1500,
+        "has_jupiter_route": False,
+        "liquidity_is_proxy": 0,
+    }
+    no_route = evaluate_research_rank_canary(token, {"rank_score": 75}, dry_run=True, live=False)
+    assert not no_route.allowed
+
+    token["has_jupiter_route"] = True
+    token["liquidity_is_proxy"] = 1
+    proxy = evaluate_research_rank_canary(token, {"rank_score": 75}, dry_run=True, live=False)
+    assert not proxy.allowed
+
+
+def test_research_rank_priority_report_outputs_priority_vs_normal(tmp_path) -> None:
+    metrics = tmp_path / "data" / "metrics"
+    metrics.mkdir(parents=True)
+    (metrics / "candidate_outcomes.jsonl").write_text(
+        "\n".join(
+            [
+                '{"address":"A","entry_lane":"pump_early_research_rank_canary","reason":"research_rank_canary_priority","total_pnl_pct":12}',
+                '{"address":"B","entry_lane":"pump_early_research_rank_canary","reason":"research_rank_canary","total_pnl_pct":-3}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = write_research_rank_priority_report(tmp_path)
+
+    assert report["historical"]["priority"]["rows"] == 1
+    assert report["historical"]["normal"]["rows"] == 1

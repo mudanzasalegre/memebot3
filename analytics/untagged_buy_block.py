@@ -27,6 +27,7 @@ VALID_DIRECT_LANES = {
     "pump_early_pumpswap_rebound_prime",
     "pump_early_sniper_research",
     "pump_early_birth_probe_micro_canary",
+    "pump_early_moonshot_micro_lottery",
 }
 REASON_UNTAGGED_BLOCKED = "untagged_buy_blocked"
 

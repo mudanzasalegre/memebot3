@@ -6,6 +6,7 @@ from typing import Any, Iterable
 from config.config import CFG
 from ml.lane_taxonomy import (
     LANE_BIRTH_PROBE_MICRO_CANARY,
+    LANE_MOONSHOT_MICRO_LOTTERY,
     LANE_PUMP_EARLY_BREAKOUT,
     LANE_PUMP_EARLY_GREEN_SNIPER,
     LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
@@ -53,6 +54,10 @@ def _cap_for_lane(lane: str, *, dry_run: bool, live: bool) -> int:
         if live:
             return 0
         return _int_cfg("BIRTH_PROBE_MICRO_CANARY_MAX_OPEN", 1)
+    if lane == LANE_MOONSHOT_MICRO_LOTTERY:
+        if live:
+            return 0
+        return _int_cfg("MOONSHOT_MICRO_LOTTERY_MAX_OPEN", 1)
     if lane == LANE_PUMP_EARLY_BREAKOUT:
         return _int_cfg("PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1)
     if lane == LANE_PUMPSWAP_REBOUND_PRIME:
@@ -62,7 +67,7 @@ def _cap_for_lane(lane: str, *, dry_run: bool, live: bool) -> int:
     if lane == LANE_RESEARCH_SNIPER:
         return _int_cfg("RESEARCH_SHADOW_MAX_OPEN_PER_REGIME", 4)
     if lane == LANE_RESEARCH_RANK_CANARY:
-        return _int_cfg("RESEARCH_RANK_CANARY_MAX_OPEN", 1)
+        return _int_cfg("RESEARCH_RANK_CANARY_PRIORITY_MAX_OPEN", _int_cfg("RESEARCH_RANK_CANARY_MAX_OPEN", 1))
     return 999 if dry_run else 1
 
 
@@ -124,6 +129,10 @@ def describe_position_limits() -> dict[str, Any]:
         "birth_probe_micro_canary": {
             "paper": _cap_for_lane(LANE_BIRTH_PROBE_MICRO_CANARY, dry_run=True, live=False),
             "live": _cap_for_lane(LANE_BIRTH_PROBE_MICRO_CANARY, dry_run=False, live=True),
+        },
+        "moonshot_micro_lottery": {
+            "paper": _cap_for_lane(LANE_MOONSHOT_MICRO_LOTTERY, dry_run=True, live=False),
+            "live": _cap_for_lane(LANE_MOONSHOT_MICRO_LOTTERY, dry_run=False, live=True),
         },
     }
 

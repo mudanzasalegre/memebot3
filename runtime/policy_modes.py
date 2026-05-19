@@ -4,6 +4,7 @@ from typing import Any
 
 from config.config import CFG
 from ml.lane_taxonomy import (
+    LANE_MOONSHOT_MICRO_LOTTERY,
     LANE_PUMP_EARLY_GREEN_SNIPER,
     LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
     LANE_RESEARCH_RANK_CANARY,
@@ -30,6 +31,9 @@ def mode_for_lane(lane: str, *, live: bool = False) -> str:
     elif lane == LANE_RESEARCH_RANK_CANARY:
         default = "canary"
         mode = _mode(getattr(CFG, "RESEARCH_RANK_POLICY_MODE", default), default)
+    elif lane == LANE_MOONSHOT_MICRO_LOTTERY:
+        default = "canary"
+        mode = _mode(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_POLICY_MODE", default), default)
     else:
         mode = _mode(getattr(CFG, "DEFAULT_POLICY_MODE", "observe"), "observe")
     if live and mode == "enforce" and not bool(getattr(CFG, "ALLOW_LIVE_POLICY_ENFORCE", False)):

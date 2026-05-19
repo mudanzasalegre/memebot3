@@ -8,6 +8,7 @@ from analytics.report_utils import (
     address_of,
     boolish,
     bought_addresses,
+    fnum,
     load_candidate_outcomes,
     load_paper_positions,
     load_runtime_events,
@@ -20,6 +21,20 @@ from config.config import PROJECT_ROOT
 
 
 REPORT_JSON = "entry_funnel_blockers_report.json"
+SAMPLES_JSON = "entry_funnel_blocker_samples.json"
+BLOCKERS = (
+    "rank_below_min",
+    "soft_score",
+    "vol_low",
+    "mcap_low",
+    "toxic_initial_sell_pressure",
+    "untagged_buy_blocked",
+    "momentum_ignition_needs_confirmation",
+    "rebound_no_confirmation",
+    "no_route",
+    "proxy_liquidity",
+    "trend_missing_without_second_tick",
+)
 
 
 def _norm(value: Any) -> str:
@@ -36,6 +51,64 @@ def _event(row: dict[str, Any]) -> str:
 
 def _decision_action(row: dict[str, Any]) -> str:
     return _norm(row.get("decision_action") or row.get("action") or row.get("decision"))
+
+
+def _pnl(row: dict[str, Any]) -> float:
+    return fnum(row.get("shadow_pnl_pct") or row.get("target_total_pnl_pct") or row.get("realized_pnl_pct") or row.get("pnl_pct"), 0.0)
+
+
+def _peak(row: dict[str, Any]) -> float:
+    return max(fnum(row.get("observed_peak_after_seen") or row.get("highest_pnl_pct") or row.get("peak_pnl_pct"), 0.0), _pnl(row))
+
+
+def _matches_blocker(row: dict[str, Any], blocker: str) -> bool:
+    reason = _reason(row)
+    if blocker == "no_route":
+        return "no_route" in reason or "route_required" in reason
+    if blocker == "proxy_liquidity":
+        return "proxy_liquidity" in reason or "liq_proxy" in reason
+    if blocker == "trend_missing_without_second_tick":
+        return "trend_missing_without_second_tick" in reason
+    if blocker == "rebound_no_confirmation":
+        return "rebound_no_confirmation" in reason or "shadow_rebound_watch" in reason
+    return blocker in reason
+
+
+def _recommended_action(blocker: str, rows: list[dict[str, Any]]) -> str:
+    max_peak = max((_peak(row) for row in rows), default=0.0)
+    avg_pnl = sum(_pnl(row) for row in rows) / len(rows) if rows else 0.0
+    if blocker in {"toxic_initial_sell_pressure", "untagged_buy_blocked"}:
+        return "keep_block"
+    if blocker in {"proxy_liquidity", "trend_missing_without_second_tick"} and max_peak >= 500.0:
+        return "micro_probe"
+    if blocker in {"momentum_ignition_needs_confirmation", "rank_below_min"} and avg_pnl > 0.0:
+        return "allow_small_paper"
+    if max_peak >= 100.0:
+        return "relax_to_shadow"
+    return "needs_more_data"
+
+
+def _blocker_detail(blocker: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    matched = [row for row in rows if _matches_blocker(row, blocker)]
+    pnls = [_pnl(row) for row in matched]
+    max_peak = max((_peak(row) for row in matched), default=0.0)
+    return {
+        "count": len({address_of(row) for row in matched if address_of(row)}) or len(matched),
+        "sample_tokens": [
+            {
+                "address": address_of(row),
+                "reason": _reason(row),
+                "entry_lane": row.get("entry_lane"),
+                "pnl_pct": _pnl(row),
+                "peak_pct": _peak(row),
+            }
+            for row in matched[:10]
+        ],
+        "avg_shadow_pnl": round(sum(pnls) / len(pnls), 3) if pnls else 0.0,
+        "max_shadow_peak": round(max_peak, 3),
+        "would_pass_if_relaxed": len(matched),
+        "recommended_action": _recommended_action(blocker, matched),
+    }
 
 
 def _unique_matching(rows: Iterable[dict[str, Any]], predicate: Any) -> set[str]:
@@ -132,6 +205,7 @@ def build_entry_funnel_blockers_report(root: Path | None = None) -> dict[str, An
             "positions": len(position_rows),
         },
     }
+    report["blocker_details"] = {blocker: _blocker_detail(blocker, all_rows) for blocker in BLOCKERS}
     return report
 
 
@@ -139,11 +213,13 @@ def write_entry_funnel_blockers_report(root: Path | None = None) -> dict[str, An
     root = root or PROJECT_ROOT
     report = build_entry_funnel_blockers_report(root)
     write_json(metrics_dir(root) / REPORT_JSON, report)
+    write_json(metrics_dir(root) / SAMPLES_JSON, report.get("blocker_details", {}))
     return report
 
 
 __all__ = [
     "REPORT_JSON",
+    "SAMPLES_JSON",
     "build_entry_funnel_blockers_report",
     "write_entry_funnel_blockers_report",
 ]

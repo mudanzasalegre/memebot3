@@ -101,6 +101,38 @@ def _toxic_initial_sell_pressure(row: dict[str, Any]) -> bool:
     return "toxic_initial_sell_pressure" in reason or ">70% ventas iniciales" in reason
 
 
+def _rank_score(row: dict[str, Any]) -> float:
+    raw = _first(row, "research_rank_score", "rank_score", "research_rank_canary_rank_score")
+    score = _field_float({"value": raw}, "value", default=0.0)
+    if 0.0 < score <= 1.0:
+        return score * 100.0
+    return score
+
+
+def _queue_age_minutes(row: dict[str, Any]) -> float:
+    return _field_float(row, "queue_age_minutes", "age_minutes", "age_min", "token_age_min", default=999.0)
+
+
+def momentum_trend_missing_strong_reasons(row: dict[str, Any], *, cfg: Any = CFG) -> tuple[str, ...]:
+    reasons: list[str] = []
+    txns = _field_float(row, "buy_txns_last_5m", "txns_last_5m", "txns_5m")
+    rank = _rank_score(row)
+    liq = _field_float(row, "buy_liquidity_usd", "liquidity_usd")
+    volume_24h = _field_float(row, "buy_volume_24h_usd", "volume_usd_24h", "volume_24h", "volume24h")
+    queue_age = _queue_age_minutes(row)
+    if txns >= float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_STRONG_MIN_TXNS_5M", 1200) or 1200):
+        reasons.append("strong_txns5m")
+    if rank >= float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_STRONG_MIN_RANK", 70.0) or 70.0):
+        reasons.append("strong_rank")
+    if liq >= float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_STRONG_MIN_LIQUIDITY", 25_000.0) or 25_000.0):
+        reasons.append("strong_liquidity")
+    if volume_24h >= float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_STRONG_MIN_VOLUME_24H", 100_000.0) or 100_000.0):
+        reasons.append("strong_volume_24h")
+    if queue_age <= float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_STRONG_MAX_QUEUE_AGE_MIN", 5.0) or 5.0):
+        reasons.append("strong_queue_age")
+    return tuple(reasons)
+
+
 def _momentum_ignition_failures(row: dict[str, Any], *, cfg: Any = CFG) -> list[str]:
     failures: list[str] = []
     price5m = _field_float(row, "buy_price_pct_5m", "price_pct_5m", "price5m")
@@ -129,8 +161,11 @@ def _momentum_ignition_failures(row: dict[str, Any], *, cfg: Any = CFG) -> list[
     top10_share = _top10_holder_share_pct(row)
     if top10_share > top10_max:
         failures.append(f"momentum:helius_top10_share>{top10_max:g}")
-    if not _has_trend_data(row) and not _second_tick_confirmed(row):
-        failures.append("momentum:trend_missing_without_second_tick")
+    trend_missing = not _has_trend_data(row) and not _second_tick_confirmed(row)
+    if trend_missing:
+        allow_missing = bool(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_ALLOW_TREND_MISSING_IF_STRONG", True))
+        if not (allow_missing and momentum_trend_missing_strong_reasons(row, cfg=cfg)):
+            failures.append("momentum:trend_missing_without_second_tick")
     if _toxic_initial_sell_pressure(row):
         failures.append("momentum:toxic_initial_sell_pressure")
     return failures
@@ -174,6 +209,13 @@ def evaluate_sniper_research_subprofile(
         price5m = _field_float(row, "buy_price_pct_5m", "price_pct_5m", "price5m")
         if price5m >= float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_MIN_PRICE5M", 100) or 100):
             compact_momentum = tuple(dict.fromkeys(momentum_failures))
+            if compact_momentum == ("momentum:trend_missing_without_second_tick",):
+                return SniperResearchSubprofileDecision(
+                    False,
+                    None,
+                    "momentum_ignition_needs_confirmation",
+                    compact_momentum,
+                )
             return SniperResearchSubprofileDecision(
                 False,
                 None,
@@ -325,5 +367,6 @@ __all__ = [
     "apply_sniper_research_subprofile_context",
     "build_sniper_research_subprofile_report",
     "evaluate_sniper_research_subprofile",
+    "momentum_trend_missing_strong_reasons",
     "write_sniper_research_subprofile_report",
 ]

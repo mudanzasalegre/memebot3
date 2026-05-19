@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from config.config import PROJECT_ROOT
+from utils.runtime_context import runtime_context_payload
 from utils.time import utc_now
 
 
@@ -36,6 +37,7 @@ def record_runtime_event(event_type: str, address: str, **payload: Any) -> None:
         "event_type": str(event_type),
         "address": str(address),
     }
+    row.update(runtime_context_payload())
     row.update({str(k): _json_safe(v) for k, v in payload.items()})
 
     line = json.dumps(row, ensure_ascii=True)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 import sys
 from pathlib import Path
 
@@ -12,7 +13,10 @@ from analytics.core_report_scheduler import regenerate_core_reports
 
 
 def main() -> int:
-    summary = regenerate_core_reports(ROOT)
+    parser = argparse.ArgumentParser(description="Regenerate core strategy reports.")
+    parser.add_argument("--include-test-events", action="store_true", help="Include smoke/test events in reports.")
+    args = parser.parse_args()
+    summary = regenerate_core_reports(ROOT, include_test_events=bool(args.include_test_events))
     warnings = summary.get("warnings") if isinstance(summary, dict) else {}
     print(
         json.dumps(

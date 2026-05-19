@@ -5,8 +5,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from analytics.report_utils import metrics_dir, read_jsonl, write_json
+from analytics.report_utils import filter_test_events, metrics_dir, read_jsonl, write_json
 from config.config import CFG, PROJECT_ROOT
+from utils.runtime_context import runtime_context_payload
 
 
 EVENTS_FILE = "runner_turbo_events.jsonl"
@@ -75,8 +76,19 @@ def _persist_event(row: dict[str, Any], *, root: Path | None = None) -> None:
         handle.write(json.dumps(_json_safe(row), ensure_ascii=True, sort_keys=True) + "\n")
 
 
-def _event(event: str, address: str, *, now: dt.datetime, persist: bool = True, **extra: Any) -> None:
-    row = {"event": event, "address": address, "ts_utc": now.isoformat(), **extra}
+def _event(
+    event: str,
+    address: str,
+    *,
+    now: dt.datetime,
+    persist: bool = True,
+    run_id: str | None = None,
+    test_event: bool | None = None,
+    **extra: Any,
+) -> None:
+    row = {"event": event, "address": address, "ts_utc": now.isoformat()}
+    row.update(runtime_context_payload(run_id=run_id, test_event=test_event))
+    row.update(extra)
     events = _STATE.setdefault("events", [])
     if not isinstance(events, list):
         events = []
@@ -98,6 +110,8 @@ def observe_position(
     dry_run: bool = True,
     now: dt.datetime | None = None,
     cfg: Any = CFG,
+    run_id: str | None = None,
+    test_event: bool | None = None,
 ) -> dict[str, Any]:
     ts = _now(now)
     key = str(address or "")
@@ -108,7 +122,7 @@ def observe_position(
         active = {}
         _STATE["active"] = active
     if closed:
-        return mark_closed(key, now=ts)
+        return mark_closed(key, now=ts, run_id=run_id, test_event=test_event)
 
     existing = active.get(key)
     if isinstance(existing, dict):
@@ -117,10 +131,27 @@ def observe_position(
             expires_at = expires_at.replace(tzinfo=dt.timezone.utc)
         if ts >= expires_at:
             active.pop(key, None)
-            _event(EVENT_RUNNER_TURBO_EXIT, key, now=ts, reason="expired", peak_pct=float(peak_pct or 0.0), dry_run=bool(dry_run))
+            _event(
+                EVENT_RUNNER_TURBO_EXIT,
+                key,
+                now=ts,
+                reason="expired",
+                peak_pct=float(peak_pct or 0.0),
+                dry_run=bool(dry_run),
+                run_id=run_id,
+                test_event=test_event,
+            )
             write_runner_turbo_monitor_report()
             return {"active": False, "reason": "expired"}
-        _event(EVENT_RUNNER_TURBO_TICK, key, now=ts, peak_pct=float(peak_pct or 0.0), dry_run=bool(dry_run))
+        _event(
+            EVENT_RUNNER_TURBO_TICK,
+            key,
+            now=ts,
+            peak_pct=float(peak_pct or 0.0),
+            dry_run=bool(dry_run),
+            run_id=run_id,
+            test_event=test_event,
+        )
         return {"active": True, "reason": "already_active", **existing}
 
     threshold = _cfg_float(cfg, "RUNNER_TURBO_PEAK_PCT", 100.0)
@@ -145,6 +176,8 @@ def observe_position(
         peak_pct=float(peak_pct),
         dry_run=bool(dry_run),
         paper_only=_cfg_bool(cfg, "RUNNER_TURBO_PAPER_ONLY", True),
+        run_id=run_id,
+        test_event=test_event,
     )
     write_runner_turbo_monitor_report()
     return {"active": True, "reason": "entered", **state}
@@ -158,6 +191,8 @@ def record_close_triggered(
     pnl_pct: float | None = None,
     dry_run: bool = True,
     now: dt.datetime | None = None,
+    run_id: str | None = None,
+    test_event: bool | None = None,
 ) -> dict[str, Any]:
     ts = _now(now)
     key = str(address or "")
@@ -172,18 +207,26 @@ def record_close_triggered(
         peak_pct=float(peak_pct or 0.0),
         pnl_pct=float(pnl_pct or 0.0),
         dry_run=bool(dry_run),
+        run_id=run_id,
+        test_event=test_event,
     )
     write_runner_turbo_monitor_report()
     return {"active": True, "reason": "close_triggered"}
 
 
-def mark_closed(address: str, *, now: dt.datetime | None = None) -> dict[str, Any]:
+def mark_closed(
+    address: str,
+    *,
+    now: dt.datetime | None = None,
+    run_id: str | None = None,
+    test_event: bool | None = None,
+) -> dict[str, Any]:
     ts = _now(now)
     key = str(address or "")
     active = _STATE.setdefault("active", {})
     if isinstance(active, dict) and key in active:
         active.pop(key, None)
-        _event(EVENT_RUNNER_TURBO_EXIT, key, now=ts, reason="closed")
+        _event(EVENT_RUNNER_TURBO_EXIT, key, now=ts, reason="closed", run_id=run_id, test_event=test_event)
         write_runner_turbo_monitor_report()
         return {"active": False, "reason": "closed"}
     return {"active": False, "reason": "not_active"}
@@ -199,12 +242,21 @@ def target_sleep_seconds(default_sleep_s: float, *, dry_run: bool = True, cfg: A
     return min(float(default_sleep_s), interval)
 
 
-def build_runner_turbo_monitor_report(root: Path | None = None) -> dict[str, Any]:
+def build_runner_turbo_monitor_report(root: Path | None = None, *, include_test_events: bool | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
     active = _STATE.get("active") if isinstance(_STATE.get("active"), dict) else {}
     persisted_events = read_jsonl(_event_path(root))
     memory_events = _STATE.get("events") if isinstance(_STATE.get("events"), list) else []
-    merged_events = [*persisted_events, *memory_events]
+    merged_events = filter_test_events([*persisted_events, *memory_events], include_test_events=include_test_events)
+    if not include_test_events and root == PROJECT_ROOT:
+        merged_events = [
+            event
+            for event in merged_events
+            if not (
+                str(event.get("address") or "").strip().upper() in {"A", "SMOKE"}
+                and not str(event.get("run_id") or "").strip()
+            )
+        ]
     deduped: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for event in merged_events:
@@ -233,15 +285,16 @@ def build_runner_turbo_monitor_report(root: Path | None = None) -> dict[str, Any
         "active_count": len(active or {}),
         "active": active,
         "events_path": str(_event_path(root)),
+        "include_test_events": bool(include_test_events),
         "event_counts": dict(sorted(event_counts.items())),
         "events": deduped[-100:],
         "best_effort_note": "The main loop uses the turbo interval as a target sleep while active; provider latency can make real polling slower.",
     }
 
 
-def write_runner_turbo_monitor_report(root: Path | None = None) -> dict[str, Any]:
+def write_runner_turbo_monitor_report(root: Path | None = None, *, include_test_events: bool | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    report = build_runner_turbo_monitor_report(root)
+    report = build_runner_turbo_monitor_report(root, include_test_events=include_test_events)
     write_json(metrics_dir(root) / "runner_turbo_monitor_report.json", report)
     return report
 

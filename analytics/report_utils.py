@@ -7,6 +7,17 @@ from typing import Any, Iterable
 
 from config.config import PROJECT_ROOT
 
+_INCLUDE_TEST_EVENTS = False
+
+
+def set_include_test_events(value: bool) -> None:
+    global _INCLUDE_TEST_EVENTS
+    _INCLUDE_TEST_EVENTS = bool(value)
+
+
+def include_test_events_enabled() -> bool:
+    return bool(_INCLUDE_TEST_EVENTS)
+
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
@@ -22,6 +33,17 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
         if isinstance(item, dict):
             rows.append(item)
     return rows
+
+
+def is_test_event(row: dict[str, Any]) -> bool:
+    return boolish(row.get("test_event"), False) or str(row.get("run_id") or "").strip().upper() == "SMOKE"
+
+
+def filter_test_events(rows: Iterable[dict[str, Any]], *, include_test_events: bool | None = None) -> list[dict[str, Any]]:
+    include = _INCLUDE_TEST_EVENTS if include_test_events is None else bool(include_test_events)
+    if include:
+        return list(rows)
+    return [row for row in rows if not is_test_event(row)]
 
 
 def write_json(path: Path, payload: Any) -> None:
@@ -76,12 +98,15 @@ def metrics_dir(root: Path | None = None) -> Path:
     return (root or PROJECT_ROOT) / "data" / "metrics"
 
 
-def load_runtime_events(root: Path | None = None) -> list[dict[str, Any]]:
-    return read_jsonl(metrics_dir(root) / "runtime_events.jsonl")
+def load_runtime_events(root: Path | None = None, *, include_test_events: bool | None = None) -> list[dict[str, Any]]:
+    return filter_test_events(read_jsonl(metrics_dir(root) / "runtime_events.jsonl"), include_test_events=include_test_events)
 
 
-def load_candidate_outcomes(root: Path | None = None) -> list[dict[str, Any]]:
-    return read_jsonl(metrics_dir(root) / "candidate_outcomes.jsonl")
+def load_candidate_outcomes(root: Path | None = None, *, include_test_events: bool | None = None) -> list[dict[str, Any]]:
+    return filter_test_events(
+        read_jsonl(metrics_dir(root) / "candidate_outcomes.jsonl"),
+        include_test_events=include_test_events,
+    )
 
 
 def load_paper_positions(root: Path | None = None) -> list[dict[str, Any]]:
@@ -191,8 +216,11 @@ __all__ = [
     "address_of",
     "boolish",
     "bought_addresses",
+    "filter_test_events",
     "fnum",
     "inum",
+    "include_test_events_enabled",
+    "is_test_event",
     "is_severe_exit",
     "load_candidate_outcomes",
     "load_paper_positions",
@@ -203,6 +231,7 @@ __all__ = [
     "price5m_bucket",
     "rank_bucket",
     "read_jsonl",
+    "set_include_test_events",
     "write_json",
     "write_markdown",
 ]

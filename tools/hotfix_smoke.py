@@ -75,6 +75,33 @@ def main() -> int:
         )
     )
 
+    wlc_subject = {
+        "entry_regime": "pump_early",
+        "entry_lane": "pump_early_research_rank_canary",
+        "gate_profile": "research_rank_canary",
+        "buy_dex_id": "pumpswap",
+        "buy_liquidity_is_proxy": 0,
+        "buy_liquidity_usd": 21_689.0,
+        "buy_market_cap_usd": 77_057.0,
+        "buy_price_pct_5m": 76.33,
+        "buy_txns_last_5m": 1754.0,
+        "research_rank_score": 75.0,
+        "entry_qty": 1000,
+        "qty": 1000,
+        "realized_qty": 0,
+        "highest_pnl_pct": 40.2,
+        "partial_taken": False,
+    }
+    wlc_plan = exit_policy.partial_ladder_plan(wlc_subject, 40.2)
+    results.append(
+        _ok(
+            "wlc_peak_40_triggers_tp1",
+            float(wlc_plan.get("sell_fraction_of_remaining") or 0.0) > 0.0
+            and int(wlc_plan.get("pending_step_count") or 0) >= 1,
+            wlc_plan,
+        )
+    )
+
     now = dt.datetime.now(dt.timezone.utc)
     floor_subject = {
         "entry_regime": "pump_early",
@@ -87,8 +114,14 @@ def main() -> int:
     results.append(_ok("dynamic_floor_applies", floor_reason == "DYNAMIC_RUNNER_FLOOR", floor_reason))
 
     runner_turbo_monitor.reset_state()
-    turbo_enter = runner_turbo_monitor.observe_position("SMOKE", peak_pct=100, dry_run=True)
-    turbo_exit = runner_turbo_monitor.mark_closed("SMOKE")
+    turbo_enter = runner_turbo_monitor.observe_position(
+        "SMOKE",
+        peak_pct=100,
+        dry_run=True,
+        run_id="SMOKE",
+        test_event=True,
+    )
+    turbo_exit = runner_turbo_monitor.mark_closed("SMOKE", run_id="SMOKE", test_event=True)
     results.append(
         _ok(
             "turbo_enter_exit",
@@ -102,6 +135,7 @@ def main() -> int:
         and not bool(getattr(CFG, "LIVE_CANARY_ENABLED", False))
         and not bool(getattr(CFG, "GREEN_SNIPER_LIVE_ENABLED", False))
         and not bool(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED", False))
+        and not bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED", False))
         and bool(getattr(CFG, "RUNNER_TURBO_PAPER_ONLY", True))
     )
     results.append(_ok("live_still_off", live_off))

@@ -76,6 +76,7 @@ class ResearchRankCanaryDecision:
     min_score_scale: str = "0_100"
     shadow_as_own_lane: bool = False
     executable: bool = True
+    priority: bool = False
 
 
 def _read_audit() -> dict[str, Any]:
@@ -114,6 +115,7 @@ def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
             "force_own_lane": bool(getattr(CFG, "RESEARCH_RANK_CANARY_FORCE_OWN_LANE", True)),
             "shadow_if_not_executable": bool(getattr(CFG, "RESEARCH_RANK_CANARY_SHADOW_IF_NOT_EXECUTABLE", True)),
             "require_route_paper": bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)),
+            "priority_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MODE", True)),
         },
     }
     try:
@@ -168,6 +170,7 @@ def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
                 "min_score_scale": decision.min_score_scale,
                 "shadow_as_own_lane": bool(decision.shadow_as_own_lane),
                 "executable": bool(decision.executable),
+                "priority": bool(decision.priority),
                 "price_pct_5m": _field_float(token, "price_pct_5m", "buy_price_pct_5m", default=0.0),
                 "market_cap_usd": _field_float(token, "market_cap_usd", "buy_market_cap_usd", default=0.0),
                 "txns_last_5m": _field_float(token, "txns_last_5m", "buy_txns_last_5m", default=0.0),
@@ -228,6 +231,7 @@ def _record_event(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
             min_score_raw=float(decision.min_score_raw),
             min_score_normalized=float(decision.min_score),
             min_score_scale=str(decision.min_score_scale),
+            priority=bool(decision.priority),
         )
     except Exception:
         return
@@ -261,6 +265,7 @@ def evaluate_research_rank_canary(
         *,
         shadow_as_own_lane: bool = False,
         executable: bool = True,
+        priority: bool = False,
     ) -> ResearchRankCanaryDecision:
         out = ResearchRankCanaryDecision(
             allowed,
@@ -275,6 +280,7 @@ def evaluate_research_rank_canary(
             min_score_scale,
             shadow_as_own_lane,
             executable,
+            priority,
         )
         _record_audit(token, out, dry_run=dry_run, live=live)
         _record_event(token, out, dry_run=dry_run, live=live)
@@ -303,11 +309,32 @@ def evaluate_research_rank_canary(
     price5m = _field_float(token, "price_pct_5m", "buy_price_pct_5m", default=0.0)
     min_price5m = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 40.0), 40.0)
     max_price5m = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_PRICE5M", 100.0), 100.0)
+    liq = _field_float(token, "liquidity_usd", "buy_liquidity_usd", default=0.0)
+    mcap = _field_float(token, "market_cap_usd", "buy_market_cap_usd", default=0.0)
+    txns = _field_float(token, "txns_last_5m", "buy_txns_last_5m", default=0.0)
+    proxy = _bool(token.get("liquidity_is_proxy") or token.get("liquidity_usd_is_proxy") or token.get("buy_liquidity_is_proxy"))
+    has_route = _bool(token.get("has_jupiter_route"))
+    min_mcap = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_MCAP_USD", 25_000.0), 25_000.0)
+    max_mcap = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_MCAP_USD", 100_000.0), 100_000.0)
+    priority_mode = bool(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MODE", True))
+    priority_match = (
+        priority_mode
+        and rank_score >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_RANK_SCORE", 70.0), 70.0)
+        and txns >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M", 1000), 1000.0)
+        and liq >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_LIQUIDITY_USD", 15_000.0), 15_000.0)
+        and _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_PRICE5M", 50.0), 50.0)
+        <= price5m
+        <= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MAX_PRICE5M", 120.0), 120.0)
+        and min_mcap <= mcap <= max_mcap
+        and not proxy
+        and has_route
+    )
+    if priority_match:
+        return decision(True, "research_rank_canary_priority", priority=True)
     if price5m < min_price5m:
         return decision(False, "price5m_below_min", shadow_as_own_lane=True, executable=False)
     if price5m > max_price5m:
         return decision(False, "price5m_out_of_band")
-    liq = _field_float(token, "liquidity_usd", "buy_liquidity_usd", default=0.0)
     if 40.0 <= price5m < 50.0:
         low_band_min_rank = _float(getattr(CFG, "RESEARCH_RANK_CANARY_LOW_BAND_MIN_RANK_SCORE", 70.0), 70.0)
         low_band_min_liq = _float(
@@ -316,24 +343,19 @@ def evaluate_research_rank_canary(
         )
         if rank_score < low_band_min_rank and liq < low_band_min_liq:
             return decision(False, "price5m_40_50_requires_rank70_or_liq20k", shadow_as_own_lane=True, executable=False)
-    mcap = _field_float(token, "market_cap_usd", "buy_market_cap_usd", default=0.0)
-    min_mcap = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_MCAP_USD", 25_000.0), 25_000.0)
-    max_mcap = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_MCAP_USD", 100_000.0), 100_000.0)
     if mcap < min_mcap or mcap > max_mcap:
         return decision(False, "mcap_out_of_band")
-    txns = _field_float(token, "txns_last_5m", "buy_txns_last_5m", default=0.0)
     min_txns = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_TXNS_5M", 300), 300.0)
     if txns < min_txns:
         return decision(False, "txns_below_min")
     min_liq = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_LIQUIDITY_USD", 2000.0), 2000.0)
     if liq < min_liq:
         return not_executable("liquidity_below_min")
-    proxy = _bool(token.get("liquidity_is_proxy") or token.get("liquidity_usd_is_proxy") or token.get("buy_liquidity_is_proxy"))
     if proxy and bool(getattr(CFG, "RESEARCH_RANK_CANARY_PREFER_REAL_LIQUIDITY", True)):
         return decision(False, "proxy_liquidity")
-    if dry_run and bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)) and not _bool(token.get("has_jupiter_route")):
+    if dry_run and bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)) and not has_route:
         return not_executable("no_route_paper")
-    if live and bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_LIVE", True)) and not _bool(token.get("has_jupiter_route")):
+    if live and bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_LIVE", True)) and not has_route:
         return not_executable("no_route_live")
     return decision(True, "research_rank_canary")
 
@@ -355,6 +377,7 @@ def apply_research_rank_canary_context(
     token["research_rank_canary_min_score_raw"] = decision.min_score_raw
     token["research_rank_canary_min_score_scale"] = decision.min_score_scale
     token["research_rank_canary_amount_sol"] = decision.amount_sol
+    token["research_rank_canary_priority"] = int(bool(decision.priority))
     token["green_sniper_reason"] = decision.reason
     token["live_profit_gate_failed_count"] = 0
     token["live_profit_gate_failures"] = ""
@@ -500,13 +523,86 @@ def write_research_rank_canary_audit_report(root: Path | None = None) -> dict[st
     return report
 
 
+def _is_priority_row(row: dict[str, Any]) -> bool:
+    return _bool(row.get("research_rank_canary_priority")) or "research_rank_canary_priority" in str(
+        _first(row, "reason", "green_sniper_reason", "entry_reason") or ""
+    ).lower()
+
+
+def build_research_rank_priority_report(root: Path | None = None) -> dict[str, Any]:
+    root = root or PROJECT_ROOT
+    rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rank_rows = [row for row in rows if _is_rank_canary_row(row)]
+    priority_rows = [row for row in rank_rows if _is_priority_row(row)]
+    normal_rows = [row for row in rank_rows if not _is_priority_row(row)]
+    runtime_audit = _read_audit() if root == PROJECT_ROOT else {}
+    reasons = runtime_audit.get("reasons") if isinstance(runtime_audit.get("reasons"), dict) else {}
+    blockers = runtime_audit.get("blocked_by_reason") if isinstance(runtime_audit.get("blocked_by_reason"), dict) else {}
+    bought = [
+        row
+        for row in priority_rows
+        if str(_first(row, "action", "decision_action", "event_type") or "").strip().lower() in {"buy", "bought", "paper_buy", "trade_close", ""}
+        and normalize_entry_lane(_first(row, "entry_lane")) == LANE_RESEARCH_RANK_CANARY
+    ]
+    shadow = [
+        row
+        for row in priority_rows
+        if "shadow" in str(_first(row, "action", "decision_action", "sample_type", "reason") or "").lower()
+    ]
+    return {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "config": {
+            "priority_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MODE", True)),
+            "min_rank_score": _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_RANK_SCORE", 70.0), 70.0),
+            "min_txns_5m": int(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M", 1000) or 1000),
+            "min_liquidity_usd": _float(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_LIQUIDITY_USD", 15_000.0),
+                15_000.0,
+            ),
+            "min_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_PRICE5M", 50.0), 50.0),
+            "max_price5m": _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MAX_PRICE5M", 120.0), 120.0),
+            "max_open": int(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MAX_OPEN", 2) or 2),
+            "route_required": bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)),
+            "proxy_liquidity_allowed": False,
+        },
+        "priority_seen": int(reasons.get("research_rank_canary_priority") or len(priority_rows)),
+        "priority_bought": len(bought),
+        "priority_shadow": len(shadow),
+        "blockers": blockers,
+        "historical": {
+            "priority": _summary(priority_rows),
+            "normal": _summary(normal_rows),
+        },
+        "samples": [
+            {
+                "address": _first(row, "address", "mint", "token_address"),
+                "pnl_pct": _pnl(row),
+                "price5m": _price5m(row),
+                "rank_score": _first(row, "research_rank_canary_rank_score", "rank_score", "research_rank_score"),
+                "txns5m": _first(row, "buy_txns_last_5m", "txns_last_5m"),
+                "liquidity_usd": _first(row, "buy_liquidity_usd", "liquidity_usd"),
+            }
+            for row in priority_rows[:50]
+        ],
+    }
+
+
+def write_research_rank_priority_report(root: Path | None = None) -> dict[str, Any]:
+    root = root or PROJECT_ROOT
+    report = build_research_rank_priority_report(root)
+    write_json(metrics_dir(root) / "research_rank_priority_report.json", report)
+    return report
+
+
 __all__ = [
     "AUDIT_PATH",
     "ResearchRankCanaryDecision",
     "apply_research_rank_canary_context",
     "apply_research_rank_canary_shadow_context",
     "build_research_rank_canary_audit_report",
+    "build_research_rank_priority_report",
     "evaluate_research_rank_canary",
     "normalize_score",
     "write_research_rank_canary_audit_report",
+    "write_research_rank_priority_report",
 ]

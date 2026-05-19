@@ -90,11 +90,69 @@ def test_momentum_ignition_requires_trend_unless_second_tick_confirmed() -> None
     blocked = evaluate_sniper_research_subprofile(token, cfg=_cfg())
     assert blocked.allowed is False
     assert "momentum:trend_missing_without_second_tick" in blocked.failures
+    assert blocked.reason == "momentum_ignition_needs_confirmation"
 
     token["second_tick_improved"] = True
     allowed = evaluate_sniper_research_subprofile(token, cfg=_cfg())
     assert allowed.allowed is True
     assert allowed.subprofile == SUBPROFILE_MOMENTUM_IGNITION
+
+
+def test_momentum_ignition_trend_missing_allowed_with_strong_txns() -> None:
+    token = {
+        "entry_lane": "pump_early_sniper_research",
+        "price_pct_5m": 140,
+        "liquidity_usd": 16_000,
+        "txns_last_5m": 1500,
+        "market_cap_usd": 55_000,
+        "has_jupiter_route": True,
+        "trend": "unknown",
+        "trend_fallback_used": True,
+    }
+
+    decision = evaluate_sniper_research_subprofile(token, cfg=_cfg())
+
+    assert decision.allowed is True
+    assert decision.subprofile == SUBPROFILE_MOMENTUM_IGNITION
+
+
+def test_momentum_ignition_trend_missing_allowed_with_strong_rank() -> None:
+    token = {
+        "entry_lane": "pump_early_sniper_research",
+        "price_pct_5m": 140,
+        "liquidity_usd": 16_000,
+        "txns_last_5m": 600,
+        "market_cap_usd": 55_000,
+        "has_jupiter_route": True,
+        "rank_score": 75,
+        "trend": "unknown",
+        "trend_fallback_used": True,
+    }
+
+    decision = evaluate_sniper_research_subprofile(token, cfg=_cfg())
+
+    assert decision.allowed is True
+    assert decision.subprofile == SUBPROFILE_MOMENTUM_IGNITION
+
+
+def test_momentum_ignition_cluster_and_toxic_stay_hard_shadow() -> None:
+    base = {
+        "entry_lane": "pump_early_sniper_research",
+        "price_pct_5m": 140,
+        "liquidity_usd": 30_000,
+        "txns_last_5m": 1500,
+        "market_cap_usd": 55_000,
+        "has_jupiter_route": True,
+        "trend": "unknown",
+        "trend_fallback_used": True,
+    }
+    cluster = evaluate_sniper_research_subprofile({**base, "cluster_bad": True}, cfg=_cfg())
+    toxic = evaluate_sniper_research_subprofile({**base, "toxic_initial_sell_pressure": True}, cfg=_cfg())
+
+    assert cluster.allowed is False
+    assert "momentum:cluster_bad" in cluster.failures
+    assert toxic.allowed is False
+    assert "momentum:toxic_initial_sell_pressure" in toxic.failures
 
 
 def test_deep_reversal_labels_and_sets_defensive_exit() -> None:

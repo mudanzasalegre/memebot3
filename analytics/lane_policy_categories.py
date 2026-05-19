@@ -4,6 +4,7 @@ from typing import Any, Mapping
 
 from ml.lane_taxonomy import (
     LANE_BIRTH_PROBE_MICRO_CANARY,
+    LANE_MOONSHOT_MICRO_LOTTERY,
     LANE_PUMP_EARLY_BIRTH_PROBE,
     LANE_PUMP_EARLY_GREEN_SNIPER,
     LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
@@ -21,6 +22,7 @@ POLICY_RESEARCH_RANK_CANARY = "research_rank_canary"
 POLICY_PUMP_EARLY_SNIPER_RESEARCH = "pump_early_sniper_research"
 POLICY_PAPER_BIRTH_PROBE = "paper_birth_probe"
 POLICY_BIRTH_PROBE_MICRO_CANARY = "birth_probe_micro_canary"
+POLICY_MOONSHOT_MICRO_LOTTERY = "moonshot_micro_lottery"
 POLICY_LATE_MOMENTUM_WATCH = "late_momentum_watch"
 POLICY_PUMPSWAP_REBOUND_PRIME = "pumpswap_rebound_prime"
 POLICY_UNKNOWN = "unknown"
@@ -33,6 +35,7 @@ POLICY_CATEGORIES = (
     POLICY_PUMP_EARLY_SNIPER_RESEARCH,
     POLICY_PAPER_BIRTH_PROBE,
     POLICY_BIRTH_PROBE_MICRO_CANARY,
+    POLICY_MOONSHOT_MICRO_LOTTERY,
     POLICY_LATE_MOMENTUM_WATCH,
     POLICY_PUMPSWAP_REBOUND_PRIME,
 )
@@ -61,6 +64,8 @@ def classify_policy_category(row: Mapping[str, Any]) -> str:
 
     if lane == LANE_BIRTH_PROBE_MICRO_CANARY or tier == LANE_BIRTH_PROBE_MICRO_CANARY or "birth_probe_micro_canary" in gate:
         return POLICY_BIRTH_PROBE_MICRO_CANARY
+    if lane == LANE_MOONSHOT_MICRO_LOTTERY or tier == LANE_MOONSHOT_MICRO_LOTTERY or "moonshot_micro_lottery" in gate:
+        return POLICY_MOONSHOT_MICRO_LOTTERY
     if subtype == "paper_birth_probe" or "birth_probe" in gate or lane == LANE_PUMP_EARLY_BIRTH_PROBE:
         return POLICY_PAPER_BIRTH_PROBE
     if lane == LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH or "late_momentum" in gate or "late_momentum" in sample_type:
@@ -87,6 +92,7 @@ __all__ = [
     "POLICY_GREEN_SNIPER_RESTRICTED_BUY",
     "POLICY_GREEN_SNIPER_SHADOW",
     "POLICY_LATE_MOMENTUM_WATCH",
+    "POLICY_MOONSHOT_MICRO_LOTTERY",
     "POLICY_PAPER_BIRTH_PROBE",
     "POLICY_PUMP_EARLY_SNIPER_RESEARCH",
     "POLICY_PUMPSWAP_REBOUND_PRIME",

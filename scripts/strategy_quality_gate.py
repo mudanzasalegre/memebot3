@@ -177,6 +177,21 @@ def _validate_model_enforcement_warnings(errors: list[str]) -> None:
             )
 
 
+def _payload_has_test_event(value: object) -> bool:
+    if isinstance(value, dict):
+        if str(value.get("run_id") or "").strip().upper() == "SMOKE":
+            return True
+        raw = value.get("test_event")
+        if isinstance(raw, bool) and raw:
+            return True
+        if str(raw or "").strip().lower() in {"1", "true", "yes", "on"}:
+            return True
+        return any(_payload_has_test_event(child) for child in value.values())
+    if isinstance(value, list):
+        return any(_payload_has_test_event(child) for child in value)
+    return False
+
+
 def checks() -> list[str]:
     errors: list[str] = []
     replay = ROOT / "data" / "metrics" / "policy_replay.json"
@@ -196,6 +211,7 @@ def checks() -> list[str]:
             "BIRD_RUNNER_MULTI_PARTIAL_LIVE_ENABLED",
             "RUNNER_GIVEBACK_EMERGENCY_LIVE_ENABLED",
             "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED",
+            "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED",
             "AUTO_PROMOTE_LIVE",
             "MODEL_AUTO_PROMOTE",
             "ML_AUTO_PROMOTE_LANES",
@@ -232,6 +248,16 @@ def checks() -> list[str]:
         errors.append("RUNNER_GIVEBACK_EMERGENCY_LIVE_ENABLED must remain false")
     if _bool("BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED", False):
         errors.append("BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED must remain false")
+    if _bool("MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED", False):
+        errors.append("MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED must remain false")
+    if _float("MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.002) > 0.005:
+        errors.append("MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL must stay <=0.005")
+    if _int("MOONSHOT_MICRO_LOTTERY_MAX_OPEN", 1) > 1:
+        errors.append("MOONSHOT_MICRO_LOTTERY_MAX_OPEN must stay <=1")
+    if _float("PAPER_EXPLORATION_AMOUNT_SOL", 0.005) > 0.01:
+        errors.append("PAPER_EXPLORATION_AMOUNT_SOL must stay <=0.01")
+    if _float("BIRD_TP1_PCT", 25.0) <= 0:
+        errors.append("partial ladder requires BIRD_TP1_PCT > 0")
     if _bool("STRATEGY_OPTIMIZATION_LOCK", True) and not _bool("RUNNER_TURBO_PAPER_ONLY", True):
         errors.append("STRATEGY_OPTIMIZATION_LOCK=true requires RUNNER_TURBO_PAPER_ONLY=true")
     if _bool("LLM_TRADING_ENABLED", False):
@@ -289,6 +315,21 @@ def checks() -> list[str]:
             "CORE_REPORTS_AUTO_REGEN_ENABLED=false with missing critical reports: "
             + ",".join(missing_core_reports)
         )
+    metrics_root = ROOT / "data" / "metrics"
+    current_run_summary = metrics_root / "current_run_summary.json"
+    reports_present = metrics_root.exists() and any((metrics_root / name).exists() for name in REQUIRED_CORE_REPORTS)
+    if reports_present and not current_run_summary.exists():
+        errors.append("data/metrics/current_run_summary.json is missing")
+    for name in REQUIRED_CORE_REPORTS:
+        path = ROOT / "data" / "metrics" / name
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+        except Exception:
+            continue
+        if _payload_has_test_event(payload):
+            errors.append(f"{name} includes test_event/SMOKE data by default")
     ranges = str(getattr(CFG, "PUMP_EARLY_PROFIT_BLOCK_PRICE5M_RANGES", "") or "")
     if "25:999" in ranges and _bool("GREEN_SNIPER_ENABLED", True):
         errors.append("price5m 25:999 block contradicts green sniper")

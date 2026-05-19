@@ -14,6 +14,7 @@ import pandas as pd
 from analytics.audit import normalize_candidate_outcomes_frame, write_normalized_candidate_outcomes
 from config.config import CFG, PROJECT_ROOT
 from features.decision_store import append_decision
+from utils.runtime_context import runtime_context_payload
 from utils.time import utc_now
 
 
@@ -130,6 +131,7 @@ def _write_event(event_type: str, address: str, **payload: Any) -> None:
         "event_type": str(event_type),
         "address": str(address),
     }
+    row.update(runtime_context_payload())
     row.update({str(k): _json_safe(v) for k, v in payload.items()})
     line = json.dumps(row, ensure_ascii=True)
     with _LOCK:
@@ -524,6 +526,7 @@ def record_candidate_decision(
     try:
         append_decision(
             {
+                **runtime_context_payload(),
                 **payload,
                 "address": address,
                 "action": action,
@@ -654,6 +657,7 @@ def record_shadow_open(
     try:
         append_decision(
             {
+                **runtime_context_payload(),
                 **data,
                 "address": address,
                 "action": "research_shadow_open",
