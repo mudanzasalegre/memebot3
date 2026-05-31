@@ -252,10 +252,23 @@ def checks() -> list[str]:
         errors.append("MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED must remain false")
     if _float("MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.002) > 0.005:
         errors.append("MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL must stay <=0.005")
+    if _float("MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_AMOUNT_SOL", 0.001) > 0.002:
+        errors.append("MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_AMOUNT_SOL must stay <=0.002")
     if _int("MOONSHOT_MICRO_LOTTERY_MAX_OPEN", 1) > 1:
         errors.append("MOONSHOT_MICRO_LOTTERY_MAX_OPEN must stay <=1")
     if _float("PAPER_EXPLORATION_AMOUNT_SOL", 0.005) > 0.01:
         errors.append("PAPER_EXPLORATION_AMOUNT_SOL must stay <=0.01")
+    if _float("RESEARCH_RANK_CANARY_SIZE_SOL", 0.01) > 0.02:
+        errors.append("RESEARCH_RANK_CANARY_SIZE_SOL must stay <=0.02")
+    if _float("RESEARCH_RANK_CANARY_MAX_SIZE_SOL", 0.02) > 0.02:
+        errors.append("RESEARCH_RANK_CANARY_MAX_SIZE_SOL must stay <=0.02")
+    if _float("RESEARCH_RANK_CANARY_PULLBACK_TAIL_AMOUNT_SOL", 0.005) > 0.005:
+        errors.append("RESEARCH_RANK_CANARY_PULLBACK_TAIL_AMOUNT_SOL must stay <=0.005")
+    if _bool("STRATEGY_OPTIMIZATION_LOCK", True):
+        if _bool("RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED", False):
+            errors.append("STRATEGY_OPTIMIZATION_LOCK=true requires RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED=false")
+        if _bool("RESEARCH_RANK_CANARY_PULLBACK_BUY_ENABLED", False):
+            errors.append("STRATEGY_OPTIMIZATION_LOCK=true requires RESEARCH_RANK_CANARY_PULLBACK_BUY_ENABLED=false")
     if _float("BIRD_TP1_PCT", 25.0) <= 0:
         errors.append("partial ladder requires BIRD_TP1_PCT > 0")
     if _bool("STRATEGY_OPTIMIZATION_LOCK", True) and not _bool("RUNNER_TURBO_PAPER_ONLY", True):

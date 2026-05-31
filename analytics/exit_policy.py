@@ -1029,6 +1029,39 @@ def dynamic_runner_floor_reason(subject: Any, *, pnl_pct: float, peak: float) ->
     return None
 
 
+def post_partial_protection_floor_pct(
+    subject: Any,
+    policy: ExitPolicy | None = None,
+    *,
+    peak: float | None = None,
+) -> float | None:
+    if not _to_bool(_get(subject, "partial_taken"), False):
+        return None
+    policy = policy or effective_exit_policy(subject)
+    peak_value = _to_float(_get(subject, "highest_pnl_pct"), 0.0) if peak is None else float(peak)
+    if not (
+        policy.post_partial_protection_enabled
+        and policy.post_partial_lock_floor_pct > 0
+        and policy.post_partial_max_giveback_pct > 0
+    ):
+        return None
+    min_peak = max(
+        float(policy.post_partial_lock_floor_pct),
+        float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MIN_PEAK_PCT", policy.post_partial_lock_floor_pct) or policy.post_partial_lock_floor_pct)
+        if _is_green_sniper_subject(subject)
+        else max(
+            float(policy.post_partial_lock_floor_pct),
+            float(getattr(CFG, "POST_PARTIAL_MIN_PEAK_PCT", 35.0) or 35.0),
+        ),
+    )
+    if peak_value < min_peak:
+        return None
+    return max(
+        float(policy.post_partial_lock_floor_pct),
+        float(peak_value) - float(policy.post_partial_max_giveback_pct),
+    )
+
+
 def _post_partial_exit_reason(
     subject: Any,
     policy: ExitPolicy,
@@ -1039,24 +1072,8 @@ def _post_partial_exit_reason(
     if not _to_bool(_get(subject, "partial_taken"), False):
         return None
 
-    if (
-        policy.post_partial_protection_enabled
-        and policy.post_partial_lock_floor_pct > 0
-        and policy.post_partial_max_giveback_pct > 0
-        and peak >= max(
-            float(policy.post_partial_lock_floor_pct),
-            float(getattr(CFG, "GREEN_SNIPER_POST_PARTIAL_MIN_PEAK_PCT", policy.post_partial_lock_floor_pct) or policy.post_partial_lock_floor_pct)
-            if _is_green_sniper_subject(subject)
-            else max(
-                float(policy.post_partial_lock_floor_pct),
-                float(getattr(CFG, "POST_PARTIAL_MIN_PEAK_PCT", 35.0) or 35.0),
-            ),
-        )
-    ):
-        protection_floor = max(
-            float(policy.post_partial_lock_floor_pct),
-            float(peak) - float(policy.post_partial_max_giveback_pct),
-        )
+    protection_floor = post_partial_protection_floor_pct(subject, policy, peak=peak)
+    if protection_floor is not None:
         if float(pnl_pct) <= protection_floor:
             if protection_floor <= float(policy.post_partial_lock_floor_pct):
                 return "POST_PARTIAL_STOP"
@@ -1525,6 +1542,7 @@ __all__ = [
     "partial_ladder_plan",
     "partial_fraction",
     "partial_sell_fraction",
+    "post_partial_protection_floor_pct",
     "green_sniper_early_dump_reason",
     "resolve_runner_exit_profile",
     "resolve_entry_regime",

@@ -31,8 +31,11 @@ Operational expectations:
 - Runner partials persist ladder state and Bird TP1 is global for normal paper lanes before retrace exits.
 - Dynamic runner floor protects remaining runners after partials.
 - `research_rank_canary_priority` may bypass legacy shape/profit blockers only with route, real liquidity, rank >=70, txns5m >=1000, liquidity >=15000, and price5m 50..120.
+- `research_rank_canary_pullback` is paper-enabled for quality pullbacks only: real liquidity, route, price5m -10..30, liquidity >=15000, bounded mcap, and either rank >=70 with txns5m >=300 or rank >=65 with txns5m >=900.
+- Stale high-momentum rank canary entries are shadowed when price5m >=50, queue age >5m, token age >20m, and txns5m is below the priority threshold.
 - Momentum ignition may ignore missing trend/second tick only when a strong signal is present; cluster and toxic sell pressure remain hard shadows.
-- `pump_early_moonshot_micro_lottery` is paper-only, capped at `0.002 SOL`, max open 1, max daily buys 3, and live must remain false.
+- `pump_early_moonshot_micro_lottery` is paper-only, capped at `0.002 SOL`, max open 1, max daily buys 9, and live must remain false.
+- Moonshot now includes two paper-only micro patterns: birth velocity probes and late proxy momentum probes. Both remain under the same amount/open caps.
 - Paper exploration quota is micro-only and cannot override toxic pressure, bad cluster, missing price, or no-route except moonshot paper-only.
 - Turbo monitoring is paper-only and best-effort.
 - Core reports regenerate at startup, on interval, and after close-count milestones.

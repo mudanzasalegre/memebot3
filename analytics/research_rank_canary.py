@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import statistics
 import threading
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from analytics.report_utils import (
     is_severe_exit,
     load_candidate_outcomes,
     load_paper_positions,
+    load_runtime_events,
     load_sqlite_positions,
     metrics_dir,
     write_json,
@@ -24,6 +26,10 @@ from ml.lane_taxonomy import LANE_RESEARCH_RANK_CANARY, LANE_RESEARCH_SNIPER, no
 
 AUDIT_PATH = PROJECT_ROOT / "data" / "metrics" / "research_rank_canary_audit.json"
 _AUDIT_LOCK = threading.Lock()
+
+
+def _runtime_side_effects_disabled() -> bool:
+    return bool(os.getenv("PYTEST_CURRENT_TEST")) or bool(os.getenv("MEMEBOT_DISABLE_RUNTIME_AUDIT"))
 
 
 def _float(value: Any, default: float = 0.0) -> float:
@@ -77,6 +83,9 @@ class ResearchRankCanaryDecision:
     shadow_as_own_lane: bool = False
     executable: bool = True
     priority: bool = False
+    pullback: bool = False
+    elite_consolidation: bool = False
+    pullback_tail_micro: bool = False
 
 
 def _read_audit() -> dict[str, Any]:
@@ -88,6 +97,8 @@ def _read_audit() -> dict[str, Any]:
 
 
 def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *, dry_run: bool, live: bool) -> None:
+    if _runtime_side_effects_disabled():
+        return
     now = datetime.now(timezone.utc).isoformat()
     reason = str(decision.reason or "unknown")
     address = str(token.get("address") or token.get("token_address") or "")
@@ -116,6 +127,8 @@ def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
             "shadow_if_not_executable": bool(getattr(CFG, "RESEARCH_RANK_CANARY_SHADOW_IF_NOT_EXECUTABLE", True)),
             "require_route_paper": bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)),
             "priority_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MODE", True)),
+            "pullback_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MODE", True)),
+            "stale_high_price5m_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_ENABLED", True)),
         },
     }
     try:
@@ -153,6 +166,11 @@ def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
                     getattr(CFG, "RESEARCH_RANK_CANARY_SHADOW_IF_NOT_EXECUTABLE", True)
                 ),
                 "require_route_paper": bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)),
+                "priority_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MODE", True)),
+                "pullback_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MODE", True)),
+                "stale_high_price5m_enabled": bool(
+                    getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_ENABLED", True)
+                ),
             }
             payload["last_decision"] = {
                 "ts_utc": now,
@@ -171,6 +189,7 @@ def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
                 "shadow_as_own_lane": bool(decision.shadow_as_own_lane),
                 "executable": bool(decision.executable),
                 "priority": bool(decision.priority),
+                "pullback": bool(decision.pullback),
                 "price_pct_5m": _field_float(token, "price_pct_5m", "buy_price_pct_5m", default=0.0),
                 "market_cap_usd": _field_float(token, "market_cap_usd", "buy_market_cap_usd", default=0.0),
                 "txns_last_5m": _field_float(token, "txns_last_5m", "buy_txns_last_5m", default=0.0),
@@ -189,6 +208,8 @@ def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
 
 
 def _record_context_application(token: dict[str, Any], *, shadow: bool) -> None:
+    if _runtime_side_effects_disabled():
+        return
     try:
         with _AUDIT_LOCK:
             payload = _read_audit()
@@ -211,6 +232,8 @@ def _record_context_application(token: dict[str, Any], *, shadow: bool) -> None:
 
 
 def _record_event(token: dict[str, Any], decision: ResearchRankCanaryDecision, *, dry_run: bool, live: bool) -> None:
+    if _runtime_side_effects_disabled():
+        return
     address = str(token.get("address") or token.get("token_address") or "")
     if not address:
         return
@@ -232,6 +255,7 @@ def _record_event(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
             min_score_normalized=float(decision.min_score),
             min_score_scale=str(decision.min_score_scale),
             priority=bool(decision.priority),
+            pullback=bool(decision.pullback),
         )
     except Exception:
         return
@@ -249,8 +273,10 @@ def evaluate_research_rank_canary(
         64.81,
     )
     amount = _float(getattr(CFG, "RESEARCH_RANK_CANARY_SIZE_SOL", 0.01), 0.01)
-    if dry_run:
-        amount = max(amount, _float(getattr(CFG, "MIN_BUY_SOL", amount), amount))
+    max_amount = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_SIZE_SOL", 0.02), 0.02)
+    if max_amount > 0.0:
+        amount = min(amount, max_amount)
+    amount = max(0.0, amount)
     rank_raw_value = (
         (rank_info or {}).get("rank_score")
         or (rank_info or {}).get("research_rank_score")
@@ -266,6 +292,10 @@ def evaluate_research_rank_canary(
         shadow_as_own_lane: bool = False,
         executable: bool = True,
         priority: bool = False,
+        pullback: bool = False,
+        elite_consolidation: bool = False,
+        pullback_tail_micro: bool = False,
+        amount_sol: float | None = None,
     ) -> ResearchRankCanaryDecision:
         out = ResearchRankCanaryDecision(
             allowed,
@@ -273,7 +303,7 @@ def evaluate_research_rank_canary(
             reason,
             rank_score,
             min_score,
-            amount,
+            amount if amount_sol is None else max(0.0, float(amount_sol)),
             rank_score_raw,
             rank_score_scale,
             min_score_raw,
@@ -281,6 +311,9 @@ def evaluate_research_rank_canary(
             shadow_as_own_lane,
             executable,
             priority,
+            pullback,
+            elite_consolidation,
+            pullback_tail_micro,
         )
         _record_audit(token, out, dry_run=dry_run, live=live)
         _record_event(token, out, dry_run=dry_run, live=live)
@@ -312,6 +345,9 @@ def evaluate_research_rank_canary(
     liq = _field_float(token, "liquidity_usd", "buy_liquidity_usd", default=0.0)
     mcap = _field_float(token, "market_cap_usd", "buy_market_cap_usd", default=0.0)
     txns = _field_float(token, "txns_last_5m", "buy_txns_last_5m", default=0.0)
+    age_minutes = _field_float(token, "age_minutes", "age_min", "token_age_min", default=0.0)
+    queue_age_minutes = _field_float(token, "queue_age_minutes", default=0.0)
+    volume_24h = _field_float(token, "volume_24h_usd", "buy_volume_24h_usd", "volume_usd_24h", default=0.0)
     proxy = _bool(token.get("liquidity_is_proxy") or token.get("liquidity_usd_is_proxy") or token.get("buy_liquidity_is_proxy"))
     has_route = _bool(token.get("has_jupiter_route"))
     min_mcap = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_MCAP_USD", 25_000.0), 25_000.0)
@@ -331,6 +367,111 @@ def evaluate_research_rank_canary(
     )
     if priority_match:
         return decision(True, "research_rank_canary_priority", priority=True)
+    elite_mode = bool(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MODE", True))
+    elite_match = (
+        elite_mode
+        and rank_score
+        >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MIN_RANK_SCORE", 75.0), 75.0)
+        and txns >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MIN_TXNS_5M", 300), 300.0)
+        and liq
+        >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MIN_LIQUIDITY_USD", 20_000.0), 20_000.0)
+        and _float(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MIN_PRICE5M", 0.0), 0.0)
+        <= price5m
+        <= _float(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MAX_PRICE5M", 25.0), 25.0)
+        and min_mcap
+        <= mcap
+        <= _float(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MAX_MCAP_USD", 250_000.0), 250_000.0)
+        and not proxy
+        and has_route
+    )
+    if elite_match:
+        return decision(True, "research_rank_canary_elite_consolidation", elite_consolidation=True)
+    pullback_mode = bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MODE", True))
+    pullback_min_price = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MIN_PRICE5M", -10.0), -10.0)
+    pullback_max_price = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MAX_PRICE5M", 30.0), 30.0)
+    pullback_min_rank = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MIN_RANK_SCORE", 70.0), 70.0)
+    pullback_alt_min_rank = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_ALT_MIN_RANK_SCORE", 65.0), 65.0)
+    pullback_min_txns = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MIN_TXNS_5M", 300), 300.0)
+    pullback_alt_min_txns = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_ALT_MIN_TXNS_5M", 900), 900.0)
+    pullback_min_liq = _float(
+        getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MIN_LIQUIDITY_USD", 15_000.0),
+        15_000.0,
+    )
+    pullback_max_mcap = _float(
+        getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MAX_MCAP_USD", 350_000.0),
+        350_000.0,
+    )
+    pullback_strength_ok = (rank_score >= pullback_min_rank and txns >= pullback_min_txns) or (
+        rank_score >= pullback_alt_min_rank and txns >= pullback_alt_min_txns
+    )
+    pullback_match = (
+        pullback_mode
+        and pullback_min_price <= price5m <= pullback_max_price
+        and pullback_strength_ok
+        and liq >= pullback_min_liq
+        and 0.0 < mcap <= pullback_max_mcap
+        and not proxy
+        and has_route
+    )
+    pullback_tail_amount = min(
+        _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_AMOUNT_SOL", 0.005), 0.005),
+        _float(getattr(CFG, "PAPER_EXPLORATION_AMOUNT_SOL", 0.005), 0.005),
+        _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_SIZE_SOL", 0.02), 0.02),
+    )
+    pullback_tail_match = (
+        bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MICRO_MODE", True))
+        and _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_PRICE5M", -12.0), -12.0)
+        <= price5m
+        <= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MAX_PRICE5M", 0.0), 0.0)
+        and rank_score >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_RANK_SCORE", 70.0), 70.0)
+        and txns >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_TXNS_5M", 600), 600.0)
+        and liq >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_LIQUIDITY_USD", 30_000.0), 30_000.0)
+        and _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_MCAP_USD", 150_000.0), 150_000.0)
+        <= mcap
+        <= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MAX_MCAP_USD", 250_000.0), 250_000.0)
+        and volume_24h
+        >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_VOLUME_24H", 400_000.0), 400_000.0)
+        and not proxy
+        and has_route
+    )
+    if pullback_tail_match:
+        return decision(
+            True,
+            "research_rank_canary_pullback_tail_micro",
+            pullback=True,
+            pullback_tail_micro=True,
+            amount_sol=pullback_tail_amount,
+        )
+    if pullback_match:
+        if bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_BUY_ENABLED", False)):
+            return decision(True, "research_rank_canary_pullback", pullback=True)
+        return decision(
+            False,
+            "research_rank_canary_pullback_shadow_only",
+            shadow_as_own_lane=True,
+            executable=False,
+            pullback=True,
+        )
+    if bool(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_ENABLED", True)):
+        stale_min_price = _float(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MIN", 50.0), 50.0)
+        stale_max_age = _float(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MAX_AGE_MIN", 20.0), 20.0)
+        stale_max_queue_age = _float(
+            getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MAX_QUEUE_AGE_MIN", 5.0),
+            5.0,
+        )
+        priority_min_txns = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M", 1000), 1000.0)
+        if (
+            price5m >= stale_min_price
+            and age_minutes > stale_max_age
+            and queue_age_minutes > stale_max_queue_age
+            and txns < priority_min_txns
+        ):
+            return decision(
+                False,
+                "research_rank_canary_stale_high_momentum",
+                shadow_as_own_lane=True,
+                executable=False,
+            )
     if price5m < min_price5m:
         return decision(False, "price5m_below_min", shadow_as_own_lane=True, executable=False)
     if price5m > max_price5m:
@@ -357,6 +498,13 @@ def evaluate_research_rank_canary(
         return not_executable("no_route_paper")
     if live and bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_LIVE", True)) and not has_route:
         return not_executable("no_route_live")
+    if not bool(getattr(CFG, "RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED", False)):
+        return decision(
+            False,
+            "research_rank_canary_normal_shadow_only",
+            shadow_as_own_lane=True,
+            executable=False,
+        )
     return decision(True, "research_rank_canary")
 
 
@@ -378,6 +526,9 @@ def apply_research_rank_canary_context(
     token["research_rank_canary_min_score_scale"] = decision.min_score_scale
     token["research_rank_canary_amount_sol"] = decision.amount_sol
     token["research_rank_canary_priority"] = int(bool(decision.priority))
+    token["research_rank_canary_pullback"] = int(bool(decision.pullback))
+    token["research_rank_canary_elite_consolidation"] = int(bool(decision.elite_consolidation))
+    token["research_rank_canary_pullback_tail_micro"] = int(bool(decision.pullback_tail_micro))
     token["green_sniper_reason"] = decision.reason
     token["live_profit_gate_failed_count"] = 0
     token["live_profit_gate_failures"] = ""
@@ -450,9 +601,47 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _runtime_audit_from_events(root: Path) -> dict[str, Any]:
+    try:
+        events = [
+            row
+            for row in load_runtime_events(root)
+            if str(_first(row, "event_type") or "").strip().lower() == "research_rank_canary_eval"
+        ]
+    except Exception:
+        events = []
+    if not events:
+        return {}
+    reasons: dict[str, int] = {}
+    blocked: dict[str, int] = {}
+    allowed_count = 0
+    for row in events:
+        reason = str(_first(row, "reason") or "unknown")
+        reasons[reason] = reasons.get(reason, 0) + 1
+        allowed = _bool(_first(row, "allowed"))
+        if allowed:
+            allowed_count += 1
+        else:
+            blocked[reason] = blocked.get(reason, 0) + 1
+    last = events[-1]
+    return {
+        "updated_at_utc": str(_first(last, "ts_utc", "timestamp") or datetime.now(timezone.utc).isoformat()),
+        "total_evaluations": len(events),
+        "evaluated": len(events),
+        "allowed": allowed_count,
+        "rejected": len(events) - allowed_count,
+        "reasons": reasons,
+        "blocked_by_reason": blocked,
+        "last_decision": last,
+        "source": "runtime_events",
+    }
+
+
 def build_research_rank_canary_audit_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    runtime_audit = _read_audit() if root == PROJECT_ROOT else {}
+    runtime_audit = _runtime_audit_from_events(root)
+    if not runtime_audit and root == PROJECT_ROOT:
+        runtime_audit = _read_audit()
     if isinstance(runtime_audit.get("runtime_audit"), dict):
         runtime_audit = runtime_audit["runtime_audit"]
     rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
@@ -495,6 +684,18 @@ def build_research_rank_canary_audit_report(root: Path | None = None) -> dict[st
                 20_000.0,
             ),
             "force_own_lane": bool(getattr(CFG, "RESEARCH_RANK_CANARY_FORCE_OWN_LANE", True)),
+            "pullback_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MODE", True)),
+            "pullback_min_price5m": _float(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MIN_PRICE5M", -10.0),
+                -10.0,
+            ),
+            "pullback_max_price5m": _float(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MAX_PRICE5M", 30.0),
+                30.0,
+            ),
+            "stale_high_price5m_enabled": bool(
+                getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_ENABLED", True)
+            ),
         },
         "price5m_band_comparison": {
             "price5m_25_40_shadow_candidate": _summary(band_25_40),
@@ -529,13 +730,45 @@ def _is_priority_row(row: dict[str, Any]) -> bool:
     ).lower()
 
 
+def _is_pullback_row(row: dict[str, Any]) -> bool:
+    return _bool(row.get("research_rank_canary_pullback")) or "research_rank_canary_pullback" in str(
+        _first(row, "reason", "green_sniper_reason", "entry_reason") or ""
+    ).lower()
+
+
+def _is_elite_row(row: dict[str, Any]) -> bool:
+    return _bool(row.get("research_rank_canary_elite_consolidation")) or "research_rank_canary_elite_consolidation" in str(
+        _first(row, "reason", "green_sniper_reason", "entry_reason") or ""
+    ).lower()
+
+
+def _is_pullback_tail_row(row: dict[str, Any]) -> bool:
+    return _bool(row.get("research_rank_canary_pullback_tail_micro")) or "research_rank_canary_pullback_tail_micro" in str(
+        _first(row, "reason", "green_sniper_reason", "entry_reason") or ""
+    ).lower()
+
+
 def build_research_rank_priority_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
     rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
     rank_rows = [row for row in rows if _is_rank_canary_row(row)]
     priority_rows = [row for row in rank_rows if _is_priority_row(row)]
-    normal_rows = [row for row in rank_rows if not _is_priority_row(row)]
-    runtime_audit = _read_audit() if root == PROJECT_ROOT else {}
+    elite_rows = [row for row in rank_rows if _is_elite_row(row)]
+    pullback_tail_rows = [row for row in rank_rows if _is_pullback_tail_row(row)]
+    pullback_rows = [row for row in rank_rows if _is_pullback_row(row)]
+    normal_rows = [
+        row
+        for row in rank_rows
+        if not _is_priority_row(row)
+        and not _is_elite_row(row)
+        and not _is_pullback_tail_row(row)
+        and not _is_pullback_row(row)
+    ]
+    runtime_audit = _runtime_audit_from_events(root)
+    if not runtime_audit and root == PROJECT_ROOT:
+        runtime_audit = _read_audit()
+    if isinstance(runtime_audit.get("runtime_audit"), dict):
+        runtime_audit = runtime_audit["runtime_audit"]
     reasons = runtime_audit.get("reasons") if isinstance(runtime_audit.get("reasons"), dict) else {}
     blockers = runtime_audit.get("blocked_by_reason") if isinstance(runtime_audit.get("blocked_by_reason"), dict) else {}
     bought = [
@@ -564,13 +797,52 @@ def build_research_rank_priority_report(root: Path | None = None) -> dict[str, A
             "max_open": int(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MAX_OPEN", 2) or 2),
             "route_required": bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)),
             "proxy_liquidity_allowed": False,
+            "pullback_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MODE", True)),
+            "pullback_min_price5m": _float(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MIN_PRICE5M", -10.0),
+                -10.0,
+            ),
+            "pullback_max_price5m": _float(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MAX_PRICE5M", 30.0),
+                30.0,
+            ),
+            "pullback_min_rank_score": _float(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MIN_RANK_SCORE", 70.0),
+                70.0,
+            ),
+            "pullback_alt_min_txns_5m": int(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_ALT_MIN_TXNS_5M", 900) or 900
+            ),
+            "stale_high_price5m_enabled": bool(
+                getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_ENABLED", True)
+            ),
+            "normal_buy_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED", False)),
+            "elite_consolidation_mode": bool(
+                getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MODE", True)
+            ),
+            "pullback_buy_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_BUY_ENABLED", False)),
+            "pullback_tail_micro_mode": bool(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MICRO_MODE", True)
+            ),
+            "size_sol": _float(getattr(CFG, "RESEARCH_RANK_CANARY_SIZE_SOL", 0.01), 0.01),
+            "max_size_sol": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_SIZE_SOL", 0.02), 0.02),
+            "pullback_tail_amount_sol": _float(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_AMOUNT_SOL", 0.005),
+                0.005,
+            ),
         },
         "priority_seen": int(reasons.get("research_rank_canary_priority") or len(priority_rows)),
         "priority_bought": len(bought),
         "priority_shadow": len(shadow),
+        "elite_seen": int(reasons.get("research_rank_canary_elite_consolidation") or len(elite_rows)),
+        "pullback_tail_seen": int(reasons.get("research_rank_canary_pullback_tail_micro") or len(pullback_tail_rows)),
+        "pullback_seen": int(reasons.get("research_rank_canary_pullback") or len(pullback_rows)),
         "blockers": blockers,
         "historical": {
             "priority": _summary(priority_rows),
+            "elite_consolidation": _summary(elite_rows),
+            "pullback_tail_micro": _summary(pullback_tail_rows),
+            "pullback": _summary(pullback_rows),
             "normal": _summary(normal_rows),
         },
         "samples": [

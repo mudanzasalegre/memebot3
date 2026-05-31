@@ -157,6 +157,18 @@ def test_dynamic_runner_floor_precedes_green_post_partial_trailing() -> None:
     assert reason == "DYNAMIC_RUNNER_FLOOR"
 
 
+def test_post_partial_protection_floor_pct_exposes_dry_run_fill_hint_floor() -> None:
+    subject = {
+        "entry_regime": "pump_early",
+        "partial_taken": True,
+        "highest_pnl_pct": 87.3,
+    }
+
+    floor = exit_policy.post_partial_protection_floor_pct(subject)
+
+    assert floor == pytest.approx(82.3)
+
+
 def test_sniper_deep_reversal_uses_defensive_exit() -> None:
     now = dt.datetime.now(dt.timezone.utc)
     subject = {

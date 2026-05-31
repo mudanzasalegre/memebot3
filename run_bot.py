@@ -4898,15 +4898,35 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         amount_sol = float(research_canary_decision.amount_sol)
     if str(token.get("entry_lane") or "").strip().lower() == "pump_early_birth_probe_micro_canary":
         amount_sol = float(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_AMOUNT_SOL", 0.01) or 0.01)
-    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_moonshot_micro_lottery":
-        amount_sol = min(float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.002) or 0.002), 0.005)
+    lane_for_amount = str(token.get("entry_lane") or "").strip().lower()
+    if lane_for_amount == "pump_early_moonshot_micro_lottery":
+        amount_sol = min(
+            float(
+                token.get("moonshot_micro_lottery_amount_sol")
+                or getattr(CFG, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.002)
+                or 0.002
+            ),
+            0.005,
+        )
     if bool(token.get("paper_exploration_quota")):
         amount_sol = min(float(getattr(CFG, "PAPER_EXPLORATION_AMOUNT_SOL", 0.005) or 0.005), 0.01)
+    paper_micro_entry = bool(
+        DRY_RUN
+        and (
+            lane_for_amount
+            in {
+                "pump_early_birth_probe_micro_canary",
+                "pump_early_moonshot_micro_lottery",
+                "pump_early_research_rank_canary",
+            }
+            or bool(token.get("paper_exploration_quota"))
+        )
+    )
     effective_min_buy_sol = (
-        float(getattr(CFG, "GREEN_SNIPER_LIVE_SIZE_SOL", MIN_BUY_SOL) or MIN_BUY_SOL)
+        0.0
+        if paper_micro_entry
+        else float(getattr(CFG, "GREEN_SNIPER_LIVE_SIZE_SOL", MIN_BUY_SOL) or MIN_BUY_SOL)
         if green_fast_path
-        else 0.0
-        if str(token.get("entry_lane") or "").strip().lower() == "pump_early_moonshot_micro_lottery"
         else float(MIN_BUY_SOL)
     )
     if amount_sol < effective_min_buy_sol:
@@ -6415,6 +6435,21 @@ async def _check_positions(ses: SessionLocal) -> None:
                 log.debug("dynamic runner floor price hint failed for %s", pos.address[:6], exc_info=True)
 
         # ④ SELL — seller.sell hará su propio cálculo robusto de precio
+        if DRY_RUN and str(exit_reason) in {"POST_PARTIAL_TRAILING", "POST_PARTIAL_STOP"}:
+            try:
+                floor_pct = exit_policy.post_partial_protection_floor_pct(
+                    pos,
+                    peak=float(getattr(pos, "highest_pnl_pct", 0.0) or 0.0),
+                )
+                buy_px = float(getattr(pos, "buy_price_usd", 0.0) or 0.0)
+                if floor_pct is not None and buy_px > 0:
+                    floor_price = buy_px * (1.0 + float(floor_pct) / 100.0)
+                    if sell_price_hint is None or floor_price > float(sell_price_hint):
+                        sell_price_hint = floor_price
+                        sell_price_source_hint = "post_partial_protection_floor"
+            except Exception:
+                log.debug("post-partial floor price hint failed for %s", pos.address[:6], exc_info=True)
+
         sell_resp = await seller.sell(
             pos.address,
             pos.qty,

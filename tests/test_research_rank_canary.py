@@ -11,31 +11,32 @@ from analytics.research_rank_canary import (
 def test_research_rank_canary_allows_rank_high_paper() -> None:
     token = {
         "entry_lane": "pump_early_sniper_research",
-        "liquidity_usd": 3000,
-        "market_cap_usd": 50_000,
+        "liquidity_usd": 22_000,
+        "market_cap_usd": 77_000,
         "price_pct_5m": 70,
-        "txns_last_5m": 350,
+        "txns_last_5m": 1200,
         "has_jupiter_route": True,
         "liquidity_is_proxy": 0,
     }
-    decision = evaluate_research_rank_canary(token, {"rank_score": 70}, dry_run=True, live=False)
+    decision = evaluate_research_rank_canary(token, {"rank_score": 72}, dry_run=True, live=False)
     assert decision.allowed
+    assert decision.reason == "research_rank_canary_priority"
     assert decision.entry_lane == "pump_early_research_rank_canary"
 
 
 def test_research_rank_canary_normalizes_fractional_rank_score() -> None:
     token = {
         "entry_lane": "pump_early_sniper_research",
-        "liquidity_usd": 3000,
-        "market_cap_usd": 50_000,
+        "liquidity_usd": 22_000,
+        "market_cap_usd": 77_000,
         "price_pct_5m": 70,
-        "txns_last_5m": 350,
+        "txns_last_5m": 1200,
         "has_jupiter_route": True,
         "liquidity_is_proxy": 0,
     }
-    decision = evaluate_research_rank_canary(token, {"rank_score": 0.70}, dry_run=True, live=False)
+    decision = evaluate_research_rank_canary(token, {"rank_score": 0.72}, dry_run=True, live=False)
     assert decision.allowed
-    assert decision.rank_score == 70.0
+    assert decision.rank_score == 72.0
     assert decision.rank_score_scale == "0_1"
 
 
@@ -81,14 +82,14 @@ def test_research_rank_canary_allowed_forces_own_lane_over_pumpswap_labels() -> 
         "entry_lane": "pump_early_sniper_research",
         "gate_profile": "pumpswap_profit_prime",
         "profit_lane_tier": "pump_early_pumpswap_prime",
-        "liquidity_usd": 3000,
-        "market_cap_usd": 50_000,
+        "liquidity_usd": 22_000,
+        "market_cap_usd": 77_000,
         "price_pct_5m": 70,
-        "txns_last_5m": 350,
+        "txns_last_5m": 1200,
         "has_jupiter_route": True,
         "liquidity_is_proxy": 0,
     }
-    decision = evaluate_research_rank_canary(token, {"rank_score": 70}, dry_run=True, live=False)
+    decision = evaluate_research_rank_canary(token, {"rank_score": 72}, dry_run=True, live=False)
 
     apply_research_rank_canary_context(token, decision)
 
@@ -102,14 +103,14 @@ def test_research_rank_canary_allowed_forces_own_lane_over_pumpswap_labels() -> 
 def test_research_rank_canary_no_route_shadows_as_own_lane() -> None:
     token = {
         "entry_lane": "pump_early_sniper_research",
-        "liquidity_usd": 3000,
-        "market_cap_usd": 50_000,
+        "liquidity_usd": 22_000,
+        "market_cap_usd": 77_000,
         "price_pct_5m": 70,
-        "txns_last_5m": 350,
+        "txns_last_5m": 1200,
         "has_jupiter_route": False,
         "liquidity_is_proxy": 0,
     }
-    decision = evaluate_research_rank_canary(token, {"rank_score": 70}, dry_run=True, live=False)
+    decision = evaluate_research_rank_canary(token, {"rank_score": 72}, dry_run=True, live=False)
 
     apply_research_rank_canary_shadow_context(token, decision)
 
@@ -141,7 +142,7 @@ def test_research_rank_canary_price5m_below_40_shadows_rank_canary() -> None:
     assert token["research_rank_canary_shadow"] == 1
 
 
-def test_research_rank_canary_price5m_40_50_requires_rank70_or_liq20k() -> None:
+def test_research_rank_canary_price5m_40_50_low_band_remains_shadow_only() -> None:
     token = {
         "entry_lane": "pump_early_sniper_research",
         "liquidity_usd": 3000,
@@ -158,11 +159,31 @@ def test_research_rank_canary_price5m_40_50_requires_rank70_or_liq20k() -> None:
     assert blocked.reason == "price5m_40_50_requires_rank70_or_liq20k"
 
     allowed_by_rank = evaluate_research_rank_canary(token, {"rank_score": 70}, dry_run=True, live=False)
-    assert allowed_by_rank.allowed
+    assert not allowed_by_rank.allowed
+    assert allowed_by_rank.reason == "research_rank_canary_normal_shadow_only"
 
     token["liquidity_usd"] = 20_000
     allowed_by_liq = evaluate_research_rank_canary(token, {"rank_score": 66}, dry_run=True, live=False)
-    assert allowed_by_liq.allowed
+    assert not allowed_by_liq.allowed
+    assert allowed_by_liq.reason == "research_rank_canary_normal_shadow_only"
+
+
+def test_research_rank_canary_elite_consolidation_allows_small_positive_band() -> None:
+    token = {
+        "entry_lane": "pump_early_sniper_research",
+        "liquidity_usd": 22_000,
+        "market_cap_usd": 50_000,
+        "price_pct_5m": 10,
+        "txns_last_5m": 350,
+        "has_jupiter_route": True,
+        "liquidity_is_proxy": 0,
+    }
+
+    decision = evaluate_research_rank_canary(token, {"rank_score": 75}, dry_run=True, live=False)
+
+    assert decision.allowed
+    assert decision.elite_consolidation is True
+    assert decision.reason == "research_rank_canary_elite_consolidation"
 
 
 def test_research_rank_canary_priority_allows_high_quality_50_120_band() -> None:
@@ -201,6 +222,84 @@ def test_research_rank_canary_priority_requires_route_and_real_liquidity() -> No
     assert not proxy.allowed
 
 
+def test_research_rank_canary_pullback_is_shadow_by_default() -> None:
+    token = {
+        "entry_lane": "pump_early_sniper_research",
+        "liquidity_usd": 22_000,
+        "market_cap_usd": 74_000,
+        "price_pct_5m": -4,
+        "txns_last_5m": 350,
+        "has_jupiter_route": True,
+        "liquidity_is_proxy": 0,
+    }
+
+    decision = evaluate_research_rank_canary(token, {"rank_score": 73}, dry_run=True, live=False)
+
+    assert not decision.allowed
+    assert decision.pullback is True
+    assert decision.shadow_as_own_lane is True
+    assert decision.reason == "research_rank_canary_pullback_shadow_only"
+
+
+def test_research_rank_canary_pullback_tail_micro_allows_strict_recovery_shape() -> None:
+    token = {
+        "entry_lane": "pump_early_sniper_research",
+        "liquidity_usd": 36_253,
+        "market_cap_usd": 203_401,
+        "price_pct_5m": -9.97,
+        "txns_last_5m": 695,
+        "volume_24h_usd": 486_535,
+        "has_jupiter_route": True,
+        "liquidity_is_proxy": 0,
+    }
+
+    decision = evaluate_research_rank_canary(token, {"rank_score": 71}, dry_run=True, live=False)
+
+    assert decision.allowed
+    assert decision.pullback is True
+    assert decision.pullback_tail_micro is True
+    assert decision.amount_sol <= 0.005
+    assert decision.reason == "research_rank_canary_pullback_tail_micro"
+
+
+def test_research_rank_canary_broad_normal_is_shadow_by_default() -> None:
+    token = {
+        "entry_lane": "pump_early_sniper_research",
+        "liquidity_usd": 3_000,
+        "market_cap_usd": 50_000,
+        "price_pct_5m": 70,
+        "txns_last_5m": 350,
+        "has_jupiter_route": True,
+        "liquidity_is_proxy": 0,
+    }
+
+    decision = evaluate_research_rank_canary(token, {"rank_score": 70}, dry_run=True, live=False)
+
+    assert not decision.allowed
+    assert decision.shadow_as_own_lane is True
+    assert decision.reason == "research_rank_canary_normal_shadow_only"
+
+
+def test_research_rank_canary_blocks_stale_high_momentum_without_priority_strength() -> None:
+    token = {
+        "entry_lane": "pump_early_sniper_research",
+        "liquidity_usd": 21_000,
+        "market_cap_usd": 71_000,
+        "price_pct_5m": 61,
+        "txns_last_5m": 418,
+        "age_minutes": 25,
+        "queue_age_minutes": 8,
+        "has_jupiter_route": True,
+        "liquidity_is_proxy": 0,
+    }
+
+    decision = evaluate_research_rank_canary(token, {"rank_score": 76}, dry_run=True, live=False)
+
+    assert not decision.allowed
+    assert decision.shadow_as_own_lane is True
+    assert decision.reason == "research_rank_canary_stale_high_momentum"
+
+
 def test_research_rank_priority_report_outputs_priority_vs_normal(tmp_path) -> None:
     metrics = tmp_path / "data" / "metrics"
     metrics.mkdir(parents=True)
@@ -218,3 +317,5 @@ def test_research_rank_priority_report_outputs_priority_vs_normal(tmp_path) -> N
 
     assert report["historical"]["priority"]["rows"] == 1
     assert report["historical"]["normal"]["rows"] == 1
+    assert "elite_consolidation" in report["historical"]
+    assert "pullback_tail_micro" in report["historical"]
