@@ -140,7 +140,7 @@ def test_green_sniper_adverse_tick_uses_fast_window() -> None:
     assert reason == "ADVERSE_TICK"
 
 
-def test_dynamic_runner_floor_precedes_green_post_partial_trailing() -> None:
+def test_total_pnl_protection_precedes_green_post_partial_trailing() -> None:
     now = dt.datetime.now(dt.timezone.utc)
     subject = {
         "entry_regime": "pump_early",
@@ -154,7 +154,7 @@ def test_dynamic_runner_floor_precedes_green_post_partial_trailing() -> None:
 
     reason = exit_policy.should_exit(subject, price_now=0.70, now=now, pnl_pct=-30.0)
 
-    assert reason == "DYNAMIC_RUNNER_FLOOR"
+    assert reason == "TOTAL_PNL_PROTECTION_EXIT"
 
 
 def test_post_partial_protection_floor_pct_exposes_dry_run_fill_hint_floor() -> None:

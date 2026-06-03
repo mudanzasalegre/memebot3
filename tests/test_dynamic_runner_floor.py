@@ -19,14 +19,14 @@ def _subject(**overrides: object) -> dict[str, object]:
 
 def test_peak_300_closes_around_floor() -> None:
     now = dt.datetime.now(dt.timezone.utc)
-    reason = exit_policy.should_exit(_subject(highest_pnl_pct=300.0), price_now=2.0, now=now, pnl_pct=100.0)
+    reason = exit_policy.should_exit(_subject(highest_pnl_pct=300.0), price_now=2.8, now=now, pnl_pct=180.0)
 
     assert reason == "DYNAMIC_RUNNER_FLOOR"
 
 
 def test_peak_1000_does_not_fall_to_100() -> None:
     now = dt.datetime.now(dt.timezone.utc)
-    reason = exit_policy.should_exit(_subject(highest_pnl_pct=1000.0), price_now=2.0, now=now, pnl_pct=100.0)
+    reason = exit_policy.should_exit(_subject(highest_pnl_pct=1000.0), price_now=6.0, now=now, pnl_pct=500.0)
 
     assert reason == "DYNAMIC_RUNNER_FLOOR"
     assert exit_policy.dynamic_runner_floor_pct(_subject(highest_pnl_pct=1000.0), peak=1000.0) == 700.0

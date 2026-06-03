@@ -23,10 +23,11 @@ def _token(**overrides):
 
 
 def test_moonshot_micro_lottery_allows_paper_only_route_proxy() -> None:
-    decision = evaluate_moonshot_micro_lottery(_token(), dry_run=True, live=False)
+    decision = evaluate_moonshot_micro_lottery(_token(txns_last_5m=320), dry_run=True, live=False)
 
     assert decision.allowed is True
-    assert decision.amount_sol <= 0.005
+    assert decision.reason == "confirmed_moonshot_buy"
+    assert decision.amount_sol <= 0.001
     assert decision.route_proxy is True
 
 
@@ -47,11 +48,11 @@ def test_moonshot_context_uses_own_lane_and_amount() -> None:
 
     assert token["entry_lane"] == "pump_early_moonshot_micro_lottery"
     assert token["gate_profile"] == "moonshot_micro_lottery"
-    assert token["moonshot_micro_lottery_amount_sol"] == 0.002
+    assert token["moonshot_micro_lottery_amount_sol"] == 0.001
     assert token["route_proxy"] == 1
 
 
-def test_moonshot_birth_velocity_probe_allows_moderate_birth_runner() -> None:
+def test_moonshot_birth_velocity_probe_shadows_without_confirmation() -> None:
     decision = evaluate_moonshot_micro_lottery(
         _token(
             source="pumpfun",
@@ -67,8 +68,8 @@ def test_moonshot_birth_velocity_probe_allows_moderate_birth_runner() -> None:
         live=False,
     )
 
-    assert decision.allowed is True
-    assert decision.reason == "moonshot_birth_velocity_probe"
+    assert decision.allowed is False
+    assert decision.reason == "moonshot_needs_confirmation:birth_velocity_shadow"
     assert decision.route_proxy is True
 
 
@@ -106,11 +107,11 @@ def test_moonshot_late_proxy_momentum_allows_low_txns_tail_shape() -> None:
         live=False,
     )
 
-    assert decision.allowed is True
-    assert decision.reason == "moonshot_late_proxy_momentum"
+    assert decision.allowed is False
+    assert decision.reason == "moonshot_needs_confirmation:late_proxy_shadow"
 
 
-def test_moonshot_cluster_tail_probe_allows_micro_paper_cluster_risk() -> None:
+def test_moonshot_cluster_tail_probe_shadows_cluster_risk() -> None:
     decision = evaluate_moonshot_micro_lottery(
         _token(
             age_minutes=4,
@@ -125,12 +126,12 @@ def test_moonshot_cluster_tail_probe_allows_micro_paper_cluster_risk() -> None:
         live=False,
     )
 
-    assert decision.allowed is True
-    assert decision.reason == "moonshot_cluster_tail_probe"
+    assert decision.allowed is False
+    assert "cluster_bad" in decision.failures
     assert decision.amount_sol == 0.001
 
 
-def test_moonshot_cluster_tail_probe_uses_reason_and_pumpfun_mint_when_source_is_telemetry() -> None:
+def test_moonshot_cluster_tail_probe_uses_reason_and_pumpfun_mint_as_shadow() -> None:
     decision = evaluate_moonshot_micro_lottery(
         _token(
             address="J1g1Lquz9TtNjXRJeE36geHEaCqKqgf58qT3hvBKpump",
@@ -141,15 +142,16 @@ def test_moonshot_cluster_tail_probe_uses_reason_and_pumpfun_mint_when_source_is
             liquidity_usd=12_549,
             market_cap_usd=26_308,
             volume_24h_usd=67_596,
-            cluster_bad=False,
+            cluster_bad=True,
             reason="moonshot_micro_lottery_shadow:cluster_bad",
+            observed_shadow_move_pct=80,
         ),
         dry_run=True,
         live=False,
     )
 
-    assert decision.allowed is True
-    assert decision.reason == "moonshot_cluster_tail_probe"
+    assert decision.allowed is False
+    assert "cluster_bad" in decision.failures
 
 
 def test_moonshot_cluster_bad_outside_tail_shape_still_shadows() -> None:

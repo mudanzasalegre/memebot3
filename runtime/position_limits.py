@@ -14,6 +14,7 @@ from ml.lane_taxonomy import (
     LANE_PUMPSWAP_REBOUND_PRIME,
     LANE_RESEARCH_RANK_CANARY,
     LANE_RESEARCH_SNIPER,
+    LANE_SHADOW_FOLLOWUP_MICRO,
     normalize_entry_lane,
 )
 
@@ -58,6 +59,10 @@ def _cap_for_lane(lane: str, *, dry_run: bool, live: bool) -> int:
         if live:
             return 0
         return _int_cfg("MOONSHOT_MICRO_LOTTERY_MAX_OPEN", 1)
+    if lane == LANE_SHADOW_FOLLOWUP_MICRO:
+        if live:
+            return 0
+        return _int_cfg("SHADOW_FOLLOWUP_MICRO_MAX_OPEN", 1)
     if lane == LANE_PUMP_EARLY_BREAKOUT:
         return _int_cfg("PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1)
     if lane == LANE_PUMPSWAP_REBOUND_PRIME:
@@ -133,6 +138,10 @@ def describe_position_limits() -> dict[str, Any]:
         "moonshot_micro_lottery": {
             "paper": _cap_for_lane(LANE_MOONSHOT_MICRO_LOTTERY, dry_run=True, live=False),
             "live": _cap_for_lane(LANE_MOONSHOT_MICRO_LOTTERY, dry_run=False, live=True),
+        },
+        "shadow_followup_micro": {
+            "paper": _cap_for_lane(LANE_SHADOW_FOLLOWUP_MICRO, dry_run=True, live=False),
+            "live": _cap_for_lane(LANE_SHADOW_FOLLOWUP_MICRO, dry_run=False, live=True),
         },
     }
 

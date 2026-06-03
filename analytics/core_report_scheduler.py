@@ -26,6 +26,16 @@ REQUIRED_CORE_REPORTS = (
     "momentum_ignition_fallback_report.json",
     "moonshot_micro_lottery_report.json",
     "current_run_summary.json",
+    "current_run_trade_diagnostics.json",
+    "current_run_funnel.json",
+    "current_run_missed_pumps.json",
+    "current_run_lane_summary.json",
+    "lane_sizing_report.json",
+    "pump_entry_lane_selector_report.json",
+    "shadow_followup_micro_report.json",
+    "research_rank_current_run_report.json",
+    "total_pnl_protection_report.json",
+    "bot_profitability_health.json",
     "entry_funnel_blocker_samples.json",
     "paper_exploration_quota_report.json",
 )
@@ -98,6 +108,14 @@ def report_freshness(root: Path | None = None) -> dict[str, Any]:
 
 def _generators(root: Path, *, include_test_events: bool = False) -> dict[str, Callable[[], Any]]:
     from analytics.current_run_summary import write_current_run_summary
+    from analytics.current_run_reports import (
+        write_bot_profitability_health,
+        write_current_run_funnel,
+        write_current_run_lane_summary,
+        write_current_run_missed_pumps,
+        write_current_run_trade_diagnostics,
+    )
+    from analytics.lane_sizing import write_lane_sizing_report
     from analytics.momentum_ignition_fallback_report import write_momentum_ignition_fallback_report
     from analytics.missed_pumps import write_missed_pumps_report
     from analytics.moonshot_micro_lottery import write_moonshot_micro_lottery_report
@@ -108,9 +126,16 @@ def _generators(root: Path, *, include_test_events: bool = False) -> dict[str, C
     from analytics.runner_turbo_monitor import write_runner_turbo_monitor_report
     from analytics.entry_funnel_blockers_report import write_entry_funnel_blockers_report
     from analytics.pumpswap_rebound_prime import write_pumpswap_rebound_confirmation_report
-    from analytics.research_rank_canary import write_research_rank_canary_audit_report, write_research_rank_priority_report
+    from analytics.pump_entry_lane_selector import write_pump_entry_lane_selector_report
+    from analytics.research_rank_canary import (
+        write_research_rank_canary_audit_report,
+        write_research_rank_current_run_report,
+        write_research_rank_priority_report,
+    )
+    from analytics.shadow_followup_micro import write_shadow_followup_micro_report
     from analytics.sniper_research_subprofiles import write_sniper_research_subprofile_report
     from analytics.trade_diagnostics import write_trade_diagnostics_report
+    from analytics.total_pnl_protection_report import write_total_pnl_protection_report
     from analytics.untagged_buy_block import write_untagged_buy_block_report
     from backtest.policy_replay import write_policy_replay
 
@@ -134,6 +159,16 @@ def _generators(root: Path, *, include_test_events: bool = False) -> dict[str, C
         "momentum_ignition_fallback_report.json": lambda: write_momentum_ignition_fallback_report(root),
         "moonshot_micro_lottery_report.json": lambda: write_moonshot_micro_lottery_report(root),
         "current_run_summary.json": lambda: write_current_run_summary(root),
+        "current_run_trade_diagnostics.json": lambda: write_current_run_trade_diagnostics(root),
+        "current_run_funnel.json": lambda: write_current_run_funnel(root),
+        "current_run_missed_pumps.json": lambda: write_current_run_missed_pumps(root),
+        "current_run_lane_summary.json": lambda: write_current_run_lane_summary(root),
+        "lane_sizing_report.json": lambda: write_lane_sizing_report(root),
+        "pump_entry_lane_selector_report.json": lambda: write_pump_entry_lane_selector_report(root),
+        "shadow_followup_micro_report.json": lambda: write_shadow_followup_micro_report(root),
+        "research_rank_current_run_report.json": lambda: write_research_rank_current_run_report(root),
+        "total_pnl_protection_report.json": lambda: write_total_pnl_protection_report(root),
+        "bot_profitability_health.json": lambda: write_bot_profitability_health(root),
         "entry_funnel_blocker_samples.json": lambda: write_entry_funnel_blockers_report(root),
         "paper_exploration_quota_report.json": lambda: write_paper_exploration_quota_report(root),
     }

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import collections
 import datetime as dt
+import collections
 from pathlib import Path
 from typing import Any
 
+from analytics.current_run import current_run_identity, filter_current_run_rows
 from analytics.report_utils import (
     address_of,
     load_candidate_outcomes,
@@ -28,23 +29,16 @@ def _reason(row: dict[str, Any]) -> str:
     return str(row.get("reason") or row.get("reject_reason") or row.get("blocked_reason") or "").strip()
 
 
-def _run_id(rows: list[dict[str, Any]]) -> str:
-    ids = [str(row.get("run_id") or "").strip() for row in rows if str(row.get("run_id") or "").strip()]
-    if not ids:
-        return "legacy"
-    return collections.Counter(ids).most_common(1)[0][0]
-
-
 def build_current_run_summary(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
     runtime_rows = load_runtime_events(root)
     outcome_rows = load_candidate_outcomes(root)
     position_rows = load_paper_positions(root) + load_sqlite_positions(root)
-    rows = runtime_rows + outcome_rows + position_rows
-    current_run = _run_id(runtime_rows or rows)
-    if current_run != "legacy":
-        runtime_rows = [row for row in runtime_rows if str(row.get("run_id") or "") == current_run]
-        outcome_rows = [row for row in outcome_rows if str(row.get("run_id") or "") in {current_run, ""}]
+    identity = current_run_identity(root, runtime_rows)
+    current_run = str(identity.get("run_id") or "legacy")
+    runtime_rows = filter_current_run_rows(runtime_rows, identity)
+    outcome_rows = filter_current_run_rows(outcome_rows, identity)
+    position_rows = filter_current_run_rows(position_rows, identity)
     raw_addresses = {address_of(row) for row in runtime_rows + outcome_rows if address_of(row)}
     strategy_decisions = [row for row in runtime_rows if _event(row) == "strategy_decision"]
     buys = [row for row in runtime_rows if _event(row) in {"buy", "bought", "paper_buy"}]
@@ -60,6 +54,7 @@ def build_current_run_summary(root: Path | None = None) -> dict[str, Any]:
     return {
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "run_id": current_run,
+        "current_run": identity,
         "started_at": started_at,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "raw_discovered": len(raw_addresses),

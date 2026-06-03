@@ -15,6 +15,7 @@ os.environ.setdefault("CONFIG_PROFILE", "paper_hotfix_runner_v2")
 from analytics import runner_turbo_monitor
 from analytics.core_report_scheduler import REQUIRED_CORE_REPORTS, regenerate_core_reports
 from analytics.runner_ladder import plan_ladder_partials
+from analytics.shadow_followup_micro import evaluate_shadow_followup_micro
 from analytics.untagged_buy_block import evaluate_untagged_buy_guard
 from config.config import CFG
 from scripts.strategy_quality_gate import checks as quality_checks
@@ -110,8 +111,38 @@ def main() -> int:
         "highest_pnl_pct": 300.0,
         "partial_taken": True,
     }
-    floor_reason = exit_policy.should_exit(floor_subject, price_now=2.0, now=now, pnl_pct=100.0)
+    floor_reason = exit_policy.should_exit(floor_subject, price_now=2.8, now=now, pnl_pct=180.0)
     results.append(_ok("dynamic_floor_applies", floor_reason == "DYNAMIC_RUNNER_FLOOR", floor_reason))
+
+    total_floor_subject = {
+        **floor_subject,
+        "partial_count": 2,
+        "entry_qty": 1000,
+        "qty": 500,
+        "realized_qty": 500,
+        "buy_price_usd": 1.0,
+        "realized_proceeds_usd": 750.0,
+    }
+    total_floor_reason = exit_policy.should_exit(total_floor_subject, price_now=1.1, now=now, pnl_pct=10.0)
+    results.append(
+        _ok(
+            "total_pnl_protection_applies",
+            total_floor_reason == "TOTAL_PNL_PROTECTION_EXIT",
+            total_floor_reason,
+        )
+    )
+
+    followup = evaluate_shadow_followup_micro(
+        {
+            "shadow_pnl_pct": 51.0,
+            "minutes_since_first_seen": 4.0,
+            "market_cap_usd": 75_000,
+            "has_jupiter_route": False,
+        },
+        dry_run=True,
+        live=False,
+    )
+    results.append(_ok("shadow_followup_micro_triggers", followup.allowed and followup.route_proxy, followup))
 
     runner_turbo_monitor.reset_state()
     turbo_enter = runner_turbo_monitor.observe_position(
@@ -136,6 +167,7 @@ def main() -> int:
         and not bool(getattr(CFG, "GREEN_SNIPER_LIVE_ENABLED", False))
         and not bool(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED", False))
         and not bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED", False))
+        and not bool(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED", False))
         and bool(getattr(CFG, "RUNNER_TURBO_PAPER_ONLY", True))
     )
     results.append(_ok("live_still_off", live_off))

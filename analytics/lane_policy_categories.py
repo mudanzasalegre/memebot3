@@ -11,6 +11,7 @@ from ml.lane_taxonomy import (
     LANE_PUMPSWAP_REBOUND_PRIME,
     LANE_RESEARCH_RANK_CANARY,
     LANE_RESEARCH_SNIPER,
+    LANE_SHADOW_FOLLOWUP_MICRO,
     normalize_entry_lane,
 )
 
@@ -23,6 +24,7 @@ POLICY_PUMP_EARLY_SNIPER_RESEARCH = "pump_early_sniper_research"
 POLICY_PAPER_BIRTH_PROBE = "paper_birth_probe"
 POLICY_BIRTH_PROBE_MICRO_CANARY = "birth_probe_micro_canary"
 POLICY_MOONSHOT_MICRO_LOTTERY = "moonshot_micro_lottery"
+POLICY_SHADOW_FOLLOWUP_MICRO = "shadow_followup_micro"
 POLICY_LATE_MOMENTUM_WATCH = "late_momentum_watch"
 POLICY_PUMPSWAP_REBOUND_PRIME = "pumpswap_rebound_prime"
 POLICY_UNKNOWN = "unknown"
@@ -36,6 +38,7 @@ POLICY_CATEGORIES = (
     POLICY_PAPER_BIRTH_PROBE,
     POLICY_BIRTH_PROBE_MICRO_CANARY,
     POLICY_MOONSHOT_MICRO_LOTTERY,
+    POLICY_SHADOW_FOLLOWUP_MICRO,
     POLICY_LATE_MOMENTUM_WATCH,
     POLICY_PUMPSWAP_REBOUND_PRIME,
 )
@@ -66,6 +69,8 @@ def classify_policy_category(row: Mapping[str, Any]) -> str:
         return POLICY_BIRTH_PROBE_MICRO_CANARY
     if lane == LANE_MOONSHOT_MICRO_LOTTERY or tier == LANE_MOONSHOT_MICRO_LOTTERY or "moonshot_micro_lottery" in gate:
         return POLICY_MOONSHOT_MICRO_LOTTERY
+    if lane == LANE_SHADOW_FOLLOWUP_MICRO or tier == LANE_SHADOW_FOLLOWUP_MICRO or "shadow_followup" in gate:
+        return POLICY_SHADOW_FOLLOWUP_MICRO
     if subtype == "paper_birth_probe" or "birth_probe" in gate or lane == LANE_PUMP_EARLY_BIRTH_PROBE:
         return POLICY_PAPER_BIRTH_PROBE
     if lane == LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH or "late_momentum" in gate or "late_momentum" in sample_type:
@@ -93,6 +98,7 @@ __all__ = [
     "POLICY_GREEN_SNIPER_SHADOW",
     "POLICY_LATE_MOMENTUM_WATCH",
     "POLICY_MOONSHOT_MICRO_LOTTERY",
+    "POLICY_SHADOW_FOLLOWUP_MICRO",
     "POLICY_PAPER_BIRTH_PROBE",
     "POLICY_PUMP_EARLY_SNIPER_RESEARCH",
     "POLICY_PUMPSWAP_REBOUND_PRIME",

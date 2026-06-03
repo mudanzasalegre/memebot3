@@ -115,6 +115,8 @@ async def _ensure_position_columns() -> None:
         ("experiment_id", "VARCHAR(48)"),
         ("exit_profile", "VARCHAR(32)"),
         ("config_hash", "VARCHAR(64)"),
+        ("run_id", "VARCHAR(32)"),
+        ("run_started_at", "TIMESTAMP"),
         ("buy_dex_id", "VARCHAR(24)"),
         ("buy_price_pct_5m", "REAL"),
         ("buy_txns_last_5m", "INTEGER"),

@@ -67,7 +67,7 @@ def test_research_rank_canary_rejects_proxy_liquidity() -> None:
     }
     decision = evaluate_research_rank_canary(token, {"rank_score": 70}, dry_run=True, live=False)
     assert not decision.allowed
-    assert decision.reason == "proxy_liquidity"
+    assert decision.reason == "shadow_rank_canary"
 
 
 def test_research_rank_canary_live_disabled_by_default() -> None:
@@ -116,7 +116,7 @@ def test_research_rank_canary_no_route_shadows_as_own_lane() -> None:
 
     assert not decision.allowed
     assert decision.shadow_as_own_lane is True
-    assert decision.reason == "research_rank_canary_not_executable:no_route_paper"
+    assert decision.reason == "shadow_rank_canary"
     assert token["entry_lane"] == "pump_early_research_rank_canary"
     assert token["research_rank_canary_shadow"] == 1
 
@@ -137,7 +137,7 @@ def test_research_rank_canary_price5m_below_40_shadows_rank_canary() -> None:
 
     assert not decision.allowed
     assert decision.shadow_as_own_lane is True
-    assert decision.reason == "price5m_below_min"
+    assert decision.reason == "shadow_rank_canary"
     assert token["entry_lane"] == "pump_early_research_rank_canary"
     assert token["research_rank_canary_shadow"] == 1
 
@@ -156,19 +156,19 @@ def test_research_rank_canary_price5m_40_50_low_band_remains_shadow_only() -> No
     blocked = evaluate_research_rank_canary(token, {"rank_score": 66}, dry_run=True, live=False)
     assert not blocked.allowed
     assert blocked.shadow_as_own_lane is True
-    assert blocked.reason == "price5m_40_50_requires_rank70_or_liq20k"
+    assert blocked.reason == "shadow_rank_canary"
 
     allowed_by_rank = evaluate_research_rank_canary(token, {"rank_score": 70}, dry_run=True, live=False)
     assert not allowed_by_rank.allowed
-    assert allowed_by_rank.reason == "research_rank_canary_normal_shadow_only"
+    assert allowed_by_rank.reason == "shadow_rank_canary"
 
     token["liquidity_usd"] = 20_000
     allowed_by_liq = evaluate_research_rank_canary(token, {"rank_score": 66}, dry_run=True, live=False)
     assert not allowed_by_liq.allowed
-    assert allowed_by_liq.reason == "research_rank_canary_normal_shadow_only"
+    assert allowed_by_liq.reason == "shadow_rank_canary"
 
 
-def test_research_rank_canary_elite_consolidation_allows_small_positive_band() -> None:
+def test_research_rank_canary_elite_consolidation_is_shadow_in_priority_only_mode() -> None:
     token = {
         "entry_lane": "pump_early_sniper_research",
         "liquidity_usd": 22_000,
@@ -181,9 +181,9 @@ def test_research_rank_canary_elite_consolidation_allows_small_positive_band() -
 
     decision = evaluate_research_rank_canary(token, {"rank_score": 75}, dry_run=True, live=False)
 
-    assert decision.allowed
-    assert decision.elite_consolidation is True
-    assert decision.reason == "research_rank_canary_elite_consolidation"
+    assert not decision.allowed
+    assert decision.shadow_as_own_lane is True
+    assert decision.reason == "shadow_rank_canary"
 
 
 def test_research_rank_canary_priority_allows_high_quality_50_120_band() -> None:
@@ -236,12 +236,11 @@ def test_research_rank_canary_pullback_is_shadow_by_default() -> None:
     decision = evaluate_research_rank_canary(token, {"rank_score": 73}, dry_run=True, live=False)
 
     assert not decision.allowed
-    assert decision.pullback is True
     assert decision.shadow_as_own_lane is True
-    assert decision.reason == "research_rank_canary_pullback_shadow_only"
+    assert decision.reason == "shadow_rank_canary"
 
 
-def test_research_rank_canary_pullback_tail_micro_allows_strict_recovery_shape() -> None:
+def test_research_rank_canary_pullback_tail_micro_is_shadow_in_priority_only_mode() -> None:
     token = {
         "entry_lane": "pump_early_sniper_research",
         "liquidity_usd": 36_253,
@@ -255,11 +254,9 @@ def test_research_rank_canary_pullback_tail_micro_allows_strict_recovery_shape()
 
     decision = evaluate_research_rank_canary(token, {"rank_score": 71}, dry_run=True, live=False)
 
-    assert decision.allowed
-    assert decision.pullback is True
-    assert decision.pullback_tail_micro is True
-    assert decision.amount_sol <= 0.005
-    assert decision.reason == "research_rank_canary_pullback_tail_micro"
+    assert not decision.allowed
+    assert decision.shadow_as_own_lane is True
+    assert decision.reason == "shadow_rank_canary"
 
 
 def test_research_rank_canary_broad_normal_is_shadow_by_default() -> None:
@@ -277,7 +274,7 @@ def test_research_rank_canary_broad_normal_is_shadow_by_default() -> None:
 
     assert not decision.allowed
     assert decision.shadow_as_own_lane is True
-    assert decision.reason == "research_rank_canary_normal_shadow_only"
+    assert decision.reason == "shadow_rank_canary"
 
 
 def test_research_rank_canary_blocks_stale_high_momentum_without_priority_strength() -> None:
@@ -297,7 +294,7 @@ def test_research_rank_canary_blocks_stale_high_momentum_without_priority_streng
 
     assert not decision.allowed
     assert decision.shadow_as_own_lane is True
-    assert decision.reason == "research_rank_canary_stale_high_momentum"
+    assert decision.reason == "shadow_rank_canary"
 
 
 def test_research_rank_priority_report_outputs_priority_vs_normal(tmp_path) -> None:

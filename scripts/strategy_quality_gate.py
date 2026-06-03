@@ -212,6 +212,7 @@ def checks() -> list[str]:
             "RUNNER_GIVEBACK_EMERGENCY_LIVE_ENABLED",
             "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED",
             "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED",
+            "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED",
             "AUTO_PROMOTE_LIVE",
             "MODEL_AUTO_PROMOTE",
             "ML_AUTO_PROMOTE_LANES",
@@ -250,18 +251,32 @@ def checks() -> list[str]:
         errors.append("BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED must remain false")
     if _bool("MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED", False):
         errors.append("MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED must remain false")
-    if _float("MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.002) > 0.005:
-        errors.append("MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL must stay <=0.005")
+    if _bool("SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED", False):
+        errors.append("SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED must remain false")
+    if _bool("PUMPSWAP_PRIME_STRICT_BUY_ENABLED", False):
+        errors.append("PUMPSWAP_PRIME_STRICT_BUY_ENABLED must remain false")
+    if not _bool("LANE_SIZING_ENABLED", True):
+        errors.append("LANE_SIZING_ENABLED must remain true")
+    if _float("DEFAULT_PAPER_BUY_SOL", 0.005) > 0.005:
+        errors.append("DEFAULT_PAPER_BUY_SOL must stay <=0.005")
+    if _float("MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001) > 0.001:
+        errors.append("MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL must stay <=0.001")
     if _float("MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_AMOUNT_SOL", 0.001) > 0.002:
         errors.append("MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_AMOUNT_SOL must stay <=0.002")
     if _int("MOONSHOT_MICRO_LOTTERY_MAX_OPEN", 1) > 1:
         errors.append("MOONSHOT_MICRO_LOTTERY_MAX_OPEN must stay <=1")
     if _float("PAPER_EXPLORATION_AMOUNT_SOL", 0.005) > 0.01:
         errors.append("PAPER_EXPLORATION_AMOUNT_SOL must stay <=0.01")
-    if _float("RESEARCH_RANK_CANARY_SIZE_SOL", 0.01) > 0.02:
-        errors.append("RESEARCH_RANK_CANARY_SIZE_SOL must stay <=0.02")
-    if _float("RESEARCH_RANK_CANARY_MAX_SIZE_SOL", 0.02) > 0.02:
-        errors.append("RESEARCH_RANK_CANARY_MAX_SIZE_SOL must stay <=0.02")
+    if _float("PAPER_IDLE_AMOUNT_SOL", 0.002) > 0.002:
+        errors.append("PAPER_IDLE_AMOUNT_SOL must stay <=0.002")
+    if _float("RESEARCH_RANK_CANARY_SIZE_SOL", 0.02) > 0.03:
+        errors.append("RESEARCH_RANK_CANARY_SIZE_SOL must stay <=0.03")
+    if _float("RESEARCH_RANK_CANARY_MAX_SIZE_SOL", 0.03) > 0.03:
+        errors.append("RESEARCH_RANK_CANARY_MAX_SIZE_SOL must stay <=0.03")
+    if _float("SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL", 0.003) > 0.003:
+        errors.append("SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL must stay <=0.003")
+    if _float("LATE_MOMENTUM_MICRO_AMOUNT_SOL", 0.003) > 0.003:
+        errors.append("LATE_MOMENTUM_MICRO_AMOUNT_SOL must stay <=0.003")
     if _float("RESEARCH_RANK_CANARY_PULLBACK_TAIL_AMOUNT_SOL", 0.005) > 0.005:
         errors.append("RESEARCH_RANK_CANARY_PULLBACK_TAIL_AMOUNT_SOL must stay <=0.005")
     if _bool("STRATEGY_OPTIMIZATION_LOCK", True):

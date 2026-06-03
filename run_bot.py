@@ -167,10 +167,12 @@ from analytics.green_sniper_gate import apply_green_sniper_context, evaluate_gre
 from analytics.green_sniper_rank_guard import evaluate_green_sniper_rank_guard  # noqa: E402
 from analytics.green_sniper_risk_guard import evaluate_green_sniper_risk_guard  # noqa: E402
 from analytics.green_sniper_sizing import compute_green_sniper_sizing  # noqa: E402
+from analytics.lane_sizing import resolve_lane_buy_amount  # noqa: E402
 from analytics.moonshot_micro_lottery import (  # noqa: E402
     apply_moonshot_micro_lottery_context,
     evaluate_moonshot_micro_lottery,
 )
+from analytics.pump_entry_lane_selector import select_pump_entry_lane  # noqa: E402
 from analytics.pumpswap_prime_strict import evaluate_pumpswap_prime_strict  # noqa: E402
 from analytics.pumpswap_rebound_prime import apply_pumpswap_rebound_prime_context, apply_pumpswap_rebound_watch_context, evaluate_pumpswap_rebound_prime  # noqa: E402
 from analytics.paper_exploration_quota import should_allow_paper_exploration  # noqa: E402
@@ -222,7 +224,7 @@ from utils.lista_pares import (  # noqa: E402
 )
 from utils.data_utils import sanitize_token_data, apply_default_values, prepare_token_for_db  # noqa: E402
 from utils.logger import enable_file_logging, warn_if_nulls, log_funnel  # noqa: E402
-from utils.runtime_context import set_runtime_context  # noqa: E402
+from utils.runtime_context import get_runtime_context, set_runtime_context  # noqa: E402
 from utils.runtime_telemetry import (  # noqa: E402
     log_buy_event,
     log_execution_event,
@@ -4754,6 +4756,27 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             )
             return
 
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_shadow_followup_micro":
+        daily_ok, daily_count, daily_cap = await _shadow_followup_micro_daily_capacity(ses)
+        if not daily_ok:
+            _research_decision(
+                token,
+                action="wait",
+                reason="shadow_followup_micro_daily_cap",
+                stage="capacity",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                dedup_ttl_s=900,
+            )
+            _requeue_with_stats(
+                addr,
+                reason=f"shadow_followup_micro_daily_cap:{daily_count}/{daily_cap}",
+                backoff=900,
+                token=token,
+            )
+            return
+
     if str(token.get("entry_lane") or "").strip().lower() == "pump_early_sniper_research":
         subprofile_decision = evaluate_sniper_research_subprofile(token)
         apply_sniper_research_subprofile_context(token, subprofile_decision)
@@ -4876,6 +4899,41 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             _remove_from_queue_if_present(addr)
             return
 
+    pump_entry_decision = select_pump_entry_lane(token)
+    if not pump_entry_decision.allowed:
+        _stats["filtered_out"] += 1
+        vec = build_feature_vector(token)
+        _store_policy_reject(vec, already_vector=True, reason=pump_entry_decision.reason)
+        _research_decision(
+            token,
+            action="shadow",
+            reason=pump_entry_decision.reason,
+            stage="pump_entry_lane_selector",
+            proba=proba,
+            threshold=ai_threshold_eff,
+            rank_info=rank_info,
+            shadow_kind=pump_entry_decision.shadow_kind,
+            dedup_ttl_s=300,
+        )
+        await _open_shadow(
+            addr,
+            vec,
+            price_hint=token.get("price_usd"),
+            force=True,
+            regime=size_decision.regime,
+            reason=pump_entry_decision.reason,
+            stage="pump_entry_lane_selector",
+            proba=proba,
+            threshold=ai_threshold_eff,
+            rank_info=rank_info,
+            shadow_kind=pump_entry_decision.shadow_kind,
+        )
+        _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+        _remove_from_queue_if_present(addr)
+        return
+    token["pump_entry_selected_lane"] = pump_entry_decision.selected_lane
+    token["pump_entry_lane_selector_reason"] = pump_entry_decision.reason
+
     # IMPORTANTE: no etiquetar 1 en T0; guardamos el vector para el cierre
     _pending_ai_vectors[addr] = vec
 
@@ -4903,21 +4961,35 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         amount_sol = min(
             float(
                 token.get("moonshot_micro_lottery_amount_sol")
-                or getattr(CFG, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.002)
-                or 0.002
+                or getattr(CFG, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001)
+                or 0.001
             ),
-            0.005,
+            0.001,
         )
     if bool(token.get("paper_exploration_quota")):
-        amount_sol = min(float(getattr(CFG, "PAPER_EXPLORATION_AMOUNT_SOL", 0.005) or 0.005), 0.01)
+        amount_sol = min(float(getattr(CFG, "PAPER_IDLE_AMOUNT_SOL", 0.002) or 0.002), 0.002)
+    lane_size_decision = resolve_lane_buy_amount(
+        token,
+        computed_amount_sol=float(amount_sol),
+        dry_run=DRY_RUN,
+        live=not DRY_RUN,
+    )
+    amount_sol = float(lane_size_decision.amount_sol)
+    token["lane_sizing_amount_sol"] = amount_sol
+    token["lane_sizing_reason"] = lane_size_decision.reason
+    token["lane_sizing_fallback_blocked"] = int(bool(lane_size_decision.fallback_blocked))
+    if lane_size_decision.warning:
+        token["lane_sizing_warning"] = lane_size_decision.warning
     paper_micro_entry = bool(
         DRY_RUN
         and (
-            lane_for_amount
-            in {
+            bool(getattr(CFG, "LANE_SIZING_ENABLED", True))
+            or lane_for_amount in {
                 "pump_early_birth_probe_micro_canary",
                 "pump_early_moonshot_micro_lottery",
                 "pump_early_research_rank_canary",
+                "pump_early_shadow_followup_micro",
+                "pump_early_late_momentum_watch",
             }
             or bool(token.get("paper_exploration_quota"))
         )
@@ -5250,6 +5322,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
     # 14) — crear Position (incluye *buy_* métricas y fuente de compra) —
     runner_exit_profile = _runner_profile_for_subject(token)
+    run_ctx = get_runtime_context()
+    run_started_at = parse_iso_utc(run_ctx.get("started_at")) if run_ctx.get("started_at") else None
     pos = Position(
         address=addr,
         symbol=token.get("symbol"),
@@ -5280,6 +5354,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         experiment_id=str(token.get("experiment_id") or "") or None,
         exit_profile=str(token.get("exit_profile") or runner_exit_profile or "") or None,
         config_hash=str(token.get("config_hash") or "") or None,
+        run_id=str(run_ctx.get("run_id") or "") or None,
+        run_started_at=run_started_at,
         buy_dex_id=str(token.get("dex_id") or token.get("dexId") or "") or None,
         buy_price_pct_5m=token.get("price_pct_5m"),
         buy_txns_last_5m=_metric_int(token, "txns_last_5m"),
@@ -5407,6 +5483,7 @@ async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[boo
         "pump_early_green_candle_sniper",
         "pump_early_birth_probe_micro_canary",
         "pump_early_moonshot_micro_lottery",
+        "pump_early_shadow_followup_micro",
         "pump_early_research_rank_canary",
         "pump_early_late_momentum_watch",
     }:
@@ -5416,6 +5493,7 @@ async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[boo
         "pump_early_green_candle_sniper",
         "pump_early_birth_probe_micro_canary",
         "pump_early_moonshot_micro_lottery",
+        "pump_early_shadow_followup_micro",
         "pump_early_research_rank_canary",
         "pump_early_late_momentum_watch",
     }:
@@ -5469,6 +5547,23 @@ async def _moonshot_micro_daily_capacity(ses: SessionLocal) -> tuple[bool, int, 
     start = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     stmt = select(func.count()).select_from(Position).where(
         Position.entry_lane == "pump_early_moonshot_micro_lottery",
+        Position.opened_at >= start,
+    )
+    count = int((await ses.execute(stmt)).scalar() or 0)
+    return count < max_daily, count, max_daily
+
+
+async def _shadow_followup_micro_daily_capacity(ses: SessionLocal) -> tuple[bool, int, int]:
+    if not DRY_RUN:
+        return False, 0, 0
+    if bool(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED", False)):
+        return False, 0, 0
+    max_daily = max(0, int(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_MAX_DAILY_BUYS", 5) or 5))
+    if max_daily <= 0:
+        return False, 0, 0
+    start = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    stmt = select(func.count()).select_from(Position).where(
+        Position.entry_lane == "pump_early_shadow_followup_micro",
         Position.opened_at >= start,
     )
     count = int((await ses.execute(stmt)).scalar() or 0)

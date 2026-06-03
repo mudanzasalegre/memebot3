@@ -8,6 +8,7 @@ from typing import Any
 
 from analytics import bird_runner_exit, runner_ladder
 from config.config import CFG, PROJECT_ROOT
+from trade_pnl import total_pnl_pct_from_record
 
 
 _RUNTIME_DRY_RUN_OVERRIDE: bool | None = None
@@ -1029,6 +1030,60 @@ def dynamic_runner_floor_reason(subject: Any, *, pnl_pct: float, peak: float) ->
     return None
 
 
+def total_pnl_protection_floor_pct(subject: Any, *, peak: float) -> float | None:
+    partial_count = int(max(0.0, _to_float(_get(subject, "partial_count"), 0.0)))
+    if partial_count <= 0 and _to_bool(_get(subject, "partial_taken"), False):
+        partial_count = 1
+    floors: list[float] = []
+    if partial_count >= 1:
+        floors.append(5.0)
+    if partial_count >= 2:
+        floors.append(15.0)
+    if partial_count >= 3:
+        floors.append(40.0)
+    if float(peak or 0.0) >= 100.0:
+        floors.append(50.0)
+    if float(peak or 0.0) >= 300.0:
+        floors.append(150.0)
+    if not floors:
+        return None
+    return max(floors)
+
+
+def total_pnl_protection_reason(
+    subject: Any,
+    *,
+    close_price_usd: Any = None,
+    peak: float,
+    current_pnl_pct: float | None = None,
+) -> str | None:
+    floor = total_pnl_protection_floor_pct(subject, peak=peak)
+    if floor is None:
+        return None
+    try:
+        total_pnl_pct = float(total_pnl_pct_from_record(subject, close_price_usd=close_price_usd))
+    except Exception:
+        total_pnl_pct = _to_float(_get(subject, "total_pnl_pct"), 0.0)
+    if (
+        current_pnl_pct is not None
+        and _get(subject, "total_pnl_pct") is None
+        and (
+            (
+                _to_float(_get(subject, "entry_qty"), 0.0) <= 0.0
+                and _to_float(_get(subject, "qty"), 0.0) <= 0.0
+            )
+            or (
+                _to_float(_get(subject, "realized_qty"), 0.0) > 0.0
+                and _to_float(_get(subject, "realized_proceeds_usd"), 0.0) <= 0.0
+            )
+        )
+    ):
+        total_pnl_pct = float(current_pnl_pct)
+    if total_pnl_pct < float(floor):
+        return "TOTAL_PNL_PROTECTION_EXIT"
+    return None
+
+
 def post_partial_protection_floor_pct(
     subject: Any,
     policy: ExitPolicy | None = None,
@@ -1183,6 +1238,14 @@ def should_exit(
             return "DEEP_REVERSAL_TIME_STOP"
 
     if partial_taken and pnl_pct is not None:
+        total_reason = total_pnl_protection_reason(
+            subject,
+            close_price_usd=price_now,
+            peak=peak,
+            current_pnl_pct=float(pnl_pct),
+        )
+        if total_reason is not None:
+            return total_reason
         floor_reason = dynamic_runner_floor_reason(subject, pnl_pct=float(pnl_pct), peak=peak)
         if floor_reason is not None:
             return floor_reason
@@ -1315,6 +1378,14 @@ def should_exit(
                 return "PRE_PARTIAL_TIME_STOP"
 
     if partial_taken:
+        total_reason = total_pnl_protection_reason(
+            subject,
+            close_price_usd=price_now,
+            peak=peak,
+            current_pnl_pct=float(pnl_pct),
+        )
+        if total_reason is not None:
+            return total_reason
         floor_reason = dynamic_runner_floor_reason(subject, pnl_pct=float(pnl_pct), peak=peak)
         if floor_reason is not None:
             return floor_reason
@@ -1382,6 +1453,14 @@ def describe_exit_policy() -> dict[str, Any]:
         "post_partial_lock_floor_pct": float(CFG.POST_PARTIAL_LOCK_FLOOR_PCT),
         "post_partial_max_giveback_pct": float(CFG.POST_PARTIAL_MAX_GIVEBACK_PCT),
         "post_partial_min_peak_pct": float(getattr(CFG, "POST_PARTIAL_MIN_PEAK_PCT", 35.0) or 35.0),
+        "total_pnl_protection": {
+            "reason": "TOTAL_PNL_PROTECTION_EXIT",
+            "after_tp1_floor_pct": 5.0,
+            "after_tp2_floor_pct": 15.0,
+            "after_tp3_floor_pct": 40.0,
+            "after_peak_100_floor_pct": 50.0,
+            "after_peak_300_floor_pct": 150.0,
+        },
         "pre_partial_time_stop_min": float(CFG.PRE_PARTIAL_TIME_STOP_MIN),
         "pre_partial_time_stop_max_pnl_pct": float(CFG.PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT),
         "pre_partial_time_stop_min_peak_pct": float(CFG.PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT),
@@ -1550,5 +1629,7 @@ __all__ = [
     "set_runtime_dry_run",
     "should_exit",
     "should_take_partial",
+    "total_pnl_protection_floor_pct",
+    "total_pnl_protection_reason",
     "write_post_partial_activation_audit",
 ]

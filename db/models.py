@@ -151,6 +151,8 @@ class Position(Base):
     experiment_id: Mapped[Optional[str]] = mapped_column(String(48), nullable=True)
     exit_profile: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     config_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    run_started_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     buy_dex_id: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
     buy_price_pct_5m: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     buy_txns_last_5m: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
