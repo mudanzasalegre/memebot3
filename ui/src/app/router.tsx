@@ -12,6 +12,7 @@ import { OverviewPage } from "../pages/OverviewPage";
 import { PolicyCenterPage } from "../pages/PolicyCenterPage";
 import { PositionsPage } from "../pages/PositionsPage";
 import { QueuePage } from "../pages/QueuePage";
+import { ResearchPage } from "../pages/ResearchPage";
 import { RuntimePage } from "../pages/RuntimePage";
 import { SniperPage } from "../pages/SniperPage";
 import { TradeReplayPage } from "../pages/TradeReplayPage";
@@ -74,6 +75,10 @@ export const router = createBrowserRouter([
       {
         path: "policy",
         element: <PolicyCenterPage />,
+      },
+      {
+        path: "research",
+        element: <ResearchPage />,
       },
       {
         path: "config",

@@ -1,116 +1,103 @@
 ![MemeBot 3 banner](assets/memebot3img.jpg)
 
-# MemeBot 3 🤖🚀
-*A Solana meme‑coin sniper with regime-aware execution, rule-based filters, and an optional ML edge*
+# MemeBot 3
 
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](#license)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+MemeBot 3 es un bot y workstation de investigacion para meme-coins de Solana.
+Combina discovery, enriquecimiento de mercado, filtros por regimen, paper/live
+execution, gestion de posiciones, analitica local, modelos ML en sombra y un
+loop AutoResearch para proponer y validar cambios de estrategia sin activar
+live de forma automatica.
 
----
+El proyecto esta pensado para operar primero en paper, medir edge con reports y
+replay, y solo despues considerar canaries live manuales y pequenos.
 
-## ☕ Donate / Support the Project
-If **MemeBot 3** saved you from a rug (or pumped your bags 🚀), consider tipping the devs so we can move the bot from paper‑mode to fully‑fledged *on‑chain* trading:
+## Estado Actual
 
-```
-ARczPrEWBbYj6EKoWoavYNd7VeN99PuTD49j5QnE5S2K   # SPL SOL
-```
+El checkout actual incluye:
 
-*(¡gracias! 💜 — every SOL goes back into cloud, RPC, and coffee)*
+- Bot async principal en `run_bot.py`.
+- Backend FastAPI con API operacional protegida por login local.
+- UI React/Vite como cockpit de operador.
+- Feature store parquet, SQLite runtime DB, JSONL de eventos y reports locales.
+- ML tabular con validaciones, entrenamiento, threshold tuning y modo sombra por defecto.
+- AutoResearch end-to-end: safety, schema, objectives, report bundle, API budget,
+  sandbox, replay, evaluator, scoreboard, search spaces, batch, checkpoint,
+  bandit, paper-forward, rollback, scheduler, LLM adapter deshabilitado,
+  API/UI read-only y smoke/gates finales.
 
----
+## Aviso De Riesgo
 
-## What MemeBot 3 Is
+Este proyecto puede ejecutar swaps reales si `DRY_RUN=0` y los perfiles live lo
+permiten. Las meme-coins pueden perder liquidez de forma inmediata. Usa una
+hot wallet dedicada, empieza con paper, valida la UI y no deposites fondos que
+no puedas perder.
 
-MemeBot 3 is an operational Solana meme-coin sniper and research workstation. It discovers fresh tokens, enriches them with route, price, liquidity, market-cap, momentum and risk data, runs them through regime-aware strategy gates, simulates or executes entries, manages exits, records every decision, and exposes the full system through a FastAPI backend and a React control UI.
+AutoResearch no activa live. Genera y valida artefactos de research/paper; la
+promocion live queda fuera del loop automatico.
 
-The current production philosophy is not "buy everything early". The bot separates productive PnL validation from research acquisition:
-
-| Lane | Purpose | Productive? |
-| --- | --- | --- |
-| `pump_early_pumpswap_profit` | Main PnL lane. Pumpswap only, real liquidity, strict bucket filters, runner exits. | Yes |
-| `pump_early_pumpswap_prime` | Internal high-edge tag inside the productive lane. Same size by default. | Yes |
-| `pump_early_sniper_research` | Near misses, proxy liquidity, pumpfun/meteora, toxic buckets, dataset acquisition. | No |
-| `dex_mature_shadow` | Mature DEX research and scorecard input. | No |
-| `revival_shadow` | Revival research and scorecard input. | No |
-
-The UI is now part of the core system. It is not just a dashboard: it shows source truth, strategy health, ML readiness, queue pressure, trade replays, logs, command history, and local process control.
-
-## Important Risk Notice
-
-This project can submit real Solana swaps when `DRY_RUN=0` or the bot is launched with real-mode settings. Meme coins are extremely risky and can lose liquidity instantly. Run paper mode first, verify the UI state, use tiny sizes, and never fund the wallet with money you cannot lose.
-
-The default workflow should be:
-
-1. Start in paper mode.
-2. Let the productive lane produce enough closed trades.
-3. Inspect `/analytics`, `/ml`, `/runtime/strategy-health`, and trade replay.
-4. Only then consider live canary with minimal size.
-
-## System Overview
+## Arquitectura
 
 ```text
 Fetchers
-  DexScreener, Pump.fun, GeckoTerminal, Jupiter, Helius, RugCheck, BirdEye, GMGN
+  DexScreener, Pump.fun/PumpPortal, GeckoTerminal, Jupiter,
+  Helius/RPC, RugCheck, Birdeye, GMGN
       |
       v
 Discovery queue
-  basic filters, retry/backoff, snapshot quality, route checks
+  filtros iniciales, backoff, retry, route/liquidity checks
       |
       v
 Feature builder
-  parquet feature store + SQLite token context + runtime/research JSONL events
+  SQLite + parquet + runtime_events/candidate_outcomes/decision_ledger
       |
       v
 Strategy runtime
-  regime classification, profit lane gate, bucket health, shadow recovery, ML shadow state
+  regimenes, lanes, gates, health, bucket blocks, ML shadow, policy state
       |
       v
 Execution
-  paper trading or Jupiter-backed real swaps
+  paper trading o swaps reales via rutas configuradas
       |
       v
 Position monitor
-  partial TP, adverse tick, no-pump, liquidity crush, runner protection, final close
+  partial TP, runner floors, adverse tick, no-pump, liquidity crush, stops
       |
       v
-Analytics and UI
-  FastAPI + React cockpit + deterministic reports + replay reconstruction
+Analytics, API, UI, AutoResearch
+  reports locales, replay, objective score, scoreboard, API budget y gates
 ```
 
-## Main Components
+## Componentes Principales
 
-| Path | Role |
+| Ruta | Funcion |
 | --- | --- |
-| `run_bot.py` | Main async bot loop: discovery, queue, scoring, gate, buy, monitor, sell, retrain, telemetry. |
-| `config/config.py` | Central `.env` loader and typed runtime configuration. |
-| `analytics/filters.py` | Hard and soft filters, effective thresholds by regime/profile. |
-| `analytics/strategy_runtime.py` | Regime state, health, bucket blocks, recovery/demotion, execution mode decisions. |
-| `analytics/sizing.py` | Entry size classification and caps. Current default spend is controlled by `TRADE_AMOUNT_SOL` and `MIN_BUY_SOL`. |
-| `analytics/exit_policy.py` | Effective exit policy, partial TP, post-partial runners, adverse tick and no-pump exits. |
-| `analytics/research_runtime.py` | Research lane, rank scoring, scorecards and threshold candidates. |
-| `features/builder.py` | Runtime feature vector construction. |
-| `features/store.py` | Monthly parquet feature store writes. |
-| `ml/train.py` | Dataset quality checks, feature matrix, model training, validation, threshold tuning. |
-| `ml/retrain.py` | Safe retrain wrapper that only keeps a new model if selection improves. |
-| `trader/papertrading.py` | Paper buy/sell simulation with route and price sanity checks. |
-| `trader/buyer.py` / `trader/seller.py` | Real buy/sell execution paths. |
-| `api/` | FastAPI backend for the UI and operational API. |
-| `ui/` | React + Vite operator interface. |
-| `scripts/` | Stack launchers, smoke tests, reports, backup and restore. |
-| `data/` | Runtime state, SQLite, metrics JSON/JSONL and parquet features. Do not commit. |
-| `logs/` | Rotated bot/API logs. Do not commit. |
+| `run_bot.py` | Loop principal: discovery, scoring, gating, buy/sell, monitor, retrain, telemetry. |
+| `config/config.py` | Carga `.env` y expone configuracion runtime. |
+| `analytics/` | Filtros, runtime strategy, reports, scorecards, exits, sniper, runner capture. |
+| `runtime/` | Estado runtime, command bus, process manager, policy modes, hot queue, paper-forward helpers. |
+| `features/` | Construccion y escritura del feature store parquet. |
+| `ml/` | Entrenamiento, modelos, registry, policy, risk/EV/runner/continuation models. |
+| `trader/` | Paper trading y ejecucion real de buyer/seller. |
+| `api/` | Backend FastAPI para UI y endpoints operacionales. |
+| `ui/` | UI React/Vite de operador. |
+| `research_loop/` | AutoResearch paper/replay-only. |
+| `tools/` | Herramientas de reports, replay, AutoResearch y auditoria. |
+| `scripts/` | Arranque local, smoke tests, quality gates, backup/restore. |
+| `strategy_proposals/` | Schemas y candidate policies. |
+| `data/` | DB, metrics, features, research runs. No deberia subirse a GitHub. |
+| `logs/` | Logs runtime locales. No deberia subirse a GitHub. |
 
-## Requirements
+## Requisitos
 
-| Requirement | Notes |
+| Requisito | Notas |
 | --- | --- |
-| Python | 3.10+, tested in this repo with Python 3.12. |
-| Node.js + npm | Required for the React UI. |
-| Windows PowerShell | The included stack scripts are PowerShell-first. The Python modules are portable, but scripts are Windows oriented. |
-| Solana RPC | Helius or another reliable Solana RPC endpoint. |
-| Disk | `data/features/*.parquet`, JSONL events and logs grow over time. |
+| Python | 3.10+, probado aqui con Python 3.12. |
+| Node.js + npm | Necesario para la UI. |
+| PowerShell | Los scripts de arranque son Windows-first. |
+| Solana RPC | Helius u otro RPC fiable si se usa live o enriquecimiento avanzado. |
+| Credenciales externas | Opcionales segun provider y modo. Paper puede arrancar con menos. |
 
-Install Python dependencies:
+Instalar dependencias Python:
 
 ```powershell
 python -m venv .venv
@@ -118,7 +105,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Install UI dependencies:
+Instalar UI:
 
 ```powershell
 cd ui
@@ -126,170 +113,143 @@ npm install
 cd ..
 ```
 
-## Credentials And External Accounts
+## Configuracion Y Secretos
 
-You do not need every provider to start in paper mode, but the bot works better with reliable data. Copy `.env.example` to `.env` and fill the credentials you actually use.
+Copia `.env.example` a `.env` y rellena solo lo que uses:
 
 ```powershell
 Copy-Item .env.example .env
 notepad .env
 ```
 
-| Variable | Required For | Where To Get It |
+Variables relevantes:
+
+| Variable | Uso |
+| --- | --- |
+| `DRY_RUN` | `1` paper, `0` live. |
+| `SOL_PUBLIC_KEY` | Wallet publica. |
+| `SOL_PRIVATE_KEY` | Necesaria solo para swaps reales. Usa hot wallet dedicada. |
+| `SOL_RPC_URL`, `RPC_URL`, `HELIUS_RPC_URL` | RPC Solana. |
+| `HELIUS_API_KEY`, `BIRDEYE_API_KEY`, `RUGCHECK_API_KEY` | Enriquecimiento de datos. |
+| `PUMPPORTAL_API_KEY` | PumpPortal websocket discovery si esta habilitado. |
+| `JUP_API_KEY` | Jupiter si tu plan lo requiere. |
+| `UI_AUTH_MODE`, `UI_LOCAL_USERS`, `UI_SESSION_SECRET` | Login local de la UI/API. |
+
+No subas `.env`, claves privadas, backups con secretos, `data/` ni `logs/`.
+
+## Modos Runtime
+
+| Modo | Como | Efecto |
 | --- | --- | --- |
-| `SOL_PUBLIC_KEY` | Wallet display, live mode sanity. | Your Solana wallet public address. |
-| `SOL_PRIVATE_KEY` | Real on-chain buys/sells. Not needed for paper. | Export from a dedicated hot wallet only. Never use your main wallet. |
-| `SOL_RPC_URL`, `RPC_URL`, `HELIUS_RPC_URL` | Solana RPC, balance, signing, price/route support. | Helius dashboard or another Solana RPC provider. |
-| `HELIUS_API_KEY` | Helius REST, cluster/dev signals, richer token context. | Helius dashboard. |
-| `BIRDEYE_API_KEY` | BirdEye fallback data if enabled. | BirdEye developer portal. |
-| `PUMPPORTAL_API_KEY` | PumpPortal websocket discovery (`subscribeNewToken`). | PumpPortal dashboard. |
-| `RUGCHECK_API_KEY` | Rug/risk enrichment. | RugCheck API access. |
-| `BITQUERY_TOKEN` | Optional discovery/enrichment flow. | Bitquery account. |
-| `BQ_CLIENT_ID`, `BQ_CLIENT_SECRET` | Optional Bitquery OAuth flow. | Bitquery account. |
-| `GMGN_API_KEY` | Optional GMGN enrichment. | GMGN access, if available. |
-| `JUP_API_KEY` | Optional Jupiter managed order/execute flow if your Jupiter plan requires it. | Jupiter developer portal. |
+| Paper | `DRY_RUN=1` o `.\scripts\start_bot.ps1` | No envia swaps reales; usa `trader.papertrading`. |
+| Real | `DRY_RUN=0` o `.\scripts\start_bot.ps1 -RealMode` | Puede enviar swaps reales. |
+| Shadow | ML/lane en sombra | Registra decision/outcome sin afectar gating productivo. |
+| Live canary | Flags live + caps + aprobacion operacional | Rollout live controlado y manual. |
+| AutoResearch | `research_loop/` + `tools/run_autoresearch_loop.py` | Research local/paper; live auto prohibido. |
 
-Keep `.env` private. Commit `.env.example`, not `.env`.
-
-## Runtime Modes
-
-| Mode | How | Meaning |
-| --- | --- | --- |
-| Paper | `DRY_RUN=1` or `.\scripts\start_bot.ps1` without `-RealMode` | No real swaps. Uses `trader.papertrading`. |
-| Real | `DRY_RUN=0` or `.\scripts\start_bot.ps1 -RealMode` | Can submit real swaps with the configured wallet. |
-| Shadow | `ML_GATE_MODE=shadow`, strategy lanes in shadow | Records decisions/outcomes without productive PnL buys. |
-| Live canary | strategy health and mode allow live with caps | Used for guarded live rollout. |
-
-Default recommended operation is paper:
+Base recomendada para desarrollo:
 
 ```env
 DRY_RUN=1
+STRATEGY_OPTIMIZATION_LOCK=true
 ML_GATE_MODE=shadow
-TRADE_AMOUNT_SOL=0.1
-MIN_BUY_SOL=0.1
-PUMP_EARLY_EXECUTION_MODE=live
-DEX_MATURE_EXECUTION_MODE=shadow
-REVIVAL_EXECUTION_MODE=shadow
+AUTO_PROMOTE_LIVE=false
+MODEL_AUTO_PROMOTE=false
 ```
 
-## Quick Start
+## Arranque Rapido
 
-Start API + UI only:
+API + UI:
 
 ```powershell
 .\scripts\start_stack.ps1
 ```
 
-Start API + UI + bot in paper mode:
+API + UI + bot en paper:
 
 ```powershell
 .\scripts\start_stack.ps1 -IncludeBot
 ```
 
-Start API + UI + bot in real mode:
+Ese comando tambien inicia AutoResearch en una ventana propia, en modo daemon
+paper/replay seguro. Por defecto arranca con `AutoResearchMaxCandidates=3`,
+`MaxParallel=1`, intervalo de 6 horas, live promotion apagado y LLM live-touch
+apagado.
+
+Si quieres levantar API + UI + bot sin AutoResearch:
+
+```powershell
+.\scripts\start_stack.ps1 -IncludeBot -SkipAutoResearch
+```
+
+Opciones utiles:
+
+```powershell
+.\scripts\start_stack.ps1 -IncludeBot -AutoResearchSpace moonshot_micro -AutoResearchMaxCandidates 10
+.\scripts\start_stack.ps1 -IncludeBot -AutoResearchOnce -AutoResearchNoPaperPromote
+.\scripts\start_stack.ps1 -IncludeBot -AutoResearchRegenerateReports
+```
+
+API + UI + bot en real mode:
 
 ```powershell
 .\scripts\start_stack.ps1 -IncludeBot -BotRealMode
 ```
 
-URLs:
+Servicios:
 
-| Service | URL |
+| Servicio | URL |
 | --- | --- |
 | UI | `http://127.0.0.1:5173` |
 | API docs | `http://127.0.0.1:8000/docs` |
 | API health | `http://127.0.0.1:8000/api/v1/health` |
 
-Default local login:
-
-| User | Password | Role |
-| --- | --- | --- |
-| `viewer` | `viewer` | Read-only monitoring and saved own views. |
-| `operator` | `operator` | Runtime commands: pause/resume, retrain, refresh reports, reload model. |
-| `admin` | `admin` | Operator plus start/stop managed bot process and log-level control. |
-
-Change local UI users in `.env`:
-
-```env
-UI_AUTH_MODE=local
-UI_LOCAL_USERS=viewer:strong-viewer-pass:viewer:Viewer;operator:strong-operator-pass:operator:Operator;admin:strong-admin-pass:admin:Admin
-UI_SESSION_SECRET=replace-with-a-long-random-secret
-```
-
-Emergency loopback-only mode:
-
-```env
-UI_AUTH_MODE=dev
-```
-
-## Running Components Manually
-
-API:
+Componentes por separado:
 
 ```powershell
 .\scripts\start_api.ps1
-```
-
-UI:
-
-```powershell
 .\scripts\start_ui.ps1
-```
-
-UI with dependency install:
-
-```powershell
-.\scripts\start_ui.ps1 -InstallIfMissing
-```
-
-Bot in paper mode:
-
-```powershell
 .\scripts\start_bot.ps1
+.\scripts\start_autoresearch.ps1
 ```
 
-Bot in real mode:
-
-```powershell
-.\scripts\start_bot.ps1 -RealMode
-```
-
-Direct Python bot run:
+Bot directo:
 
 ```powershell
 .\.venv\Scripts\python.exe run_bot.py --dry-run --log
 ```
 
-## The Operator UI
+## UI Operacional
 
-The React UI is an operational cockpit built around three groups.
+La UI es un cockpit, no una landing page. Rutas principales:
 
-| Page | Purpose |
+| Pagina | Objetivo |
 | --- | --- |
-| Overview | Daily cockpit: runtime posture, queue, wallet, ML, source truth, position summary. |
-| Runtime | Heartbeat, pause flags, buy limiter, strategy health, demotion/recovery state. |
-| Discovery | Funnel feed showing rejects, waits, shadows, buys and exact reasons. |
-| Queue | Pending candidates, retries, backoff, oldest candidate, queue pressure. |
-| Positions | Open risk inventory with exposure and replay shortcuts. |
-| Trades | Closed ledger with outcome, PnL and replay entry points. |
-| Trade Replay | Reconstructs one trade from DB facts, runtime events, research events and nearest feature snapshot. |
-| Analytics | Edge by exit, lane, regime, sizing, feature coverage and consistency checks. |
-| ML Center | Model existence, training status, thresholds, scorecard, readiness and blockers. |
-| Config Center | Effective config and derived policies actually running now. |
-| Logs and Events | App log tail plus runtime/research JSONL rails. |
-| Control Center | Pause/resume, retrain, reload model, refresh reports, process start/stop and command audit. |
+| `Overview` | Estado diario: runtime, queue, wallet, ML, source truth, posiciones. |
+| `Runtime` | Heartbeat, flags de pausa, strategy health, buy limiter. |
+| `Sniper` | Green sniper, hot queue, missed pumps, postura live-canary. |
+| `Discovery` | Funnel de rejects/waits/shadows/buys y motivos. |
+| `Queue` | Backlog, retries, oldest candidate y presion de cola. |
+| `Positions` | Posiciones abiertas y riesgo. |
+| `Trades` | Ledger cerrado y filtros. |
+| `Trade Replay` | Reconstruccion de una operacion desde T0 a cierre. |
+| `Analytics` | Edge por exits, lanes, regimenes y cobertura. |
+| `ML Center` | Modelo, dataset quality, thresholds, readiness y blockers. |
+| `Policy Center` | Safety gates, replay, decision ledger, funnel attribution y proposals. |
+| `AutoResearch` | Scoreboard, current best, API budget, moonshot progress, paper-forward. |
+| `Config Center` | Config efectiva y policies derivadas. |
+| `Logs and Events` | Logs, runtime events y research events. |
+| `Control Center` | Command bus, pause/resume, refresh reports, retrain, process control. |
 
-The API is protected by local session cookies. `/api/v1/health` and auth endpoints are public; operational endpoints require login.
+## API
 
-## API Surface
-
-All API endpoints use `/api/v1` and return a normalized envelope:
+La API usa envelopes normalizados:
 
 ```json
 {
   "data": {},
   "meta": {
-    "generated_at": "2026-04-25T09:30:00+00:00",
+    "generated_at": "2026-06-04T00:00:00+00:00",
     "degraded": false,
     "empty": false,
     "stale": false,
@@ -298,362 +258,360 @@ All API endpoints use `/api/v1` and return a normalized envelope:
 }
 ```
 
-Key endpoints:
+`/api/v1/health` y auth son publicos. El resto requiere sesion local.
 
-| Endpoint | Purpose |
+Endpoints principales:
+
+| Endpoint | Uso |
 | --- | --- |
-| `GET /api/v1/health` | API health. |
-| `GET /api/v1/auth/session` | Current UI identity/session. |
-| `POST /api/v1/auth/login` | Local login. |
-| `GET /api/v1/sources/status` | SQLite, JSONL, parquet and metrics source truth. |
-| `GET /api/v1/overview` | Main UI summary. |
-| `GET /api/v1/runtime/state` | Runtime snapshot from `bot_runtime_state`. |
-| `GET /api/v1/runtime/strategy-health` | Regime, lane, bucket and recovery health. |
-| `GET /api/v1/discovery/feed` | Candidate funnel feed. |
-| `GET /api/v1/discovery/summary` | Stage/reason aggregates. |
-| `GET /api/v1/queue/summary` | Queue counters. |
-| `GET /api/v1/queue/items` | Current queue items. |
-| `GET /api/v1/positions/open` | Open positions. |
-| `GET /api/v1/trades/closed` | Closed trades. |
-| `GET /api/v1/trades/{trade_id}` | Trade factsheet. |
-| `GET /api/v1/trades/{trade_id}/replay` | Full trade reconstruction. |
-| `GET /api/v1/analytics/edge` | Edge report summary. |
-| `GET /api/v1/analytics/baseline` | Static baseline/context. |
-| `GET /api/v1/config/effective` | Effective loaded config. |
-| `GET /api/v1/config/policies` | Derived filter/sizing/exit/strategy policies. |
-| `GET /api/v1/ml/status` | Model state, train status, blockers, live usage posture. |
-| `GET /api/v1/ml/research` | Research scorecard and thresholds. |
-| `GET /api/v1/logs/tail` | Whitelisted log tail. |
-| `GET /api/v1/events/runtime` | Runtime JSONL events. |
-| `GET /api/v1/events/research` | Research JSONL events. |
-| `GET /api/v1/control/state` | Control flags and command state. |
-| `GET /api/v1/control/process` | Managed bot process state. |
-| `POST /api/v1/control/commands` | Queue runtime command. |
-| `POST /api/v1/control/process/start` | Start managed bot process. |
-| `POST /api/v1/control/process/stop` | Stop managed bot process. |
-| `GET/POST/PATCH/DELETE /api/v1/saved-views` | UI saved views. |
+| `GET /api/v1/health` | Health API. |
+| `GET /api/v1/auth/session` / `POST /api/v1/auth/login` | Sesion local. |
+| `GET /api/v1/sources/status` | Estado de SQLite, JSONL, parquet y metrics. |
+| `GET /api/v1/overview` | Cockpit principal. |
+| `GET /api/v1/runtime/state` | Runtime snapshot. |
+| `GET /api/v1/runtime/strategy-health` | Salud de regimen/lane/buckets. |
+| `GET /api/v1/discovery/feed` / `summary` | Funnel discovery. |
+| `GET /api/v1/queue/summary` / `items` | Cola runtime. |
+| `GET /api/v1/positions/open` | Posiciones abiertas. |
+| `GET /api/v1/trades/closed` | Trades cerrados. |
+| `GET /api/v1/trades/{trade_id}` / `replay` | Trade factsheet y replay. |
+| `GET /api/v1/analytics/edge` / `baseline` | Reports de edge. |
+| `GET /api/v1/config/effective` / `policies` | Config y policies efectivas. |
+| `GET /api/v1/ml/status` / `research` | Estado ML y research scorecard. |
+| `GET /api/v1/policy/*` | Learned-policy safety/replay/ledger/funnel/proposals. |
+| `GET /api/v1/sniper/*` | Sniper status, missed pumps y hot queue. |
+| `GET /api/v1/socials/*` | Social enrichment. |
+| `GET /api/v1/research/*` | AutoResearch read-only. |
+| `GET /api/research/*` | Alias read-only para AutoResearch. |
+| `GET /api/v1/logs/tail` | Log tail permitido. |
+| `GET /api/v1/events/runtime` / `research` | JSONL event rails. |
+| `GET/POST /api/v1/control/*` | Command bus y process manager. |
+| `GET/POST/PATCH/DELETE /api/v1/saved-views` | Views locales UI. |
 
-## Strategy Logic
-
-The bot classifies opportunities into regimes and lanes before execution.
-
-| Concept | Meaning |
-| --- | --- |
-| `entry_regime` | Broad behavioral regime: `pump_early`, `dex_mature`, `revival`. |
-| `entry_lane` | Product/research lane, for example `pump_early_pumpswap_profit`. |
-| `gate_profile` | Detailed gate tag, for example `pumpswap_profit_prime` or `pumpswap_meteor_prime`. |
-| `size_bucket` | Execution/sizing label stored on the position. |
-| `rank_score` | Research rank score. In the current profit lane, live uses heuristic/bucket gates, not raw `ml_proba`. |
-
-Current productive gate for `pump_early_pumpswap_profit` is built around:
-
-| Rule | Default |
-| --- | --- |
-| DEX allowlist | `pumpswap` |
-| Real liquidity | required |
-| Min liquidity | `5000` USD |
-| Min score | `35` |
-| Age window | `3` to `30` minutes |
-| Max price impact | `10%` |
-| Blocked mcap bucket | `25000` to `50000` USD |
-| Blocked `price_pct_5m` ranges | `0:25`, `50:100` |
-| Shape guard | enabled |
-| Max productive open positions in paper | `2` |
-| Max productive open positions in live canary | `1` |
-
-Research remains active so the bot keeps learning about rejected candidates, but research outcomes do not contaminate the productive paper ledger.
-
-## Sizing
-
-The default spend is now simple and explicit:
-
-```env
-TRADE_AMOUNT_SOL=0.1
-MIN_BUY_SOL=0.1
-```
-
-In paper mode the bot uses the configured per-trade amount for simulation. In real mode this is the notional target before route, wallet, slippage and execution constraints.
-
-The code still records multipliers and buckets for analysis, but `ml_proba` does not increase size by default:
-
-```env
-AI_SIZING_ENABLED=false
-```
-
-Do not increase size just because win rate looks good over a small sample. Promote size only after enough closed productive trades, stable median PnL and low severe-exit frequency.
-
-## Exits And Runner Capture
-
-The exit engine is regime-aware and lane-aware. For the productive pumpswap lane, the important exits are:
-
-| Exit | Trigger |
-| --- | --- |
-| Partial TP | `PUMP_EARLY_TP_PARTIAL_TRIGGER_PCT=4`, selling `PUMP_EARLY_TP_PARTIAL_FRACTION=0.80`. |
-| Post-partial protection | Lock floor and giveback protection after partial. |
-| Broad runner | Baseline runner profile for normal productive trades. |
-| Prime runner | More room after stronger prime entries. |
-| Meteor runner | More room for meteor/prime runners with larger peak step-ups. |
-| `ADVERSE_TICK` | Productive lane exits if PnL is bad after the configured early seconds. |
-| `NO_PUMP_EXIT` | Productive lane exits if no meaningful peak appears in the first minutes. |
-| `LIQUIDITY_CRUSH` | Liquidity collapse protection. |
-| `EARLY_DROP`, `STOP_LOSS`, `TIME_STOP` | General pre-partial risk controls. |
-
-Core runner settings are visible in `/api/v1/config/policies`.
-
-## Health, Demotion And Recovery
-
-`analytics/strategy_runtime.py` protects the bot from continuing to trade bad conditions. It tracks:
-
-| Signal | Used For |
-| --- | --- |
-| Average PnL windows | Detect negative expectancy. |
-| Consecutive losses | Early demotion. |
-| Severe exits | `LIQUIDITY_CRUSH`, `STOP_LOSS`, `EARLY_DROP`, `ADVERSE_TICK`, or close <= `-25%`. |
-| Bucket health | Blocks specific toxic lane/dex/mcap/price5m buckets instead of killing all trading. |
-| Shadow productive recovery | Lets the productive lane recover when recent rebased shadow outcomes prove the current gate is healthy again. |
-
-The key current recovery settings:
-
-```env
-PUMP_EARLY_SHADOW_RECOVERY_ENABLED=true
-PUMP_EARLY_SHADOW_RECOVERY_WINDOW=8
-PUMP_EARLY_SHADOW_RECOVERY_MIN_TRADES=8
-PUMP_EARLY_SHADOW_RECOVERY_MIN_AVG_PNL_PCT=5
-PUMP_EARLY_SHADOW_RECOVERY_MIN_WIN_RATE_PCT=45
-PUMP_EARLY_SHADOW_RECOVERY_MAX_SEVERE_EXITS=2
-PUMP_EARLY_SHADOW_RECOVERY_MAX_LIQ_CRUSH=1
-PUMP_EARLY_SHADOW_RECOVERY_MAX_CONSECUTIVE_LOSSES=3
-PUMP_EARLY_SHADOW_RECOVERY_MAX_AGE_H=36
-```
-
-Check the current state in:
+AutoResearch endpoints:
 
 ```text
-UI -> Runtime -> Strategy Health
-GET /api/v1/runtime/strategy-health
+/api/v1/research/scoreboard
+/api/v1/research/runs
+/api/v1/research/current-best
+/api/v1/research/api-budget
+/api/v1/research/moonshot-progress
+/api/v1/research/paper-forward
 ```
+
+## Estrategia, Lanes Y Exits
+
+El bot separa PnL productivo de investigacion:
+
+| Lane / familia | Funcion |
+| --- | --- |
+| `pump_early_pumpswap_profit` | Lane productiva principal con gates estrictos. |
+| `pump_early_pumpswap_prime` / meteor-prime | Tags internos de mayor edge dentro de pumpswap. |
+| Green sniper / birth probe | Captura temprana y auditoria de newborn pumps. |
+| Rank canary | Paper/research basado en ranking. |
+| Shadow follow-up micro | Follow-up paper sobre señales shadow. |
+| Moonshot micro | Micro-lottery paper para captura de tail events. |
+| Late momentum micro | Paper/research sobre momentum tardio. |
+| Dex mature / revival shadow | Investigacion y scorecards sin contaminar PnL productivo. |
+
+El motor de exits incluye partial TP, post-partial protection, runner floors,
+adverse tick, no-pump exit, liquidity crush, stop loss, time stop y total PnL
+protection. Los reports de runner capture y missed pumps alimentan AutoResearch.
 
 ## Machine Learning
 
-ML is intentionally optional and currently safe by default:
+ML es opcional y seguro por defecto:
 
 ```env
 ML_GATE_MODE=shadow
 AI_SIZING_ENABLED=false
+MODEL_AUTO_PROMOTE=false
+ML_AUTO_PROMOTE_LANES=false
 ```
 
-That means the model can train, score and publish status, but it does not block live/paper buys and does not increase size. Productive entries are governed by the profit lane heuristic and bucket gate.
+Fuentes:
 
-Training uses:
-
-| Source | Use |
+| Fuente | Uso |
 | --- | --- |
-| `data/features/features_YYYYMM.parquet` | Feature snapshots and metadata. |
-| `candidate_outcomes.jsonl` | Research/shadow outcomes. |
-| `positions` in SQLite | Closed trade outcomes. |
-| `ml/model.pkl` | Active model. |
-| `ml/model.meta.json` | Model metadata. |
-| `data/metrics/recommended_threshold.json` | Tuned threshold candidate. |
-| `data/metrics/train_status.json` | Last training attempt, blockers and counts. |
-| `data/metrics/dataset_quality.json` | Dataset quality pass/fail details. |
+| `data/features/features_YYYYMM.parquet` | Snapshots de features. |
+| SQLite `positions` | Resultados cerrados. |
+| `data/metrics/candidate_outcomes.jsonl` | Research/shadow outcomes. |
+| `data/metrics/decision_ledger.jsonl` | Ledger canonico de decisiones. |
+| `ml/model.pkl`, `ml/model.meta.json` | Modelo activo. |
+| `data/metrics/train_status.json` | Estado ultimo entrenamiento. |
+| `data/metrics/dataset_quality.json` | Calidad dataset. |
 
-Default training eligibility is conservative:
-
-```env
-ML_MIN_DATASET_ROWS=190
-ML_MIN_UNIQUE_TOKENS=190
-ML_MIN_POSITIVES=40
-ML_MIN_HOLDOUT_ROWS=40
-ML_MIN_HOLDOUT_POSITIVES=8
-ML_TRAIN_ENTRY_LANE_ALLOWLIST=pump_early_pumpswap_profit,pump_early_pumpswap_prime,pump_early_meteor_prime
-ML_TRAIN_DEX_ALLOWLIST=pumpswap
-```
-
-Manual retrain:
+Comandos:
 
 ```powershell
 .\.venv\Scripts\python.exe -m ml.retrain
+.\.venv\Scripts\python.exe scripts\ml_report.py
+.\.venv\Scripts\python.exe tools\ml_status.py
 ```
 
-ML report:
+## AutoResearch
+
+AutoResearch adapta el patron de experimentos tipo `autoresearch` a trading
+sin permitir que el agente edite runtime live ni ejecute swaps reales.
+
+Flujo:
+
+```text
+reports locales
+-> report_bundle
+-> api_budget
+-> candidate_policy
+-> safety/schema
+-> sandbox candidate.env
+-> replay local
+-> objective_score
+-> evaluator
+-> scoreboard
+-> paper-forward opcional
+-> accepted/rejected
+```
+
+Superficie permitida:
+
+- Candidate policies.
+- Perfiles sandbox/paper sin secretos.
+- Reports bajo `data/research_runs/`.
+- Search spaces de thresholds, sizing paper y exits.
+- Batch, checkpoint, bandit y scheduler.
+
+Superficie prohibida:
+
+- Activar live.
+- Cambiar `.env` real.
+- Tocar buyer/seller/wallet/signer.
+- Tocar claves, RPC secrets o API keys.
+- Aumentar rate limits o frecuencia de discovery.
+- Desactivar risk guards.
+- Usar LLM como trader.
+
+Modulos:
+
+| Archivo | Funcion |
+| --- | --- |
+| `research_loop/safety.py` / `safety.yaml` | Contrato de seguridad. |
+| `research_loop/experiment_schema.py` | Schema candidate policy. |
+| `research_loop/objectives.py` / `objectives.yaml` | Objective score y hard gates. |
+| `research_loop/report_bundle.py` | Bundle local de reports. |
+| `research_loop/api_budget.py` | Budget local, 429s, degraded providers. |
+| `research_loop/sandbox.py` | `candidate.env` aislado sin secretos. |
+| `research_loop/replay_runner.py` | Replay local y snapshot de reports. |
+| `research_loop/evaluator.py` | `accepted_replay`, `needs_paper`, `rejected`, `failed`, `inconclusive`. |
+| `research_loop/scoreboard.py` | `scoreboard.json` y `scoreboard.md`. |
+| `research_loop/search_space.py` + `spaces/` | Registry y optimizadores especializados. |
+| `research_loop/candidate_generator.py` | Grid/random/local/bandit candidates. |
+| `research_loop/batch_runner.py` / `checkpoint.py` | Batches y resume/duplicates. |
+| `research_loop/bandit.py` | Seleccion de espacios por reward. |
+| `research_loop/paper_forward.py` | Controller paper-forward. |
+| `research_loop/policy_promoter.py` | Perfil paper seguro. |
+| `research_loop/rollback.py` | Rollback de paper candidate degradado. |
+| `research_loop/scheduler.py` | Loop continuo, idle trigger y demotion. |
+| `research_loop/llm_adapter.py` | Adapter opcional, disabled por defecto. |
+| `research_loop/smoke.py` | Smoke end-to-end. |
+
+Comandos AutoResearch:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\ml_report.py
+.\.venv\Scripts\python.exe tools\api_budget_report.py
+.\.venv\Scripts\python.exe tools\generate_research_candidates.py --space moonshot_micro --n 25 --seed 42
+.\.venv\Scripts\python.exe tools\run_research_replay.py strategy_proposals\candidates\PROPOSAL_ID.json
+.\.venv\Scripts\python.exe tools\run_research_batch.py --space moonshot_micro --n 50 --seed 42
+.\.venv\Scripts\python.exe tools\research_scoreboard.py
+.\.venv\Scripts\python.exe tools\start_research_paper.py strategy_proposals\candidates\PROPOSAL_ID.json
+.\.venv\Scripts\python.exe tools\finalize_research_paper.py PAPER_RUN_ID
+.\.venv\Scripts\python.exe tools\run_autoresearch_loop.py --once --space moonshot_micro --max-candidates 3
+.\.venv\Scripts\python.exe tools\autoresearch_smoke.py
 ```
 
-## Data Layout
+Search spaces actuales:
 
-| Path | Description |
+```text
+rank_canary
+shadow_followup / shadow_followup_micro
+moonshot_micro
+runner_exit / runner_ladder
+entry_quality
+late_momentum
+lane_sizing
+sniper_momentum
+paper_exploration
+```
+
+Docs:
+
+- `docs/AUTORESEARCH_MEMEBOT.md`
+- `docs/AUTORESEARCH_RUNBOOK.md`
+- `research_loop/program.md`
+- `research_loop/runbook.md`
+
+## Datos Y Artefactos
+
+| Ruta | Descripcion |
 | --- | --- |
-| `data/memebotdatabase.db` | SQLite source of truth for tokens, positions, runtime state, commands and saved views. |
-| `data/features/features_YYYYMM.parquet` | Append-only feature store. |
-| `data/metrics/runtime_events.jsonl` | Runtime event rail. |
-| `data/metrics/candidate_outcomes.jsonl` | Research and candidate outcome rail. |
-| `data/metrics/research_scorecard.json` | Research scorecard. |
-| `data/metrics/research_thresholds.json` | Threshold/rank candidates. |
-| `data/metrics/recommended_threshold.json` | ML threshold candidate. |
-| `data/metrics/train_status.json` | Last train status. |
-| `data/paper_portfolio.json` | Paper portfolio compatibility artifact. |
-| `logs/*.txt` | Hourly application logs when `--log` is enabled. |
-| `ml/model.pkl` | Active ML model. |
-| `ml/model.meta.json` | Active model metadata. |
-
-Do not commit `data/`, `logs/`, `.env`, wallet keys or local backups.
+| `data/memebotdatabase.db` | SQLite runtime: tokens, positions, state, commands, views. |
+| `data/features/features_YYYYMM.parquet` | Feature store. |
+| `data/metrics/*.json` | Reports generados. |
+| `data/metrics/*.jsonl` | Runtime/research/social/decision event rails. |
+| `data/research_runs/runs/` | Sandboxes y replay runs AutoResearch. |
+| `data/research_runs/batches/` | Batches AutoResearch. |
+| `data/research_runs/paper_forward/` | Estados paper-forward. |
+| `data/research_runs/scoreboard.json` | Scoreboard AutoResearch. |
+| `data/research_runs/api_budget.json` | Budget API AutoResearch. |
+| `config/profiles/*.env` | Perfiles paper/live/research. No contienen secrets si son generados por AutoResearch. |
+| `logs/*.txt` | Logs runtime. |
 
 ## Reports
 
-Reports write Markdown into `docs/` by default and also print to stdout.
+Regenerar reports core:
+
+```powershell
+.\.venv\Scripts\python.exe tools\regenerate_core_reports.py
+```
+
+Reports habituales:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\baseline_report.py
 .\.venv\Scripts\python.exe scripts\edge_report.py
 .\.venv\Scripts\python.exe scripts\ml_report.py
 .\.venv\Scripts\python.exe scripts\pnl_rollout_report.py
+.\.venv\Scripts\python.exe tools\trade_diagnostics.py
+.\.venv\Scripts\python.exe tools\missed_pumps_report.py
+.\.venv\Scripts\python.exe tools\runner_capture_ladder_report.py
 ```
 
-| Report | Output |
-| --- | --- |
-| `baseline_report.py` | Config, DB, parquet and feature baseline. |
-| `edge_report.py` | Edge by exits, regimes, sizing, requeues and feature coverage. |
-| `ml_report.py` | Dataset quality, train status, model meta and validation predictions. |
-| `pnl_rollout_report.py` | Deterministic rollout comparison around historical slices and current lanes. |
+## Quality Gates Y Tests
 
-## Quality Gates
-
-Fast backend/API gate without UI build:
+Suite completa:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\quality_gate.py --skip-ui-build
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Full local gate including UI build:
+Gate local completo:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\quality_gate.py
 ```
 
-PowerShell wrapper:
+Gate backend/API sin build UI:
 
 ```powershell
-.\scripts\quality_gate.ps1
+.\.venv\Scripts\python.exe scripts\quality_gate.py --skip-ui-build
 ```
 
-Targeted tests:
+Strategy gate:
 
 ```powershell
-python -m pytest tests/test_exit_policy.py tests/test_strategy_runtime.py tests/test_research_runtime.py tests/test_pump_live_floor.py
+.\.venv\Scripts\python.exe scripts\strategy_quality_gate.py --warn-only
 ```
 
-Note: `scripts/quality_gate.py` enforces the project venv at `.\.venv\Scripts\python.exe`.
+AutoResearch final smoke/gate:
 
-## Backup And Restore
+```powershell
+.\.venv\Scripts\python.exe tools\autoresearch_smoke.py
+.\.venv\Scripts\python.exe scripts\strategy_quality_gate.py --warn-only
+```
 
-Create a runtime backup:
+UI build:
+
+```powershell
+cd ui
+npm run build
+cd ..
+```
+
+Ultima validacion conocida de este README:
+
+```text
+pytest: 472 passed
+strategy_quality_gate: ok
+autoresearch_smoke: ok
+ui build: ok
+```
+
+## Backup Y Restore
+
+Crear backup runtime:
 
 ```powershell
 .\scripts\backup_runtime.ps1
 ```
 
-Include `.env` only when you explicitly want secrets in the backup:
-
-```powershell
-.\scripts\backup_runtime.ps1 --with-env --with-logs
-```
-
-Restore:
+Restaurar:
 
 ```powershell
 .\scripts\restore_runtime.ps1 .\backups\memebot3-backup-YYYYMMDD-HHMMSS.zip --force
 ```
 
-Restore `.env` from a backup only if you trust that backup:
+Incluye `.env` solo si entiendes que el backup contendra secretos:
 
 ```powershell
+.\scripts\backup_runtime.ps1 --with-env --with-logs
 .\scripts\restore_runtime.ps1 .\backups\memebot3-backup-YYYYMMDD-HHMMSS.zip --force --with-env
 ```
 
-Restore creates a pre-backup and only restores safe runtime paths.
+## Operacion Diaria
 
-## Operational Runbook
+1. Abrir `http://127.0.0.1:5173`.
+2. Revisar `Overview`: sources, runtime, queue, positions, ML.
+3. Revisar `Runtime`: heartbeat, pause flags, strategy health y cooldowns.
+4. Revisar `Discovery`: principales motivos de reject/wait/shadow.
+5. Revisar `Sniper`: hot queue, missed pumps y postura de canary.
+6. Revisar `Analytics`: closed trades, median PnL, exits y runner capture.
+7. Revisar `AutoResearch`: scoreboard, current best, API budget y paper-forward.
+8. Usar `Trade Replay` para perdidas grandes o runners importantes.
 
-Daily checks:
+Si no hay buys:
 
-1. Open `http://127.0.0.1:5173`.
-2. Check `Overview` source truth: SQLite, runtime events, features, paper portfolio, scorecard.
-3. Check `Runtime`: heartbeat fresh, buys not paused, strategy health not stuck in cooldown unless justified.
-4. Check `Discovery`: top reject reasons. `recovery_not_ready`, `bucket`, `no_liq` and API rate limits tell different stories.
-5. Check `Analytics`: closed trades, win rate, median PnL, exits, feature coverage.
-6. Check `ML Center`: model loaded, train status, blockers and whether ML is still shadow.
-7. Use `Trade Replay` for any large loss or runner to inspect the exact timeline.
+1. Confirmar `buys_paused=false` y `discovery_paused=false`.
+2. Revisar `Runtime -> Strategy Health`.
+3. Revisar `Discovery -> Summary`.
+4. Verificar que ML esta en shadow o en el modo esperado.
+5. Mirar `logs/*`, `runtime_events.jsonl`, `candidate_outcomes.jsonl` y API budget.
 
-If no buys happen for hours:
+## Checklist Antes De Live
 
-1. Confirm `buys_paused=false` and `discovery_paused=false`.
-2. Inspect `Runtime -> Strategy Health` for `shadow_wait`, `cooldown`, blocked buckets and `last_disable_reason`.
-3. Inspect `Discovery -> Summary` for reject reasons.
-4. Inspect `/api/v1/ml/status` to confirm ML is not enforcing.
-5. Tail latest `logs/*-N.txt` and `data/metrics/candidate_outcomes.jsonl`.
-
-If the model does not train:
-
-1. Open `ML Center`.
-2. Check `last_train_status`, `eligible_rows`, `eligible_unique_tokens`, `eligible_positives`, `holdout_rows`, `skip_reasons`, `rows_to_next_model`.
-3. Run `.\.venv\Scripts\python.exe scripts\ml_report.py`.
-4. Do not force a model into live gating until validation is acceptable.
-
-## Live Trading Checklist
-
-Before live:
-
-1. `DRY_RUN=0` only when intentional.
-2. Use a dedicated hot wallet, never your main wallet.
-3. Fund only the test amount.
-4. Confirm `SOL_PRIVATE_KEY`, `SOL_PUBLIC_KEY`, RPC URLs and Jupiter settings.
-5. Confirm `TRADE_AMOUNT_SOL=0.1` and `MIN_BUY_SOL=0.1` or lower if you deliberately reduce exposure.
-6. Confirm `ML_GATE_MODE=shadow` unless you have explicitly validated ML.
-7. Confirm `PUMP_EARLY_EXECUTION_MODE=live`, `DEX_MATURE_EXECUTION_MODE=shadow`, `REVIVAL_EXECUTION_MODE=shadow`.
-8. Confirm UI shows no stale sources.
-9. Start with `.\scripts\start_stack.ps1 -IncludeBot -BotRealMode`.
-10. Watch the first trades from `Runtime`, `Positions`, `Trades`, `Logs and Events`.
-
-If anything looks wrong, pause buys from `Control Center` or stop the bot process.
-
-## Troubleshooting
-
-| Symptom | Likely Cause | Check |
-| --- | --- | --- |
-| UI loads but API calls fail | API not running or proxy target wrong. | `http://127.0.0.1:8000/api/v1/health`, `VITE_API_PROXY_TARGET`. |
-| Login fails | Wrong local users or cookie state. | `UI_LOCAL_USERS`, clear browser cookies. |
-| Bot shows `external` | It was started manually, not by UI process manager. | Stop it in its original console. |
-| No buys | Health/cooldown, bucket blocks, strict gate, no route, no liquidity, API rate limits. | Discovery summary, strategy health, logs. |
-| Model missing | Dataset quality not ready or retrain skipped. | ML Center, `data/metrics/train_status.json`. |
-| `numpy/pyarrow` import errors | Wrong Python interpreter. | Use `.\.venv\Scripts\python.exe`. |
-| GeckoTerminal `429` | Rate limiting. | Reduce fallback pressure or wait; check logs. |
-| SQLite appears stale | Bot not publishing state or API reading different path. | `SQLITE_DB`, `/sources/status`. |
+1. `DRY_RUN=0` solo si es intencional.
+2. Hot wallet dedicada y con fondos minimos.
+3. `AUTO_PROMOTE_LIVE=false` y `MODEL_AUTO_PROMOTE=false`.
+4. AutoResearch live promotion deshabilitado.
+5. UI sin sources stale.
+6. Strategy health sin cooldown critico.
+7. API budget sin degradacion nueva.
+8. Tamano pequeno y caps live revisados.
+9. ML no enforce salvo validacion explicita.
+10. Monitorizar primeras operaciones desde UI y logs.
 
 ## GitHub Hygiene
 
-Before pushing:
+Subir:
 
 ```text
-Commit:
-  README.md
-  .env.example
-  source code
-  tests
-  docs that are meant to be public
-
-Do not commit:
-  .env
-  data/
-  logs/
-  backups with .env
-  wallet keys
-  private API keys
-  local model experiments if you do not want them public
+README.md
+.env.example
+source code
+tests
+docs publicos
 ```
 
-Recommended `.gitignore` entries:
+No subir:
+
+```text
+.env
+data/
+logs/
+backups con .env
+wallet keys
+API keys
+modelos privados si no quieres publicarlos
+```
+
+`.gitignore` recomendado:
 
 ```gitignore
 .env
@@ -670,55 +628,21 @@ ui/dist/
 *.bkup.*
 ```
 
-## Project Documentation
+## Documentacion
 
-Additional docs:
-
-| File | Purpose |
+| Documento | Uso |
 | --- | --- |
-| `docs/API_UI_SPEC.md` | API/UI contract and endpoint details. |
-| `docs/UI_OPERATIONS.md` | Local UI/API/bot runbook, backup and restore. |
-| `docs/UI_SITEMAP.md` | UI navigation map. |
-| `docs/UI_STATE_CONTRACT.md` | UI state expectations and source contracts. |
-| `docs/UI_VISUAL_CHARTER.md` | UI visual design notes. |
-| `docs/BASELINE.md` | Generated baseline report. |
-| `docs/EDGE_REPORT.md` | Generated edge report. |
-| `docs/ML_REPORT.md` | Generated ML report. |
-| `docs/ROLLOUT_REPORT.md` | Generated rollout report. |
+| `docs/API_UI_SPEC.md` | Contrato API/UI. |
+| `docs/UI_OPERATIONS.md` | Runbook UI/API/bot. |
+| `docs/UI_SITEMAP.md` | Mapa UI. |
+| `docs/UI_STATE_CONTRACT.md` | Source/state contract. |
+| `docs/AUTORESEARCH_MEMEBOT.md` | Vision AutoResearch. |
+| `docs/AUTORESEARCH_RUNBOOK.md` | Smoke y gate AutoResearch. |
+| `docs/SNIPER_RUNBOOK.md` | Sniper runbook. |
+| `docs/ML_REPORT.md` | Report ML generado. |
+| `docs/EDGE_REPORT.md` | Edge report generado. |
+| `docs/ROLLOUT_REPORT.md` | Rollout report generado. |
 
-## Contributing
+## Licencia
 
-Use small, testable patches. For strategy changes, include a deterministic replay/report whenever possible.
-
-Recommended checks:
-
-```powershell
-python -m pytest
-.\.venv\Scripts\python.exe scripts\quality_gate.py --skip-ui-build
-```
-
-For UI changes:
-
-```powershell
-cd ui
-npm run build
-```
-
-## License
-
-MIT © 2025 [mudanzasalegre](https://github.com/mudanzasalegre)
-# ML lane-aware rollout
-
-The bot supports a conservative lane-aware ML policy. Use `ML_GATE_MODE=lane_aware`
-with live profit lanes in `sizing_only`; do not enable live `enforce` until
-`data/metrics/segment_report.json` and `lane_promotion_status.json` show that
-the model improves realized PnL for that lane without losing jackpots.
-
-Useful commands:
-
-```bash
-python tools/audit_ml_baseline.py
-python -m ml.segment_report
-python tools/ml_status.py
-python backtest/replay.py --policy lane_aware
-```
+MIT. Ver detalles del repositorio original de `mudanzasalegre`.

@@ -771,6 +771,129 @@ export interface MlResearchData {
   consistency: LedgerConsistencyData;
 }
 
+export interface ResearchScoreboardEntry {
+  run_id: string;
+  proposal_id: string;
+  status: string;
+  objective_score: number | null;
+  total_pnl_delta?: number | null;
+  avg_pnl_delta?: number | null;
+  median_pnl_delta?: number | null;
+  win_rate_delta?: number | null;
+  runner_capture_delta?: number | null;
+  moonshot_capture_delta?: number | null;
+  severe_loss_delta?: number | null;
+  liquidity_crush_delta?: number | null;
+  adverse_tick_delta?: number | null;
+  api_budget_delta?: Record<string, number>;
+  created_at_utc?: string | null;
+  evaluated_at_utc?: string | null;
+  rejection_reasons?: string[];
+  warnings?: string[];
+}
+
+export interface ResearchScoreboardData {
+  count: number;
+  summary: {
+    status_counts: Record<string, number>;
+    accepted_count: number;
+    rejected_count: number;
+    best_objective_score: number | null;
+    latest_objective_score: number | null;
+    latest_status: string | null;
+    latest_run_id: string | null;
+    best_run_id: string | null;
+    best_proposal_id: string | null;
+    best_status: string | null;
+  };
+  entries: ResearchScoreboardEntry[];
+}
+
+export interface ResearchRunItem {
+  run_id: string;
+  proposal_id: string;
+  status: string;
+  objective_score: number | null;
+  candidate_status: string | null;
+  updated_at: string | null;
+  candidate_policy: Record<string, unknown>;
+  replay_metrics: Record<string, unknown>;
+  safety: Record<string, unknown>;
+  paths: Record<string, string>;
+}
+
+export interface ResearchRunsData {
+  count: number;
+  items: ResearchRunItem[];
+  status_counts: Record<string, number>;
+}
+
+export interface ResearchCurrentBestData {
+  source: string;
+  entry: ResearchScoreboardEntry | null;
+  run_id: string | null;
+  proposal_id: string | null;
+  status: string | null;
+  objective_score: number | null;
+  candidate_policy: Record<string, unknown> | null;
+  proposal_path: string | null;
+}
+
+export interface ResearchApiBudgetData {
+  summary: {
+    status: string;
+    api_429_count: number;
+    provider_degraded_minutes: number;
+    cooldown_count: number;
+    rpc_errors: number;
+  };
+  api_budget: Record<string, unknown>;
+  metrics_report: Record<string, unknown>;
+}
+
+export interface ResearchMoonshotProgressData {
+  summary: {
+    moonshot_candidates_seen: number | null;
+    moonshot_buys: number | null;
+    moonshot_peak100_capture: number | null;
+    moonshot_peak500_capture: number | null;
+    runner_capture_ratio: number | null;
+    missed_peak100_count: number | null;
+    missed_peak500_count: number | null;
+    missed_peak1000_count: number | null;
+  };
+  moonshot_micro_lottery: Record<string, unknown>;
+  runner_capture_ladder: Record<string, unknown>;
+  missed_pumps: Record<string, unknown>;
+}
+
+export interface ResearchPaperForwardItem {
+  run_id: string;
+  status: string;
+  accepted: boolean | null;
+  started_at_utc: string | null;
+  finalized_at_utc: string | null;
+  paper_profile: string | null;
+  proposal_id: string | null;
+  objective_score: number | null;
+  rejection_reasons: string[];
+  warnings: string[];
+  state: Record<string, unknown>;
+  result: Record<string, unknown>;
+  rollback: Record<string, unknown>;
+  demotion: Record<string, unknown>;
+  paths: Record<string, string>;
+}
+
+export interface ResearchPaperForwardData {
+  count: number;
+  latest: ResearchPaperForwardItem | null;
+  active: ResearchPaperForwardItem[];
+  status_counts: Record<string, number>;
+  items: ResearchPaperForwardItem[];
+  demotion_latest: Record<string, unknown> | null;
+}
+
 export interface ConfigPoliciesData {
   filters: Record<string, unknown>;
   sizing: Record<string, unknown>;
