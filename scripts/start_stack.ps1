@@ -1,10 +1,21 @@
 param(
     [switch]$IncludeBot,
     [switch]$SkipBot,
+    [switch]$SkipAutoResearch,
     [switch]$SkipApi,
     [switch]$SkipUi,
     [switch]$BotRealMode,
     [switch]$UiInstallIfMissing,
+    [switch]$AutoResearchOnce,
+    [switch]$AutoResearchRegenerateReports,
+    [switch]$AutoResearchNoPaperPromote,
+    [switch]$AutoResearchNoDemotion,
+    [string]$AutoResearchSpace = "",
+    [int]$AutoResearchMaxCandidates = 3,
+    [int]$AutoResearchMaxParallel = 1,
+    [string]$AutoResearchMode = "seeded_random",
+    [double]$AutoResearchIntervalHours = 6.0,
+    [int]$AutoResearchSeed = -1,
     [string]$ApiHost = "127.0.0.1",
     [int]$ApiPort = 8000,
     [string]$UiApiProxyTarget = "http://127.0.0.1:8000",
@@ -83,11 +94,40 @@ if ($IncludeBot -and -not $SkipBot) {
         $BotArgs += "-RealMode"
     }
     Start-RepoWindow -ScriptName "start_bot.ps1" -ScriptArgs $BotArgs
+
+    if (-not $SkipAutoResearch) {
+        $AutoResearchArgs = @(
+            "-MaxCandidates", "$AutoResearchMaxCandidates",
+            "-MaxParallel", "$AutoResearchMaxParallel",
+            "-Mode", $AutoResearchMode,
+            "-IntervalHours", "$AutoResearchIntervalHours"
+        )
+        if ($AutoResearchOnce) {
+            $AutoResearchArgs += "-Once"
+        }
+        if ($AutoResearchRegenerateReports) {
+            $AutoResearchArgs += "-RegenerateReports"
+        }
+        if ($AutoResearchNoPaperPromote) {
+            $AutoResearchArgs += "-NoPaperPromote"
+        }
+        if ($AutoResearchNoDemotion) {
+            $AutoResearchArgs += "-NoDemotion"
+        }
+        if ($AutoResearchSpace.Trim()) {
+            $AutoResearchArgs += @("-Space", $AutoResearchSpace)
+        }
+        if ($AutoResearchSeed -ge 0) {
+            $AutoResearchArgs += @("-Seed", "$AutoResearchSeed")
+        }
+        Start-RepoWindow -ScriptName "start_autoresearch.ps1" -ScriptArgs $AutoResearchArgs
+    }
 }
 
 Write-Host "[start_stack] repo=$RepoRoot"
-Write-Host ("[start_stack] api={0} ui={1} bot={2}" -f $(-not $SkipApi), $(-not $SkipUi), $($IncludeBot -and -not $SkipBot))
+Write-Host ("[start_stack] api={0} ui={1} bot={2} autoresearch={3}" -f $(-not $SkipApi), $(-not $SkipUi), $($IncludeBot -and -not $SkipBot), $($IncludeBot -and -not $SkipBot -and -not $SkipAutoResearch))
 Write-Host "[start_stack] ui=http://127.0.0.1:5173"
 Write-Host "[start_stack] api=http://$ApiHost`:$ApiPort/docs"
 Write-Host "[start_stack] default login: viewer/viewer | operator/operator | admin/admin"
-Write-Host "[start_stack] bot starts stopped by default; use -IncludeBot to launch it from PowerShell"
+Write-Host "[start_stack] bot starts stopped by default; use -IncludeBot to launch bot + AutoResearch"
+Write-Host "[start_stack] use -SkipAutoResearch with -IncludeBot if you only want the bot"

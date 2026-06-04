@@ -22,6 +22,51 @@ CRITICAL_MODEL_WARNINGS = {
     "not_ready_for_enforcement",
 }
 
+AUTORESEARCH_RUNTIME_FALSE_FLAGS = (
+    "AUTORESEARCH_LIVE_PROMOTION_ENABLED",
+    "AUTORESEARCH_AUTO_LIVE_PROMOTE",
+    "AUTORESEARCH_LLM_CAN_TOUCH_LIVE",
+)
+
+AUTORESEARCH_PAPER_PROFILE_FALSE_FLAGS = (
+    "LIVE_CANARY_ENABLED",
+    "GREEN_SNIPER_LIVE_ENABLED",
+    "RESEARCH_RANK_CANARY_LIVE_ENABLED",
+    "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED",
+    "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED",
+    "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED",
+    "LATE_MOMENTUM_WATCH_LIVE_ENABLED",
+    "AUTO_PROMOTE_LIVE",
+    "MODEL_AUTO_PROMOTE",
+    "ML_AUTO_PROMOTE_LANES",
+    "AUTORESEARCH_LIVE_PROMOTION_ENABLED",
+    "AUTORESEARCH_AUTO_LIVE_PROMOTE",
+    "LLM_TRADING_ENABLED",
+    "AUTORESEARCH_LLM_CAN_TOUCH_LIVE",
+)
+
+AUTORESEARCH_CANDIDATE_DIRS = (
+    "candidates",
+    "accepted_replay",
+    "accepted_paper",
+    "rejected",
+    "failed",
+    "live_ready_disabled",
+)
+
+AUTORESEARCH_SECRET_MARKERS = (
+    "PRIVATE_KEY",
+    "WALLET",
+    "API_KEY",
+    "SECRET",
+    "TOKEN",
+    "PASSWORD",
+    "RPC_URL",
+    "HELIUS",
+    "BIRDEYE",
+    "RUGCHECK",
+)
+
 
 def _bool(name: str, default: bool = False) -> bool:
     return bool(getattr(CFG, name, default))
@@ -60,6 +105,12 @@ def _truthy_text(value: str | None) -> bool:
 
 def _falsey_text(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"0", "false", "no", "n", "off"}
+
+
+def _validate_autoresearch_runtime_flags(errors: list[str]) -> None:
+    for name in AUTORESEARCH_RUNTIME_FALSE_FLAGS:
+        if _bool(name, False):
+            errors.append(f"{name} must remain false")
 
 
 def _validate_paper_rank_research_profile(errors: list[str]) -> None:
@@ -177,6 +228,145 @@ def _validate_model_enforcement_warnings(errors: list[str]) -> None:
             )
 
 
+def _looks_like_autoresearch_candidate(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if str(payload.get("proposal_id") or "").startswith("ar_"):
+        return True
+    return "created_at_utc" in payload and "api_budget_sensitive" in payload and "target_lanes" in payload
+
+
+def _env_values_upper(path: Path) -> dict[str, str]:
+    return {str(key).upper(): str(value) for key, value in _parse_env_file(path).items()}
+
+
+def _env_has_secret_keys(values: dict[str, str]) -> list[str]:
+    matches: list[str] = []
+    for key in values:
+        upper = key.upper()
+        if any(marker in upper for marker in AUTORESEARCH_SECRET_MARKERS):
+            matches.append(key)
+    return sorted(set(matches))
+
+
+def _validate_autoresearch_paper_profiles(errors: list[str]) -> None:
+    profiles_dir = ROOT / "config" / "profiles"
+    profiles = sorted(profiles_dir.glob("paper_research_candidate_*.env")) if profiles_dir.exists() else []
+    if not profiles:
+        errors.append("autoresearch paper profile missing: config/profiles/paper_research_candidate_*.env")
+        return
+    for profile in profiles:
+        values = _env_values_upper(profile)
+        label = profile.relative_to(ROOT)
+        if not _truthy_text(values.get("DRY_RUN")):
+            errors.append(f"autoresearch paper profile requires DRY_RUN=true: {label}")
+        for name in AUTORESEARCH_PAPER_PROFILE_FALSE_FLAGS:
+            if name in values and not _falsey_text(values.get(name)):
+                errors.append(f"autoresearch paper profile requires {name}=false: {label}")
+        secret_keys = _env_has_secret_keys(values)
+        if secret_keys:
+            errors.append(f"autoresearch paper profile must not contain secrets: {label}:{','.join(secret_keys)}")
+
+
+def _validate_autoresearch_scoreboard(errors: list[str]) -> None:
+    scoreboard_path = ROOT / "data" / "research_runs" / "scoreboard.json"
+    if not scoreboard_path.exists():
+        errors.append("autoresearch scoreboard missing: data/research_runs/scoreboard.json")
+        return
+    try:
+        payload = json.loads(scoreboard_path.read_text(encoding="utf-8", errors="ignore"))
+    except Exception:
+        errors.append("autoresearch scoreboard cannot be parsed")
+        return
+    if isinstance(payload, dict):
+        entries = payload.get("entries")
+        if entries is not None and not isinstance(entries, list):
+            errors.append("autoresearch scoreboard entries must be a list")
+    elif not isinstance(payload, list):
+        errors.append("autoresearch scoreboard must be a list or object with entries")
+
+
+def _validate_autoresearch_api_budget(errors: list[str]) -> None:
+    api_budget_path = ROOT / "data" / "research_runs" / "api_budget.json"
+    if not api_budget_path.exists():
+        errors.append("autoresearch api budget missing: data/research_runs/api_budget.json")
+        return
+    try:
+        payload = json.loads(api_budget_path.read_text(encoding="utf-8", errors="ignore"))
+    except Exception:
+        errors.append("autoresearch api_budget.json cannot be parsed")
+        return
+    if not isinstance(payload, dict):
+        errors.append("autoresearch api_budget.json must be an object")
+        return
+    comparison = payload.get("comparison")
+    if isinstance(comparison, dict):
+        if comparison.get("ok") is False:
+            errors.append("autoresearch api budget comparison is not ok")
+        reasons = comparison.get("rejection_reasons") or []
+        if reasons:
+            errors.append("autoresearch api budget comparison has rejections: " + ",".join(str(reason) for reason in reasons))
+        deltas = comparison.get("deltas") or {}
+        try:
+            api_429_delta = float(deltas.get("api_429_count") or 0)
+        except Exception:
+            api_429_delta = 0.0
+        try:
+            degraded_delta = float(deltas.get("provider_degraded_minutes") or 0)
+        except Exception:
+            degraded_delta = 0.0
+        if api_429_delta > 0:
+            errors.append("autoresearch api budget rejects api_429_count_delta > 0")
+        if degraded_delta > 0:
+            errors.append("autoresearch api budget rejects provider_degraded_minutes_delta > 0")
+
+
+def _validate_autoresearch_contract(errors: list[str]) -> None:
+    research_root = ROOT / "research_loop"
+    schema_path = ROOT / "strategy_proposals" / "schema.autoresearch.json"
+    if not research_root.exists() and not schema_path.exists() and not (ROOT / "data" / "research_runs").exists():
+        return
+
+    required_files = (
+        research_root / "safety.yaml",
+        research_root / "safety.py",
+        research_root / "objectives.yaml",
+        research_root / "objectives.py",
+        research_root / "experiment_schema.py",
+        schema_path,
+    )
+    for path in required_files:
+        if not path.exists():
+            errors.append(f"autoresearch required file missing: {path.relative_to(ROOT)}")
+
+    _validate_autoresearch_scoreboard(errors)
+    _validate_autoresearch_api_budget(errors)
+    _validate_autoresearch_paper_profiles(errors)
+
+    try:
+        from research_loop.experiment_schema import CandidatePolicyValidationError, validate_candidate_policy
+    except Exception as exc:
+        errors.append(f"autoresearch validator import failed: {exc}")
+        return
+
+    proposal_root = ROOT / "strategy_proposals"
+    for candidate_dir_name in AUTORESEARCH_CANDIDATE_DIRS:
+        candidates_dir = proposal_root / candidate_dir_name
+        if not candidates_dir.exists():
+            continue
+        for path in sorted(candidates_dir.glob("*.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+            except Exception:
+                continue
+            if not _looks_like_autoresearch_candidate(payload):
+                continue
+            try:
+                validate_candidate_policy(payload)
+            except CandidatePolicyValidationError as exc:
+                errors.append(f"autoresearch candidate invalid {path.relative_to(ROOT)}: {exc}")
+
+
 def _payload_has_test_event(value: object) -> bool:
     if isinstance(value, dict):
         if str(value.get("run_id") or "").strip().upper() == "SMOKE":
@@ -199,6 +389,7 @@ def checks() -> list[str]:
     model_root = ROOT / "ml" / "models"
     _validate_paper_rank_research_profile(errors)
     _validate_model_enforcement_warnings(errors)
+    _validate_autoresearch_runtime_flags(errors)
     if _bool("STRATEGY_OPTIMIZATION_LOCK", True):
         if not _bool("DRY_RUN", True):
             errors.append("STRATEGY_OPTIMIZATION_LOCK=true requires DRY_RUN=true")
@@ -372,6 +563,7 @@ def checks() -> list[str]:
                 errors.append("missed_pumps.json uses legacy schema; regenerate tools/missed_pumps_report.py")
         except Exception:
             errors.append("missed_pumps.json cannot be parsed")
+    _validate_autoresearch_contract(errors)
     return errors
 
 

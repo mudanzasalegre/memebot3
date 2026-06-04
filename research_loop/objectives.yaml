@@ -1,0 +1,32 @@
+objective:
+  total_pnl_usd_weight: 1.0
+  avg_pnl_pct_weight: 5.0
+  median_pnl_pct_weight: 8.0
+  win_rate_pct_weight: 0.4
+  runner_capture_ratio_weight: 60.0
+  moonshot_peak100_capture_weight: 5.0
+  moonshot_peak500_capture_weight: 20.0
+  moonshot_peak1000_capture_weight: 50.0
+
+penalties:
+  severe_loss_penalty: 40.0
+  liquidity_crush_penalty: 35.0
+  adverse_tick_penalty: 20.0
+  no_pump_exit_penalty: 4.0
+  max_drawdown_penalty: 25.0
+  api_429_penalty: 50.0
+  provider_degraded_penalty: 25.0
+  overtrading_penalty: 8.0
+  idle_no_buy_penalty: 2.0
+
+hard_gates:
+  total_pnl_usd_delta_min: 0.0
+  severe_loss_count_delta_max: 0
+  liquidity_crush_count_delta_max: 0
+  adverse_tick_count_delta_max: 2
+  api_429_count_delta_max: 0
+  provider_degraded_minutes_delta_max: 0.0
+  runner_capture_ratio_delta_min: -0.03
+  median_pnl_pct_delta_min: -3.0
+  max_drawdown_delta_max: 0.0
+  live_allowed_default: false

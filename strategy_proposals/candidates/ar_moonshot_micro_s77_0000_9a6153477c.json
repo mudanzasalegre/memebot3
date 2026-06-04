@@ -1,0 +1,32 @@
+{
+  "api_budget_sensitive": true,
+  "changes": {
+    "MOONSHOT_MICRO_CONFIRMATION_PNL": 75,
+    "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL": 0.001,
+    "MOONSHOT_MICRO_MAX_MCAP_USD": 50000,
+    "MOONSHOT_MICRO_MIN_TXNS_5M": 80,
+    "MOONSHOT_MICRO_TIME_STOP_MIN": 1.5
+  },
+  "created_at_utc": "2026-06-04T11:27:04.586990+00:00",
+  "expected_effect": {
+    "increase_moonshot_capture": true,
+    "increase_pnl": true,
+    "increase_win_rate": false,
+    "reduce_severe_losses": true
+  },
+  "experiment_type": "replay",
+  "hypothesis": "Improve moonshot tail capture with confirmed micro entries.",
+  "live_allowed": false,
+  "proposal_id": "ar_moonshot_micro_s77_0000_9a6153477c",
+  "required_gates": [
+    "replay_positive",
+    "api_budget_ok"
+  ],
+  "risk_notes": [
+    "paper only",
+    "moonshot amount capped"
+  ],
+  "target_lanes": [
+    "pump_early_moonshot_micro_lottery"
+  ]
+}

@@ -5,6 +5,83 @@ from types import SimpleNamespace
 import scripts.strategy_quality_gate as gate
 
 
+def _safe_cfg(**overrides):
+    values = {
+        "STRATEGY_OPTIMIZATION_LOCK": True,
+        "DRY_RUN": True,
+        "LIVE_CANARY_ENABLED": False,
+        "GREEN_SNIPER_LIVE_ENABLED": False,
+        "RESEARCH_RANK_CANARY_LIVE_ENABLED": False,
+        "LATE_MOMENTUM_WATCH_LIVE_ENABLED": False,
+        "LIVE_AGGRESSIVE_TRADING_ENABLED": False,
+        "AUTO_PROMOTE_LIVE": False,
+        "MODEL_AUTO_PROMOTE": False,
+        "ML_AUTO_PROMOTE_LANES": False,
+        "ML_ALLOW_RESEARCH_LIVE": False,
+        "ML_ALLOW_UNKNOWN_LIVE": False,
+        "ALLOW_LIVE_POLICY_ENFORCE": False,
+        "AUTORESEARCH_LIVE_PROMOTION_ENABLED": False,
+        "AUTORESEARCH_AUTO_LIVE_PROMOTE": False,
+        "AUTORESEARCH_LLM_CAN_TOUCH_LIVE": False,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def _candidate(live_allowed: bool = False) -> dict:
+    return {
+        "proposal_id": "ar_gate_001",
+        "created_at_utc": "2026-06-04T00:00:00+00:00",
+        "experiment_type": "replay",
+        "hypothesis": "Gate test candidate",
+        "target_lanes": ["pump_early_moonshot_micro_lottery"],
+        "changes": {"MOONSHOT_MICRO_CONFIRMATION_PNL": "75"},
+        "expected_effect": {"increase_pnl": True},
+        "required_gates": ["replay_positive", "api_budget_ok"],
+        "api_budget_sensitive": True,
+        "live_allowed": live_allowed,
+        "risk_notes": ["paper only"],
+    }
+
+
+def _write_autoresearch_contract(root, *, candidate_live: bool = False, paper_profile: bool = True, scoreboard: bool = True) -> None:
+    research = root / "research_loop"
+    research.mkdir(parents=True, exist_ok=True)
+    for name in ("safety.yaml", "safety.py", "objectives.yaml", "objectives.py", "experiment_schema.py"):
+        (research / name).write_text("# test\n", encoding="utf-8")
+    proposals = root / "strategy_proposals"
+    proposals.mkdir(parents=True, exist_ok=True)
+    (proposals / "schema.autoresearch.json").write_text("{}", encoding="utf-8")
+    candidates = proposals / "candidates"
+    candidates.mkdir(parents=True, exist_ok=True)
+    (candidates / "ar_gate_001.json").write_text(json_dumps(_candidate(live_allowed=candidate_live)), encoding="utf-8")
+    runs = root / "data" / "research_runs"
+    runs.mkdir(parents=True, exist_ok=True)
+    if scoreboard:
+        (runs / "scoreboard.json").write_text('{"entries":[]}', encoding="utf-8")
+    (runs / "api_budget.json").write_text(
+        '{"comparison":{"ok":true,"deltas":{"api_429_count":0,"provider_degraded_minutes":0},"rejection_reasons":[]}}',
+        encoding="utf-8",
+    )
+    if paper_profile:
+        profiles = root / "config" / "profiles"
+        profiles.mkdir(parents=True, exist_ok=True)
+        (profiles / "paper_research_candidate_ar_gate_001.env").write_text(
+            "DRY_RUN=1\n"
+            "LIVE_CANARY_ENABLED=false\n"
+            "AUTORESEARCH_LIVE_PROMOTION_ENABLED=false\n"
+            "AUTORESEARCH_AUTO_LIVE_PROMOTE=false\n"
+            "AUTORESEARCH_LLM_CAN_TOUCH_LIVE=false\n",
+            encoding="utf-8",
+        )
+
+
+def json_dumps(payload) -> str:
+    import json
+
+    return json.dumps(payload, sort_keys=True)
+
+
 def test_strategy_quality_gate_returns_list() -> None:
     assert isinstance(gate.checks(), list)
 
@@ -40,6 +117,42 @@ def test_optimization_lock_blocks_non_dry_run(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(gate, "CFG", SimpleNamespace(STRATEGY_OPTIMIZATION_LOCK=True, DRY_RUN=False))
 
     assert "STRATEGY_OPTIMIZATION_LOCK=true requires DRY_RUN=true" in gate.checks()
+
+
+def test_autoresearch_runtime_flags_must_remain_false(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "CFG", _safe_cfg(AUTORESEARCH_AUTO_LIVE_PROMOTE=True))
+
+    assert "AUTORESEARCH_AUTO_LIVE_PROMOTE must remain false" in gate.checks()
+
+
+def test_autoresearch_contract_accepts_safe_artifacts(monkeypatch, tmp_path) -> None:
+    _write_autoresearch_contract(tmp_path)
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "CFG", _safe_cfg())
+
+    assert gate.checks() == []
+
+
+def test_autoresearch_contract_requires_scoreboard_and_paper_profile(monkeypatch, tmp_path) -> None:
+    _write_autoresearch_contract(tmp_path, paper_profile=False, scoreboard=False)
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "CFG", _safe_cfg())
+
+    errors = gate.checks()
+
+    assert "autoresearch scoreboard missing: data/research_runs/scoreboard.json" in errors
+    assert "autoresearch paper profile missing: config/profiles/paper_research_candidate_*.env" in errors
+
+
+def test_autoresearch_contract_rejects_live_allowed_candidate(monkeypatch, tmp_path) -> None:
+    _write_autoresearch_contract(tmp_path, candidate_live=True)
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "CFG", _safe_cfg())
+
+    errors = gate.checks()
+
+    assert any("autoresearch candidate invalid" in error and "live_allowed_must_be_false" in error for error in errors)
 
 
 def test_optimization_lock_allows_paper_config(monkeypatch, tmp_path) -> None:

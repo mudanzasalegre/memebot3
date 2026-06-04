@@ -7,4 +7,4 @@ Base rebound candidates remain shadow-only until recovery confirmation is presen
 | base_pattern | 0 | 0.00% | 0.00% | 0.00% | 0 |
 | confirmed_buy | 0 | 0.00% | 0.00% | 0.00% | 0 |
 | shadow_rebound_watch | 0 | 0.00% | 0.00% | 0.00% | 0 |
-| base_failures | 451 | 2.00% | -1.04% | 0.00% | 15 |
+| base_failures | 0 | 0.00% | 0.00% | 0.00% | 0 |
