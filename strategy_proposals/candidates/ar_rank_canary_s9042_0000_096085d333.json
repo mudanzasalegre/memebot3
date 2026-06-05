@@ -1,13 +1,13 @@
 {
   "api_budget_sensitive": true,
   "changes": {
-    "RESEARCH_RANK_CANARY_PRIORITY_MIN_LIQUIDITY_USD": 15000,
-    "RESEARCH_RANK_CANARY_PRIORITY_MIN_PRICE5M": 50,
-    "RESEARCH_RANK_CANARY_PRIORITY_MIN_RANK_SCORE": 75,
-    "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M": 1500,
-    "RESEARCH_RANK_CANARY_SIZE_SOL": 0.03
+    "RESEARCH_RANK_CANARY_PRIORITY_MIN_LIQUIDITY_USD": 20000,
+    "RESEARCH_RANK_CANARY_PRIORITY_MIN_PRICE5M": 60,
+    "RESEARCH_RANK_CANARY_PRIORITY_MIN_RANK_SCORE": 72,
+    "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M": 1200,
+    "RESEARCH_RANK_CANARY_SIZE_SOL": 0.02
   },
-  "created_at_utc": "2026-06-04T21:23:20.782620+00:00",
+  "created_at_utc": "2026-06-04T11:39:59.827349+00:00",
   "expected_effect": {
     "increase_moonshot_capture": false,
     "increase_pnl": true,
@@ -17,7 +17,7 @@
   "experiment_type": "replay",
   "hypothesis": "Improve rank canary quality by tuning priority thresholds and paper size.",
   "live_allowed": false,
-  "proposal_id": "ar_rank_canary_grid_0000_b4534be885",
+  "proposal_id": "ar_rank_canary_s9042_0000_096085d333",
   "required_gates": [
     "replay_positive",
     "api_budget_ok"

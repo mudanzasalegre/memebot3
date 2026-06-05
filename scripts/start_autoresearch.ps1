@@ -1,6 +1,7 @@
 param(
     [switch]$Once,
     [switch]$RegenerateReports,
+    [switch]$SkipRegenerateReports,
     [switch]$NoPaperPromote,
     [switch]$NoDemotion,
     [string]$Space = "",
@@ -12,6 +13,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($RegenerateReports -and $SkipRegenerateReports) {
+    throw "Use either -RegenerateReports or -SkipRegenerateReports, not both."
+}
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
@@ -25,6 +30,8 @@ if (-not (Test-Path $AutoResearchTool)) {
 }
 
 Set-Location $RepoRoot
+
+$ShouldRegenerateReports = $RegenerateReports -or (-not $SkipRegenerateReports)
 
 # Force the AutoResearch process into the paper/replay-only contract. These
 # process-local values do not edit .env and cannot enable live promotion.
@@ -62,7 +69,7 @@ $Args += @(
     "--interval-hours", "$IntervalHours"
 )
 
-if ($RegenerateReports) {
+if ($ShouldRegenerateReports) {
     $Args += "--regenerate-reports"
 }
 if ($NoPaperPromote) {
@@ -76,5 +83,6 @@ Write-Host "[start_autoresearch] repo=$RepoRoot"
 Write-Host ("[start_autoresearch] mode={0}" -f $(if ($Once) { "once" } else { "daemon" }))
 Write-Host ("[start_autoresearch] space={0}" -f $(if ($Space.Trim()) { $Space } else { "bandit/idle" }))
 Write-Host "[start_autoresearch] max_candidates=$MaxCandidates max_parallel=$MaxParallel interval_hours=$IntervalHours"
+Write-Host "[start_autoresearch] regenerate_reports=$ShouldRegenerateReports"
 Write-Host "[start_autoresearch] live_promotion=false llm_touch_live=false"
 & $Python @Args

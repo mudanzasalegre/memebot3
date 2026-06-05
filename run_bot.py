@@ -441,6 +441,9 @@ _BOOT_CONFIG_AUDIT_FLAGS = (
     "GREEN_SNIPER_BUY_RESTRICTED_ENABLED",
     "RESEARCH_RANK_CANARY_ENABLED",
     "RESEARCH_RANK_CANARY_PAPER_ENABLED",
+    "RESEARCH_RANK_CANARY_LIVE_ENABLED",
+    "RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED",
+    "RESEARCH_RANK_CANARY_PAPER_NORMAL_BUY_ENABLED",
     "RESEARCH_RANK_CANARY_MIN_SCORE",
     "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER",
     "LATE_MOMENTUM_WATCH_BUY_ENABLED",
@@ -4863,7 +4866,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         if subprofile_decision.allowed:
             rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
 
-    if DRY_RUN and bool(getattr(CFG, "REQUIRE_ENTRY_LANE_FOR_BUY", True)):
+    if bool(getattr(CFG, "REQUIRE_ENTRY_LANE_FOR_BUY", True)):
         untagged_decision = evaluate_untagged_buy_guard(token)
         if not untagged_decision.allowed:
             _stats["filtered_out"] += 1

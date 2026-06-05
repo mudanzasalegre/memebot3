@@ -72,6 +72,8 @@ def test_replay_runner_writes_metrics_and_snapshot(tmp_path) -> None:
     assert result.status == "completed"
     assert result.replay_metrics["total_pnl_usd"] == 12.0
     assert result.replay_metrics["closed_trades"] == 7
+    assert result.replay_metrics["overtrading_count"] == 0
+    assert result.replay_metrics["idle_no_buy_hours"] == 0.0
     assert result.replay_metrics_path.exists()
     assert (result.report_snapshot_dir / "policy_replay.json").exists()
     assert (result.run_dir / "candidate_diff.md").exists()

@@ -173,8 +173,10 @@ API + UI + bot en paper:
 
 Ese comando tambien inicia AutoResearch en una ventana propia, en modo daemon
 paper/replay seguro. Por defecto arranca con `AutoResearchMaxCandidates=3`,
-`MaxParallel=1`, intervalo de 6 horas, live promotion apagado y LLM live-touch
-apagado.
+`MaxParallel=1` e intervalo de 6 horas. El stack limpia locks muertos del bot,
+regenera core reports antes de levantar AutoResearch, refresca reports antes de
+los ciclos de investigacion, mantiene live promotion apagado y bloquea LLM
+live-touch.
 
 Si quieres levantar API + UI + bot sin AutoResearch:
 
@@ -187,7 +189,7 @@ Opciones utiles:
 ```powershell
 .\scripts\start_stack.ps1 -IncludeBot -AutoResearchSpace moonshot_micro -AutoResearchMaxCandidates 10
 .\scripts\start_stack.ps1 -IncludeBot -AutoResearchOnce -AutoResearchNoPaperPromote
-.\scripts\start_stack.ps1 -IncludeBot -AutoResearchRegenerateReports
+.\scripts\start_stack.ps1 -IncludeBot -AutoResearchSkipRegenerateReports
 ```
 
 API + UI + bot en real mode:

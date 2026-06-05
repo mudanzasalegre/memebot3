@@ -128,6 +128,9 @@ def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
             "shadow_if_not_executable": bool(getattr(CFG, "RESEARCH_RANK_CANARY_SHADOW_IF_NOT_EXECUTABLE", True)),
             "require_route_paper": bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)),
             "priority_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MODE", True)),
+            "paper_normal_buy_enabled": bool(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_BUY_ENABLED", True)
+            ),
             "pullback_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MODE", True)),
             "stale_high_price5m_enabled": bool(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_ENABLED", True)),
         },
@@ -168,6 +171,9 @@ def _record_audit(token: dict[str, Any], decision: ResearchRankCanaryDecision, *
                 ),
                 "require_route_paper": bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)),
                 "priority_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MODE", True)),
+                "paper_normal_buy_enabled": bool(
+                    getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_BUY_ENABLED", True)
+                ),
                 "pullback_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MODE", True)),
                 "stale_high_price5m_enabled": bool(
                     getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_ENABLED", True)
@@ -373,6 +379,49 @@ def evaluate_research_rank_canary(
             priority=True,
             amount_sol=_float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_SIZE_SOL", amount), amount),
         )
+    stale_high_momentum = False
+    if bool(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_ENABLED", True)):
+        stale_min_price = _float(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MIN", 50.0), 50.0)
+        stale_max_age = _float(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MAX_AGE_MIN", 20.0), 20.0)
+        stale_max_queue_age = _float(
+            getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MAX_QUEUE_AGE_MIN", 5.0),
+            5.0,
+        )
+        priority_min_txns = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M", 1000), 1000.0)
+        stale_high_momentum = (
+            price5m >= stale_min_price
+            and age_minutes > stale_max_age
+            and queue_age_minutes > stale_max_queue_age
+            and txns < priority_min_txns
+        )
+    paper_normal_min_price = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_PRICE5M", 50.0), 50.0)
+    paper_normal_max_price = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MAX_PRICE5M", 140.0), 140.0)
+    paper_normal_stale_bypass_min = _float(
+        getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_STALE_BYPASS_MIN_PRICE5M", 100.0),
+        100.0,
+    )
+    paper_normal_stale_ok = (not stale_high_momentum) or price5m >= paper_normal_stale_bypass_min
+    paper_normal_match = (
+        dry_run
+        and bool(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_BUY_ENABLED", True))
+        and rank_score >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_RANK_SCORE", min_score), min_score)
+        and txns >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_TXNS_5M", 100), 100.0)
+        and liq >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_LIQUIDITY_USD", 8_000.0), 8_000.0)
+        and _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_MCAP_USD", min_mcap), min_mcap)
+        <= mcap
+        <= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MAX_MCAP_USD", 250_000.0), 250_000.0)
+        and paper_normal_min_price <= price5m <= paper_normal_max_price
+        and paper_normal_stale_ok
+        and not proxy
+        and has_route
+    )
+    if paper_normal_match:
+        paper_amount = min(
+            _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_SIZE_SOL", 0.005), 0.005),
+            _float(getattr(CFG, "PAPER_EXPLORATION_AMOUNT_SOL", 0.005), 0.005),
+            max_amount if max_amount > 0.0 else 0.005,
+        )
+        return decision(True, "research_rank_canary_paper_normal", amount_sol=paper_amount)
     if bool(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_ONLY", True)):
         return decision(
             False,
@@ -465,26 +514,13 @@ def evaluate_research_rank_canary(
             executable=False,
             pullback=True,
         )
-    if bool(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_ENABLED", True)):
-        stale_min_price = _float(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MIN", 50.0), 50.0)
-        stale_max_age = _float(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MAX_AGE_MIN", 20.0), 20.0)
-        stale_max_queue_age = _float(
-            getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MAX_QUEUE_AGE_MIN", 5.0),
-            5.0,
+    if stale_high_momentum:
+        return decision(
+            False,
+            "research_rank_canary_stale_high_momentum",
+            shadow_as_own_lane=True,
+            executable=False,
         )
-        priority_min_txns = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M", 1000), 1000.0)
-        if (
-            price5m >= stale_min_price
-            and age_minutes > stale_max_age
-            and queue_age_minutes > stale_max_queue_age
-            and txns < priority_min_txns
-        ):
-            return decision(
-                False,
-                "research_rank_canary_stale_high_momentum",
-                shadow_as_own_lane=True,
-                executable=False,
-            )
     if price5m < min_price5m:
         return decision(False, "price5m_below_min", shadow_as_own_lane=True, executable=False)
     if price5m > max_price5m:
@@ -810,6 +846,21 @@ def build_research_rank_priority_report(root: Path | None = None) -> dict[str, A
             "max_open": int(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MAX_OPEN", 2) or 2),
             "route_required": bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)),
             "proxy_liquidity_allowed": False,
+            "paper_normal_buy_enabled": bool(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_BUY_ENABLED", True)
+            ),
+            "paper_normal_size_sol": _float(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_SIZE_SOL", 0.005),
+                0.005,
+            ),
+            "paper_normal_min_price5m": _float(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_PRICE5M", 50.0),
+                50.0,
+            ),
+            "paper_normal_max_price5m": _float(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MAX_PRICE5M", 140.0),
+                140.0,
+            ),
             "pullback_mode": bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MODE", True)),
             "pullback_min_price5m": _float(
                 getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MIN_PRICE5M", -10.0),
@@ -917,6 +968,13 @@ def build_research_rank_current_run_report(root: Path | None = None) -> dict[str
             "priority_size_sol": _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_SIZE_SOL", 0.02), 0.02),
             "max_size_sol": _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_SIZE_SOL", 0.03), 0.03),
             "max_open": int(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_OPEN", 1) or 1),
+            "paper_normal_buy_enabled": bool(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_BUY_ENABLED", True)
+            ),
+            "paper_normal_size_sol": _float(
+                getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_SIZE_SOL", 0.005),
+                0.005,
+            ),
             "priority_min_liquidity_usd": _float(
                 getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_LIQUIDITY_USD", 20_000.0),
                 20_000.0,

@@ -486,6 +486,9 @@ def run_autoresearch_cycle(
                 mode=resolved_config.batch_mode,
                 root=resolved_root,
                 batch_id=f"{cycle}_{space}",
+                regenerate_baseline=resolved_config.regenerate_reports,
+                regenerate_replay=True,
+                regenerate_func=regenerate_func,
             )
             batches.append(batch)
         except Exception as exc:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import importlib
 import json
 from pathlib import Path
 from typing import Any, Callable
@@ -107,70 +108,131 @@ def report_freshness(root: Path | None = None) -> dict[str, Any]:
 
 
 def _generators(root: Path, *, include_test_events: bool = False) -> dict[str, Callable[[], Any]]:
-    from analytics.current_run_summary import write_current_run_summary
-    from analytics.current_run_reports import (
-        write_bot_profitability_health,
-        write_current_run_funnel,
-        write_current_run_lane_summary,
-        write_current_run_missed_pumps,
-        write_current_run_trade_diagnostics,
-    )
-    from analytics.lane_sizing import write_lane_sizing_report
-    from analytics.momentum_ignition_fallback_report import write_momentum_ignition_fallback_report
-    from analytics.missed_pumps import write_missed_pumps_report
-    from analytics.moonshot_micro_lottery import write_moonshot_micro_lottery_report
-    from analytics.paper_exploration_quota import write_paper_exploration_quota_report
-    from analytics.partial_ladder_execution_audit import write_partial_ladder_execution_audit
-    from analytics.post_hotfix_strategy_preview import write_post_hotfix_strategy_preview
-    from analytics.runner_capture_ladder_report import write_runner_capture_ladder_report
-    from analytics.runner_turbo_monitor import write_runner_turbo_monitor_report
-    from analytics.entry_funnel_blockers_report import write_entry_funnel_blockers_report
-    from analytics.pumpswap_rebound_prime import write_pumpswap_rebound_confirmation_report
-    from analytics.pump_entry_lane_selector import write_pump_entry_lane_selector_report
-    from analytics.research_rank_canary import (
-        write_research_rank_canary_audit_report,
-        write_research_rank_current_run_report,
-        write_research_rank_priority_report,
-    )
-    from analytics.shadow_followup_micro import write_shadow_followup_micro_report
-    from analytics.sniper_research_subprofiles import write_sniper_research_subprofile_report
-    from analytics.trade_diagnostics import write_trade_diagnostics_report
-    from analytics.total_pnl_protection_report import write_total_pnl_protection_report
-    from analytics.untagged_buy_block import write_untagged_buy_block_report
-    from backtest.policy_replay import write_policy_replay
+    def call(module_name: str, function_name: str, *args: Any, **kwargs: Any) -> Callable[[], Any]:
+        def runner() -> Any:
+            module = importlib.import_module(module_name)
+            return getattr(module, function_name)(*args, **kwargs)
+
+        return runner
 
     return {
-        "trade_diagnostics.json": lambda: write_trade_diagnostics_report(root),
-        "policy_replay.json": lambda: write_policy_replay(root),
-        "missed_pumps.json": lambda: write_missed_pumps_report(root),
-        "post_hotfix_strategy_preview.json": lambda: write_post_hotfix_strategy_preview(root),
-        "runner_capture_ladder_report.json": lambda: write_runner_capture_ladder_report(root),
-        "untagged_buy_block_report.json": lambda: write_untagged_buy_block_report(root),
-        "sniper_research_subprofile_report.json": lambda: write_sniper_research_subprofile_report(root),
-        "pumpswap_rebound_confirmation_report.json": lambda: write_pumpswap_rebound_confirmation_report(root),
-        "research_rank_canary_audit.json": lambda: write_research_rank_canary_audit_report(root),
-        "runner_turbo_monitor_report.json": lambda: write_runner_turbo_monitor_report(
+        "trade_diagnostics.json": call("analytics.trade_diagnostics", "write_trade_diagnostics_report", root),
+        "policy_replay.json": call("backtest.policy_replay", "write_policy_replay", root),
+        "missed_pumps.json": call("analytics.missed_pumps", "write_missed_pumps_report", root),
+        "post_hotfix_strategy_preview.json": call(
+            "analytics.post_hotfix_strategy_preview",
+            "write_post_hotfix_strategy_preview",
+            root,
+        ),
+        "runner_capture_ladder_report.json": call(
+            "analytics.runner_capture_ladder_report",
+            "write_runner_capture_ladder_report",
+            root,
+        ),
+        "untagged_buy_block_report.json": call(
+            "analytics.untagged_buy_block",
+            "write_untagged_buy_block_report",
+            root,
+        ),
+        "sniper_research_subprofile_report.json": call(
+            "analytics.sniper_research_subprofiles",
+            "write_sniper_research_subprofile_report",
+            root,
+        ),
+        "pumpswap_rebound_confirmation_report.json": call(
+            "analytics.pumpswap_rebound_prime",
+            "write_pumpswap_rebound_confirmation_report",
+            root,
+        ),
+        "research_rank_canary_audit.json": call(
+            "analytics.research_rank_canary",
+            "write_research_rank_canary_audit_report",
+            root,
+        ),
+        "runner_turbo_monitor_report.json": call(
+            "analytics.runner_turbo_monitor",
+            "write_runner_turbo_monitor_report",
             root,
             include_test_events=include_test_events,
         ),
-        "entry_funnel_blockers_report.json": lambda: write_entry_funnel_blockers_report(root),
-        "partial_ladder_execution_audit.json": lambda: write_partial_ladder_execution_audit(root),
-        "research_rank_priority_report.json": lambda: write_research_rank_priority_report(root),
-        "momentum_ignition_fallback_report.json": lambda: write_momentum_ignition_fallback_report(root),
-        "moonshot_micro_lottery_report.json": lambda: write_moonshot_micro_lottery_report(root),
-        "current_run_summary.json": lambda: write_current_run_summary(root),
-        "current_run_trade_diagnostics.json": lambda: write_current_run_trade_diagnostics(root),
-        "current_run_funnel.json": lambda: write_current_run_funnel(root),
-        "current_run_missed_pumps.json": lambda: write_current_run_missed_pumps(root),
-        "current_run_lane_summary.json": lambda: write_current_run_lane_summary(root),
-        "lane_sizing_report.json": lambda: write_lane_sizing_report(root),
-        "pump_entry_lane_selector_report.json": lambda: write_pump_entry_lane_selector_report(root),
-        "shadow_followup_micro_report.json": lambda: write_shadow_followup_micro_report(root),
-        "research_rank_current_run_report.json": lambda: write_research_rank_current_run_report(root),
-        "total_pnl_protection_report.json": lambda: write_total_pnl_protection_report(root),
-        "bot_profitability_health.json": lambda: write_bot_profitability_health(root),
-        "entry_funnel_blocker_samples.json": lambda: write_entry_funnel_blockers_report(root),
-        "paper_exploration_quota_report.json": lambda: write_paper_exploration_quota_report(root),
+        "entry_funnel_blockers_report.json": call(
+            "analytics.entry_funnel_blockers_report",
+            "write_entry_funnel_blockers_report",
+            root,
+        ),
+        "partial_ladder_execution_audit.json": call(
+            "analytics.partial_ladder_execution_audit",
+            "write_partial_ladder_execution_audit",
+            root,
+        ),
+        "research_rank_priority_report.json": call(
+            "analytics.research_rank_canary",
+            "write_research_rank_priority_report",
+            root,
+        ),
+        "momentum_ignition_fallback_report.json": call(
+            "analytics.momentum_ignition_fallback_report",
+            "write_momentum_ignition_fallback_report",
+            root,
+        ),
+        "moonshot_micro_lottery_report.json": call(
+            "analytics.moonshot_micro_lottery",
+            "write_moonshot_micro_lottery_report",
+            root,
+        ),
+        "current_run_summary.json": call("analytics.current_run_summary", "write_current_run_summary", root),
+        "current_run_trade_diagnostics.json": call(
+            "analytics.current_run_reports",
+            "write_current_run_trade_diagnostics",
+            root,
+        ),
+        "current_run_funnel.json": call("analytics.current_run_reports", "write_current_run_funnel", root),
+        "current_run_missed_pumps.json": call(
+            "analytics.current_run_reports",
+            "write_current_run_missed_pumps",
+            root,
+        ),
+        "current_run_lane_summary.json": call(
+            "analytics.current_run_reports",
+            "write_current_run_lane_summary",
+            root,
+        ),
+        "lane_sizing_report.json": call("analytics.lane_sizing", "write_lane_sizing_report", root),
+        "pump_entry_lane_selector_report.json": call(
+            "analytics.pump_entry_lane_selector",
+            "write_pump_entry_lane_selector_report",
+            root,
+        ),
+        "shadow_followup_micro_report.json": call(
+            "analytics.shadow_followup_micro",
+            "write_shadow_followup_micro_report",
+            root,
+        ),
+        "research_rank_current_run_report.json": call(
+            "analytics.research_rank_canary",
+            "write_research_rank_current_run_report",
+            root,
+        ),
+        "total_pnl_protection_report.json": call(
+            "analytics.total_pnl_protection_report",
+            "write_total_pnl_protection_report",
+            root,
+        ),
+        "bot_profitability_health.json": call(
+            "analytics.current_run_reports",
+            "write_bot_profitability_health",
+            root,
+        ),
+        "entry_funnel_blocker_samples.json": call(
+            "analytics.entry_funnel_blockers_report",
+            "write_entry_funnel_blockers_report",
+            root,
+        ),
+        "paper_exploration_quota_report.json": call(
+            "analytics.paper_exploration_quota",
+            "write_paper_exploration_quota_report",
+            root,
+        ),
     }
 
 

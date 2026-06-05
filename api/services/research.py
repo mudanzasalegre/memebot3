@@ -136,10 +136,14 @@ def _entry_sort_key(entry: dict[str, Any]) -> tuple[str, float]:
     return (str(entry.get("evaluated_at_utc") or ""), _safe_float(entry.get("objective_score"), -1e18))
 
 
-def _best_entry(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _accepted_entry_pool(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     accepted_paper = [entry for entry in entries if entry.get("status") == "accepted_paper"]
     accepted_replay = [entry for entry in entries if entry.get("status") == "accepted_replay"]
-    pool = accepted_paper or accepted_replay or entries
+    return accepted_paper or accepted_replay
+
+
+def _best_entry(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
+    pool = _accepted_entry_pool(entries)
     if not pool:
         return None
     return max(pool, key=lambda entry: (_safe_float(entry.get("objective_score"), -1e18), str(entry.get("evaluated_at_utc") or "")))
@@ -154,7 +158,8 @@ def _status_counts(entries: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def _objective_stats(entries: list[dict[str, Any]]) -> dict[str, Any]:
-    scores = [_safe_float(entry.get("objective_score")) for entry in entries if entry.get("objective_score") is not None]
+    accepted = _accepted_entry_pool(entries)
+    scores = [_safe_float(entry.get("objective_score")) for entry in accepted if entry.get("objective_score") is not None]
     latest = sorted(entries, key=_entry_sort_key, reverse=True)[0] if entries else None
     return {
         "best_objective_score": max(scores) if scores else None,

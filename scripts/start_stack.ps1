@@ -8,6 +8,7 @@ param(
     [switch]$UiInstallIfMissing,
     [switch]$AutoResearchOnce,
     [switch]$AutoResearchRegenerateReports,
+    [switch]$AutoResearchSkipRegenerateReports,
     [switch]$AutoResearchNoPaperPromote,
     [switch]$AutoResearchNoDemotion,
     [string]$AutoResearchSpace = "",
@@ -23,6 +24,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($AutoResearchRegenerateReports -and $AutoResearchSkipRegenerateReports) {
+    throw "Use either -AutoResearchRegenerateReports or -AutoResearchSkipRegenerateReports, not both."
+}
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $ScriptsRoot = Join-Path $RepoRoot "scripts"
@@ -75,6 +80,89 @@ function Wait-ApiReady {
     return $false
 }
 
+$StackIncludesBot = $IncludeBot -and -not $SkipBot
+$StackIncludesAutoResearch = $StackIncludesBot -and -not $SkipAutoResearch
+$AutoResearchShouldPrepareReports = $StackIncludesAutoResearch -and -not $AutoResearchSkipRegenerateReports
+
+function Test-ProcessIdRunning {
+    param(
+        [int]$ProcessId
+    )
+
+    if ($ProcessId -le 0) {
+        return $false
+    }
+
+    try {
+        $Process = Get-Process -Id $ProcessId -ErrorAction Stop
+        return $Process.Id -eq $ProcessId
+    } catch {
+        return $false
+    }
+}
+
+function Clear-StaleBotLock {
+    param(
+        [string]$Root
+    )
+
+    $LockPath = Join-Path $Root "data\run_bot.lock"
+    if (-not (Test-Path $LockPath)) {
+        return
+    }
+
+    $OwnerPid = 0
+    try {
+        $Owner = Get-Content $LockPath -Raw | ConvertFrom-Json
+        if ($null -ne $Owner.pid) {
+            $OwnerPid = [int]$Owner.pid
+        }
+    } catch {
+        $OwnerPid = 0
+    }
+
+    if ($OwnerPid -gt 0 -and (Test-ProcessIdRunning -ProcessId $OwnerPid)) {
+        Write-Host "[start_stack] existing bot lock is owned by live pid=$OwnerPid"
+        return
+    }
+
+    try {
+        Remove-Item -LiteralPath $LockPath -Force
+        Write-Host "[start_stack] removed stale bot lock: $LockPath"
+    } catch {
+        Write-Warning "[start_stack] could not remove stale bot lock: $($_.Exception.Message)"
+    }
+}
+
+function Invoke-CoreReportRegeneration {
+    param(
+        [string]$Root
+    )
+
+    $Python = Join-Path $Root ".venv\Scripts\python.exe"
+    $Tool = Join-Path $Root "tools\regenerate_core_reports.py"
+    if (-not (Test-Path $Python)) {
+        throw "Project venv not found at $Python"
+    }
+    if (-not (Test-Path $Tool)) {
+        throw "Core report regeneration tool not found at $Tool"
+    }
+
+    Write-Host "[start_stack] regenerating core reports before bot/autoresearch startup"
+    & $Python $Tool
+    if ($LASTEXITCODE -ne 0) {
+        throw "Core report regeneration failed with exit_code=$LASTEXITCODE"
+    }
+}
+
+if ($StackIncludesBot) {
+    Clear-StaleBotLock -Root $RepoRoot
+}
+
+if ($AutoResearchShouldPrepareReports) {
+    Invoke-CoreReportRegeneration -Root $RepoRoot
+}
+
 if (-not $SkipApi) {
     Start-RepoWindow -ScriptName "start_api.ps1" -ScriptArgs @("-BindHost", $ApiHost, "-Port", "$ApiPort")
 }
@@ -88,14 +176,14 @@ if (-not $SkipUi) {
     Start-RepoWindow -ScriptName "start_ui.ps1" -ScriptArgs $UiArgs
 }
 
-if ($IncludeBot -and -not $SkipBot) {
+if ($StackIncludesBot) {
     $BotArgs = @()
     if ($BotRealMode) {
         $BotArgs += "-RealMode"
     }
     Start-RepoWindow -ScriptName "start_bot.ps1" -ScriptArgs $BotArgs
 
-    if (-not $SkipAutoResearch) {
+    if ($StackIncludesAutoResearch) {
         $AutoResearchArgs = @(
             "-MaxCandidates", "$AutoResearchMaxCandidates",
             "-MaxParallel", "$AutoResearchMaxParallel",
@@ -107,6 +195,9 @@ if ($IncludeBot -and -not $SkipBot) {
         }
         if ($AutoResearchRegenerateReports) {
             $AutoResearchArgs += "-RegenerateReports"
+        }
+        if ($AutoResearchSkipRegenerateReports) {
+            $AutoResearchArgs += "-SkipRegenerateReports"
         }
         if ($AutoResearchNoPaperPromote) {
             $AutoResearchArgs += "-NoPaperPromote"
@@ -125,9 +216,10 @@ if ($IncludeBot -and -not $SkipBot) {
 }
 
 Write-Host "[start_stack] repo=$RepoRoot"
-Write-Host ("[start_stack] api={0} ui={1} bot={2} autoresearch={3}" -f $(-not $SkipApi), $(-not $SkipUi), $($IncludeBot -and -not $SkipBot), $($IncludeBot -and -not $SkipBot -and -not $SkipAutoResearch))
+Write-Host ("[start_stack] api={0} ui={1} bot={2} autoresearch={3}" -f $(-not $SkipApi), $(-not $SkipUi), $StackIncludesBot, $StackIncludesAutoResearch)
 Write-Host "[start_stack] ui=http://127.0.0.1:5173"
 Write-Host "[start_stack] api=http://$ApiHost`:$ApiPort/docs"
 Write-Host "[start_stack] default login: viewer/viewer | operator/operator | admin/admin"
-Write-Host "[start_stack] bot starts stopped by default; use -IncludeBot to launch bot + AutoResearch"
+Write-Host "[start_stack] -IncludeBot launches bot dry-run + AutoResearch daemon by default"
+Write-Host "[start_stack] core reports are prepared before startup and refreshed before AutoResearch cycles by default"
 Write-Host "[start_stack] use -SkipAutoResearch with -IncludeBot if you only want the bot"

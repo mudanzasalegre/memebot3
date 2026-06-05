@@ -40,3 +40,14 @@ def test_lane_sizing_caps_experimental_lanes() -> None:
     assert moonshot.amount_sol == 0.001
     assert followup.amount_sol == 0.003
 
+
+def test_lane_sizing_keeps_rank_paper_normal_micro_size() -> None:
+    decision = resolve_lane_buy_amount(
+        {"entry_lane": "pump_early_research_rank_canary", "reason": "research_rank_canary_paper_normal"},
+        computed_amount_sol=0.002,
+        dry_run=True,
+        live=False,
+    )
+
+    assert decision.amount_sol == 0.002
+    assert decision.reason == "rank_paper_normal_size"

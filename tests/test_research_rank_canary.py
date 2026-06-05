@@ -203,6 +203,26 @@ def test_research_rank_canary_priority_allows_high_quality_50_120_band() -> None
     assert decision.reason == "research_rank_canary_priority"
 
 
+def test_research_rank_canary_paper_normal_rescues_high_extension_shadow() -> None:
+    token = {
+        "entry_lane": "pump_early_sniper_research",
+        "liquidity_usd": 12_678,
+        "market_cap_usd": 32_992,
+        "price_pct_5m": 125,
+        "txns_last_5m": 133,
+        "age_minutes": 20.8,
+        "queue_age_minutes": 7.7,
+        "has_jupiter_route": True,
+        "liquidity_is_proxy": 0,
+    }
+
+    decision = evaluate_research_rank_canary(token, {"rank_score": 65.42}, dry_run=True, live=False)
+
+    assert decision.allowed
+    assert decision.reason == "research_rank_canary_paper_normal"
+    assert 0.0 < decision.amount_sol <= 0.005
+
+
 def test_research_rank_canary_priority_requires_route_and_real_liquidity() -> None:
     token = {
         "entry_lane": "pump_early_sniper_research",

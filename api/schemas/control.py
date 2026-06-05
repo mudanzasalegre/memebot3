@@ -18,6 +18,7 @@ class BotProcessStartRequest(BaseModel):
     bot_id: str = "main"
     dry_run: bool = True
     file_log: bool = True
+    confirm_live: bool = False
     requested_from: str | None = "ui"
 
 

@@ -26,6 +26,33 @@ MIN_COMPARABLE_METRICS = (
     "median_pnl_pct",
     "runner_capture_ratio",
 )
+OBJECTIVE_SIGNAL_METRICS = (
+    "total_pnl_usd",
+    "avg_pnl_pct",
+    "median_pnl_pct",
+    "win_rate_pct",
+    "runner_capture_ratio",
+    "runner_capture_ladder_ratio",
+    "realized_pnl_on_runners",
+    "moonshot_peak100_capture",
+    "moonshot_peak500_capture",
+    "moonshot_peak1000_capture",
+    "moonshot_micro_tail_capture_ratio",
+    "severe_loss_count",
+    "liquidity_crush_count",
+    "adverse_tick_count",
+    "stop_loss_count",
+    "no_pump_exit_count",
+    "max_drawdown_proxy",
+    "giveback_pct",
+    "missed_peak100_count",
+    "missed_peak500_count",
+    "missed_peak1000_count",
+    "api_429_count",
+    "provider_degraded_minutes",
+    "overtrading_count",
+    "idle_no_buy_hours",
+)
 
 
 @dataclass(frozen=True)
@@ -144,6 +171,8 @@ def evaluate_replay_candidate(
     objective = calculate_objective_score(merged_baseline, merged_candidate)
     rejection_reasons.extend(objective.rejection_reasons)
     warnings.extend(objective.warnings)
+    if not any(abs(float(objective.metric_deltas.get(key) or 0.0)) > 1e-12 for key in OBJECTIVE_SIGNAL_METRICS):
+        warnings.append("replay_no_objective_metric_delta")
 
     if rejection_reasons:
         return EvaluationResult(

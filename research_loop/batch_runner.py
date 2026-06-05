@@ -172,7 +172,7 @@ def run_research_batch(
     root: str | Path | None = None,
     batch_id: str | None = None,
     regenerate_baseline: bool = False,
-    regenerate_replay: bool = False,
+    regenerate_replay: bool = True,
     regenerate_func: Callable[[Path], dict[str, Any]] | None = None,
     min_closed_trades: int = 0,
     candidates: list[dict[str, Any]] | None = None,

@@ -1,0 +1,31 @@
+{
+  "api_budget_sensitive": true,
+  "changes": {
+    "SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL": 0.002,
+    "SHADOW_FOLLOWUP_MICRO_MAX_DAILY_BUYS": 3,
+    "SHADOW_FOLLOWUP_TRIGGER_PNL_3M": 25,
+    "SHADOW_FOLLOWUP_TRIGGER_PNL_6M": 75
+  },
+  "created_at_utc": "2026-06-05T03:23:41.662077+00:00",
+  "expected_effect": {
+    "increase_moonshot_capture": true,
+    "increase_pnl": true,
+    "increase_win_rate": true,
+    "reduce_severe_losses": true
+  },
+  "experiment_type": "replay",
+  "hypothesis": "Improve shadow follow-up conversion by tuning trigger and micro sizing.",
+  "live_allowed": false,
+  "proposal_id": "ar_shadow_followup_micro_grid_0002_c564c2b6ad",
+  "required_gates": [
+    "replay_positive",
+    "api_budget_ok"
+  ],
+  "risk_notes": [
+    "paper only",
+    "micro amount capped"
+  ],
+  "target_lanes": [
+    "shadow_followup_micro"
+  ]
+}

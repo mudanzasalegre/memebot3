@@ -1182,8 +1182,27 @@ export interface BotProcessData {
   dry_run: boolean | null;
   file_log: boolean | null;
   command: string[];
+  live_preflight?: LivePromotionPreflightData | null;
   startup_grace_s: number | null;
   last_stopped_by?: string | null;
+}
+
+export interface LivePromotionGate {
+  id: string;
+  label: string;
+  status: "pass" | "block" | string;
+  detail: string;
+  value: unknown;
+  required: unknown;
+}
+
+export interface LivePromotionPreflightData {
+  generated_at_utc: string | null;
+  passed: boolean;
+  mode: "paper_acquisition" | "live_ready" | string;
+  gates: LivePromotionGate[];
+  profile_path: string;
+  accepted_candidate: Record<string, unknown> | null;
 }
 
 export interface ControlStateData {
@@ -1235,6 +1254,7 @@ export interface BotProcessStartRequest {
   bot_id: string;
   dry_run: boolean;
   file_log: boolean;
+  confirm_live?: boolean;
   requested_from?: string | null;
 }
 

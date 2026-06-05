@@ -155,6 +155,43 @@ def test_research_api_services_handle_empty_workspace(tmp_path: Path) -> None:
     assert get_research_paper_forward_envelope(settings).data["items"] == []
 
 
+def test_research_current_best_ignores_failed_and_rejected_entries(tmp_path: Path) -> None:
+    settings = _tmp_settings(tmp_path)
+    research_runs = settings.data_dir / "research_runs"
+    _write_json(
+        research_runs / "scoreboard.json",
+        {
+            "entries": [
+                {
+                    "run_id": "ar_failed",
+                    "proposal_id": "ar_failed",
+                    "status": "failed",
+                    "objective_score": None,
+                    "evaluated_at_utc": "2026-06-04T03:00:00+00:00",
+                },
+                {
+                    "run_id": "ar_rejected",
+                    "proposal_id": "ar_rejected",
+                    "status": "rejected",
+                    "objective_score": 99.0,
+                    "evaluated_at_utc": "2026-06-04T02:00:00+00:00",
+                },
+            ],
+        },
+    )
+
+    scoreboard = get_research_scoreboard_envelope(settings)
+    best = get_research_current_best_envelope(settings)
+
+    assert scoreboard.data["summary"]["accepted_count"] == 0
+    assert scoreboard.data["summary"]["best_proposal_id"] is None
+    assert scoreboard.data["summary"]["best_objective_score"] is None
+    assert best.data["source"] == "none"
+    assert best.data["entry"] is None
+    assert best.data["proposal_id"] is None
+    assert best.meta.empty is True
+
+
 def test_research_router_registers_read_only_get_endpoints() -> None:
     app = create_app()
     route_methods = {

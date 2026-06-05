@@ -11,6 +11,8 @@ from api.services.control import (
     get_control_commands_envelope,
     get_control_state_envelope,
 )
+from api.services.live_promotion import build_live_promotion_preflight
+from api.services.common import build_envelope
 from api.services.bot_process import get_bot_process_envelope, start_bot_process_envelope, stop_bot_process_envelope
 from api.settings import APISettings
 
@@ -54,6 +56,12 @@ def control_commands(
 @router.get("/control/process", response_model=Envelope)
 def control_process(settings: APISettings = Depends(get_settings)) -> Envelope:
     return get_bot_process_envelope(settings)
+
+
+@router.get("/control/live-preflight", response_model=Envelope)
+def control_live_preflight(settings: APISettings = Depends(get_settings)) -> Envelope:
+    payload = build_live_promotion_preflight(settings)
+    return build_envelope(payload, empty=False, degraded=not bool(payload.get("passed")), stale=False)
 
 
 @router.post(
@@ -100,6 +108,7 @@ def start_control_process(
             bot_id=payload.bot_id,
             dry_run=payload.dry_run,
             file_log=payload.file_log,
+            confirm_live=payload.confirm_live,
         )
     except RuntimeError as exc:
         raise _process_http_exception(exc) from exc

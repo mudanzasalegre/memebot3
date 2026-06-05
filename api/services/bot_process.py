@@ -10,6 +10,7 @@ from api.services.runtime import (
     get_runtime_snapshot,
     runtime_snapshot_freshness,
 )
+from api.services.live_promotion import build_live_promotion_preflight, write_live_start_profile
 from api.settings import APISettings
 from runtime.process_manager import (
     clear_managed_bot_state,
@@ -154,6 +155,7 @@ def start_bot_process_envelope(
     bot_id: str = DEFAULT_BOT_ID,
     dry_run: bool = True,
     file_log: bool = True,
+    confirm_live: bool = False,
 ) -> Envelope:
     current_payload, _ = get_bot_process_snapshot(settings, bot_id=bot_id)
     if current_payload["status"] in {"starting", "running_managed"}:
@@ -161,14 +163,33 @@ def start_bot_process_envelope(
     if current_payload["status"] == "running_external":
         raise RuntimeError("Bot is already running from an external console; stop it there before starting from the UI")
 
+    env_overrides: dict[str, str] | None = None
+    live_preflight: dict[str, Any] | None = None
+    if not dry_run:
+        if not confirm_live:
+            raise RuntimeError("Live start requires confirm_live=true")
+        live_preflight = build_live_promotion_preflight(settings, runtime_snapshot=get_runtime_snapshot(settings, bot_id=bot_id))
+        if not bool(live_preflight.get("passed")):
+            blocked = [
+                str(gate.get("id"))
+                for gate in live_preflight.get("gates", [])
+                if isinstance(gate, dict) and str(gate.get("status")) != "pass"
+            ]
+            raise RuntimeError(f"live preflight blocked: {','.join(blocked) or 'unknown'}")
+        profile_path = write_live_start_profile(settings, live_preflight)
+        env_overrides = {"CONFIG_PROFILE_PATH": str(profile_path)}
+
     start_managed_bot_process(
         settings.project_root,
         requested_by=requested_by,
         requested_from=requested_from,
         dry_run=bool(dry_run),
         file_log=bool(file_log),
+        env_overrides=env_overrides,
     )
     payload, source_status = get_bot_process_snapshot(settings, bot_id=bot_id)
+    if live_preflight is not None:
+        payload["live_preflight"] = live_preflight
     return build_envelope(payload, source_status=[source_status], degraded=False, empty=False, stale=False)
 
 

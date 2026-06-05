@@ -7,7 +7,7 @@
     "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M": 1500,
     "RESEARCH_RANK_CANARY_SIZE_SOL": 0.02
   },
-  "created_at_utc": "2026-06-04T11:28:11.935985+00:00",
+  "created_at_utc": "2026-06-04T21:23:20.785620+00:00",
   "expected_effect": {
     "increase_moonshot_capture": false,
     "increase_pnl": true,

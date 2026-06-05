@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -80,6 +83,48 @@ def _copy_snapshot(root: Path, snapshot_dir: Path) -> list[str]:
     return failures
 
 
+def _candidate_env_path(sandbox: SandboxResult | str | Path, run_dir: Path) -> Path | None:
+    if isinstance(sandbox, SandboxResult):
+        return sandbox.candidate_env_path if sandbox.candidate_env_path.exists() else None
+    path = run_dir / "candidate.env"
+    return path if path.exists() else None
+
+
+def _regenerate_core_reports_with_profile(root: Path, profile_path: Path) -> dict[str, Any]:
+    repo_root = Path(__file__).resolve().parents[1]
+    summary_path = profile_path.parent / "candidate_regeneration_summary.json"
+    env = os.environ.copy()
+    env["CONFIG_PROFILE_PATH"] = str(profile_path)
+    env.pop("CONFIG_PROFILE", None)
+    env["AUTORESEARCH_ROOT"] = str(root)
+    env["AUTORESEARCH_REGEN_SUMMARY_PATH"] = str(summary_path)
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(repo_root) if not existing_pythonpath else f"{repo_root}{os.pathsep}{existing_pythonpath}"
+    code = (
+        "import json, os\n"
+        "from pathlib import Path\n"
+        "from analytics.core_report_scheduler import regenerate_core_reports\n"
+        "root = Path(os.environ['AUTORESEARCH_ROOT'])\n"
+        "summary_path = Path(os.environ['AUTORESEARCH_REGEN_SUMMARY_PATH'])\n"
+        "summary = regenerate_core_reports(root, include_test_events=False)\n"
+        "summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, default=str), encoding='utf-8')\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(repo_root),
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=180,
+    )
+    if completed.returncode != 0:
+        stderr = (completed.stderr or completed.stdout or "").strip().replace("\n", " | ")
+        raise RuntimeError(stderr or f"subprocess_exit_{completed.returncode}")
+    summary = _read_json(summary_path)
+    return summary if isinstance(summary, dict) else {}
+
+
 def _group_trades(report: dict[str, Any], group_name: str) -> int:
     groups = report.get("groups") if isinstance(report, dict) else {}
     group = groups.get(group_name) if isinstance(groups, dict) else {}
@@ -113,6 +158,7 @@ def extract_replay_metrics(snapshot_dir: str | Path, *, api_budget: dict[str, An
     runner = _read_json(base / "runner_capture_ladder_report.json")
     moonshot = _read_json(base / "moonshot_micro_lottery_report.json")
     missed = _read_json(base / "missed_pumps.json")
+    current_summary = _read_json(base / "current_run_summary.json")
 
     current_policy = policy_replay.get("current") if isinstance(policy_replay, dict) else {}
     if not isinstance(current_policy, dict):
@@ -123,6 +169,8 @@ def extract_replay_metrics(snapshot_dir: str | Path, *, api_budget: dict[str, An
     runner_summary = runner.get("summary") if isinstance(runner, dict) else {}
     if not isinstance(runner_summary, dict):
         runner_summary = {}
+    if not isinstance(current_summary, dict):
+        current_summary = {}
 
     metrics: dict[str, Any] = {
         "total_pnl_usd": _float(current_policy, "total_pnl", _float(trade_summary, "total_pnl_points")),
@@ -145,6 +193,12 @@ def extract_replay_metrics(snapshot_dir: str | Path, *, api_budget: dict[str, An
         "no_pump_exit_count": _group_trades(trade_diagnostics, "exit_reason:NO_PUMP_EXIT"),
         "max_drawdown_proxy": _float(current_policy, "max_drawdown_proxy"),
         "giveback_pct": _float(runner_summary, "avg_current_giveback_pct"),
+        "overtrading_count": _int(health, "overtrading_count", _int(current_summary, "overtrading_count")),
+        "idle_no_buy_hours": _float(
+            current_summary,
+            "idle_no_buy_hours",
+            _float(current_summary, "hours_since_last_buy", _float(health, "idle_no_buy_hours")),
+        ),
         "missed_peak100_count": 0,
         "missed_peak500_count": 0,
         "missed_peak1000_count": 0,
@@ -200,16 +254,21 @@ def run_research_replay_from_sandbox(
         run_dir = Path(sandbox)
         run_id = run_dir.name
         candidate_policy_path = run_dir / "candidate_policy.json"
+    candidate_env_path = _candidate_env_path(sandbox, run_dir)
 
     warnings: list[str] = []
     failures: list[str] = []
     if regenerate:
         try:
-            if regenerate_func is None:
+            if regenerate_func is None and candidate_env_path is not None:
+                summary = _regenerate_core_reports_with_profile(resolved_root, candidate_env_path)
+            elif regenerate_func is None:
                 from analytics.core_report_scheduler import regenerate_core_reports
 
                 summary = regenerate_core_reports(resolved_root, include_test_events=False)
             else:
+                if candidate_env_path is not None:
+                    warnings.append("candidate_profile_not_applied_custom_regenerate_func")
                 summary = regenerate_func(resolved_root)
             regen_warnings = summary.get("warnings") if isinstance(summary, dict) else {}
             if regen_warnings:
@@ -238,6 +297,7 @@ def run_research_replay_from_sandbox(
             "failures": failures,
             "replay_metrics_path": str(replay_metrics_path),
             "report_snapshot_dir": str(report_snapshot_dir),
+            "candidate_env_path": str(candidate_env_path) if candidate_env_path is not None else None,
         },
     )
     return ReplayRunResult(

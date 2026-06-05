@@ -82,7 +82,10 @@ def _cfg_float(cfg: Any, name: str, default: float) -> float:
 def _lane_amount(row: dict[str, Any], lane: str, *, cfg: Any) -> tuple[float, str]:
     default_amount = _cfg_float(cfg, "DEFAULT_PAPER_BUY_SOL", 0.005)
     if lane == LANE_RESEARCH_RANK_CANARY:
-        if str(_first(row, "reason", "green_sniper_reason", "entry_reason") or "").lower().find("priority") >= 0:
+        reason_text = str(_first(row, "reason", "green_sniper_reason", "entry_reason") or "").lower()
+        if "paper_normal" in reason_text:
+            return _cfg_float(cfg, "RESEARCH_RANK_CANARY_PAPER_NORMAL_SIZE_SOL", 0.005), "rank_paper_normal_size"
+        if reason_text.find("priority") >= 0:
             return _cfg_float(cfg, "RESEARCH_RANK_CANARY_PRIORITY_SIZE_SOL", 0.02), "rank_priority_size"
         return _cfg_float(cfg, "RESEARCH_RANK_CANARY_SIZE_SOL", 0.02), "rank_canary_size"
     if lane == LANE_RESEARCH_SNIPER:
@@ -129,6 +132,8 @@ def resolve_lane_buy_amount(
         cap = min(cap, 0.003)
     if lane == LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH:
         cap = min(cap, 0.003)
+    if lane == LANE_RESEARCH_RANK_CANARY and reason == "rank_paper_normal_size" and input_amount > 0.0:
+        lane_amount = min(lane_amount, input_amount)
     if not dry_run and live:
         cap = min(cap, _cfg_float(cfg, "MAX_TRADE_AMOUNT_SOL", cap))
     amount = max(0.0, min(float(lane_amount or 0.0), float(cap or 0.0)))

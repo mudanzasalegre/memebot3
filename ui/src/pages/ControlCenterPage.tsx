@@ -24,6 +24,7 @@ import {
   type ControlCommandType,
   type ControlCommandsData,
   type ControlStateData,
+  type LivePromotionPreflightData,
   type SourceStatus,
 } from "../lib/api";
 import { formatCount, formatRelative, formatTimestamp, humanizeKey } from "../lib/format";
@@ -239,6 +240,7 @@ export function ControlCenterPage() {
   const [processDryRun, setProcessDryRun] = useState(true);
   const [processFileLog, setProcessFileLog] = useState(true);
   const [processForceStop, setProcessForceStop] = useState(true);
+  const [confirmLiveStart, setConfirmLiveStart] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitFeedback, setSubmitFeedback] = useState<{ tone: "success" | "danger"; message: string } | null>(null);
@@ -249,6 +251,7 @@ export function ControlCenterPage() {
   const selectedCommand = isControlCommandType(requestedCommand) ? requestedCommand : "pause_discovery";
 
   const controlStateQuery = usePollEnvelope<ControlStateData>("/api/v1/control/state", 3000);
+  const livePreflightQuery = usePollEnvelope<LivePromotionPreflightData>("/api/v1/control/live-preflight", 5000);
   const historyQuery = usePollEnvelope<ControlCommandsData>(
     buildPath("/api/v1/control/commands", {
       limit: 50,
@@ -262,17 +265,23 @@ export function ControlCenterPage() {
     setIsConfirmed(false);
   }, [selectedCommand, retrainForce, refreshForce, refreshReports, logLevel, loggerName]);
 
+  useEffect(() => {
+    setConfirmLiveStart(false);
+  }, [processDryRun]);
+
   const controlState = controlStateQuery.envelope?.data;
   const history = historyQuery.envelope?.data.items || [];
   const sourceStatus = uniqueSources(
     controlStateQuery.envelope?.meta.source_status || [],
+    livePreflightQuery.envelope?.meta.source_status || [],
     historyQuery.envelope?.meta.source_status || [],
   );
   const lastCommand = controlState?.commands.last_command || history[0] || null;
   const runtime = controlState?.runtime;
   const processState = controlState?.process;
+  const livePreflight = livePreflightQuery.envelope?.data || null;
   const commandDefinition = commandCatalog.find((item) => item.type === selectedCommand) || commandCatalog[0];
-  const queryError = controlStateQuery.error || historyQuery.error;
+  const queryError = controlStateQuery.error || historyQuery.error || livePreflightQuery.error;
   const currentUser = session?.user || null;
   const canQueueSelectedCommand = hasPermission(commandPermission(selectedCommand));
   const canStartProcess = hasPermission("control.process.start");
@@ -364,6 +373,7 @@ export function ControlCenterPage() {
     setProcessDryRun(typeof filters.processDryRun === "boolean" ? filters.processDryRun : true);
     setProcessFileLog(typeof filters.processFileLog === "boolean" ? filters.processFileLog : true);
     setProcessForceStop(typeof filters.processForceStop === "boolean" ? filters.processForceStop : true);
+    setConfirmLiveStart(false);
   }
 
   async function submitCommand() {
@@ -431,10 +441,19 @@ export function ControlCenterPage() {
     setProcessFeedback(null);
     try {
       if (action === "start") {
+        if (!processDryRun && !livePreflight?.passed) {
+          setProcessFeedback({ tone: "danger", message: "Live preflight is not passing yet." });
+          return;
+        }
+        if (!processDryRun && !confirmLiveStart) {
+          setProcessFeedback({ tone: "danger", message: "Live start requires explicit confirmation." });
+          return;
+        }
         await postEnvelope<BotProcessData, BotProcessStartRequest>("/api/v1/control/process/start", {
           bot_id: "main",
           dry_run: processDryRun,
           file_log: processFileLog,
+          confirm_live: !processDryRun && confirmLiveStart,
           requested_from: "ui",
         });
         setProcessFeedback({
@@ -783,6 +802,44 @@ export function ControlCenterPage() {
               </label>
             </div>
 
+            {!processDryRun ? (
+              <div className="control-form">
+                <Banner
+                  detail={
+                    livePreflight?.passed
+                      ? `Live profile can be generated at ${livePreflight.profile_path}.`
+                      : "The bot will stay in paper acquisition until every live gate passes."
+                  }
+                  title={livePreflight?.passed ? "Live preflight passed" : "Live preflight blocked"}
+                  tone={livePreflight?.passed ? "success" : "warn"}
+                />
+                <div className="kv-grid">
+                  {(livePreflight?.gates || []).map((gate) => (
+                    <div className="kv-cell" key={gate.id}>
+                      <span>{gate.label}</span>
+                      <strong>
+                        <StatusChip
+                          compact
+                          label={gate.status}
+                          tone={gate.status === "pass" ? "success" : "danger"}
+                        />
+                      </strong>
+                      <small>{gate.detail}</small>
+                    </div>
+                  ))}
+                </div>
+                <label className="checkbox-chip">
+                  <input
+                    checked={confirmLiveStart}
+                    disabled={!livePreflight?.passed}
+                    onChange={(event) => setConfirmLiveStart(event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span>I confirm this UI-managed start should use the generated live profile.</span>
+                </label>
+              </div>
+            ) : null}
+
             {!canStartProcess || !canStopProcess ? (
               <Banner
                 detail="Only roles with explicit process permissions can launch or stop the bot from the UI."
@@ -802,7 +859,12 @@ export function ControlCenterPage() {
             <div className="page-hero__actions-inline">
               <button
                 className="ui-button ui-button--primary"
-                disabled={isProcessSubmitting || !canStartProcess || !processState?.can_start}
+                disabled={
+                  isProcessSubmitting
+                  || !canStartProcess
+                  || !processState?.can_start
+                  || (!processDryRun && (!livePreflight?.passed || !confirmLiveStart))
+                }
                 onClick={() => void submitProcessAction("start")}
                 type="button"
               >
@@ -1022,6 +1084,7 @@ export function ControlCenterPage() {
                 processDryRun,
                 processFileLog,
                 processForceStop,
+                confirmLiveStart,
               }}
               onApply={applySavedView}
               pageKey="control"

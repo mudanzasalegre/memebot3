@@ -103,6 +103,7 @@ def start_managed_bot_process(
     requested_from: str = "ui",
     dry_run: bool = True,
     file_log: bool = True,
+    env_overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     project_root = Path(project_root).resolve()
     state_path = bot_process_state_path(project_root)
@@ -131,6 +132,10 @@ def start_managed_bot_process(
         )
 
     log_handle = console_log_path.open("a", encoding="utf-8")
+    child_env = os.environ.copy()
+    if env_overrides:
+        child_env.update({str(key): str(value) for key, value in env_overrides.items()})
+
     try:
         process = subprocess.Popen(
             args,
@@ -140,6 +145,7 @@ def start_managed_bot_process(
             stderr=subprocess.STDOUT,
             creationflags=creationflags,
             close_fds=True,
+            env=child_env,
         )
     finally:
         log_handle.close()
@@ -155,6 +161,8 @@ def start_managed_bot_process(
             "file_log": bool(file_log),
             "python_path": str(python_path),
             "command": ["-m", "run_bot", *(["--dry-run"] if dry_run else []), *(["--log"] if file_log else [])],
+            "env_overrides": sorted((env_overrides or {}).keys()),
+            "config_profile_path": str((env_overrides or {}).get("CONFIG_PROFILE_PATH") or ""),
             "console_log_path": str(console_log_path),
         },
     )
