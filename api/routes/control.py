@@ -13,6 +13,8 @@ from api.services.control import (
 )
 from api.services.live_promotion import build_live_promotion_preflight
 from api.services.common import build_envelope
+from api.services.runtime import DEFAULT_BOT_ID, get_runtime_snapshot, get_runtime_source_status
+from api.services.sources import json_status
 from api.services.bot_process import get_bot_process_envelope, start_bot_process_envelope, stop_bot_process_envelope
 from api.settings import APISettings
 
@@ -60,8 +62,33 @@ def control_process(settings: APISettings = Depends(get_settings)) -> Envelope:
 
 @router.get("/control/live-preflight", response_model=Envelope)
 def control_live_preflight(settings: APISettings = Depends(get_settings)) -> Envelope:
-    payload = build_live_promotion_preflight(settings)
-    return build_envelope(payload, empty=False, degraded=not bool(payload.get("passed")), stale=False)
+    runtime_snapshot = get_runtime_snapshot(settings, bot_id=DEFAULT_BOT_ID)
+    payload = build_live_promotion_preflight(settings, runtime_snapshot=runtime_snapshot)
+    source_status = [
+        get_runtime_source_status(settings, runtime_snapshot, bot_id=DEFAULT_BOT_ID),
+        json_status(
+            source_key="metrics.current_run_summary",
+            path=settings.metrics_dir / "current_run_summary.json",
+            generated_field="generated_at_utc",
+        ),
+        json_status(
+            source_key="autoresearch.api_budget",
+            path=settings.data_dir / "research_runs" / "api_budget.json",
+            generated_field="generated_at_utc",
+        ),
+        json_status(
+            source_key="metrics.api_budget_report",
+            path=settings.metrics_dir / "api_budget_report.json",
+            generated_field="generated_at_utc",
+            optional=True,
+        ),
+        json_status(
+            source_key="autoresearch.scoreboard",
+            path=settings.data_dir / "research_runs" / "scoreboard.json",
+            optional=True,
+        ),
+    ]
+    return build_envelope(payload, source_status=source_status, empty=False, degraded=not bool(payload.get("passed")), stale=False)
 
 
 @router.post(

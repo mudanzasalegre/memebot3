@@ -15,6 +15,7 @@ from research_loop.replay_runner import run_research_replay, run_research_replay
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a local AutoResearch replay for one candidate.")
     parser.add_argument("candidate", nargs="?", help="Candidate policy JSON path.")
+    parser.add_argument("--candidate", dest="candidate_option", help="Candidate policy JSON path.")
     parser.add_argument("--run-dir", help="Existing data/research_runs/runs/<run_id> directory.")
     parser.add_argument("--run-id", help="Optional run id when creating a new sandbox.")
     parser.add_argument("--root", default=str(ROOT), help="Project root. Defaults to this checkout.")
@@ -22,15 +23,16 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(args.root)
+    candidate_path = args.candidate_option or args.candidate
     if args.run_dir:
         result = run_research_replay_from_sandbox(
             Path(args.run_dir),
             root=root,
             regenerate=not args.no_regenerate,
         )
-    elif args.candidate:
+    elif candidate_path:
         result = run_research_replay(
-            Path(args.candidate),
+            Path(candidate_path),
             root=root,
             run_id=args.run_id,
             regenerate=not args.no_regenerate,

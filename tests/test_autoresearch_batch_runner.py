@@ -17,6 +17,8 @@ def _candidate(proposal_id: str, changes: dict | None = None) -> dict:
         "target_lanes": ["pump_early_moonshot_micro_lottery"],
         "changes": changes or {"MOONSHOT_MICRO_LOTTERY_CONFIRMATION_PNL": "75"},
         "expected_effect": {"increase_pnl": True, "increase_moonshot_capture": True},
+        "optimized_metric": "total_pnl_usd",
+        "optimization_scope": "combined",
         "required_gates": ["replay_positive", "api_budget_ok"],
         "api_budget_sensitive": True,
         "live_allowed": False,
@@ -157,4 +159,14 @@ def test_batch_runner_auto_space_uses_bandit(tmp_path) -> None:
         baseline_metrics=_baseline(),
     )
 
-    assert result.space in {"rank_canary", "shadow_followup", "moonshot_micro", "runner_exit", "sniper_momentum", "paper_exploration", "late_momentum", "lane_sizing"}
+    assert result.space in {
+        "rank_canary",
+        "shadow_followup",
+        "moonshot_micro",
+        "runner_exit",
+        "sniper_momentum",
+        "paper_exploration",
+        "paper_bootstrap",
+        "late_momentum",
+        "lane_sizing",
+    }

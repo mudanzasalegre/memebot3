@@ -15,8 +15,7 @@ from analytics.report_utils import (
     fnum,
     is_severe_exit,
     load_candidate_outcomes,
-    load_paper_positions,
-    load_sqlite_positions,
+    load_deduped_positions,
     metrics_dir,
     write_json,
     write_markdown,
@@ -25,7 +24,16 @@ from config.config import CFG, PROJECT_ROOT
 
 
 def _pnl(row: dict[str, Any]) -> float:
-    return fnum(row.get("realized_pnl_pct") or row.get("total_pnl_pct") or row.get("pnl_pct") or row.get("target_total_pnl_pct"), 0.0)
+    return fnum(
+        row.get("total_pnl_pct")
+        if row.get("total_pnl_pct") is not None
+        else row.get("realized_pnl_pct")
+        if row.get("realized_pnl_pct") is not None
+        else row.get("pnl_pct")
+        if row.get("pnl_pct") is not None
+        else row.get("target_total_pnl_pct"),
+        0.0,
+    )
 
 
 def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -87,7 +95,7 @@ def restricted_failures(row: dict[str, Any]) -> list[str]:
 
 def build_green_sniper_restricted_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    all_rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    all_rows = load_candidate_outcomes(root) + load_deduped_positions(root)
     rows = [
         row
         for row in all_rows

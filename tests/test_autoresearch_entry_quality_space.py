@@ -11,7 +11,7 @@ def test_entry_quality_space_combines_rank_sniper_and_paper_exploration() -> Non
     assert "RESEARCH_RANK_CANARY_PRIORITY_MIN_RANK_SCORE" in space.parameters
     assert "SNIPER_RESEARCH_MOMENTUM_MIN_PRICE5M" in space.parameters
     assert "PAPER_IDLE_AMOUNT_SOL" in space.parameters
-    assert max(space.parameters["PAPER_IDLE_AMOUNT_SOL"]) <= 0.01
+    assert max(space.parameters["PAPER_IDLE_AMOUNT_SOL"]) <= 0.1
 
 
 def test_entry_quality_space_generates_safe_candidate() -> None:

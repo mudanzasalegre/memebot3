@@ -13,9 +13,8 @@ from analytics.report_utils import (
     boolish,
     fnum,
     load_candidate_outcomes,
-    load_paper_positions,
+    load_deduped_positions,
     load_runtime_events,
-    load_sqlite_positions,
     metrics_dir,
     write_json,
 )
@@ -93,7 +92,7 @@ def _current_rows(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]], lis
     runtime_rows = load_runtime_events(root)
     identity = current_run_identity(root, runtime_rows)
     outcomes = load_candidate_outcomes(root)
-    positions = load_paper_positions(root) + load_sqlite_positions(root)
+    positions = load_deduped_positions(root)
     return (
         identity,
         filter_current_run_rows(runtime_rows, identity),
@@ -276,7 +275,9 @@ def build_bot_profitability_health(root: Path | None = None) -> dict[str, Any]:
     pnls = [_pnl(row) for row in closed]
     total_usd = sum(_pnl_usd(row) for row in closed)
     hours = _hours(identity, runtime_rows + outcome_rows + position_rows)
-    buys = sum(1 for row in runtime_rows if _event(row) in {"buy", "bought", "paper_buy", "buy_ok"}) + len(position_rows)
+    runtime_actual_buys = sum(1 for row in runtime_rows if _event(row) == "actual_paper_buy")
+    runtime_buy_events = sum(1 for row in runtime_rows if _event(row) in {"buy", "bought", "paper_buy", "buy_ok"})
+    buys = max(runtime_actual_buys, runtime_buy_events, len(position_rows))
     shadows = [
         row
         for row in runtime_rows + outcome_rows
@@ -288,7 +289,6 @@ def build_bot_profitability_health(root: Path | None = None) -> dict[str, Any]:
     blockers = collections.Counter(_reason(row) for row in runtime_rows + outcome_rows if _reason(row))
     primary_blocker = blockers.most_common(1)[0][0] if blockers else ""
     win_rate = 100.0 * sum(1 for value in pnls if value > 0.0) / len(pnls) if pnls else 0.0
-    missed = [_peak(row) for row in outcome_rows if address_of(row)]
     action = "keep_paper_running"
     if closed and win_rate < 40.0:
         action = "reduce_size_and_follow_shadows"
@@ -296,6 +296,13 @@ def build_bot_profitability_health(root: Path | None = None) -> dict[str, Any]:
         action = "allow_idle_micro_exploration"
     if primary_blocker in {"untagged_buy_blocked", "pumpswap_strict_no_sublane"}:
         action = "inspect_entry_lane_selector"
+    bought_addresses = {
+        address_of(row)
+        for row in runtime_rows
+        if address_of(row) and _event(row) in {"actual_paper_buy", "buy", "bought", "paper_buy", "buy_ok"}
+    }
+    bought_addresses.update({address_of(row) for row in position_rows if address_of(row)})
+    missed = [_peak(row) for row in outcome_rows if address_of(row) and address_of(row) not in bought_addresses]
     return {
         "generated_at_utc": _now(),
         "current_run": identity,

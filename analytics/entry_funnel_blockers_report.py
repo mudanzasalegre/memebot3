@@ -10,9 +10,8 @@ from analytics.report_utils import (
     bought_addresses,
     fnum,
     load_candidate_outcomes,
-    load_paper_positions,
+    load_deduped_positions,
     load_runtime_events,
-    load_sqlite_positions,
     metrics_dir,
     read_jsonl,
     write_json,
@@ -131,7 +130,7 @@ def build_entry_funnel_blockers_report(root: Path | None = None) -> dict[str, An
     runtime_rows = load_runtime_events(root)
     ledger_rows = read_jsonl(metrics / "decision_ledger.jsonl")
     outcome_rows = load_candidate_outcomes(root)
-    position_rows = load_paper_positions(root) + load_sqlite_positions(root)
+    position_rows = load_deduped_positions(root)
     all_rows = runtime_rows + ledger_rows + outcome_rows + position_rows
 
     raw_seen = {address_of(row) for row in all_rows if address_of(row)}

@@ -388,7 +388,8 @@ def _subject_dex_id(subject: Any) -> str:
 def _is_aggressive_research_subject(subject: Any) -> bool:
     lane = str(_get(subject, "entry_lane", "") or "").strip().lower()
     profile = str(_get(subject, "gate_profile", "") or _get(subject, "sniper_gate_profile", "") or "").strip().lower()
-    return lane == "pump_early_sniper_research" or profile in {
+    return lane in {"pump_early_sniper_research", "pump_early_sniper_research_micro_fallback"} or profile in {
+        "sniper_research_micro_fallback",
         "paper_aggressive_research_buy",
         "live_aggressive_research_buy",
     }
@@ -583,7 +584,11 @@ def _is_jackpot_research_subject(subject: Any) -> bool:
     profile = str(_get(subject, "gate_profile", "") or _get(subject, "sniper_gate_profile", "") or "").strip().lower()
     tier = str(_get(subject, "profit_lane_tier", "") or "").strip().lower()
     if not (
-        lane in {"pump_early_sniper_research", "pump_early_research_rank_canary"}
+        lane in {
+            "pump_early_sniper_research",
+            "pump_early_sniper_research_micro_fallback",
+            "pump_early_research_rank_canary",
+        }
         or tier == "pump_early_research_rank_canary"
         or profile in {"pumpswap_profit_research", "research_rank_canary"}
     ):
@@ -746,9 +751,9 @@ def _runner_ladder_overrides(
         return (
             _configured_runner_steps(
                 "MOONSHOT_MICRO_LOTTERY",
-                ((50.0, 0.40), (100.0, 0.25), (300.0, 0.20), (700.0, 0.10)),
+                ((50.0, 0.40), (100.0, 0.25), (300.0, 0.20), (0.0, 0.0)),
             ),
-            _to_float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MOONBAG_FRACTION", 0.05), 0.05),
+            _to_float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MOONBAG_FRACTION", 0.15), 0.15),
         )
 
     if _is_birth_probe_micro_subject(subject):

@@ -377,6 +377,7 @@ async def buy(
     strategy_version: str | None = None,
     experiment_id: str | None = None,
     config_hash: str | None = None,
+    require_jupiter_for_buy: bool | None = None,
 ) -> dict:
     """
     Registra una posición simulada.
@@ -392,6 +393,7 @@ async def buy(
         raise ValueError(f"[papertrading] Dirección no Solana bloqueada: {address!r}")
 
     mint_key = token_mint or address
+    require_jup_price = _REQUIRE_JUP_PRICE if require_jupiter_for_buy is None else bool(require_jupiter_for_buy)
 
     # 0.5️⃣ Ventana horaria (SOLO si hay ventanas definidas por env)
     H = (os.getenv("TRADING_HOURS", "") or "").strip()
@@ -418,7 +420,7 @@ async def buy(
     except Exception:
         has_route, status = None, "ERR"
 
-    if _REQUIRE_JUP_PRICE and has_route is False:
+    if require_jup_price and has_route is False:
         log.warning(
             "[trader] BUY bloqueado: sin ruta Jupiter (mint=%s, src=paper, reason=no_route)",
             mint_key[:6],
@@ -439,7 +441,7 @@ async def buy(
         )
 
     # 0.7️⃣ Política Jupiter (alineada con orquestador)
-    if _REQUIRE_JUP_PRICE:
+    if require_jup_price:
         try:
             jp = await jupiter_price.get_usd_price(mint_key)
         except Exception:
@@ -459,7 +461,7 @@ async def buy(
             }
 
     # 0.8️⃣ Fallback de IMPACTO cuando **no hay ruta** y la policy NO exige Jupiter
-    if has_route is False and not _REQUIRE_JUP_PRICE:
+    if has_route is False and not require_jup_price:
         impact_blocked = False
         try:
             sol_usd = await jupiter_price.get_usd_price(SOL_MINT)
@@ -540,6 +542,7 @@ async def buy(
         "dry_run": True,
         "token_address": mint_key,
         "price_source": price_src,
+        "require_jupiter_for_buy": bool(require_jup_price),
         "entry_regime": entry_regime,
         "entry_lane": entry_lane,
         "gate_profile": gate_profile,

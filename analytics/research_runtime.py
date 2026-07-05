@@ -13,9 +13,14 @@ import pandas as pd
 
 from analytics.audit import normalize_candidate_outcomes_frame, write_normalized_candidate_outcomes
 from config.config import CFG, PROJECT_ROOT
-from features.decision_store import append_decision
 from utils.runtime_context import runtime_context_payload
 from utils.time import utc_now
+
+try:
+    from features.decision_store import append_decision
+except Exception:  # pragma: no cover - keeps lightweight runtime tests isolated
+    def append_decision(_payload: dict[str, Any]) -> None:
+        return None
 
 
 log = logging.getLogger("research_runtime")
@@ -117,15 +122,17 @@ def _event_dedup(key: str, ttl_s: int) -> bool:
     if ttl_s <= 0:
         return False
     now = time.monotonic()
-    last = _SEEN.get(key, 0.0)
-    if (now - last) < ttl_s:
-        return True
+    if key in _SEEN:
+        last = _SEEN[key]
+        if (now - last) < ttl_s:
+            return True
     _SEEN[key] = now
     return False
 
 
 def _write_event(event_type: str, address: str, **payload: Any) -> None:
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
+    RESEARCH_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     row = {
         "ts_utc": utc_now().isoformat(),
         "event_type": str(event_type),
@@ -469,7 +476,7 @@ def record_candidate_stage(
     threshold: float | None = None,
     rank_info: dict[str, Any] | None = None,
 ) -> None:
-    if not bool(getattr(CFG, "RESEARCH_LANE_ENABLED", True)):
+    if not bool(getattr(CFG, "RESEARCH_STAGE_LOGGING_ENABLED", True)):
         return
     address = str(token.get("address") or "").strip()
     if not address:

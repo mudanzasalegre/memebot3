@@ -49,8 +49,8 @@ def evaluate_green_live_canary(token: dict[str, Any]) -> tuple[bool, str]:
     if _is_disabled():
         return False, STATE.last_disable_reason or "green_live_canary_disabled"
     day = _today()
-    max_buys = int(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_DAILY_BUYS", 3) or 3)
-    if STATE.daily_buys.get(day, 0) >= max_buys:
+    max_buys = int(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_DAILY_BUYS", 0) or 0)
+    if max_buys > 0 and STATE.daily_buys.get(day, 0) >= max_buys:
         return False, "daily_buy_cap"
     max_loss = float(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_DAILY_LOSS_SOL", 0.05) or 0.05)
     if abs(float(STATE.daily_loss_sol.get(day, 0.0))) >= max_loss:
@@ -97,7 +97,7 @@ def snapshot() -> dict[str, Any]:
     return STATE.to_dict() | {
         "enabled": bool(getattr(CFG, "GREEN_SNIPER_LIVE_ENABLED", False)),
         "disabled": _is_disabled(),
-        "max_daily_buys": int(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_DAILY_BUYS", 3) or 3),
+        "max_daily_buys": int(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_DAILY_BUYS", 0) or 0),
         "max_daily_loss_sol": float(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_DAILY_LOSS_SOL", 0.05) or 0.05),
     }
 

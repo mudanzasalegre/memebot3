@@ -214,6 +214,34 @@ def ensure_smoke_metrics(root: str | Path | None = None, *, overwrite: bool = Fa
     return created
 
 
+def _smoke_metrics_have_sample(root: Path) -> bool:
+    policy_path = metrics_dir(root) / "policy_replay.json"
+    current_path = metrics_dir(root) / "current_run_summary.json"
+    try:
+        policy = json.loads(policy_path.read_text(encoding="utf-8", errors="ignore")) if policy_path.exists() else {}
+    except Exception:
+        policy = {}
+    try:
+        current = json.loads(current_path.read_text(encoding="utf-8", errors="ignore")) if current_path.exists() else {}
+    except Exception:
+        current = {}
+    replay_current = policy.get("current") if isinstance(policy, dict) else {}
+    if not isinstance(replay_current, dict):
+        replay_current = {}
+
+    def count(payload: dict[str, Any], *keys: str) -> int:
+        for key in keys:
+            try:
+                value = int(float(payload.get(key) or 0))
+            except (TypeError, ValueError):
+                value = 0
+            if value > 0:
+                return value
+        return 0
+
+    return count(replay_current, "trades") > 0 and count(current if isinstance(current, dict) else {}, "closed_trades", "closed_positions") > 0
+
+
 def ensure_safe_source_profile(root: str | Path | None = None) -> Path:
     resolved_root = project_root(root)
     profile = resolved_root / "config" / "profiles" / "paper_hotfix_runner_v2.env"
@@ -241,37 +269,45 @@ def ensure_safe_source_profile(root: str | Path | None = None) -> Path:
 
 
 def _baseline_from_replay_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
-    baseline = dict(metrics)
+    def baseline_for(payload: dict[str, Any]) -> dict[str, Any]:
+        baseline = dict(payload)
 
-    def value(key: str, default: float) -> float:
-        try:
-            return float(metrics.get(key, default))
-        except (TypeError, ValueError):
-            return default
+        def value(key: str, default: float) -> float:
+            try:
+                return float(payload.get(key, default))
+            except (TypeError, ValueError):
+                return default
 
-    baseline.update(
-        {
-            "total_pnl_usd": value("total_pnl_usd", 1.0) - 1.0,
-            "avg_pnl_pct": value("avg_pnl_pct", 1.0) - 0.5,
-            "median_pnl_pct": value("median_pnl_pct", 1.0) - 0.5,
-            "win_rate_pct": value("win_rate_pct", 1.0) - 1.0,
-            "runner_capture_ratio": value("runner_capture_ratio", 0.1) - 0.02,
-            "moonshot_peak100_capture": max(0.0, value("moonshot_peak100_capture", 0.0) - 0.1),
-            "moonshot_peak500_capture": max(0.0, value("moonshot_peak500_capture", 0.0) - 0.1),
-            "moonshot_peak1000_capture": max(0.0, value("moonshot_peak1000_capture", 0.0) - 0.1),
-        }
-    )
-    for key in (
-        "severe_loss_count",
-        "liquidity_crush_count",
-        "adverse_tick_count",
-        "api_429_count",
-        "provider_degraded_minutes",
-        "overtrading_count",
-        "idle_no_buy_hours",
-        "max_drawdown_proxy",
-    ):
-        baseline[key] = metrics.get(key, 0)
+        baseline.update(
+            {
+                "total_pnl_usd": value("total_pnl_usd", 1.0) - 1.0,
+                "avg_pnl_pct": value("avg_pnl_pct", 1.0) - 0.5,
+                "median_pnl_pct": value("median_pnl_pct", 1.0) - 0.5,
+                "win_rate_pct": value("win_rate_pct", 1.0) - 1.0,
+                "runner_capture_ratio": value("runner_capture_ratio", 0.1) - 0.02,
+                "moonshot_peak100_capture": max(0.0, value("moonshot_peak100_capture", 0.0) - 0.1),
+                "moonshot_peak500_capture": max(0.0, value("moonshot_peak500_capture", 0.0) - 0.1),
+                "moonshot_peak1000_capture": max(0.0, value("moonshot_peak1000_capture", 0.0) - 0.1),
+            }
+        )
+        for key in (
+            "severe_loss_count",
+            "liquidity_crush_count",
+            "adverse_tick_count",
+            "api_429_count",
+            "provider_degraded_minutes",
+            "overtrading_count",
+            "idle_no_buy_hours",
+            "max_drawdown_proxy",
+        ):
+            baseline[key] = payload.get(key, 0)
+        return baseline
+
+    baseline = baseline_for(metrics)
+    for key in ("current_run_metrics", "historical_metrics", "combined_metrics"):
+        payload = metrics.get(key)
+        if isinstance(payload, dict):
+            baseline[key] = baseline_for(payload)
     return baseline
 
 
@@ -358,9 +394,12 @@ def run_autoresearch_smoke(
     resolved_smoke_id = _safe_id(smoke_id or _default_smoke_id())
     failures: list[str] = []
     warnings: list[str] = []
-    created_metrics = ensure_smoke_metrics(resolved_root, overwrite=overwrite_fixture_metrics)
+    auto_fixture_overwrite = not overwrite_fixture_metrics and not _smoke_metrics_have_sample(resolved_root)
+    created_metrics = ensure_smoke_metrics(resolved_root, overwrite=overwrite_fixture_metrics or auto_fixture_overwrite)
     if created_metrics:
         warnings.append("created_missing_fixture_metrics:" + ",".join(created_metrics))
+    if auto_fixture_overwrite:
+        warnings.append("overwrote_empty_smoke_metrics_with_fixtures")
     ensure_safe_source_profile(resolved_root)
 
     api_budget = build_api_budget_report(resolved_root, write=True)

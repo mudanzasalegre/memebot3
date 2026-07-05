@@ -192,6 +192,42 @@ def test_research_current_best_ignores_failed_and_rejected_entries(tmp_path: Pat
     assert best.meta.empty is True
 
 
+def test_research_current_best_includes_needs_paper_candidate(tmp_path: Path) -> None:
+    settings = _tmp_settings(tmp_path)
+    research_runs = settings.data_dir / "research_runs"
+    _write_json(
+        research_runs / "scoreboard.json",
+        {
+            "entries": [
+                {
+                    "run_id": "ar_pending",
+                    "proposal_id": "ar_pending",
+                    "status": "needs_paper",
+                    "objective_score": 8.0,
+                    "evaluated_at_utc": "2026-06-04T03:00:00+00:00",
+                },
+            ],
+        },
+    )
+    run_dir = research_runs / "runs" / "ar_pending"
+    _write_json(
+        run_dir / "candidate_policy.json",
+        {
+            "proposal_id": "ar_pending",
+            "live_allowed": False,
+            "changes": {"MOONSHOT_MICRO_CONFIRMATION_PNL": "75"},
+        },
+    )
+
+    scoreboard = get_research_scoreboard_envelope(settings)
+    best = get_research_current_best_envelope(settings)
+
+    assert scoreboard.data["summary"]["accepted_count"] == 0
+    assert scoreboard.data["summary"]["best_status"] == "needs_paper"
+    assert best.data["proposal_id"] == "ar_pending"
+    assert best.data["status"] == "needs_paper"
+
+
 def test_research_router_registers_read_only_get_endpoints() -> None:
     app = create_app()
     route_methods = {

@@ -5,6 +5,29 @@ from pathlib import Path
 from typing import Any
 
 OBJECTIVE_CONFIG_PATH = Path(__file__).resolve().with_name("objectives.yaml")
+METRIC_SCOPE_CURRENT_RUN = "current_run"
+METRIC_SCOPE_HISTORICAL = "historical"
+METRIC_SCOPE_COMBINED = "combined"
+METRIC_SCOPES = {METRIC_SCOPE_CURRENT_RUN, METRIC_SCOPE_HISTORICAL, METRIC_SCOPE_COMBINED}
+LOWER_IS_BETTER_METRICS = {
+    "adverse_tick_count",
+    "api_429_count",
+    "birdeye_429_count",
+    "gecko_429_count",
+    "giveback_pct",
+    "idle_no_buy_hours",
+    "jupiter_rate_limit_count",
+    "liquidity_crush_count",
+    "max_drawdown_proxy",
+    "missed_peak100_count",
+    "missed_peak500_count",
+    "missed_peak1000_count",
+    "no_pump_exit_count",
+    "overtrading_count",
+    "provider_degraded_minutes",
+    "severe_loss_count",
+    "stop_loss_count",
+}
 
 
 @dataclass(frozen=True)
@@ -15,6 +38,9 @@ class ObjectiveResult:
     rejection_reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     accepted: bool = False
+    optimized_metric: str | None = None
+    metric_scope: str = METRIC_SCOPE_COMBINED
+    optimized_metric_delta: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -24,6 +50,9 @@ class ObjectiveResult:
             "rejection_reasons": list(self.rejection_reasons),
             "warnings": list(self.warnings),
             "accepted": self.accepted,
+            "optimized_metric": self.optimized_metric,
+            "metric_scope": self.metric_scope,
+            "optimized_metric_delta": self.optimized_metric_delta,
         }
 
 
@@ -147,10 +176,19 @@ def _gate_metric_key(gate_key: str, metric_deltas: dict[str, float]) -> str:
     return metric_key
 
 
+def metric_delta_is_worse(metric: str, delta: float) -> bool:
+    if metric in LOWER_IS_BETTER_METRICS:
+        return delta > 0.0
+    return delta < 0.0
+
+
 def calculate_objective_score(
     baseline_metrics: dict[str, Any],
     candidate_metrics: dict[str, Any],
     objective_config: dict[str, Any] | None = None,
+    *,
+    optimized_metric: str | None = None,
+    metric_scope: str = METRIC_SCOPE_COMBINED,
 ) -> ObjectiveResult:
     config = objective_config or load_objective_config()
     objective = config.get("objective") or {}
@@ -161,6 +199,11 @@ def calculate_objective_score(
     warnings: list[str] = []
     rejection_reasons: list[str] = []
     score = 0.0
+    selected_metric = str(optimized_metric or "").strip() or None
+    selected_scope = str(metric_scope or METRIC_SCOPE_COMBINED).strip() or METRIC_SCOPE_COMBINED
+    optimized_metric_delta = metric_deltas.get(selected_metric) if selected_metric else None
+    if selected_metric and optimized_metric_delta is None:
+        warnings.append(f"missing_optimized_metric:{selected_metric}")
 
     for weight_key, raw_weight in objective.items():
         metric_key = _weighted_metric_key(str(weight_key))
@@ -205,7 +248,20 @@ def calculate_objective_score(
         rejection_reasons=rejection_reasons,
         warnings=warnings,
         accepted=hard_gate_passed and score > 0,
+        optimized_metric=selected_metric,
+        metric_scope=selected_scope,
+        optimized_metric_delta=optimized_metric_delta,
     )
 
 
-__all__ = ["ObjectiveResult", "calculate_objective_score", "load_objective_config"]
+__all__ = [
+    "LOWER_IS_BETTER_METRICS",
+    "METRIC_SCOPE_COMBINED",
+    "METRIC_SCOPE_CURRENT_RUN",
+    "METRIC_SCOPE_HISTORICAL",
+    "METRIC_SCOPES",
+    "ObjectiveResult",
+    "calculate_objective_score",
+    "load_objective_config",
+    "metric_delta_is_worse",
+]

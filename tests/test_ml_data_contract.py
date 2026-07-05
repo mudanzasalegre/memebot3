@@ -15,6 +15,7 @@ from ml.lane_taxonomy import (
     LANE_PUMP_EARLY_GREEN_SNIPER,
     LANE_PUMP_EARLY_PROFIT,
     LANE_RESEARCH_SNIPER,
+    LANE_SNIPER_RESEARCH_MICRO_FALLBACK,
     LANE_UNKNOWN,
 )
 
@@ -35,6 +36,7 @@ def test_reconstruct_lane_from_gate_profile() -> None:
     assert reconstruct_entry_lane({"gate_profile": "pumpswap_profit_prime"}) == "pump_early_pumpswap_prime"
     assert reconstruct_entry_lane({"gate_profile": "pumpswap_breakout_probe"}) == "pump_early_pumpswap_breakout_probe"
     assert reconstruct_entry_lane({"gate_profile": "green_sniper"}) == LANE_PUMP_EARLY_GREEN_SNIPER
+    assert reconstruct_entry_lane({"gate_profile": "sniper_research_micro_fallback"}) == LANE_SNIPER_RESEARCH_MICRO_FALLBACK
 
 
 def test_reconstruct_green_lane_from_momentum() -> None:

@@ -15,6 +15,30 @@ from research_loop.search_space import SearchSpace, get_search_space, iter_grid,
 from research_loop.spaces import entry_quality, lane_sizing, late_momentum, moonshot_micro, rank_canary, runner_exit, shadow_followup
 
 GENERATION_MODES = {"grid", "random", "seeded_random", "local_search", "bandit_suggested"}
+KNOWN_OBJECTIVE_METRICS = {
+    "adverse_tick_count",
+    "api_429_count",
+    "avg_pnl_pct",
+    "giveback_pct",
+    "idle_no_buy_hours",
+    "liquidity_crush_count",
+    "max_drawdown_proxy",
+    "median_pnl_pct",
+    "moonshot_micro_tail_capture_ratio",
+    "moonshot_peak100_capture",
+    "moonshot_peak500_capture",
+    "moonshot_peak1000_capture",
+    "no_pump_exit_count",
+    "overtrading_count",
+    "provider_degraded_minutes",
+    "real_liquidity_breakout_capture",
+    "realized_pnl_on_runners",
+    "runner_capture_ratio",
+    "runner_capture_ladder_ratio",
+    "severe_loss_count",
+    "total_pnl_usd",
+    "win_rate_pct",
+}
 SPECIALIZED_BUILDERS: dict[str, Callable[[], SearchSpace]] = {
     "rank_canary": rank_canary.build_space,
     "shadow_followup": shadow_followup.build_space,
@@ -64,6 +88,18 @@ def proposal_id_for(space_name: str, changes: dict[str, Any], *, index: int, see
     return f"ar_{_safe_id(space_name)}_{seed_part}_{index:04d}_{_changes_hash(space_name, changes, index, seed)}"
 
 
+def _optimization_targets(space: SearchSpace) -> list[str]:
+    targets = [str(target).strip() for target in space.optimization_targets if str(target).strip()]
+    return targets or ["total_pnl_usd"]
+
+
+def _optimized_metric(space: SearchSpace) -> str:
+    for target in _optimization_targets(space):
+        if target in KNOWN_OBJECTIVE_METRICS:
+            return target
+    return "total_pnl_usd"
+
+
 def _build_candidate_policy(
     space: SearchSpace,
     changes: dict[str, Any],
@@ -80,6 +116,9 @@ def _build_candidate_policy(
         "target_lanes": list(space.target_lanes),
         "changes": dict(changes),
         "expected_effect": dict(space.expected_effect),
+        "optimized_metric": _optimized_metric(space),
+        "optimization_targets": _optimization_targets(space),
+        "optimization_scope": "combined",
         "required_gates": ["replay_positive", "api_budget_ok"],
         "api_budget_sensitive": True,
         "live_allowed": False,
@@ -122,13 +161,24 @@ def _candidate_changes(
         return []
     if mode == "grid":
         out: list[dict[str, Any]] = []
-        for changes in iter_grid(space):
+        offset = int(seed or 0) % max(1, space.total_combinations())
+        for index, changes in enumerate(iter_grid(space)):
+            if index < offset:
+                continue
             out.append(changes)
             if len(out) >= n:
                 break
+        if len(out) < n and offset > 0:
+            for index, changes in enumerate(iter_grid(space)):
+                if index >= offset:
+                    break
+                out.append(changes)
+                if len(out) >= n:
+                    break
         return out
     if mode == "local_search":
-        return [_local_search_changes(space, index) for index in range(n)]
+        offset = int(seed or 0) % max(1, space.total_combinations())
+        return [_local_search_changes(space, index + offset) for index in range(n)]
     if mode == "bandit_suggested":
         rng = random.Random(0 if seed is None else seed)
         return [_local_search_changes(space, index) if index % 2 == 0 else _random_changes(space, rng) for index in range(n)]

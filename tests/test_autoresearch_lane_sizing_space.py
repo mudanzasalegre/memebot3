@@ -9,10 +9,12 @@ def test_lane_sizing_space_respects_safety_caps() -> None:
 
     assert lane_sizing.safety_caps_ok()
     assert max(space.parameters["RESEARCH_RANK_CANARY_SIZE_SOL"]) <= 0.03
-    assert max(space.parameters["SNIPER_RESEARCH_SIZE_SOL"]) <= 0.005
-    assert max(space.parameters["SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL"]) <= 0.005
-    assert max(space.parameters["MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL"]) <= 0.005
-    assert max(space.parameters["PAPER_EXPLORATION_AMOUNT_SOL"]) <= 0.01
+    assert max(space.parameters["SNIPER_RESEARCH_SIZE_SOL"]) <= 0.02
+    assert max(space.parameters["SNIPER_RESEARCH_MICRO_FALLBACK_AMOUNT_SOL"]) <= 0.02
+    assert max(space.parameters["SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL"]) <= 0.02
+    assert max(space.parameters["MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL"]) <= 0.02
+    assert max(space.parameters["PAPER_EXPLORATION_AMOUNT_SOL"]) <= 0.1
+    assert max(space.parameters["PAPER_BOOTSTRAP_AMOUNT_SOL"]) <= 0.1
 
 
 def test_lane_sizing_space_generates_safe_candidate() -> None:

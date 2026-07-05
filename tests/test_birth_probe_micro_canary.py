@@ -78,7 +78,7 @@ def test_micro_canary_evaluate_requires_good_group_stats() -> None:
     assert decision.lane == "pump_early_birth_probe_micro_canary"
 
 
-def test_micro_canary_is_paper_only() -> None:
+def test_micro_canary_live_requires_live_flag() -> None:
     cfg = _cfg()
     stats = {"paper_birth_probe_proxy_low_txns": {"samples": 50, "avg_pnl": 6.0, "peak100_count": 3, "recommended_micro_enabled": True}}
 
@@ -92,7 +92,23 @@ def test_micro_canary_is_paper_only() -> None:
     )
 
     assert not decision.allowed
-    assert decision.reason == "paper_only"
+    assert decision.reason == "live_disabled"
+
+
+def test_micro_canary_live_enabled_evaluates_group() -> None:
+    cfg = _cfg(BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED=True)
+    stats = {"paper_birth_probe_proxy_low_txns": {"samples": 50, "avg_pnl": 6.0, "peak100_count": 3, "recommended_micro_enabled": True}}
+
+    decision = evaluate_birth_probe_micro_canary(
+        {},
+        ["proxy_liquidity_productive_block", "low_txns_5m"],
+        dry_run=False,
+        live=True,
+        group_stats=stats,
+        cfg=cfg,
+    )
+
+    assert decision.allowed
 
 
 def test_micro_canary_report_recommends_positive_reason_group(tmp_path) -> None:

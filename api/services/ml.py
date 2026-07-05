@@ -7,7 +7,7 @@ from analytics.audit import build_trade_consistency
 from analytics.ai_predict import model_runtime_status
 from config.config import CFG
 
-from api.repositories.filesystem import file_mtime, load_jsonl_rows, parse_timestamp, read_json_file
+from api.repositories.filesystem import file_mtime, load_jsonl_tail_rows, parse_timestamp, read_json_file
 from api.schemas.common import Envelope, SourceStatus
 from api.services.common import build_envelope, iso_or_none, make_source_status
 from api.services.sources import json_status, jsonl_status
@@ -291,7 +291,7 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
     gate["green_sniper_ml_mode"] = str(getattr(CFG, "GREEN_SNIPER_ML_MODE", "sizing_only") or "sizing_only")
     gate["green_sniper_ml_blocks"] = bool(getattr(CFG, "GREEN_SNIPER_ML_BLOCK_ENABLED", False))
 
-    research_rows = load_jsonl_rows(settings.research_events_path)
+    research_rows = load_jsonl_tail_rows(settings.research_events_path, limit=5_000)
     outcome_events = [
         row
         for row in research_rows
@@ -479,7 +479,7 @@ def get_ml_research_envelope(settings: APISettings) -> Envelope:
     scorecard = read_json_file(settings.research_scorecard_json)
     thresholds = read_json_file(settings.research_thresholds_json)
     post_partial_experiment = read_json_file(settings.post_partial_experiment_json)
-    research_rows = load_jsonl_rows(settings.research_events_path)
+    research_rows = load_jsonl_tail_rows(settings.research_events_path, limit=5_000)
     last_event_at = max((parse_timestamp(row.get("ts_utc")) for row in research_rows), default=None)
 
     scorecard_generated_at = None
@@ -529,6 +529,8 @@ def get_ml_research_envelope(settings: APISettings) -> Envelope:
         "research_events": {
             "rows": len(research_rows),
             "last_event_at": iso_or_none(last_event_at),
+            "sampled": True,
+            "sample_rows": len(research_rows),
         },
         "consistency": consistency,
     }

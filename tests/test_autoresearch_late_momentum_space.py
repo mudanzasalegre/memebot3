@@ -9,8 +9,8 @@ def test_late_momentum_space_optimizes_confirmation_and_caps() -> None:
 
     assert late_momentum.safety_caps_ok()
     assert "LATE_MOMENTUM_MICRO_AMOUNT_SOL" in space.parameters
-    assert "LATE_MOMENTUM_CONFIRMATION" in space.parameters
-    assert max(space.parameters["LATE_MOMENTUM_MICRO_AMOUNT_SOL"]) <= 0.005
+    assert "LATE_MOMENTUM_WATCH_MIN_PRICE5M" in space.parameters
+    assert max(space.parameters["LATE_MOMENTUM_MICRO_AMOUNT_SOL"]) <= 0.02
 
 
 def test_late_momentum_space_generates_safe_candidate() -> None:

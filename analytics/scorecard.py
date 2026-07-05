@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from analytics.bucket_health import bucket_keys, summarize_bucket
-from analytics.report_utils import load_candidate_outcomes, load_paper_positions, load_sqlite_positions, write_json
+from analytics.report_utils import load_candidate_outcomes, load_deduped_positions, write_json
 from config.config import PROJECT_ROOT
 from ml.data_contract import is_execution_blocked_sample
 
@@ -13,7 +13,7 @@ def build_hierarchical_scorecard(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
     rows = [
         row
-        for row in load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+        for row in load_candidate_outcomes(root) + load_deduped_positions(root)
         if not is_execution_blocked_sample(row)
     ]
     grouped: dict[str, list[dict[str, Any]]] = {}

@@ -4,17 +4,26 @@ from pathlib import Path
 from typing import Any
 
 from analytics.bird_runner_exit import simulate_bird_runner_capture
-from analytics.report_utils import fnum, load_candidate_outcomes, load_paper_positions, load_sqlite_positions, metrics_dir, write_json
+from analytics.report_utils import fnum, load_candidate_outcomes, load_deduped_positions, metrics_dir, write_json
 from config.config import PROJECT_ROOT
 
 
 def build_runner_capture_recommendations(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rows = load_candidate_outcomes(root) + load_deduped_positions(root)
     sims = []
     for row in rows:
         peak = fnum(row.get("max_pnl_pct_seen") or row.get("max_pnl_seen") or row.get("peak_pnl_pct"), 0.0)
-        realized = fnum(row.get("realized_pnl_pct") or row.get("total_pnl_pct") or row.get("pnl_pct") or row.get("target_total_pnl_pct"), 0.0)
+        realized = fnum(
+            row.get("total_pnl_pct")
+            if row.get("total_pnl_pct") is not None
+            else row.get("realized_pnl_pct")
+            if row.get("realized_pnl_pct") is not None
+            else row.get("pnl_pct")
+            if row.get("pnl_pct") is not None
+            else row.get("target_total_pnl_pct"),
+            0.0,
+        )
         if peak >= 50:
             sim = simulate_bird_runner_capture(peak, realized)
             sim["address"] = row.get("address") or row.get("mint")

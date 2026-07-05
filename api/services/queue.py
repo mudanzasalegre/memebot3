@@ -4,7 +4,7 @@ import datetime as dt
 from collections import Counter
 from typing import Any
 
-from api.repositories.filesystem import load_jsonl_rows, parse_timestamp
+from api.repositories.filesystem import load_jsonl_tail_rows, parse_timestamp
 from api.schemas.common import Envelope, SourceStatus
 from api.services.common import build_envelope, iso_or_none, utc_now
 from api.services.runtime import (
@@ -30,7 +30,7 @@ def _runtime_snapshot_queue_payload(snapshot: dict[str, Any] | None) -> dict[str
 
 
 def _recent_requeue_reasons(settings: APISettings, *, window_min: int = 60) -> list[dict[str, Any]]:
-    rows = load_jsonl_rows(settings.runtime_events_path)
+    rows = load_jsonl_tail_rows(settings.runtime_events_path, limit=10_000)
     window_start = utc_now() - dt.timedelta(minutes=int(window_min))
     counts: Counter[str] = Counter()
     for row in rows:

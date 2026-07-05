@@ -4,10 +4,10 @@ Offline preview for `combined_hotfix_v1`. Live remains disabled; this report doe
 
 ## Combined Estimate
 
-- Baseline closed rows: `0`
-- Expected total PnL delta: `1926.4630` pct-points
+- Baseline closed rows: `24`
+- Expected total PnL delta: `2884.0110` pct-points
 - Expected severe loss delta: `0`
-- Expected runner capture delta: `0.001300`
+- Expected runner capture delta: `0.002100`
 - Estimate note: Offline additive preview. Entry and exit effects can overlap; use as directional validation before paper forward.
 
 ## Entry Changes
@@ -20,14 +20,14 @@ Offline preview for `combined_hotfix_v1`. Live remains disabled; this report doe
 
 ## Exit Changes
 
-- Post-partial expected total delta: `1926.4630`
+- Post-partial expected total delta: `2884.0110`
 - Multi-partial runner rows: `0`
 - Multi-partial expected total delta: `0.0000`
 - Emergency sells simulated: `0`
 
 ## Research Rank Lane
 
-- Audit evaluated: `1701`
+- Audit evaluated: `1523`
 - Bought as own lane: `0`
 - Shadow as own lane: `0`
 - Mixed lane detected: `0`

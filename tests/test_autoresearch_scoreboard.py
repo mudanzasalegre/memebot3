@@ -18,6 +18,8 @@ def _candidate() -> dict:
         "created_at_utc": "2026-06-04T00:00:00+00:00",
         "live_allowed": False,
         "changes": {"MOONSHOT_MICRO_LOTTERY_CONFIRMATION_PNL": "75"},
+        "optimized_metric": "total_pnl_usd",
+        "optimization_scope": "combined",
     }
 
 
@@ -61,6 +63,8 @@ def test_scoreboard_entry_contains_required_fields() -> None:
     assert entry["run_id"] == "ar_score_run"
     assert entry["proposal_id"] == "ar_score_001"
     assert entry["status"] == "accepted_replay"
+    assert entry["optimized_metric"] == "total_pnl_usd"
+    assert entry["optimization_scope"] == "combined"
     assert entry["objective_score"] > 0
     assert entry["total_pnl_delta"] == 3.0
     assert entry["median_pnl_delta"] == 0.5

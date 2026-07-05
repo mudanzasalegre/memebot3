@@ -1126,6 +1126,7 @@ export type ControlCommandType =
   | "reload_model"
   | "trigger_retrain"
   | "refresh_reports"
+  | "run_autoresearch"
   | "set_log_level";
 
 export type ControlCommandStatus =

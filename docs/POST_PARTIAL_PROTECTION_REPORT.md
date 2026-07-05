@@ -2,13 +2,13 @@
 
 | Profile | Trades | Win rate | Avg PnL | Total PnL | Severe | Runner capture |
 |---|---:|---:|---:|---:|---:|---:|
-| current | 8308 | 1.35% | -0.05% | -398.55 | 106 | 0.011 |
-| post_partial_protected | 8308 | 1.38% | 0.18% | 1527.91 | 106 | 0.012 |
+| current | 7833 | 1.99% | -0.01% | -89.62 | 117 | 0.013 |
+| post_partial_protected | 7833 | 2.03% | 0.36% | 2794.39 | 117 | 0.015 |
 
 ## Delta
 
-- Total PnL: `1926.463`
-- Avg PnL: `0.232`
-- Win rate: `0.036`
+- Total PnL: `2884.011`
+- Avg PnL: `0.368`
+- Win rate: `0.038`
 - Severe losses: `0`
-- Runner capture: `0.0013`
+- Runner capture: `0.0021`

@@ -7,6 +7,8 @@ from config.config import CFG
 from ml.lane_taxonomy import (
     LANE_BIRTH_PROBE_MICRO_CANARY,
     LANE_MOONSHOT_MICRO_LOTTERY,
+    LANE_PAPER_BOOTSTRAP_MICRO,
+    LANE_PAPER_EXPLORATION_MICRO,
     LANE_PUMP_EARLY_BREAKOUT,
     LANE_PUMP_EARLY_GREEN_SNIPER,
     LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
@@ -15,6 +17,7 @@ from ml.lane_taxonomy import (
     LANE_RESEARCH_RANK_CANARY,
     LANE_RESEARCH_SNIPER,
     LANE_SHADOW_FOLLOWUP_MICRO,
+    LANE_SNIPER_RESEARCH_MICRO_FALLBACK,
     normalize_entry_lane,
 )
 
@@ -27,6 +30,13 @@ def _int_cfg(name: str, default: int) -> int:
         return int(value)
     except Exception:
         return int(default)
+
+
+def _bool_cfg(name: str, default: bool = False) -> bool:
+    value = getattr(CFG, name, default)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 @dataclass(frozen=True)
@@ -45,34 +55,46 @@ def _cap_for_lane(lane: str, *, dry_run: bool, live: bool) -> int:
     lane = normalize_entry_lane(lane)
     if lane == LANE_PUMP_EARLY_GREEN_SNIPER:
         if live:
-            return _int_cfg("GREEN_SNIPER_LIVE_MAX_OPEN", 1)
-        return _int_cfg("GREEN_SNIPER_MAX_OPEN_PAPER", _int_cfg("PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 6))
+            return _int_cfg("GREEN_SNIPER_LIVE_MAX_OPEN", 0)
+        return _int_cfg("GREEN_SNIPER_MAX_OPEN_PAPER", _int_cfg("PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 0))
     if lane == LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH:
         if live:
             return _int_cfg("LATE_MOMENTUM_WATCH_MAX_OPEN_LIVE", 0)
-        return _int_cfg("LATE_MOMENTUM_WATCH_MAX_OPEN_PAPER", 1)
+        return _int_cfg("LATE_MOMENTUM_WATCH_MAX_OPEN_PAPER", 0)
     if lane == LANE_BIRTH_PROBE_MICRO_CANARY:
-        if live:
+        if live and not _bool_cfg("BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED", False):
             return 0
-        return _int_cfg("BIRTH_PROBE_MICRO_CANARY_MAX_OPEN", 1)
+        return _int_cfg("BIRTH_PROBE_MICRO_CANARY_MAX_OPEN", 0)
     if lane == LANE_MOONSHOT_MICRO_LOTTERY:
-        if live:
+        if live and not _bool_cfg("MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED", False):
             return 0
-        return _int_cfg("MOONSHOT_MICRO_LOTTERY_MAX_OPEN", 1)
+        return _int_cfg("MOONSHOT_MICRO_LOTTERY_MAX_OPEN", 0)
     if lane == LANE_SHADOW_FOLLOWUP_MICRO:
+        if live and not _bool_cfg("SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED", False):
+            return 0
+        return _int_cfg("SHADOW_FOLLOWUP_MICRO_MAX_OPEN", 0)
+    if lane == LANE_PAPER_EXPLORATION_MICRO:
         if live:
             return 0
-        return _int_cfg("SHADOW_FOLLOWUP_MICRO_MAX_OPEN", 1)
+        return _int_cfg("PAPER_EXPLORATION_MAX_OPEN", 0)
+    if lane == LANE_PAPER_BOOTSTRAP_MICRO:
+        if live:
+            return 0
+        return _int_cfg("PAPER_BOOTSTRAP_MAX_OPEN", 0)
+    if lane == LANE_SNIPER_RESEARCH_MICRO_FALLBACK:
+        if live and not _bool_cfg("SNIPER_RESEARCH_MICRO_FALLBACK_LIVE_ENABLED", False):
+            return 0
+        return _int_cfg("SNIPER_RESEARCH_MICRO_FALLBACK_MAX_OPEN", 0)
     if lane == LANE_PUMP_EARLY_BREAKOUT:
-        return _int_cfg("PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1)
+        return _int_cfg("PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 0)
     if lane == LANE_PUMPSWAP_REBOUND_PRIME:
-        return _int_cfg("PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2)
+        return _int_cfg("PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 0)
     if lane == LANE_PUMP_EARLY_PROFIT:
-        return _int_cfg("PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2)
+        return _int_cfg("PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY" if live else "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 0)
     if lane == LANE_RESEARCH_SNIPER:
         return _int_cfg("RESEARCH_SHADOW_MAX_OPEN_PER_REGIME", 4)
     if lane == LANE_RESEARCH_RANK_CANARY:
-        return _int_cfg("RESEARCH_RANK_CANARY_PRIORITY_MAX_OPEN", _int_cfg("RESEARCH_RANK_CANARY_MAX_OPEN", 1))
+        return _int_cfg("RESEARCH_RANK_CANARY_PRIORITY_MAX_OPEN", _int_cfg("RESEARCH_RANK_CANARY_MAX_OPEN", 0))
     return 999 if dry_run else 1
 
 
@@ -95,13 +117,28 @@ def evaluate_lane_position_limit(
     counts = count_open_by_lane(open_positions)
     open_count = int(counts.get(normalized, 0))
     cap = _cap_for_lane(normalized, dry_run=dry_run, live=live)
-    allowed = cap < 0 or (cap > 0 and open_count < cap)
+    live_disabled = False
+    if live:
+        paper_only_lanes = {
+            LANE_PAPER_EXPLORATION_MICRO,
+            LANE_PAPER_BOOTSTRAP_MICRO,
+        }
+        live_flag_by_lane = {
+            LANE_BIRTH_PROBE_MICRO_CANARY: "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED",
+            LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH: "LATE_MOMENTUM_WATCH_LIVE_ENABLED",
+            LANE_MOONSHOT_MICRO_LOTTERY: "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED",
+            LANE_SHADOW_FOLLOWUP_MICRO: "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED",
+            LANE_SNIPER_RESEARCH_MICRO_FALLBACK: "SNIPER_RESEARCH_MICRO_FALLBACK_LIVE_ENABLED",
+        }
+        flag = live_flag_by_lane.get(normalized)
+        live_disabled = normalized in paper_only_lanes or bool(flag and not _bool_cfg(flag, False))
+    allowed = not live_disabled and (cap <= 0 or open_count < cap)
     return PositionLimitDecision(
         allowed=allowed,
         lane=normalized,
         open_count=open_count,
         cap=cap,
-        reason="ok" if allowed else f"lane_cap:{normalized}",
+        reason="ok" if allowed else ("lane_live_disabled" if live_disabled else f"lane_cap:{normalized}"),
     )
 
 
@@ -142,6 +179,18 @@ def describe_position_limits() -> dict[str, Any]:
         "shadow_followup_micro": {
             "paper": _cap_for_lane(LANE_SHADOW_FOLLOWUP_MICRO, dry_run=True, live=False),
             "live": _cap_for_lane(LANE_SHADOW_FOLLOWUP_MICRO, dry_run=False, live=True),
+        },
+        "paper_exploration_micro": {
+            "paper": _cap_for_lane(LANE_PAPER_EXPLORATION_MICRO, dry_run=True, live=False),
+            "live": _cap_for_lane(LANE_PAPER_EXPLORATION_MICRO, dry_run=False, live=True),
+        },
+        "paper_bootstrap_micro": {
+            "paper": _cap_for_lane(LANE_PAPER_BOOTSTRAP_MICRO, dry_run=True, live=False),
+            "live": _cap_for_lane(LANE_PAPER_BOOTSTRAP_MICRO, dry_run=False, live=True),
+        },
+        "sniper_research_micro_fallback": {
+            "paper": _cap_for_lane(LANE_SNIPER_RESEARCH_MICRO_FALLBACK, dry_run=True, live=False),
+            "live": _cap_for_lane(LANE_SNIPER_RESEARCH_MICRO_FALLBACK, dry_run=False, live=True),
         },
     }
 

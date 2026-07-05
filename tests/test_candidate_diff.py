@@ -15,6 +15,8 @@ def _candidate() -> dict:
             "RESEARCH_RANK_CANARY_SIZE_SOL": "0.02",
         },
         "expected_effect": {"increase_pnl": True},
+        "optimized_metric": "total_pnl_usd",
+        "optimization_scope": "combined",
         "required_gates": ["replay_positive", "api_budget_ok"],
         "api_budget_sensitive": True,
         "live_allowed": False,

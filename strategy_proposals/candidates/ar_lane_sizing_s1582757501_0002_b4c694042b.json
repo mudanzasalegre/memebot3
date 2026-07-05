@@ -1,0 +1,59 @@
+{
+  "api_budget_sensitive": true,
+  "changes": {
+    "LATE_MOMENTUM_MICRO_AMOUNT_SOL": 0.003,
+    "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL": 0.01,
+    "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_AMOUNT_SOL": 0.001,
+    "MOONSHOT_MICRO_LOTTERY_RISKY_CLUSTER_AMOUNT_SOL": 0.0002,
+    "PAPER_BOOTSTRAP_AMOUNT_SOL": 0.05,
+    "PAPER_BOOTSTRAP_MAX_AMOUNT_SOL": 0.1,
+    "PAPER_EXPLORATION_AMOUNT_SOL": 0.02,
+    "PAPER_IDLE_AMOUNT_SOL": 0.05,
+    "RESEARCH_RANK_CANARY_PAPER_NORMAL_SIZE_SOL": 0.005,
+    "RESEARCH_RANK_CANARY_PRIORITY_SIZE_SOL": 0.03,
+    "RESEARCH_RANK_CANARY_PULLBACK_TAIL_AMOUNT_SOL": 0.003,
+    "RESEARCH_RANK_CANARY_SIZE_SOL": 0.03,
+    "SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL": 0.01,
+    "SNIPER_RESEARCH_DEEP_REVERSAL_SIZE_SOL": 0.02,
+    "SNIPER_RESEARCH_MICRO_FALLBACK_AMOUNT_SOL": 0.02,
+    "SNIPER_RESEARCH_MOMENTUM_SIZE_SOL": 0.005,
+    "SNIPER_RESEARCH_SIZE_SOL": 0.01
+  },
+  "created_at_utc": "2026-06-21T04:39:36.934852+00:00",
+  "expected_effect": {
+    "increase_moonshot_capture": true,
+    "increase_pnl": true,
+    "increase_win_rate": false,
+    "reduce_severe_losses": false
+  },
+  "experiment_type": "replay",
+  "hypothesis": "Tune paper lane sizing while respecting all safety caps.",
+  "live_allowed": false,
+  "optimization_scope": "combined",
+  "optimization_targets": [
+    "total_pnl_usd",
+    "median_pnl_pct",
+    "runner_capture_ratio",
+    "severe_loss_count",
+    "overtrading_count"
+  ],
+  "optimized_metric": "total_pnl_usd",
+  "proposal_id": "ar_lane_sizing_s1582757501_0002_b4c694042b",
+  "required_gates": [
+    "replay_positive",
+    "api_budget_ok"
+  ],
+  "risk_notes": [
+    "paper only",
+    "safety caps enforced per lane"
+  ],
+  "target_lanes": [
+    "research_rank_canary",
+    "pump_early_sniper_research",
+    "pump_early_sniper_research_micro_fallback",
+    "shadow_followup_micro",
+    "pump_early_moonshot_micro_lottery",
+    "paper_exploration",
+    "paper_bootstrap"
+  ]
+}

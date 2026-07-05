@@ -10,9 +10,8 @@ from typing import Any
 from analytics.report_utils import (
     fnum,
     load_candidate_outcomes,
-    load_paper_positions,
+    load_deduped_positions,
     load_runtime_events,
-    load_sqlite_positions,
     metrics_dir,
     write_json,
 )
@@ -20,14 +19,18 @@ from config.config import CFG, PROJECT_ROOT
 from ml.lane_taxonomy import (
     LANE_BIRTH_PROBE_MICRO_CANARY,
     LANE_MOONSHOT_MICRO_LOTTERY,
+    LANE_PAPER_BOOTSTRAP_MICRO,
+    LANE_PAPER_EXPLORATION_MICRO,
     LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
     LANE_RESEARCH_RANK_CANARY,
     LANE_RESEARCH_SNIPER,
+    LANE_SHADOW_FOLLOWUP_MICRO,
+    LANE_SNIPER_RESEARCH_MICRO_FALLBACK,
     normalize_entry_lane,
 )
 
-LANE_SHADOW_FOLLOWUP_MICRO = "pump_early_shadow_followup_micro"
 EXPERIMENTAL_MAX_SOL = 0.03
+WARNING_SAMPLE_LIMIT = 100
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,12 @@ def _lane(row: dict[str, Any]) -> str:
         return LANE_SHADOW_FOLLOWUP_MICRO
     if "moonshot_micro_lottery" in reason:
         return LANE_MOONSHOT_MICRO_LOTTERY
+    if "paper_exploration" in reason:
+        return LANE_PAPER_EXPLORATION_MICRO
+    if "paper_bootstrap" in reason:
+        return LANE_PAPER_BOOTSTRAP_MICRO
+    if "sniper_research_micro_fallback" in reason:
+        return LANE_SNIPER_RESEARCH_MICRO_FALLBACK
     if "late_momentum" in reason:
         return LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH
     if "research_rank_canary" in reason:
@@ -79,15 +88,47 @@ def _cfg_float(cfg: Any, name: str, default: float) -> float:
     return fnum(getattr(cfg, name, default), default)
 
 
+def _cfg_bool(cfg: Any, name: str, default: bool) -> bool:
+    value = getattr(cfg, name, default)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
+def _lane_cap(
+    lane: str,
+    lane_amount: float,
+    *,
+    dry_run: bool,
+    live: bool,
+    cfg: Any,
+) -> float:
+    amount = max(0.0, float(lane_amount or 0.0))
+    cap = amount
+    if lane == LANE_RESEARCH_RANK_CANARY:
+        cap = min(cap, _cfg_float(cfg, "RESEARCH_RANK_CANARY_MAX_SIZE_SOL", max(amount, EXPERIMENTAL_MAX_SOL)))
+    if lane == LANE_PAPER_BOOTSTRAP_MICRO:
+        cap = min(cap, _cfg_float(cfg, "PAPER_BOOTSTRAP_MAX_AMOUNT_SOL", amount))
+    if dry_run and not live:
+        max_paper_trade = _cfg_float(cfg, "PAPER_MAX_TRADE_AMOUNT_SOL", _cfg_float(cfg, "MAX_TRADE_AMOUNT_SOL", cap))
+        if max_paper_trade > 0:
+            cap = min(cap, max_paper_trade)
+    if not dry_run and live:
+        max_trade = _cfg_float(cfg, "MAX_TRADE_AMOUNT_SOL", cap)
+        if max_trade > 0:
+            cap = min(cap, max_trade)
+    return cap
+
+
 def _lane_amount(row: dict[str, Any], lane: str, *, cfg: Any) -> tuple[float, str]:
-    default_amount = _cfg_float(cfg, "DEFAULT_PAPER_BUY_SOL", 0.005)
+    default_amount = _cfg_float(cfg, "DEFAULT_PAPER_BUY_SOL", 0.1)
     if lane == LANE_RESEARCH_RANK_CANARY:
         reason_text = str(_first(row, "reason", "green_sniper_reason", "entry_reason") or "").lower()
         if "paper_normal" in reason_text:
             return _cfg_float(cfg, "RESEARCH_RANK_CANARY_PAPER_NORMAL_SIZE_SOL", 0.005), "rank_paper_normal_size"
         if reason_text.find("priority") >= 0:
             return _cfg_float(cfg, "RESEARCH_RANK_CANARY_PRIORITY_SIZE_SOL", 0.02), "rank_priority_size"
-        return _cfg_float(cfg, "RESEARCH_RANK_CANARY_SIZE_SOL", 0.02), "rank_canary_size"
+        return _cfg_float(cfg, "RESEARCH_RANK_CANARY_SIZE_SOL", 0.005), "rank_canary_size"
     if lane == LANE_RESEARCH_SNIPER:
         sub = _subprofile(row)
         if "momentum" in sub:
@@ -95,10 +136,16 @@ def _lane_amount(row: dict[str, Any], lane: str, *, cfg: Any) -> tuple[float, st
         if "deep_reversal" in sub:
             return _cfg_float(cfg, "SNIPER_RESEARCH_DEEP_REVERSAL_SIZE_SOL", 0.005), "sniper_deep_reversal_size"
         return _cfg_float(cfg, "SNIPER_RESEARCH_SIZE_SOL", 0.005), "sniper_research_size"
+    if lane == LANE_SNIPER_RESEARCH_MICRO_FALLBACK:
+        return _cfg_float(cfg, "SNIPER_RESEARCH_MICRO_FALLBACK_AMOUNT_SOL", 0.003), "sniper_research_micro_fallback_size"
     if lane == LANE_MOONSHOT_MICRO_LOTTERY:
         return _cfg_float(cfg, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001), "moonshot_micro_size"
     if lane == LANE_SHADOW_FOLLOWUP_MICRO:
         return _cfg_float(cfg, "SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL", 0.003), "shadow_followup_micro_size"
+    if lane == LANE_PAPER_EXPLORATION_MICRO:
+        return _cfg_float(cfg, "PAPER_IDLE_AMOUNT_SOL", _cfg_float(cfg, "PAPER_EXPLORATION_AMOUNT_SOL", 0.1)), "paper_exploration_micro_size"
+    if lane == LANE_PAPER_BOOTSTRAP_MICRO:
+        return _cfg_float(cfg, "PAPER_BOOTSTRAP_AMOUNT_SOL", 0.1), "paper_bootstrap_micro_size"
     if lane == LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH:
         return _cfg_float(cfg, "LATE_MOMENTUM_MICRO_AMOUNT_SOL", 0.003), "late_momentum_micro_size"
     if lane == LANE_BIRTH_PROBE_MICRO_CANARY:
@@ -118,27 +165,61 @@ def resolve_lane_buy_amount(
     input_amount = max(0.0, float(computed_amount_sol or 0.0))
     if not bool(getattr(cfg, "LANE_SIZING_ENABLED", True)):
         return LaneSizingDecision(input_amount, lane, "lane_sizing_disabled", input_amount, input_amount)
+    if _cfg_bool(cfg, "LANE_SIZING_FIXED_TRADE_AMOUNT_ENABLED", True):
+        if dry_run and not live:
+            trade_amount = _cfg_float(
+                cfg,
+                "TRADE_AMOUNT_SOL",
+                _cfg_float(cfg, "DEFAULT_PAPER_BUY_SOL", input_amount),
+            )
+            cap = _cfg_float(cfg, "PAPER_MAX_TRADE_AMOUNT_SOL", _cfg_float(cfg, "MAX_TRADE_AMOUNT_SOL", trade_amount))
+            amount = trade_amount if input_amount > 0.0 else 0.0
+            if cap > 0.0:
+                amount = min(amount, cap)
+            return LaneSizingDecision(
+                amount,
+                lane,
+                "fixed_paper_trade_amount",
+                input_amount,
+                cap,
+            )
+        if live and not dry_run:
+            cap = _cfg_float(cfg, "MAX_TRADE_AMOUNT_SOL", _cfg_float(cfg, "TRADE_AMOUNT_SOL", input_amount))
+            amount = input_amount
+            if cap > 0.0:
+                amount = min(amount, cap)
+            return LaneSizingDecision(
+                amount,
+                lane,
+                "fixed_live_trade_amount",
+                input_amount,
+                cap,
+            )
     allowlist = _csv(getattr(cfg, "LANE_SIZING_TRADE_AMOUNT_ALLOWLIST", ""))
     lane_key = str(lane or "").lower()
     if lane_key in allowlist:
-        cap = _cfg_float(cfg, "MAX_TRADE_AMOUNT_SOL", input_amount)
+        cap_name = "PAPER_MAX_TRADE_AMOUNT_SOL" if dry_run and not live else "MAX_TRADE_AMOUNT_SOL"
+        cap = _cfg_float(cfg, cap_name, _cfg_float(cfg, "MAX_TRADE_AMOUNT_SOL", input_amount))
         amount = min(input_amount, cap) if cap > 0 else input_amount
         return LaneSizingDecision(amount, lane, "trade_amount_allowlisted", input_amount, cap)
     lane_amount, reason = _lane_amount(row, lane, cfg=cfg)
-    cap = _cfg_float(cfg, "RESEARCH_RANK_CANARY_MAX_SIZE_SOL", EXPERIMENTAL_MAX_SOL) if lane == LANE_RESEARCH_RANK_CANARY else EXPERIMENTAL_MAX_SOL
-    if lane == LANE_MOONSHOT_MICRO_LOTTERY:
-        cap = min(cap, 0.001)
-    if lane == LANE_SHADOW_FOLLOWUP_MICRO:
-        cap = min(cap, 0.003)
-    if lane == LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH:
-        cap = min(cap, 0.003)
+    cap = _lane_cap(
+        lane,
+        lane_amount,
+        dry_run=dry_run,
+        live=live,
+        cfg=cfg,
+    )
     if lane == LANE_RESEARCH_RANK_CANARY and reason == "rank_paper_normal_size" and input_amount > 0.0:
         lane_amount = min(lane_amount, input_amount)
-    if not dry_run and live:
-        cap = min(cap, _cfg_float(cfg, "MAX_TRADE_AMOUNT_SOL", cap))
     amount = max(0.0, min(float(lane_amount or 0.0), float(cap or 0.0)))
     fallback_blocked = input_amount > amount and input_amount >= 0.099
-    warning = "experimental_lane_over_0.03" if amount > EXPERIMENTAL_MAX_SOL else ""
+    warning = (
+        "experimental_lane_over_0.03"
+        if amount > EXPERIMENTAL_MAX_SOL
+        and lane not in {LANE_PAPER_BOOTSTRAP_MICRO, LANE_PAPER_EXPLORATION_MICRO}
+        else ""
+    )
     return LaneSizingDecision(
         amount_sol=amount,
         lane=lane,
@@ -152,10 +233,11 @@ def resolve_lane_buy_amount(
 
 def build_lane_sizing_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_runtime_events(root) + load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rows = load_runtime_events(root) + load_candidate_outcomes(root) + load_deduped_positions(root)
     grouped: dict[str, list[float]] = collections.defaultdict(list)
     fallback_blocked = 0
     warnings: list[dict[str, Any]] = []
+    warning_counts: collections.Counter[tuple[str, str]] = collections.Counter()
     for row in rows:
         observed = fnum(_first(row, "buy_amount_sol", "amount_sol", "trade_amount_sol"), 0.0)
         if observed <= 0:
@@ -164,14 +246,16 @@ def build_lane_sizing_report(root: Path | None = None) -> dict[str, Any]:
         grouped[decision.lane].append(decision.amount_sol)
         fallback_blocked += int(decision.fallback_blocked)
         if decision.warning:
-            warnings.append(
-                {
-                    "lane": decision.lane,
-                    "amount_sol": decision.amount_sol,
-                    "warning": decision.warning,
-                    "reason": decision.reason,
-                }
-            )
+            warning_counts[(decision.lane, decision.warning)] += 1
+            if len(warnings) < WARNING_SAMPLE_LIMIT:
+                warnings.append(
+                    {
+                        "lane": decision.lane,
+                        "amount_sol": decision.amount_sol,
+                        "warning": decision.warning,
+                        "reason": decision.reason,
+                    }
+                )
     lanes = {
         lane: {
             "rows": len(values),
@@ -186,13 +270,22 @@ def build_lane_sizing_report(root: Path | None = None) -> dict[str, Any]:
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "config": {
             "lane_sizing_enabled": bool(getattr(CFG, "LANE_SIZING_ENABLED", True)),
-            "default_paper_buy_sol": _cfg_float(CFG, "DEFAULT_PAPER_BUY_SOL", 0.005),
+            "fixed_trade_amount_enabled": _cfg_bool(CFG, "LANE_SIZING_FIXED_TRADE_AMOUNT_ENABLED", True),
+            "default_paper_buy_sol": _cfg_float(CFG, "DEFAULT_PAPER_BUY_SOL", 0.1),
+            "trade_amount_sol": _cfg_float(CFG, "TRADE_AMOUNT_SOL", 0.1),
+            "paper_max_trade_amount_sol": _cfg_float(CFG, "PAPER_MAX_TRADE_AMOUNT_SOL", 0.1),
+            "max_trade_amount_sol": _cfg_float(CFG, "MAX_TRADE_AMOUNT_SOL", 0.1),
             "trade_amount_allowlist": sorted(_csv(getattr(CFG, "LANE_SIZING_TRADE_AMOUNT_ALLOWLIST", ""))),
             "experimental_max_sol": EXPERIMENTAL_MAX_SOL,
         },
         "lanes": lanes,
         "fallback_trade_amount_blocked": fallback_blocked,
+        "warning_counts": [
+            {"lane": lane, "warning": warning, "count": int(count)}
+            for (lane, warning), count in warning_counts.most_common()
+        ],
         "warnings": warnings,
+        "warnings_truncated": max(0, sum(warning_counts.values()) - len(warnings)),
     }
 
 
@@ -204,7 +297,9 @@ def write_lane_sizing_report(root: Path | None = None) -> dict[str, Any]:
 
 __all__ = [
     "EXPERIMENTAL_MAX_SOL",
+    "WARNING_SAMPLE_LIMIT",
     "LANE_SHADOW_FOLLOWUP_MICRO",
+    "LANE_SNIPER_RESEARCH_MICRO_FALLBACK",
     "LaneSizingDecision",
     "build_lane_sizing_report",
     "resolve_lane_buy_amount",

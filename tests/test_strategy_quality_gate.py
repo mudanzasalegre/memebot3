@@ -37,6 +37,8 @@ def _candidate(live_allowed: bool = False) -> dict:
         "target_lanes": ["pump_early_moonshot_micro_lottery"],
         "changes": {"MOONSHOT_MICRO_CONFIRMATION_PNL": "75"},
         "expected_effect": {"increase_pnl": True},
+        "optimized_metric": "total_pnl_usd",
+        "optimization_scope": "combined",
         "required_gates": ["replay_positive", "api_budget_ok"],
         "api_budget_sensitive": True,
         "live_allowed": live_allowed,
@@ -44,7 +46,14 @@ def _candidate(live_allowed: bool = False) -> dict:
     }
 
 
-def _write_autoresearch_contract(root, *, candidate_live: bool = False, paper_profile: bool = True, scoreboard: bool = True) -> None:
+def _write_autoresearch_contract(
+    root,
+    *,
+    candidate_live: bool = False,
+    paper_profile: bool = True,
+    scoreboard: bool = True,
+    scoreboard_status: str | None = None,
+) -> None:
     research = root / "research_loop"
     research.mkdir(parents=True, exist_ok=True)
     for name in ("safety.yaml", "safety.py", "objectives.yaml", "objectives.py", "experiment_schema.py"):
@@ -58,7 +67,10 @@ def _write_autoresearch_contract(root, *, candidate_live: bool = False, paper_pr
     runs = root / "data" / "research_runs"
     runs.mkdir(parents=True, exist_ok=True)
     if scoreboard:
-        (runs / "scoreboard.json").write_text('{"entries":[]}', encoding="utf-8")
+        entries = []
+        if scoreboard_status:
+            entries.append({"run_id": "ar_gate_run", "proposal_id": "ar_gate_001", "status": scoreboard_status})
+        (runs / "scoreboard.json").write_text(json_dumps({"entries": entries}), encoding="utf-8")
     (runs / "api_budget.json").write_text(
         '{"comparison":{"ok":true,"deltas":{"api_429_count":0,"provider_degraded_minutes":0},"rejection_reasons":[]}}',
         encoding="utf-8",
@@ -134,7 +146,7 @@ def test_autoresearch_contract_accepts_safe_artifacts(monkeypatch, tmp_path) -> 
     assert gate.checks() == []
 
 
-def test_autoresearch_contract_requires_scoreboard_and_paper_profile(monkeypatch, tmp_path) -> None:
+def test_autoresearch_contract_requires_scoreboard_but_allows_no_paper_profile_before_acceptance(monkeypatch, tmp_path) -> None:
     _write_autoresearch_contract(tmp_path, paper_profile=False, scoreboard=False)
     monkeypatch.setattr(gate, "ROOT", tmp_path)
     monkeypatch.setattr(gate, "CFG", _safe_cfg())
@@ -142,6 +154,16 @@ def test_autoresearch_contract_requires_scoreboard_and_paper_profile(monkeypatch
     errors = gate.checks()
 
     assert "autoresearch scoreboard missing: data/research_runs/scoreboard.json" in errors
+    assert "autoresearch paper profile missing: config/profiles/paper_research_candidate_*.env" not in errors
+
+
+def test_autoresearch_contract_requires_paper_profile_after_replay_acceptance(monkeypatch, tmp_path) -> None:
+    _write_autoresearch_contract(tmp_path, paper_profile=False, scoreboard_status="needs_paper")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "CFG", _safe_cfg())
+
+    errors = gate.checks()
+
     assert "autoresearch paper profile missing: config/profiles/paper_research_candidate_*.env" in errors
 
 

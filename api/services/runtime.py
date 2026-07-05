@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from api.repositories.filesystem import load_jsonl_rows, parse_timestamp
+from api.repositories.filesystem import load_jsonl_tail_rows, parse_timestamp
 from api.repositories.runtime_state import load_bot_runtime_state
 from api.schemas.common import Envelope, SourceStatus
 from api.services.common import build_envelope, iso_or_none, make_source_status, utc_now
@@ -156,7 +156,7 @@ def _strategy_health_event_payload(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _strategy_health_from_events(settings: APISettings) -> tuple[dict[str, Any], dt.datetime | None]:
-    rows = load_jsonl_rows(settings.runtime_events_path)
+    rows = load_jsonl_tail_rows(settings.runtime_events_path, limit=10_000)
     latest_by_regime: dict[str, tuple[dt.datetime | None, dict[str, Any]]] = {}
 
     for row in rows:
@@ -206,7 +206,7 @@ def _strategy_health_events_status(
 
 
 def _sniper_runtime_rollups(settings: APISettings) -> dict[str, Any]:
-    rows = load_jsonl_rows(settings.research_events_path)
+    rows = load_jsonl_tail_rows(settings.research_events_path, limit=5_000)
     productive_lanes = {"pump_early_pumpswap_profit", "pump_early_pumpswap_breakout_probe"}
     lane_counts: dict[str, int] = {}
     reject_reasons: dict[str, int] = {}

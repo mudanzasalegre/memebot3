@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +63,43 @@ def load_jsonl_rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def load_jsonl_tail_rows(path: Path, *, limit: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for raw_line in tail_text_lines(path, limit=limit):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            rows.append(parsed)
+    return rows
+
+
+def file_size_bytes(path: Path) -> int:
+    if not path.exists():
+        return 0
+    try:
+        return int(path.stat().st_size)
+    except Exception:
+        return 0
+
+
+def count_text_lines(path: Path) -> int:
+    if not path.exists() or not path.is_file():
+        return 0
+    count = 0
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                count += chunk.count(b"\n")
+    except Exception:
+        return 0
+    return count
+
+
 def file_mtime(path: Path) -> dt.datetime | None:
     if not path.exists():
         return None
@@ -84,11 +120,27 @@ def tail_text_lines(path: Path, *, limit: int) -> list[str]:
     if limit <= 0 or not path.exists() or not path.is_file():
         return []
 
-    lines: deque[str] = deque(maxlen=int(limit))
     try:
-        with path.open("r", encoding="utf-8", errors="ignore") as handle:
-            for raw_line in handle:
-                lines.append(raw_line.rstrip("\r\n"))
+        size = path.stat().st_size
     except Exception:
         return []
-    return list(lines)
+    if size <= 0:
+        return []
+
+    chunk_size = 8192
+    data = bytearray()
+    line_breaks = 0
+    try:
+        with path.open("rb") as handle:
+            offset = size
+            while offset > 0 and line_breaks <= limit:
+                read_size = min(chunk_size, offset)
+                offset -= read_size
+                handle.seek(offset)
+                chunk = handle.read(read_size)
+                data[:0] = chunk
+                line_breaks += chunk.count(b"\n")
+    except Exception:
+        return []
+    text = bytes(data).decode("utf-8", errors="ignore")
+    return text.splitlines()[-int(limit) :]

@@ -13,6 +13,7 @@ def build_space() -> SearchSpace:
 def optimization_targets() -> list[str]:
     return [
         "shadow_followup_success_rate",
+        "real_liquidity_breakout_capture",
         "observed_peak_after_seen_50",
         "candidate_partial_50",
         "avg_pnl_pct",

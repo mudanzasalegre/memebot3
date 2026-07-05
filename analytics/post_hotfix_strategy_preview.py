@@ -31,8 +31,7 @@ from analytics.report_utils import (
     fnum,
     is_severe_exit,
     load_candidate_outcomes,
-    load_paper_positions,
-    load_sqlite_positions,
+    load_deduped_positions,
     metrics_dir,
     write_json,
     write_markdown,
@@ -70,9 +69,9 @@ def _pnl(row: dict[str, Any]) -> float:
     return fnum(
         _first(
             row,
-            "realized_pnl_pct",
-            "actual_total_pnl_pct",
             "total_pnl_pct",
+            "actual_total_pnl_pct",
+            "realized_pnl_pct",
             "pnl_pct",
             "target_total_pnl_pct",
             "unrealized_pnl_pct",
@@ -96,7 +95,7 @@ def _peak(row: dict[str, Any]) -> float:
 
 
 def _closed_position_rows(root: Path) -> list[dict[str, Any]]:
-    rows = load_paper_positions(root) + load_sqlite_positions(root)
+    rows = load_deduped_positions(root)
     out: list[dict[str, Any]] = []
     for row in rows:
         if _boolish(row.get("closed"), False) or _first(row, "exit_reason", "closed_at", "total_pnl_pct", "realized_pnl_pct") is not None:

@@ -17,6 +17,7 @@ REQUIRED_FIELDS = {
     "target_lanes",
     "changes",
     "expected_effect",
+    "optimized_metric",
     "required_gates",
     "api_budget_sensitive",
     "live_allowed",
@@ -24,6 +25,7 @@ REQUIRED_FIELDS = {
 }
 
 ALLOWED_EXPERIMENT_TYPES = {"replay", "paper_forward", "paper_replay", "paper"}
+ALLOWED_OPTIMIZATION_SCOPES = {"combined", "current_run", "historical"}
 
 
 class CandidatePolicyValidationError(ValueError):
@@ -39,6 +41,9 @@ class CandidatePolicy:
     target_lanes: list[str]
     changes: dict[str, Any]
     expected_effect: dict[str, Any]
+    optimized_metric: str
+    optimization_targets: list[str]
+    optimization_scope: str
     required_gates: list[str]
     api_budget_sensitive: bool
     live_allowed: bool
@@ -53,7 +58,7 @@ def _load_payload(path_or_dict: str | Path | dict[str, Any]) -> dict[str, Any]:
     if isinstance(path_or_dict, dict):
         return copy.deepcopy(path_or_dict)
     path = Path(path_or_dict)
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def _valid_iso_datetime(value: Any) -> bool:
@@ -92,6 +97,12 @@ def _collect_validation_errors(payload: dict[str, Any]) -> list[str]:
         errors.append("changes_must_not_be_empty")
     if not isinstance(payload.get("expected_effect"), dict):
         errors.append("expected_effect_must_be_object")
+    if not isinstance(payload.get("optimized_metric"), str) or not payload.get("optimized_metric", "").strip():
+        errors.append("optimized_metric_required")
+    if "optimization_targets" in payload and not _string_list(payload.get("optimization_targets")):
+        errors.append("optimization_targets_must_be_non_empty_string_list")
+    if "optimization_scope" in payload and payload.get("optimization_scope") not in ALLOWED_OPTIMIZATION_SCOPES:
+        errors.append("optimization_scope_invalid")
     if not _string_list(payload.get("required_gates")):
         errors.append("required_gates_must_be_non_empty_string_list")
     if not isinstance(payload.get("api_budget_sensitive"), bool):
@@ -124,6 +135,9 @@ def validate_candidate_policy(path_or_dict: str | Path | dict[str, Any]) -> Cand
         target_lanes=list(payload["target_lanes"]),
         changes=dict(payload["changes"]),
         expected_effect=dict(payload["expected_effect"]),
+        optimized_metric=payload["optimized_metric"],
+        optimization_targets=list(payload.get("optimization_targets") or [payload["optimized_metric"]]),
+        optimization_scope=str(payload.get("optimization_scope") or "combined"),
         required_gates=list(payload["required_gates"]),
         api_budget_sensitive=payload["api_budget_sensitive"],
         live_allowed=payload["live_allowed"],
@@ -134,6 +148,7 @@ def validate_candidate_policy(path_or_dict: str | Path | dict[str, Any]) -> Cand
 
 __all__ = [
     "ALLOWED_EXPERIMENT_TYPES",
+    "ALLOWED_OPTIMIZATION_SCOPES",
     "CandidatePolicy",
     "CandidatePolicyValidationError",
     "REQUIRED_FIELDS",

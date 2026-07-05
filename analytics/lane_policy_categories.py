@@ -5,6 +5,7 @@ from typing import Any, Mapping
 from ml.lane_taxonomy import (
     LANE_BIRTH_PROBE_MICRO_CANARY,
     LANE_MOONSHOT_MICRO_LOTTERY,
+    LANE_PAPER_EXPLORATION_MICRO,
     LANE_PUMP_EARLY_BIRTH_PROBE,
     LANE_PUMP_EARLY_GREEN_SNIPER,
     LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
@@ -12,6 +13,7 @@ from ml.lane_taxonomy import (
     LANE_RESEARCH_RANK_CANARY,
     LANE_RESEARCH_SNIPER,
     LANE_SHADOW_FOLLOWUP_MICRO,
+    LANE_SNIPER_RESEARCH_MICRO_FALLBACK,
     normalize_entry_lane,
 )
 
@@ -25,6 +27,8 @@ POLICY_PAPER_BIRTH_PROBE = "paper_birth_probe"
 POLICY_BIRTH_PROBE_MICRO_CANARY = "birth_probe_micro_canary"
 POLICY_MOONSHOT_MICRO_LOTTERY = "moonshot_micro_lottery"
 POLICY_SHADOW_FOLLOWUP_MICRO = "shadow_followup_micro"
+POLICY_PAPER_EXPLORATION_QUOTA = "paper_exploration_quota"
+POLICY_SNIPER_RESEARCH_MICRO_FALLBACK = "sniper_research_micro_fallback"
 POLICY_LATE_MOMENTUM_WATCH = "late_momentum_watch"
 POLICY_PUMPSWAP_REBOUND_PRIME = "pumpswap_rebound_prime"
 POLICY_UNKNOWN = "unknown"
@@ -39,6 +43,8 @@ POLICY_CATEGORIES = (
     POLICY_BIRTH_PROBE_MICRO_CANARY,
     POLICY_MOONSHOT_MICRO_LOTTERY,
     POLICY_SHADOW_FOLLOWUP_MICRO,
+    POLICY_PAPER_EXPLORATION_QUOTA,
+    POLICY_SNIPER_RESEARCH_MICRO_FALLBACK,
     POLICY_LATE_MOMENTUM_WATCH,
     POLICY_PUMPSWAP_REBOUND_PRIME,
 )
@@ -71,6 +77,14 @@ def classify_policy_category(row: Mapping[str, Any]) -> str:
         return POLICY_MOONSHOT_MICRO_LOTTERY
     if lane == LANE_SHADOW_FOLLOWUP_MICRO or tier == LANE_SHADOW_FOLLOWUP_MICRO or "shadow_followup" in gate:
         return POLICY_SHADOW_FOLLOWUP_MICRO
+    if lane == LANE_PAPER_EXPLORATION_MICRO or tier == LANE_PAPER_EXPLORATION_MICRO or "paper_exploration" in gate:
+        return POLICY_PAPER_EXPLORATION_QUOTA
+    if (
+        lane == LANE_SNIPER_RESEARCH_MICRO_FALLBACK
+        or tier == LANE_SNIPER_RESEARCH_MICRO_FALLBACK
+        or "sniper_research_micro_fallback" in gate
+    ):
+        return POLICY_SNIPER_RESEARCH_MICRO_FALLBACK
     if subtype == "paper_birth_probe" or "birth_probe" in gate or lane == LANE_PUMP_EARLY_BIRTH_PROBE:
         return POLICY_PAPER_BIRTH_PROBE
     if lane == LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH or "late_momentum" in gate or "late_momentum" in sample_type:
@@ -98,6 +112,8 @@ __all__ = [
     "POLICY_GREEN_SNIPER_SHADOW",
     "POLICY_LATE_MOMENTUM_WATCH",
     "POLICY_MOONSHOT_MICRO_LOTTERY",
+    "POLICY_PAPER_EXPLORATION_QUOTA",
+    "POLICY_SNIPER_RESEARCH_MICRO_FALLBACK",
     "POLICY_SHADOW_FOLLOWUP_MICRO",
     "POLICY_PAPER_BIRTH_PROBE",
     "POLICY_PUMP_EARLY_SNIPER_RESEARCH",

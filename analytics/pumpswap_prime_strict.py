@@ -10,8 +10,7 @@ from analytics.report_utils import (
     fnum,
     is_severe_exit,
     load_candidate_outcomes,
-    load_paper_positions,
-    load_sqlite_positions,
+    load_deduped_positions,
     metrics_dir,
     write_json,
     write_markdown,
@@ -100,7 +99,7 @@ def evaluate_pumpswap_prime_strict(row: dict[str, Any], *, cfg: Any = CFG) -> Pu
 
 def _pnl(row: dict[str, Any]) -> float:
     return fnum(
-        _first(row, "realized_pnl_pct", "total_pnl_pct", "pnl_pct", "target_total_pnl_pct"),
+        _first(row, "total_pnl_pct", "realized_pnl_pct", "pnl_pct", "target_total_pnl_pct"),
         0.0,
     )
 
@@ -143,7 +142,7 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def build_pumpswap_prime_strict_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rows = load_candidate_outcomes(root) + load_deduped_positions(root)
     prime_rows = [row for row in rows if is_pumpswap_prime(row)]
     passed = [row for row in prime_rows if evaluate_pumpswap_prime_strict(row).allowed]
     blocked = [row for row in prime_rows if not evaluate_pumpswap_prime_strict(row).allowed]

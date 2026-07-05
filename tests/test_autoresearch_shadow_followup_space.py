@@ -10,7 +10,8 @@ def test_shadow_followup_space_optimizes_trigger_and_micro_amount() -> None:
     assert shadow_followup.safety_caps_ok()
     assert "SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL" in space.parameters
     assert "SHADOW_FOLLOWUP_TRIGGER_PNL_3M" in space.parameters
-    assert max(space.parameters["SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL"]) <= 0.005
+    assert "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_TXNS_5M" in space.parameters
+    assert max(space.parameters["SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL"]) <= 0.02
 
 
 def test_shadow_followup_space_generates_safe_candidate() -> None:

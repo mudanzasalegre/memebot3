@@ -4,7 +4,12 @@ import datetime as dt
 from typing import Any
 
 from config.config import CFG
-from ml.lane_taxonomy import LANE_RESEARCH_RANK_CANARY, LANE_RESEARCH_SNIPER, normalize_entry_lane
+from ml.lane_taxonomy import (
+    LANE_RESEARCH_RANK_CANARY,
+    LANE_RESEARCH_SNIPER,
+    LANE_SNIPER_RESEARCH_MICRO_FALLBACK,
+    normalize_entry_lane,
+)
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
@@ -71,7 +76,7 @@ def research_rank_priority_fit(token: dict[str, Any]) -> bool:
     mcap = _to_float(token.get("market_cap_usd") or token.get("buy_market_cap_usd"), 0.0)
     proxy = _boolish(token.get("liquidity_is_proxy") or token.get("liquidity_usd_is_proxy") or token.get("buy_liquidity_is_proxy"))
     has_route = _boolish(token.get("has_jupiter_route"))
-    if lane not in {LANE_RESEARCH_SNIPER, LANE_RESEARCH_RANK_CANARY}:
+    if lane not in {LANE_RESEARCH_SNIPER, LANE_SNIPER_RESEARCH_MICRO_FALLBACK, LANE_RESEARCH_RANK_CANARY}:
         return False
     if rank < _score_threshold(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_SCORE", 0.647), 0.647):
         return False

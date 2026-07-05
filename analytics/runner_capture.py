@@ -3,13 +3,21 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from analytics.report_utils import fnum, load_candidate_outcomes, load_paper_positions, load_sqlite_positions, metrics_dir, write_json, write_markdown
+from analytics.report_utils import (
+    first_nonempty,
+    fnum,
+    load_candidate_outcomes,
+    load_deduped_positions,
+    metrics_dir,
+    write_json,
+    write_markdown,
+)
 from config.config import PROJECT_ROOT
 
 
 def _row_capture(row: dict[str, Any]) -> dict[str, Any]:
-    realized = fnum(row.get("realized_pnl_pct") or row.get("total_pnl_pct") or row.get("pnl_pct") or row.get("target_total_pnl_pct"), 0.0)
-    max_seen = fnum(row.get("max_pnl_seen") or row.get("max_pnl_pct_seen") or row.get("peak_pnl_pct") or row.get("max_pnl_pct"), realized)
+    realized = fnum(first_nonempty(row, "total_pnl_pct", "realized_pnl_pct", "pnl_pct", "target_total_pnl_pct"), 0.0)
+    max_seen = fnum(first_nonempty(row, "max_pnl_seen", "max_pnl_pct_seen", "peak_pnl_pct", "max_pnl_pct"), realized)
     capture_ratio = realized / max_seen if max_seen > 0 else 0.0
     return {
         "address": row.get("address") or row.get("mint"),
@@ -26,7 +34,7 @@ def _row_capture(row: dict[str, Any]) -> dict[str, Any]:
 
 def build_runner_capture(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = [_row_capture(row) for row in load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)]
+    rows = [_row_capture(row) for row in load_candidate_outcomes(root) + load_deduped_positions(root)]
     runner_rows = [row for row in rows if fnum(row.get("max_pnl_seen"), 0.0) >= 50]
     buckets: dict[str, list[dict[str, Any]]] = {"gt_50": [], "gt_100": [], "gt_300": [], "gt_500": []}
     by_lane: dict[str, list[dict[str, Any]]] = {}

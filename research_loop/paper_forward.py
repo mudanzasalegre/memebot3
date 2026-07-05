@@ -3,12 +3,12 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from research_loop.api_budget import build_api_budget_report, compare_api_budget, metrics_from_api_budget
-from research_loop.evaluator import STATUS_ACCEPTED_REPLAY, EvaluationResult
+from research_loop.evaluator import STATUS_NEEDS_PAPER, EvaluationResult
 from research_loop.experiment_schema import validate_candidate_policy
 from research_loop.objectives import ObjectiveResult, calculate_objective_score
 from research_loop.paths import metrics_dir, project_root, research_runs_dir
@@ -24,7 +24,7 @@ PAPER_FORWARD_BUDGET = {
     "max_hours": 24,
     "min_closed_trades": 5,
     "min_decisions": 100,
-    "max_daily_buys": 15,
+    "max_daily_buys": 0,
     "api_budget_ok_required": True,
 }
 
@@ -255,7 +255,8 @@ def _budget_rejections(metrics: dict[str, Any], budget: dict[str, Any]) -> list[
         reasons.append(f"paper_budget:min_closed_trades:{closed_trades}<{budget.get('min_closed_trades')}")
     if decisions < int(budget.get("min_decisions") or 0):
         reasons.append(f"paper_budget:min_decisions:{decisions}<{budget.get('min_decisions')}")
-    if daily_buys > int(budget.get("max_daily_buys") or 0):
+    max_daily_buys = int(budget.get("max_daily_buys") or 0)
+    if max_daily_buys > 0 and daily_buys > max_daily_buys:
         reasons.append(f"paper_budget:max_daily_buys:{daily_buys}>{budget.get('max_daily_buys')}")
     return reasons
 
@@ -265,11 +266,12 @@ def start_paper_forward(
     *,
     root: str | Path | None = None,
     run_id: str | None = None,
-    evaluation_result: EvaluationResult | dict[str, Any] | str | None = STATUS_ACCEPTED_REPLAY,
+    evaluation_result: EvaluationResult | dict[str, Any] | str | None = STATUS_NEEDS_PAPER,
     budget: dict[str, Any] | None = None,
     source_profile: str = DEFAULT_SOURCE_PROFILE,
     profile_id: str | None = None,
-    allow_needs_paper: bool = False,
+    allow_needs_paper: bool = True,
+    promotion: PromotionResult | None = None,
 ) -> PaperForwardStartResult:
     resolved_root = project_root(root)
     policy = validate_candidate_policy(candidate_policy)
@@ -285,15 +287,23 @@ def start_paper_forward(
     baseline_api_budget_path = run_dir / "baseline_api_budget.json"
     resolved_budget = _merge_budget(budget)
 
-    promotion = promote_to_paper_candidate(
-        policy.to_dict(),
-        evaluation_result=evaluation_result,
-        root=resolved_root,
-        profile_id=profile_id or policy.proposal_id,
-        source_profile=source_profile,
-        promotion_report_path=promotion_report_path,
-        allow_needs_paper=allow_needs_paper,
-    )
+    if promotion is None:
+        promotion = promote_to_paper_candidate(
+            policy.to_dict(),
+            evaluation_result=evaluation_result,
+            root=resolved_root,
+            profile_id=profile_id or policy.proposal_id,
+            source_profile=source_profile,
+            promotion_report_path=promotion_report_path,
+            allow_needs_paper=allow_needs_paper,
+        )
+    else:
+        if promotion.proposal_id != policy.proposal_id:
+            raise PaperForwardError("promotion_candidate_mismatch")
+        if not promotion.profile_path.exists():
+            raise PaperForwardError(f"promotion_profile_missing:{promotion.profile_path}")
+        promotion = replace(promotion, promotion_report_path=promotion_report_path)
+        _write_json(promotion_report_path, promotion.as_dict())
 
     started_at = utc_now()
     initial_state = {

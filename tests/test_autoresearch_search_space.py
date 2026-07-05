@@ -15,6 +15,7 @@ def test_loads_minimum_search_spaces() -> None:
         "runner_ladder",
         "sniper_momentum",
         "paper_exploration",
+        "paper_bootstrap",
     ]:
         assert name in spaces
         assert spaces[name].parameters
@@ -34,6 +35,23 @@ def test_space_keys_do_not_include_live_or_api_protected_keys() -> None:
             upper = key.upper()
             assert "LIVE" not in upper
             assert upper not in {"DISCOVERY_INTERVAL", "SLEEP_SECONDS", "GECKO_RPM", "JUPITER_RPM", "BIRDEYE_RPM"}
+
+
+def test_buy_quota_search_space_values_stay_unlimited() -> None:
+    spaces = load_search_spaces()
+
+    for space in spaces.values():
+        for key, values in space.parameters.items():
+            upper = key.upper()
+            if (
+                "MAX_DAILY_BUYS" in upper
+                or "MAX_HOURLY_BUYS" in upper
+                or "MIN_SECONDS_BETWEEN_BUYS" in upper
+                or upper in {"PAPER_IDLE_AFTER_HOURS", "PAPER_EXPLORATION_IDLE_HOURS"}
+            ):
+                assert values == [0], f"{space.name}:{key} can reintroduce buy quotas"
+            if upper.endswith("MAX_OPEN") and "RESEARCH_SHADOW" not in upper:
+                assert values == [0], f"{space.name}:{key} can reintroduce open caps"
 
 
 def test_alias_resolves_runner_exit_to_runner_ladder() -> None:

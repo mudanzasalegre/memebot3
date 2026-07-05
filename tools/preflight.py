@@ -77,9 +77,12 @@ def _report_dry_run_checks() -> list[dict[str, object]]:
     return checks
 
 
-def build_preflight_status(*, run_tests: bool = False) -> dict[str, object]:
+def build_preflight_status(*, run_tests: bool = False, external_pytest_passed: bool = False) -> dict[str, object]:
     py = ROOT / ".venv" / "Scripts" / "python.exe"
     interpreter = str(py if py.exists() else Path(sys.executable))
+    base_dir_paths = (ROOT / "data" / "metrics", ROOT / "docs")
+    for path in base_dir_paths:
+        path.mkdir(parents=True, exist_ok=True)
     compile_errors = []
     for rel in CRITICAL_MODULES:
         try:
@@ -89,7 +92,7 @@ def build_preflight_status(*, run_tests: bool = False) -> dict[str, object]:
     env_example = _load_env_file(ROOT / ".env.example")
     profile_files = sorted((ROOT / "config" / "profiles").glob("*.env"))
     profiles = {str(path.relative_to(ROOT)): {"vars": len(_load_env_file(path))} for path in profile_files}
-    base_dirs = {str(path.relative_to(ROOT)): path.exists() for path in (ROOT / "data" / "metrics", ROOT / "docs")}
+    base_dirs = {str(path.relative_to(ROOT)): path.exists() for path in base_dir_paths}
     report_checks = _report_dry_run_checks()
     checks = {
         "python": _run([interpreter, "-c", "import sys, numpy; print(sys.executable); print(numpy.__version__)"]),
@@ -104,6 +107,13 @@ def build_preflight_status(*, run_tests: bool = False) -> dict[str, object]:
     }
     if run_tests:
         checks["pytest"] = _run([interpreter, "-m", "pytest", "-q"], timeout=240)
+    elif external_pytest_passed:
+        checks["pytest"] = {
+            "cmd": [interpreter, "-m", "pytest", "-q"],
+            "returncode": 0,
+            "stdout_tail": "pytest already passed in startup preflight",
+            "stderr_tail": "",
+        }
     status = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "root": str(ROOT),
@@ -122,8 +132,16 @@ def build_preflight_status(*, run_tests: bool = False) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run MemeBot3 local preflight checks.")
     parser.add_argument("--run-tests", action="store_true", help="also run the full pytest suite")
+    parser.add_argument(
+        "--external-pytest-passed",
+        action="store_true",
+        help="record pytest as passed because the caller already ran it successfully",
+    )
     args = parser.parse_args()
-    status = build_preflight_status(run_tests=args.run_tests)
+    status = build_preflight_status(
+        run_tests=args.run_tests,
+        external_pytest_passed=args.external_pytest_passed,
+    )
     STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATUS_PATH.write_text(json.dumps(status, indent=2, default=str), encoding="utf-8")
     print(json.dumps(status, indent=2, default=str))

@@ -156,6 +156,14 @@ def test_record_shadow_open_ignores_duplicate_context_keys(monkeypatch, tmp_path
     assert row["shadow_kind"] == "research"
 
 
+def test_event_dedup_does_not_drop_first_event_on_low_uptime(monkeypatch) -> None:
+    research_runtime._SEEN.clear()
+    monkeypatch.setattr(research_runtime.time, "monotonic", lambda: 42.0)
+
+    assert research_runtime._event_dedup("first-event", 600) is False
+    assert research_runtime._event_dedup("first-event", 600) is True
+
+
 def test_record_candidate_stage_preserves_total_rank_score(monkeypatch, tmp_path: Path) -> None:
     events_path = tmp_path / "candidate_outcomes.jsonl"
     monkeypatch.setattr(research_runtime, "RESEARCH_EVENTS_PATH", events_path)

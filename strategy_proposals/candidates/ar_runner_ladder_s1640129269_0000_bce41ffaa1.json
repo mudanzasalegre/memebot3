@@ -1,0 +1,57 @@
+{
+  "api_budget_sensitive": true,
+  "changes": {
+    "BIRD_TP1_FRACTION": 0.25,
+    "BIRD_TP1_PCT": 25,
+    "BIRD_TP2_FRACTION": 0.25,
+    "BIRD_TP2_PCT": 50,
+    "BIRD_TP3_FRACTION": 0.25,
+    "BIRD_TP3_PCT": 100,
+    "BIRD_TP4_FRACTION": 0.1,
+    "BIRD_TP4_PCT": 500,
+    "BIRD_TP5_FRACTION": 0.05,
+    "BIRD_TP5_PCT": 1000,
+    "BIRD_TP6_FRACTION": 0.03,
+    "BIRD_TP6_PCT": 3000,
+    "RUNNER_FLOOR_PEAK_100": 90,
+    "RUNNER_FLOOR_PEAK_1000": 500,
+    "RUNNER_FLOOR_PEAK_2000": 1600,
+    "RUNNER_FLOOR_PEAK_300": 200,
+    "RUNNER_FLOOR_PEAK_700": 450,
+    "RUNNER_GIVEBACK_PEAK_1000_MAX_GIVEBACK": 220,
+    "RUNNER_GIVEBACK_PEAK_100_MAX_GIVEBACK": 25,
+    "RUNNER_GIVEBACK_PEAK_2000_MAX_GIVEBACK": 450,
+    "RUNNER_GIVEBACK_PEAK_300_MAX_GIVEBACK": 60,
+    "RUNNER_GIVEBACK_PEAK_700_MAX_GIVEBACK": 160
+  },
+  "created_at_utc": "2026-07-05T13:36:56.030183+00:00",
+  "expected_effect": {
+    "increase_moonshot_capture": true,
+    "increase_pnl": true,
+    "increase_win_rate": false,
+    "reduce_severe_losses": false
+  },
+  "experiment_type": "replay",
+  "hypothesis": "Improve runner capture by tuning partial take-profit ladder and floors.",
+  "live_allowed": false,
+  "optimization_scope": "combined",
+  "optimization_targets": [
+    "runner_capture_ratio",
+    "realized_pnl_on_runners",
+    "total_pnl_usd"
+  ],
+  "optimized_metric": "runner_capture_ratio",
+  "proposal_id": "ar_runner_ladder_s1640129269_0000_bce41ffaa1",
+  "required_gates": [
+    "replay_positive",
+    "api_budget_ok"
+  ],
+  "risk_notes": [
+    "paper only",
+    "exit parameters only"
+  ],
+  "target_lanes": [
+    "runner_exit",
+    "pump_early_pumpswap_profit"
+  ]
+}

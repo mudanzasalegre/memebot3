@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, List
 
 import pandas as pd
 
+from api.repositories.filesystem import load_jsonl_tail_rows
 from config.config import CFG, DB_URI, PROJECT_ROOT
 from trade_pnl import total_pnl_pct_from_record
 from utils.runtime_telemetry import RUNTIME_EVENTS_PATH
@@ -702,20 +703,23 @@ def load_feature_snapshots(features_dir: Path | None = None) -> pd.DataFrame:
     return frame.drop(columns=["_snapshot_ts"], errors="ignore")
 
 
-def load_runtime_events(events_path: Path | None = None) -> pd.DataFrame:
+def load_runtime_events(events_path: Path | None = None, *, tail_rows: int | None = None) -> pd.DataFrame:
     path = Path(events_path or RUNTIME_EVENTS_PATH)
     if not path.exists():
         return pd.DataFrame()
 
-    rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        raw = line.strip()
-        if not raw:
-            continue
-        try:
-            rows.append(json.loads(raw))
-        except Exception:
-            continue
+    if tail_rows is not None and tail_rows > 0:
+        rows = load_jsonl_tail_rows(path, limit=int(tail_rows))
+    else:
+        rows = []
+        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                rows.append(json.loads(raw))
+            except Exception:
+                continue
 
     if not rows:
         return pd.DataFrame()
@@ -958,9 +962,10 @@ def summarize_edge(
     db_path: Path | None = None,
     features_dir: Path | None = None,
     runtime_events_path: Path | None = None,
+    runtime_tail_rows: int | None = None,
 ) -> Dict[str, Any]:
     trades = _build_trade_context(db_path=db_path, features_dir=features_dir)
-    events = load_runtime_events(runtime_events_path)
+    events = load_runtime_events(runtime_events_path, tail_rows=runtime_tail_rows)
 
     overview = {
         "closed_trades": int(len(trades)),

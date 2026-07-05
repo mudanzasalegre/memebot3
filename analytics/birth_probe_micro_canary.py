@@ -50,6 +50,16 @@ def _bool(value: Any, default: bool = False) -> bool:
     return bool(default)
 
 
+def _cfg_int(cfg: Any, key: str, default: int) -> int:
+    value = getattr(cfg, key, default)
+    if value in (None, ""):
+        return int(default)
+    try:
+        return int(float(value))
+    except Exception:
+        return int(default)
+
+
 def _csv(value: Any) -> set[str]:
     return {part.strip() for part in str(value or "").split(",") if part.strip()}
 
@@ -277,11 +287,10 @@ def evaluate_birth_probe_micro_canary(
     if not _bool(getattr(cfg, "BIRTH_PROBE_MICRO_CANARY_ENABLED", True), True):
         return decision(False, "disabled")
     if live or not dry_run:
-        return decision(False, "paper_only")
-    if not _bool(getattr(cfg, "BIRTH_PROBE_MICRO_CANARY_PAPER_ENABLED", True), True):
+        if not _bool(getattr(cfg, "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED", False), False):
+            return decision(False, "live_disabled")
+    elif not _bool(getattr(cfg, "BIRTH_PROBE_MICRO_CANARY_PAPER_ENABLED", True), True):
         return decision(False, "paper_disabled")
-    if _bool(getattr(cfg, "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED", False), False):
-        return decision(False, "live_flag_must_be_false")
     allowed_groups = _csv(getattr(cfg, "BIRTH_PROBE_MICRO_CANARY_ALLOWED_REASON_GROUPS", ""))
     if group not in allowed_groups:
         return decision(False, "reason_group_not_allowed")
@@ -342,8 +351,8 @@ def build_birth_probe_micro_canary_report(root: Path | None = None) -> dict[str,
             "paper_enabled": bool(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_PAPER_ENABLED", True)),
             "live_enabled": bool(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED", False)),
             "amount_sol": float(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_AMOUNT_SOL", 0.01) or 0.01),
-            "max_open": int(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_MAX_OPEN", 1) or 1),
-            "max_daily_buys": int(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_MAX_DAILY_BUYS", 5) or 5),
+            "max_open": _cfg_int(CFG, "BIRTH_PROBE_MICRO_CANARY_MAX_OPEN", 0),
+            "max_daily_buys": _cfg_int(CFG, "BIRTH_PROBE_MICRO_CANARY_MAX_DAILY_BUYS", 0),
             "allowed_reason_groups": sorted(_csv(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_ALLOWED_REASON_GROUPS", ""))),
             "min_group_ev_pct": float(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_MIN_GROUP_EV_PCT", 5.0) or 5.0),
             "pnl_cap_pct": float(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_PNL_CAP_PCT", 1000.0) or 1000.0),

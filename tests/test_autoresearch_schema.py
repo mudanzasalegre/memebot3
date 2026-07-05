@@ -21,6 +21,8 @@ def _candidate() -> dict:
             "increase_moonshot_capture": True,
             "reduce_severe_losses": True,
         },
+        "optimized_metric": "moonshot_peak100_capture",
+        "optimization_scope": "combined",
         "required_gates": ["replay_positive", "api_budget_ok"],
         "api_budget_sensitive": True,
         "live_allowed": False,
@@ -34,6 +36,7 @@ def test_valid_candidate_policy_passes() -> None:
     assert candidate.proposal_id == "ar_20260519_001"
     assert candidate.live_allowed is False
     assert candidate.changes["MOONSHOT_MICRO_LOTTERY_CONFIRMATION_PNL"] == "75"
+    assert candidate.optimized_metric == "moonshot_peak100_capture"
 
 
 def test_valid_candidate_policy_can_load_from_path(tmp_path) -> None:

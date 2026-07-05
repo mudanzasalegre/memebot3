@@ -4,7 +4,7 @@ import datetime as dt
 from collections import Counter
 from typing import Any
 
-from api.repositories.filesystem import load_jsonl_rows, parse_timestamp
+from api.repositories.filesystem import load_jsonl_tail_rows, parse_timestamp
 from api.schemas.common import Envelope, SourceStatus
 from api.services.common import build_envelope, iso_or_none, to_jsonable, utc_now
 from api.services.sources import jsonl_status
@@ -13,6 +13,8 @@ from api.settings import APISettings
 
 _RUNTIME_EVENT_TYPES = {"queue_add", "requeue", "queue_drop", "buy", "ml_decision", "strategy_decision"}
 _RESEARCH_EVENT_TYPES = {"candidate_stage", "candidate_decision", "candidate_outcome"}
+DISCOVERY_FEED_TAIL_ROWS = 5_000
+DISCOVERY_SUMMARY_TAIL_ROWS = 10_000
 
 
 def _runtime_summary(event_type: str, row: dict[str, Any]) -> str:
@@ -218,8 +220,9 @@ def get_discovery_feed_envelope(
     decision_action: str | None = None,
     reason: str | None = None,
 ) -> Envelope:
-    runtime_rows = load_jsonl_rows(settings.runtime_events_path)
-    research_rows = load_jsonl_rows(settings.research_events_path)
+    tail_limit = max(DISCOVERY_FEED_TAIL_ROWS, int(limit) * 200)
+    runtime_rows = load_jsonl_tail_rows(settings.runtime_events_path, limit=tail_limit)
+    research_rows = load_jsonl_tail_rows(settings.research_events_path, limit=tail_limit)
 
     normalized: list[dict[str, Any]] = []
     for index, row in enumerate(runtime_rows):
@@ -255,6 +258,11 @@ def get_discovery_feed_envelope(
             "decision_action": decision_action,
             "reason": reason,
         },
+        "sampled": True,
+        "sample_rows": {
+            "runtime": len(runtime_rows),
+            "research": len(research_rows),
+        },
     }
     return build_envelope(
         data,
@@ -275,8 +283,8 @@ def get_discovery_summary_envelope(
     *,
     window_min: int = 60,
 ) -> Envelope:
-    runtime_rows = load_jsonl_rows(settings.runtime_events_path)
-    research_rows = load_jsonl_rows(settings.research_events_path)
+    runtime_rows = load_jsonl_tail_rows(settings.runtime_events_path, limit=DISCOVERY_SUMMARY_TAIL_ROWS)
+    research_rows = load_jsonl_tail_rows(settings.research_events_path, limit=DISCOVERY_SUMMARY_TAIL_ROWS)
     window_start = utc_now() - dt.timedelta(minutes=int(window_min))
 
     queue_counter = Counter()
@@ -332,6 +340,11 @@ def get_discovery_summary_envelope(
             {"reason": group, "events": int(count)}
             for group, count in sorted(requeue_reasons.items(), key=lambda item: (-item[1], item[0]))
         ],
+        "sampled": True,
+        "sample_rows": {
+            "runtime": len(runtime_rows),
+            "research": len(research_rows),
+        },
     }
     empty = not any(
         (

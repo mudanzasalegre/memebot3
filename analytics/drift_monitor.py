@@ -11,21 +11,62 @@ from config.config import PROJECT_ROOT
 EVENTS_PATH = PROJECT_ROOT / "data" / "metrics" / "runtime_events.jsonl"
 
 
-def _load_events(path: Path = EVENTS_PATH) -> pd.DataFrame:
+def _tail_text_lines(path: Path, *, limit: int) -> list[str]:
+    if limit <= 0 or not path.exists() or not path.is_file():
+        return []
+    try:
+        size = path.stat().st_size
+    except Exception:
+        return []
+    if size <= 0:
+        return []
+
+    data = bytearray()
+    line_breaks = 0
+    chunk_size = 8192
+    try:
+        with path.open("rb") as handle:
+            offset = size
+            while offset > 0 and line_breaks <= limit:
+                read_size = min(chunk_size, offset)
+                offset -= read_size
+                handle.seek(offset)
+                chunk = handle.read(read_size)
+                data[:0] = chunk
+                line_breaks += chunk.count(b"\n")
+    except Exception:
+        return []
+    return bytes(data).decode("utf-8", errors="ignore").splitlines()[-int(limit) :]
+
+
+def _read_jsonl_tail(path: Path, *, max_rows: int | None) -> list[dict[str, Any]]:
     if not path.exists():
-        return pd.DataFrame()
-    rows = []
-    with path.open("r", encoding="utf-8", errors="ignore") as handle:
-        for line in handle:
-            try:
-                rows.append(json.loads(line))
-            except Exception:
-                continue
-    return pd.DataFrame(rows)
+        return []
+    rows: list[dict[str, Any]] = []
+    if max_rows is None:
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            lines = list(handle)
+    else:
+        lines = _tail_text_lines(path, limit=max(1, int(max_rows)))
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            rows.append(parsed)
+    return rows
 
 
-def drift_snapshot(*, window: int = 50, events_path: Path = EVENTS_PATH) -> dict[str, Any]:
-    df = _load_events(events_path)
+def _load_events(path: Path = EVENTS_PATH, *, max_rows: int | None = 5_000) -> pd.DataFrame:
+    return pd.DataFrame(_read_jsonl_tail(path, max_rows=max_rows))
+
+
+def drift_snapshot(*, window: int = 50, events_path: Path = EVENTS_PATH, max_rows: int | None = 5_000) -> dict[str, Any]:
+    df = _load_events(events_path, max_rows=max_rows)
     if df.empty:
         return {"rows": 0, "degraded": False, "reason": "no_events"}
     closed = df[df.get("event_type", pd.Series("", index=df.index)).astype("string").isin(["candidate_outcome", "trade_close", "shadow_close"])].tail(int(window))
@@ -51,6 +92,7 @@ def drift_snapshot(*, window: int = 50, events_path: Path = EVENTS_PATH) -> dict
         "avg_pnl": float(pnl.mean()) if len(pnl.dropna()) else None,
         "severe_loss_rate": float(severe.mean()) if len(pnl.dropna()) else None,
         "missed_jackpots": missed_jackpots,
+        "sampled_rows": int(len(df)) if max_rows is not None else None,
         "degraded": degraded,
         "reason": "degradation" if degraded else "ok",
     }

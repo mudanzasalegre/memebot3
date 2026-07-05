@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from research_loop.evaluator import STATUS_NEEDS_PAPER
 from research_loop.paper_forward import (
     STATUS_ACCEPTED_PAPER,
     STATUS_PAPER_FORWARD_STARTED,
@@ -9,6 +10,7 @@ from research_loop.paper_forward import (
     finalize_paper_forward,
     start_paper_forward,
 )
+from research_loop.policy_promoter import promote_to_paper_candidate
 from research_loop.scoreboard import load_scoreboard
 
 
@@ -21,6 +23,8 @@ def _candidate(proposal_id: str = "ar_paper_001", changes: dict | None = None) -
         "target_lanes": ["pump_early_moonshot_micro_lottery"],
         "changes": changes or {"MOONSHOT_MICRO_CONFIRMATION_PNL": "75"},
         "expected_effect": {"increase_pnl": True, "increase_moonshot_capture": True},
+        "optimized_metric": "total_pnl_usd",
+        "optimization_scope": "combined",
         "required_gates": ["replay_positive", "api_budget_ok"],
         "api_budget_sensitive": True,
         "live_allowed": False,
@@ -105,7 +109,28 @@ def test_start_paper_forward_creates_state_profile_and_budget(tmp_path) -> None:
     assert (result.run_dir / "baseline_api_budget.json").exists()
     state = json.loads(result.state_path.read_text(encoding="utf-8"))
     assert state["paper_profile"] == "paper_research_candidate_ar_paper_001"
-    assert state["budget"]["max_daily_buys"] == 15
+    assert state["promotion"]["status"] == STATUS_NEEDS_PAPER
+    assert state["budget"]["max_daily_buys"] == 0
+
+
+def test_start_paper_forward_reuses_existing_promotion_without_rebackup(tmp_path) -> None:
+    _source_profile(tmp_path)
+    existing = tmp_path / "config" / "profiles" / "paper_research_candidate_ar_paper_001.env"
+    existing.write_text("OLD_VALUE=1\n", encoding="utf-8")
+    promotion = promote_to_paper_candidate(_candidate(), root=tmp_path)
+
+    result = start_paper_forward(
+        _candidate(),
+        root=tmp_path,
+        run_id="paper_reuse",
+        promotion=promotion,
+    )
+
+    assert result.promotion.backup_path == promotion.backup_path
+    assert result.promotion.backup_path is not None
+    assert "OLD_VALUE=1" in result.promotion.backup_path.read_text(encoding="utf-8")
+    state = json.loads(result.state_path.read_text(encoding="utf-8"))
+    assert state["promotion"]["backup_path"] == str(promotion.backup_path)
 
 
 def test_finalize_paper_forward_accepts_when_budget_api_and_objective_pass(tmp_path) -> None:

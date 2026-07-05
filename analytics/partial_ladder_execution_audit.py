@@ -11,9 +11,8 @@ from analytics.report_utils import (
     fnum,
     inum,
     load_candidate_outcomes,
-    load_paper_positions,
+    load_deduped_positions,
     load_runtime_events,
-    load_sqlite_positions,
     metrics_dir,
     write_json,
 )
@@ -83,7 +82,7 @@ def _executed_step_indexes(row: dict[str, Any]) -> set[int]:
 
 def build_partial_ladder_execution_audit(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rows = load_candidate_outcomes(root) + load_deduped_positions(root)
     runtime_rows = load_runtime_events(root)
     tp1 = float(getattr(CFG, "BIRD_TP1_PCT", 25.0) or 25.0)
     peak_rows = [row for row in rows if _peak(row) >= tp1]

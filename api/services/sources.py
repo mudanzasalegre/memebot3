@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from api.repositories.filesystem import (
+    file_size_bytes,
     file_mtime,
+    load_jsonl_tail_rows,
     load_jsonl_rows,
     newest_matching_file,
     parse_timestamp,
@@ -18,6 +20,9 @@ from api.repositories.ui_saved_views import ensure_ui_saved_views_schema
 
 
 CORE_TABLES = ("tokens", "positions", "revived_tokens")
+JSONL_STATUS_EXACT_MAX_BYTES = 5 * 1024 * 1024
+JSONL_STATUS_TAIL_ROWS = 250
+JSON_STATUS_EXACT_MAX_BYTES = 5 * 1024 * 1024
 
 
 def sqlite_main_status(settings: APISettings) -> SourceStatus:
@@ -156,12 +161,40 @@ def jsonl_status(
     path: Path,
     optional: bool = False,
 ) -> SourceStatus:
-    rows = load_jsonl_rows(path)
     if not path.exists():
         status = "empty" if optional else "missing"
         detail = "optional_missing" if optional else "file_missing"
         return make_source_status(source_key=source_key, kind="jsonl", status=status, detail=detail, path=path)
 
+    size = file_size_bytes(path)
+    if size <= 0:
+        return make_source_status(
+            source_key=source_key,
+            kind="jsonl",
+            status="empty",
+            updated_at=file_mtime(path),
+            detail="rows=0",
+            path=path,
+        )
+
+    if size > JSONL_STATUS_EXACT_MAX_BYTES:
+        tail_rows = load_jsonl_tail_rows(path, limit=JSONL_STATUS_TAIL_ROWS)
+        timestamps = [
+            parsed
+            for parsed in (parse_timestamp(row.get("ts_utc") or row.get("timestamp")) for row in tail_rows)
+            if parsed is not None
+        ]
+        last_ts = max(timestamps, default=None)
+        return make_source_status(
+            source_key=source_key,
+            kind="jsonl",
+            status="ok" if tail_rows else "empty",
+            updated_at=last_ts or file_mtime(path),
+            detail=f"size_mb={size / 1024 / 1024:.1f} tail_rows={len(tail_rows)}",
+            path=path,
+        )
+
+    rows = load_jsonl_rows(path)
     if not rows:
         return make_source_status(
             source_key=source_key,
@@ -192,8 +225,24 @@ def json_status(
     optional: bool = False,
     empty_when_missing: bool | None = None,
 ) -> SourceStatus:
-    payload = read_json_file(path)
     missing_as_empty = bool(optional) if empty_when_missing is None else bool(empty_when_missing)
+    if not path.exists():
+        status = "empty" if missing_as_empty else "missing"
+        detail = "optional_missing" if missing_as_empty else "file_missing"
+        return make_source_status(source_key=source_key, kind="json", status=status, detail=detail, path=path)
+
+    size = file_size_bytes(path)
+    if size > JSON_STATUS_EXACT_MAX_BYTES:
+        return make_source_status(
+            source_key=source_key,
+            kind="json",
+            status="ok",
+            updated_at=file_mtime(path),
+            detail=f"size_mb={size / 1024 / 1024:.1f} metadata_from_mtime",
+            path=path,
+        )
+
+    payload = read_json_file(path)
     if payload is None:
         status = "empty" if missing_as_empty else "missing"
         detail = "optional_missing" if missing_as_empty else "file_missing"

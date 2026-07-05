@@ -6,11 +6,11 @@ from typing import Any
 
 from analytics import missed_pumps
 from analytics.report_utils import (
+    first_nonempty,
     fnum,
     load_candidate_outcomes,
-    load_paper_positions,
+    load_deduped_positions,
     load_runtime_events,
-    load_sqlite_positions,
     mcap_bucket,
     metrics_dir,
     price5m_bucket,
@@ -23,11 +23,11 @@ from config.config import PROJECT_ROOT
 
 
 def _pnl(row: dict[str, Any]) -> float:
-    return fnum(row.get("realized_pnl_pct") or row.get("total_pnl_pct") or row.get("pnl_pct") or row.get("target_total_pnl_pct"), 0.0)
+    return fnum(first_nonempty(row, "total_pnl_pct", "realized_pnl_pct", "pnl_pct", "target_total_pnl_pct"), 0.0)
 
 
 def _peak(row: dict[str, Any]) -> float:
-    return fnum(row.get("max_pnl_seen") or row.get("max_pnl_pct_seen") or row.get("peak_pnl_pct") or row.get("max_pnl_pct"), _pnl(row))
+    return fnum(first_nonempty(row, "max_pnl_seen", "max_pnl_pct_seen", "peak_pnl_pct", "max_pnl_pct"), _pnl(row))
 
 
 def _group(rows: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
@@ -70,7 +70,7 @@ def _bucket_group(rows: list[dict[str, Any]], bucket_fn, value_keys: tuple[str, 
 
 def build_current_baseline_snapshot(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rows = load_candidate_outcomes(root) + load_deduped_positions(root)
     pnls = [_pnl(row) for row in rows]
     missed_rows = missed_pumps.build_missed_pumps(root) if hasattr(missed_pumps, "build_missed_pumps") else []
     runtime_events = load_runtime_events(root)

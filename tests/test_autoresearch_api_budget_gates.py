@@ -7,6 +7,8 @@ def _candidate() -> dict:
     return {
         "live_allowed": False,
         "changes": {"MOONSHOT_MICRO_LOTTERY_CONFIRMATION_PNL": "75"},
+        "optimized_metric": "total_pnl_usd",
+        "optimization_scope": "combined",
     }
 
 

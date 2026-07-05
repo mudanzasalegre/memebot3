@@ -17,6 +17,8 @@ def _candidate(proposal_id: str = "ar_rb", changes: dict | None = None) -> dict:
         "target_lanes": ["pump_early_moonshot_micro_lottery"],
         "changes": changes or {"MOONSHOT_MICRO_CONFIRMATION_PNL": "75"},
         "expected_effect": {"increase_pnl": True, "increase_moonshot_capture": True},
+        "optimized_metric": "total_pnl_usd",
+        "optimization_scope": "combined",
         "required_gates": ["replay_positive", "api_budget_ok"],
         "api_budget_sensitive": True,
         "live_allowed": False,

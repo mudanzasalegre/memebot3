@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from api.repositories.filesystem import load_jsonl_rows, parse_timestamp
+from api.repositories.filesystem import load_jsonl_tail_rows, parse_timestamp
 from api.schemas.common import Envelope
 from api.services.common import build_envelope, iso_or_none, to_jsonable
 from api.services.sources import jsonl_status
@@ -120,6 +120,24 @@ def _build_events_envelope(
     return build_envelope(data, source_status=statuses, empty=not items)
 
 
+EVENT_FEED_MIN_TAIL_ROWS = 2_000
+EVENT_FEED_FILTER_TAIL_ROWS = 10_000
+EVENT_FEED_MAX_TAIL_ROWS = 20_000
+
+
+def _event_tail_limit(
+    *,
+    limit: int,
+    before_ts: str | None,
+    address: str | None,
+    event_type: str | None,
+) -> int:
+    base = max(EVENT_FEED_MIN_TAIL_ROWS, int(limit) * 100)
+    if before_ts or address or event_type:
+        base = max(base, EVENT_FEED_FILTER_TAIL_ROWS)
+    return min(EVENT_FEED_MAX_TAIL_ROWS, base)
+
+
 def get_runtime_events_envelope(
     settings: APISettings,
     *,
@@ -128,7 +146,10 @@ def get_runtime_events_envelope(
     address: str | None = None,
     event_type: str | None = None,
 ) -> Envelope:
-    rows = load_jsonl_rows(settings.runtime_events_path)
+    rows = load_jsonl_tail_rows(
+        settings.runtime_events_path,
+        limit=_event_tail_limit(limit=limit, before_ts=before_ts, address=address, event_type=event_type),
+    )
     return _build_events_envelope(
         source_key="metrics.runtime_events",
         source_path=settings.runtime_events_path,
@@ -148,7 +169,10 @@ def get_research_events_envelope(
     address: str | None = None,
     event_type: str | None = None,
 ) -> Envelope:
-    rows = load_jsonl_rows(settings.research_events_path)
+    rows = load_jsonl_tail_rows(
+        settings.research_events_path,
+        limit=_event_tail_limit(limit=limit, before_ts=before_ts, address=address, event_type=event_type),
+    )
     return _build_events_envelope(
         source_key="metrics.research_events",
         source_path=settings.research_events_path,

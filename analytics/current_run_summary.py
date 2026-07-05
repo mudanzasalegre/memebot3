@@ -9,9 +9,8 @@ from analytics.current_run import current_run_identity, filter_current_run_rows
 from analytics.report_utils import (
     address_of,
     load_candidate_outcomes,
-    load_paper_positions,
+    load_deduped_positions,
     load_runtime_events,
-    load_sqlite_positions,
     metrics_dir,
     write_json,
 )
@@ -33,7 +32,7 @@ def build_current_run_summary(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
     runtime_rows = load_runtime_events(root)
     outcome_rows = load_candidate_outcomes(root)
-    position_rows = load_paper_positions(root) + load_sqlite_positions(root)
+    position_rows = load_deduped_positions(root)
     identity = current_run_identity(root, runtime_rows)
     current_run = str(identity.get("run_id") or "legacy")
     runtime_rows = filter_current_run_rows(runtime_rows, identity)
@@ -42,8 +41,17 @@ def build_current_run_summary(root: Path | None = None) -> dict[str, Any]:
     raw_addresses = {address_of(row) for row in runtime_rows + outcome_rows if address_of(row)}
     strategy_decisions = [row for row in runtime_rows if _event(row) == "strategy_decision"]
     buys = [row for row in runtime_rows if _event(row) in {"buy", "bought", "paper_buy"}]
+    actual_paper_buy_attempts = [row for row in runtime_rows if _event(row) == "actual_paper_buy_attempt"]
+    actual_paper_buys = [row for row in runtime_rows if _event(row) == "actual_paper_buy"]
+    blocked_before_buy = [row for row in runtime_rows if _event(row) == "blocked_before_buy"]
     sells = [row for row in runtime_rows if _event(row) == "execution" and str(row.get("side") or "").startswith("sell")]
     shadows = [row for row in outcome_rows + runtime_rows if "shadow" in str(row.get("action") or row.get("decision_action") or _reason(row)).lower()]
+    shadow_only = [
+        row
+        for row in outcome_rows + runtime_rows
+        if "shadow" in str(row.get("action") or row.get("decision_action") or _reason(row)).lower()
+        and _event(row) != "actual_paper_buy"
+    ]
     blockers = collections.Counter(
         reason for reason in (_reason(row) for row in runtime_rows + outcome_rows) if reason
     )
@@ -60,6 +68,10 @@ def build_current_run_summary(root: Path | None = None) -> dict[str, Any]:
         "raw_discovered": len(raw_addresses),
         "strategy_decisions": len(strategy_decisions),
         "buys": len(buys),
+        "actual_paper_buy_attempts": len(actual_paper_buy_attempts),
+        "actual_paper_buys": len(actual_paper_buys),
+        "shadow_only": len(shadow_only),
+        "blocked_before_buy": len(blocked_before_buy),
         "sells": len(sells),
         "shadows": len(shadows),
         "top_blockers": dict(blockers.most_common(20)),

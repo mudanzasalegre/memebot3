@@ -48,6 +48,16 @@ def _config_runtime_status(settings: APISettings):
     )
 
 
+def _cfg_int(name: str, default: int) -> int:
+    value = getattr(CFG, name, default)
+    if value in (None, ""):
+        return int(default)
+    try:
+        return int(float(value))
+    except Exception:
+        return int(default)
+
+
 def get_effective_config_envelope(settings: APISettings) -> Envelope:
     statuses = [
         _config_env_status(settings),
@@ -74,9 +84,9 @@ def _execution_profile() -> dict[str, object]:
         "min_buy_sol": float(getattr(CFG, "MIN_BUY_SOL", 0.1) or 0.1),
         "multipliers_affect_trade_amount": False,
         "max_live_positions": {
-            "pump_early": int(getattr(CFG, "PUMP_EARLY_MAX_ACTIVE_POSITIONS", 1) or 1),
-            "dex_mature": int(getattr(CFG, "DEX_MATURE_MAX_ACTIVE_POSITIONS", 0) or 0),
-            "revival": int(getattr(CFG, "REVIVAL_MAX_ACTIVE_POSITIONS", 0) or 0),
+            "pump_early": _cfg_int("PUMP_EARLY_MAX_ACTIVE_POSITIONS", 1),
+            "dex_mature": _cfg_int("DEX_MATURE_MAX_ACTIVE_POSITIONS", 0),
+            "revival": _cfg_int("REVIVAL_MAX_ACTIVE_POSITIONS", 0),
         },
     }
 
@@ -133,9 +143,9 @@ def _sniper_lane() -> dict[str, object]:
             "fallback_snapshots": int(getattr(CFG, "PUMP_EARLY_CONFIRM_SNAPSHOTS", 2) or 2),
         },
         "capacity": {
-            "paper": int(getattr(CFG, "PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 3) or 3),
-            "live_canary": int(getattr(CFG, "PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY", 1) or 1),
-            "live_canary_advanced": int(getattr(CFG, "PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY_ADVANCED", 2) or 2),
+            "paper": _cfg_int("PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 3),
+            "live_canary": _cfg_int("PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY", 1),
+            "live_canary_advanced": _cfg_int("PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY_ADVANCED", 2),
         },
         "paper_learning": {
             "continue_on_health": bool(getattr(CFG, "PUMP_EARLY_SNIPER_PAPER_CONTINUE_ON_HEALTH", False)),
@@ -275,8 +285,8 @@ def _profit_lane() -> dict[str, object]:
                 ),
                 "size_bucket": "pumpswap_breakout",
                 "effective_trade_amount_sol": float(getattr(CFG, "TRADE_AMOUNT_SOL", 0.1) or 0.1),
-                "max_open_paper": int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1) or 1),
-                "max_open_live_canary": int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY", 1) or 1),
+                "max_open_paper": _cfg_int("PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1),
+                "max_open_live_canary": _cfg_int("PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY", 1),
                 "health_isolated": bool(getattr(CFG, "PUMP_EARLY_BREAKOUT_HEALTH_ISOLATED", True)),
             },
         },
@@ -361,8 +371,8 @@ def _profit_lane() -> dict[str, object]:
             "meteor_prime_bypasses_shape_guard": True,
         },
         "capacity": {
-            "paper": int(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2) or 2),
-            "live_canary": int(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY", 1) or 1),
+            "paper": _cfg_int("PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2),
+            "live_canary": _cfg_int("PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY", 1),
         },
         "aggressive_research_guard": {
             "enabled": bool(getattr(CFG, "PUMP_EARLY_AGGRESSIVE_RESEARCH_GUARD_ENABLED", True)),
@@ -488,8 +498,8 @@ def _research_lane() -> dict[str, object]:
         "shadow_enabled": bool(getattr(CFG, "RESEARCH_SHADOW_ENABLED", True)),
         "eligible_regimes": ["pump_early"],
         "routes": ["pump_early_sniper_research", "dex_mature_shadow", "revival_shadow"],
-        "max_open": int(getattr(CFG, "RESEARCH_SHADOW_MAX_OPEN", 6) or 6),
-        "max_open_per_regime": int(getattr(CFG, "RESEARCH_SHADOW_MAX_OPEN_PER_REGIME", 4) or 4),
+        "max_open": _cfg_int("RESEARCH_SHADOW_MAX_OPEN", 6),
+        "max_open_per_regime": _cfg_int("RESEARCH_SHADOW_MAX_OPEN_PER_REGIME", 4),
         "min_rank_score": float(getattr(CFG, "RESEARCH_SHADOW_MIN_RANK_SCORE", 55.0) or 55.0),
         "min_age_minutes": float(getattr(CFG, "RESEARCH_SHADOW_MIN_AGE_MIN", 2.0) or 2.0),
         "min_liquidity_usd": float(getattr(CFG, "RESEARCH_SHADOW_MIN_LIQUIDITY_USD", 1500.0) or 1500.0),

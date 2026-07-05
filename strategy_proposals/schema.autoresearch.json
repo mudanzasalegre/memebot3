@@ -10,6 +10,7 @@
     "target_lanes",
     "changes",
     "expected_effect",
+    "optimized_metric",
     "required_gates",
     "api_budget_sensitive",
     "live_allowed",
@@ -49,6 +50,22 @@
     },
     "expected_effect": {
       "type": "object"
+    },
+    "optimized_metric": {
+      "type": "string",
+      "minLength": 1
+    },
+    "optimization_targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "optimization_scope": {
+      "type": "string",
+      "enum": ["combined", "current_run", "historical"]
     },
     "required_gates": {
       "type": "array",

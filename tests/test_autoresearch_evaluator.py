@@ -10,6 +10,8 @@ def _candidate() -> dict:
         "proposal_id": "ar_eval_001",
         "live_allowed": False,
         "changes": {"MOONSHOT_MICRO_LOTTERY_CONFIRMATION_PNL": "75"},
+        "optimized_metric": "total_pnl_usd",
+        "optimization_scope": "combined",
     }
 
 
@@ -96,7 +98,62 @@ def test_missing_comparable_metrics_is_inconclusive() -> None:
     result = evaluate_replay_candidate(_candidate(), {"total_pnl_usd": 1.0}, {"total_pnl_usd": 2.0})
 
     assert result.status == "inconclusive"
-    assert "missing_comparable_metrics" in result.rejection_reasons
+    assert "missing_comparable_metrics:combined" in result.rejection_reasons
+
+
+def test_candidate_without_optimized_metric_is_rejected() -> None:
+    candidate = _candidate()
+    candidate.pop("optimized_metric")
+
+    result = evaluate_replay_candidate(candidate, _baseline(), {**_baseline(), "total_pnl_usd": 13.0})
+
+    assert result.status == "rejected"
+    assert "missing_optimized_metric" in result.rejection_reasons
+
+
+def test_historical_improvement_cannot_hide_current_run_regression() -> None:
+    candidate = _candidate()
+    candidate["optimization_scope"] = "historical"
+    baseline = {
+        **_baseline(),
+        "historical_metrics": _baseline(),
+        "current_run_metrics": _baseline(),
+        "combined_metrics": _baseline(),
+    }
+    candidate_metrics = {
+        **_baseline(),
+        "historical_metrics": {**_baseline(), "total_pnl_usd": 14.0, "median_pnl_pct": 2.0, "runner_capture_ratio": 0.25},
+        "current_run_metrics": {**_baseline(), "total_pnl_usd": 8.0, "median_pnl_pct": 1.0, "runner_capture_ratio": 0.15},
+        "combined_metrics": {**_baseline(), "total_pnl_usd": 14.0, "median_pnl_pct": 2.0, "runner_capture_ratio": 0.25},
+    }
+
+    result = evaluate_replay_candidate(candidate, baseline, candidate_metrics)
+
+    assert result.status == "rejected"
+    assert "current_run_regression" in result.rejection_reasons
+    assert result.historical_objective is not None
+    assert result.historical_objective.score > 0
+
+
+def test_combined_improvement_with_tiny_current_run_sample_needs_paper() -> None:
+    baseline = {
+        **_baseline(),
+        "current_run_metrics": {**_baseline(), "closed_trades": 0},
+        "historical_metrics": _baseline(),
+        "combined_metrics": _baseline(),
+    }
+    candidate_metrics = {
+        **_baseline(),
+        "current_run_metrics": {**_baseline(), "closed_trades": 0},
+        "historical_metrics": {**_baseline(), "total_pnl_usd": 14.0, "median_pnl_pct": 2.0, "runner_capture_ratio": 0.25},
+        "combined_metrics": {**_baseline(), "total_pnl_usd": 14.0, "median_pnl_pct": 2.0, "runner_capture_ratio": 0.25},
+    }
+
+    result = evaluate_replay_candidate(_candidate(), baseline, candidate_metrics, min_current_run_closed_trades=2)
+
+    assert result.status == "needs_paper"
+    assert result.needs_paper
+    assert "current_run_sample_too_small:0<2" in result.warnings
 
 
 def test_evaluate_replay_run_reads_files(tmp_path) -> None:

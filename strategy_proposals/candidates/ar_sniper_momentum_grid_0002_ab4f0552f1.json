@@ -1,0 +1,55 @@
+{
+  "api_budget_sensitive": true,
+  "changes": {
+    "SNIPER_RESEARCH_DEEP_REVERSAL_MAX_MCAP_USD": 50000,
+    "SNIPER_RESEARCH_DEEP_REVERSAL_MAX_PRICE5M": -35,
+    "SNIPER_RESEARCH_DEEP_REVERSAL_MIN_PRICE5M": -95,
+    "SNIPER_RESEARCH_DEEP_REVERSAL_MIN_TXNS_5M": 500,
+    "SNIPER_RESEARCH_DEEP_REVERSAL_STOP_LOSS_PCT": 8,
+    "SNIPER_RESEARCH_DEEP_REVERSAL_TAKE_PROFIT_PCT": 10,
+    "SNIPER_RESEARCH_DEEP_REVERSAL_TIME_STOP_MIN": 3,
+    "SNIPER_RESEARCH_DEEP_REVERSAL_TRAILING_PCT": 6,
+    "SNIPER_RESEARCH_MOMENTUM_MAX_MCAP_USD": 50000,
+    "SNIPER_RESEARCH_MOMENTUM_MAX_PRICE5M": 180,
+    "SNIPER_RESEARCH_MOMENTUM_MAX_TOP10_SHARE_PCT": 50,
+    "SNIPER_RESEARCH_MOMENTUM_MAX_TXNS_5M": 10000,
+    "SNIPER_RESEARCH_MOMENTUM_MIN_LIQUIDITY_USD": 15000,
+    "SNIPER_RESEARCH_MOMENTUM_MIN_MCAP_USD": 10000,
+    "SNIPER_RESEARCH_MOMENTUM_MIN_PRICE5M": 100,
+    "SNIPER_RESEARCH_MOMENTUM_MIN_TXNS_5M": 300,
+    "SNIPER_RESEARCH_MOMENTUM_STRONG_MIN_LIQUIDITY": 40000,
+    "SNIPER_RESEARCH_MOMENTUM_STRONG_MIN_RANK": 75,
+    "SNIPER_RESEARCH_MOMENTUM_STRONG_MIN_TXNS_5M": 1200,
+    "SNIPER_RESEARCH_MOMENTUM_STRONG_MIN_VOLUME_24H": 250000
+  },
+  "created_at_utc": "2026-06-15T12:56:42.199119+00:00",
+  "expected_effect": {
+    "increase_moonshot_capture": false,
+    "increase_pnl": true,
+    "increase_win_rate": true,
+    "reduce_severe_losses": true
+  },
+  "experiment_type": "replay",
+  "hypothesis": "Improve sniper research entry quality by tuning momentum thresholds.",
+  "live_allowed": false,
+  "optimization_scope": "combined",
+  "optimization_targets": [
+    "win_rate_pct",
+    "median_pnl_pct",
+    "total_pnl_usd",
+    "severe_loss_count"
+  ],
+  "optimized_metric": "win_rate_pct",
+  "proposal_id": "ar_sniper_momentum_grid_0002_ab4f0552f1",
+  "required_gates": [
+    "replay_positive",
+    "api_budget_ok"
+  ],
+  "risk_notes": [
+    "paper only",
+    "no API cadence changes"
+  ],
+  "target_lanes": [
+    "pump_early_sniper_research"
+  ]
+}

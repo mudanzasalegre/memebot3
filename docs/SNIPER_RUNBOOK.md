@@ -14,6 +14,10 @@
 .\scripts\start_stack.ps1 -IncludeBot
 ```
 
+This command performs the startup preflight, starts the bot in paper dry-run,
+and starts AutoResearch in paper/replay mode. Add `-SkipAutoResearch` only for
+a bot-only restart.
+
 3. Watch `/api/v1/sniper/status`, `data/metrics/sniper_audit.json`, and `docs/MISSED_PUMPS_REPORT.md`.
 
 ## What should happen

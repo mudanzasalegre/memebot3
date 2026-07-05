@@ -3,8 +3,9 @@ from __future__ import annotations
 import datetime as dt
 import importlib
 import json
+import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from analytics.report_utils import metrics_dir, set_include_test_events, write_json
 from config.config import PROJECT_ROOT
@@ -18,6 +19,7 @@ REQUIRED_CORE_REPORTS = (
     "runner_capture_ladder_report.json",
     "untagged_buy_block_report.json",
     "sniper_research_subprofile_report.json",
+    "sniper_research_micro_fallback_report.json",
     "pumpswap_rebound_confirmation_report.json",
     "research_rank_canary_audit.json",
     "runner_turbo_monitor_report.json",
@@ -31,6 +33,7 @@ REQUIRED_CORE_REPORTS = (
     "current_run_funnel.json",
     "current_run_missed_pumps.json",
     "current_run_lane_summary.json",
+    "current_run_autotune_state.json",
     "lane_sizing_report.json",
     "pump_entry_lane_selector_report.json",
     "shadow_followup_micro_report.json",
@@ -39,6 +42,9 @@ REQUIRED_CORE_REPORTS = (
     "bot_profitability_health.json",
     "entry_funnel_blocker_samples.json",
     "paper_exploration_quota_report.json",
+    "paper_bootstrap_report.json",
+    "paper_real_outcomes.json",
+    "acquisition_health_report.json",
 )
 
 
@@ -139,6 +145,11 @@ def _generators(root: Path, *, include_test_events: bool = False) -> dict[str, C
             "write_sniper_research_subprofile_report",
             root,
         ),
+        "sniper_research_micro_fallback_report.json": call(
+            "analytics.sniper_research_subprofiles",
+            "write_sniper_research_micro_fallback_report",
+            root,
+        ),
         "pumpswap_rebound_confirmation_report.json": call(
             "analytics.pumpswap_rebound_prime",
             "write_pumpswap_rebound_confirmation_report",
@@ -197,6 +208,11 @@ def _generators(root: Path, *, include_test_events: bool = False) -> dict[str, C
             "write_current_run_lane_summary",
             root,
         ),
+        "current_run_autotune_state.json": call(
+            "analytics.current_run_autotune",
+            "write_current_run_autotune_state",
+            root,
+        ),
         "lane_sizing_report.json": call("analytics.lane_sizing", "write_lane_sizing_report", root),
         "pump_entry_lane_selector_report.json": call(
             "analytics.pump_entry_lane_selector",
@@ -233,10 +249,38 @@ def _generators(root: Path, *, include_test_events: bool = False) -> dict[str, C
             "write_paper_exploration_quota_report",
             root,
         ),
+        "paper_bootstrap_report.json": call(
+            "analytics.paper_bootstrap",
+            "write_paper_bootstrap_report",
+            root,
+        ),
+        "paper_real_outcomes.json": call(
+            "analytics.paper_real_outcomes",
+            "write_paper_real_outcomes_report",
+            root,
+        ),
+        "acquisition_health_report.json": call(
+            "analytics.acquisition_health_report",
+            "write_acquisition_health_report",
+            root,
+        ),
     }
 
 
-def regenerate_core_reports(root: Path | None = None, *, include_test_events: bool = False) -> dict[str, Any]:
+def _selected_reports(report_names: Iterable[str] | None = None) -> tuple[str, ...]:
+    if report_names is None:
+        return REQUIRED_CORE_REPORTS
+    allowed = set(REQUIRED_CORE_REPORTS)
+    selected = tuple(name for name in report_names if name in allowed)
+    return selected or REQUIRED_CORE_REPORTS
+
+
+def regenerate_core_reports(
+    root: Path | None = None,
+    *,
+    include_test_events: bool = False,
+    report_names: Iterable[str] | None = None,
+) -> dict[str, Any]:
     root = root or PROJECT_ROOT
     set_include_test_events(include_test_events)
     target_dir = metrics_dir(root)
@@ -244,8 +288,10 @@ def regenerate_core_reports(root: Path | None = None, *, include_test_events: bo
     generated: dict[str, Any] = {}
     warnings: dict[str, str] = {}
     generators = _generators(root, include_test_events=include_test_events)
-    for name in REQUIRED_CORE_REPORTS:
+    selected = _selected_reports(report_names)
+    for name in selected:
         path = target_dir / name
+        started = time.perf_counter()
         try:
             generator = generators.get(name)
             if generator is None:
@@ -260,6 +306,7 @@ def regenerate_core_reports(root: Path | None = None, *, include_test_events: bo
             generated[name] = {
                 "path": str(path),
                 "exists": path.exists(),
+                "elapsed_s": round(time.perf_counter() - started, 3),
             }
         except Exception as exc:
             warnings[name] = str(exc)
@@ -268,10 +315,12 @@ def regenerate_core_reports(root: Path | None = None, *, include_test_events: bo
                 "path": str(path),
                 "exists": path.exists(),
                 "placeholder": True,
+                "elapsed_s": round(time.perf_counter() - started, 3),
             }
     freshness = report_freshness(root)
     summary = {
         "generated_at_utc": _utc_now(),
+        "selected_reports": list(selected),
         "reports": generated,
         "warnings": warnings,
         "freshness": freshness,

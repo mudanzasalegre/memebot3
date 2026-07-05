@@ -60,9 +60,76 @@ def test_candidate_that_raises_moonshot_amount_above_cap_fails() -> None:
     result = validate_candidate_safety(
         {
             "live_allowed": False,
-            "changes": {"MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL": "0.006"},
+            "changes": {"MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL": "0.03"},
         }
     )
 
     assert not result.ok
     assert any(error.startswith("amount_cap_exceeded:MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL") for error in result.errors)
+
+
+def test_candidate_that_raises_risky_cluster_amount_above_cap_fails() -> None:
+    result = validate_candidate_safety(
+        {
+            "live_allowed": False,
+            "changes": {"MOONSHOT_MICRO_LOTTERY_RISKY_CLUSTER_AMOUNT_SOL": "0.001"},
+        }
+    )
+
+    assert not result.ok
+    assert any(
+        error.startswith("amount_cap_exceeded:MOONSHOT_MICRO_LOTTERY_RISKY_CLUSTER_AMOUNT_SOL")
+        for error in result.errors
+    )
+
+
+def test_candidate_that_reintroduces_buy_quota_fails() -> None:
+    result = validate_candidate_safety(
+        {
+            "live_allowed": False,
+            "changes": {"MOONSHOT_MICRO_LOTTERY_MAX_DAILY_BUYS": "3"},
+        }
+    )
+
+    assert not result.ok
+    assert "MOONSHOT_MICRO_LOTTERY_MAX_DAILY_BUYS" in result.forbidden_changes
+    assert any(error.startswith("unlimited_quota_required:MOONSHOT_MICRO_LOTTERY_MAX_DAILY_BUYS") for error in result.errors)
+
+
+def test_candidate_that_reintroduces_idle_buy_window_fails() -> None:
+    result = validate_candidate_safety(
+        {
+            "live_allowed": False,
+            "changes": {"PAPER_IDLE_AFTER_HOURS": "3"},
+        }
+    )
+
+    assert not result.ok
+    assert "PAPER_IDLE_AFTER_HOURS" in result.forbidden_changes
+    assert any(error.startswith("unlimited_quota_required:PAPER_IDLE_AFTER_HOURS") for error in result.errors)
+
+
+def test_candidate_that_reintroduces_bootstrap_cold_start_fails() -> None:
+    result = validate_candidate_safety(
+        {
+            "live_allowed": False,
+            "changes": {"PAPER_BOOTSTRAP_REQUIRE_COLD_START": "true"},
+        }
+    )
+
+    assert not result.ok
+    assert "PAPER_BOOTSTRAP_REQUIRE_COLD_START" in result.forbidden_changes
+    assert "required_safe_flag_violation:PAPER_BOOTSTRAP_REQUIRE_COLD_START" in result.errors
+
+
+def test_candidate_that_reintroduces_global_open_cap_fails() -> None:
+    result = validate_candidate_safety(
+        {
+            "live_allowed": False,
+            "changes": {"MAX_ACTIVE_POSITIONS": "12"},
+        }
+    )
+
+    assert not result.ok
+    assert "MAX_ACTIVE_POSITIONS" in result.forbidden_changes
+    assert any(error.startswith("unlimited_quota_required:MAX_ACTIVE_POSITIONS") for error in result.errors)

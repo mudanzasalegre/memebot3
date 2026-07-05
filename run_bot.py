@@ -173,15 +173,28 @@ from analytics.moonshot_micro_lottery import (  # noqa: E402
     evaluate_moonshot_micro_lottery,
 )
 from analytics.pump_entry_lane_selector import select_pump_entry_lane  # noqa: E402
+from analytics.shadow_followup_micro import (  # noqa: E402
+    apply_shadow_followup_micro_context,
+    evaluate_shadow_followup_micro,
+)
 from analytics.pumpswap_prime_strict import evaluate_pumpswap_prime_strict  # noqa: E402
 from analytics.pumpswap_rebound_prime import apply_pumpswap_rebound_prime_context, apply_pumpswap_rebound_watch_context, evaluate_pumpswap_rebound_prime  # noqa: E402
-from analytics.paper_exploration_quota import should_allow_paper_exploration  # noqa: E402
+from analytics.paper_exploration_quota import (  # noqa: E402
+    apply_paper_exploration_quota_context,
+    should_allow_paper_exploration,
+)
+from analytics.paper_bootstrap import (  # noqa: E402
+    POLICY_PAPER_BOOTSTRAP,
+    apply_paper_bootstrap_context,
+    should_allow_paper_bootstrap,
+)
 from analytics.sniper_research_subprofiles import (  # noqa: E402
     apply_sniper_research_subprofile_context,
     evaluate_sniper_research_subprofile,
 )
 from analytics.untagged_buy_block import (  # noqa: E402
     REASON_UNTAGGED_BLOCKED,
+    apply_untagged_breakout_context,
     apply_untagged_buy_shadow_context,
     evaluate_untagged_buy_guard,
 )
@@ -360,11 +373,14 @@ def _delay_until_window(now_local: Optional[dt.datetime] = None) -> int:
 class _BuyLimiter:
     """Leaky-bucket simple no bloqueante para BUY."""
     def __init__(self, max_hits: int, window_s: int):
-        self.max_hits = max(1, int(max_hits))
-        self.window_s = max(1, int(window_s))
+        self.max_hits = int(max_hits)
+        self.window_s = int(window_s)
+        self.enabled = self.max_hits > 0 and self.window_s > 0
         self._ts = deque()  # timestamps monotonic de BUYs concedidos
 
     def allow(self, n: int = 1) -> bool:
+        if not self.enabled:
+            return True
         now = time.monotonic()
         # purge fuera de ventana
         while self._ts and now - self._ts[0] > self.window_s:
@@ -376,12 +392,24 @@ class _BuyLimiter:
         return False
 
     def current(self) -> int:
+        if not self.enabled:
+            return 0
         now = time.monotonic()
         while self._ts and now - self._ts[0] > self.window_s:
             self._ts.popleft()
         return len(self._ts)
 
 _BUY_LIMITER = _BuyLimiter(BUY_RATE_LIMIT_N, BUY_RATE_LIMIT_WINDOW_S)
+
+
+def _cfg_int_preserve_zero(name: str, default: int) -> int:
+    value = getattr(CFG, name, default)
+    if value in (None, ""):
+        return int(default)
+    try:
+        return int(float(value))
+    except Exception:
+        return int(default)
 
 
 # ╭─────────────────────── CLI ───────────────────────────────────────────────╮
@@ -741,7 +769,12 @@ _stats = {
     "appended_at_close": 0,
     "appended_shadow":   0,
     "filtered_immediate_0": 0,
+    "actual_paper_buy_attempts": 0,
+    "actual_paper_buys": 0,
+    "shadow_only": 0,
+    "blocked_before_buy": 0,
 }
+_blocked_before_buy_seen: set[str] = set()
 _last_stats_print: float = time.monotonic()
 _last_csv_export : float = time.monotonic()
 _last_buy_at: Optional[dt.datetime] = None
@@ -759,6 +792,7 @@ _runtime_discovery_paused: bool = False
 _runtime_buys_paused: bool = False
 _retrain_lock = asyncio.Lock()
 _reports_refresh_lock = asyncio.Lock()
+_autoresearch_lock = asyncio.Lock()
 _core_reports_regen_lock = asyncio.Lock()
 _last_core_reports_regen_at: Optional[dt.datetime] = None
 _last_core_reports_regen_sold: int = 0
@@ -1324,11 +1358,11 @@ _PUMP_EARLY_BREAKOUT_MAX_PRICE_IMPACT_PCT = max(
 )
 _PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER = max(
     0,
-    int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1) or 1),
+    _cfg_int_preserve_zero("PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 0),
 )
 _PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY = max(
     0,
-    int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY", 1) or 1),
+    _cfg_int_preserve_zero("PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY", 0),
 )
 _PUMP_EARLY_PROFIT_SHAPE_GUARD_ENABLED = bool(
     getattr(CFG, "PUMP_EARLY_PROFIT_SHAPE_GUARD_ENABLED", True)
@@ -1548,6 +1582,324 @@ def _metric_int(token: dict, *keys: str) -> int:
         return int(_metric_float(token, *keys))
     except Exception:
         return 0
+
+
+_SHADOW_FOLLOWUP_MICRO_LANE = "pump_early_shadow_followup_micro"
+_SNIPER_RESEARCH_MICRO_FALLBACK_LANE = "pump_early_sniper_research_micro_fallback"
+_PAPER_BOOTSTRAP_LANE = "pump_early_paper_bootstrap_micro"
+
+
+def _shadow_followup_micro_event_worthy(token: dict, decision: object | None) -> bool:
+    lane = str(token.get("entry_lane") or token.get("profit_lane_tier") or "").strip().lower()
+    reason_text = " ".join(
+        str(token.get(key) or "")
+        for key in ("reason", "green_sniper_reason", "entry_reason", "gate_profile", "blocked_bucket")
+    ).lower()
+    failures = tuple(getattr(decision, "failures", ()) or ())
+    return (
+        bool(getattr(decision, "allowed", False))
+        or lane == _SHADOW_FOLLOWUP_MICRO_LANE
+        or "shadow_followup" in reason_text
+        or any(str(failure) != "no_followup_trigger" for failure in failures)
+    )
+
+
+def _record_shadow_followup_micro_event(event_type: str, address: str, token: dict, decision: object | None = None, **payload: object) -> None:
+    try:
+        failures = tuple(getattr(decision, "failures", ()) or ())
+        reason_override = str(payload.pop("reason", "") or "")
+        event_payload = {
+            "allowed": bool(getattr(decision, "allowed", False)) if decision is not None else False,
+            "reason": reason_override or str(getattr(decision, "reason", "") or ""),
+            "failures": ",".join(str(item) for item in failures),
+            "amount_sol": float(getattr(decision, "amount_sol", payload.get("amount_sol", 0.0)) or 0.0),
+            "route_proxy": bool(getattr(decision, "route_proxy", payload.get("route_proxy", False))),
+            "entry_regime": str(token.get("entry_regime") or ""),
+            "entry_lane": str(token.get("entry_lane") or ""),
+            "gate_profile": str(token.get("gate_profile") or token.get("sniper_gate_profile") or ""),
+            "lane_policy_category": str(token.get("lane_policy_category") or ""),
+        }
+        event_payload.update(payload)
+        record_runtime_event(event_type, address, **event_payload)
+    except Exception:
+        pass
+
+
+def _record_sniper_research_micro_fallback_event(
+    event_type: str,
+    address: str,
+    token: dict,
+    decision: object | None = None,
+    **payload: object,
+) -> None:
+    try:
+        failures = tuple(getattr(decision, "failures", ()) or ())
+        reason_override = str(payload.pop("reason", "") or "")
+        event_payload = {
+            "allowed": bool(getattr(decision, "allowed", False)) if decision is not None else False,
+            "reason": reason_override or str(getattr(decision, "reason", "") or ""),
+            "failures": ",".join(str(item) for item in failures),
+            "amount_sol": float(getattr(decision, "amount_sol", payload.get("amount_sol", 0.0)) or 0.0),
+            "entry_regime": str(token.get("entry_regime") or ""),
+            "entry_lane": str(token.get("entry_lane") or ""),
+            "gate_profile": str(token.get("gate_profile") or token.get("sniper_gate_profile") or ""),
+            "lane_policy_category": str(token.get("lane_policy_category") or ""),
+        }
+        event_payload.update(payload)
+        record_runtime_event(event_type, address, **event_payload)
+    except Exception:
+        pass
+
+
+def _shadow_followup_micro_probe_allowed(
+    token: dict,
+    *,
+    green_fast_path: bool = False,
+    moonshot_fast_path: bool = False,
+    research_rank_canary_fast_path: bool = False,
+) -> bool:
+    if not DRY_RUN:
+        return False
+    if green_fast_path or moonshot_fast_path or research_rank_canary_fast_path:
+        return False
+    return str(token.get("entry_regime") or "").strip().lower() == "pump_early"
+
+
+def _sniper_research_micro_fallback_probe_allowed(token: dict) -> bool:
+    if not DRY_RUN:
+        return False
+    if not bool(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_ENABLED", True)):
+        return False
+    if bool(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_LIVE_ENABLED", False)):
+        return False
+    if str(token.get("entry_regime") or "").strip().lower() != "pump_early":
+        return False
+    return str(token.get("entry_lane") or "").strip().lower() == "pump_early_sniper_research"
+
+
+def _paper_exploration_api_budget_ok() -> tuple[bool, str]:
+    if not bool(getattr(CFG, "PAPER_EXPLORATION_API_BUDGET_GATE_ENABLED", True)):
+        return True, "api_budget_gate_disabled"
+    for rel in (
+        ("data", "research_runs", "api_budget.json"),
+        ("data", "metrics", "api_budget_report.json"),
+    ):
+        path = PROJECT_ROOT.joinpath(*rel)
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
+        except Exception:
+            return True, "api_budget_unreadable_warn"
+        status = str(payload.get("status") or payload.get("gate_status") or "").strip().lower()
+        if status in {"fail", "failed", "blocked", "error"}:
+            return False, f"api_budget_status:{status}"
+        try:
+            degraded = float(payload.get("provider_degraded_minutes") or 0.0)
+        except Exception:
+            degraded = 0.0
+        if degraded > 0:
+            return False, "provider_degraded"
+        return True, "api_budget_ok"
+    return True, "api_budget_missing_allowed"
+
+
+def _record_paper_exploration_quota_event(event_type: str, address: str, token: dict, decision: object | None = None, **payload: object) -> None:
+    try:
+        reason_override = str(payload.pop("reason", "") or "")
+        event_payload = {
+            "allowed": bool(getattr(decision, "allowed", False)) if decision is not None else False,
+            "reason": reason_override or str(getattr(decision, "reason", "") or ""),
+            "amount_sol": float(getattr(decision, "amount_sol", payload.get("amount_sol", 0.0)) or 0.0),
+            "lane_hint": str(getattr(decision, "lane_hint", "") or ""),
+            "route_proxy": bool(getattr(decision, "route_proxy", payload.get("route_proxy", False))),
+            "entry_regime": str(token.get("entry_regime") or ""),
+            "entry_lane": str(token.get("entry_lane") or ""),
+            "gate_profile": str(token.get("gate_profile") or token.get("sniper_gate_profile") or ""),
+            "lane_policy_category": str(token.get("lane_policy_category") or ""),
+        }
+        event_payload.update(payload)
+        record_runtime_event(event_type, address, **event_payload)
+    except Exception:
+        pass
+
+
+def _paper_bootstrap_active(token: dict) -> bool:
+    lane = str(token.get("entry_lane") or token.get("profit_lane_tier") or "").strip().lower()
+    gate = str(token.get("gate_profile") or token.get("sniper_gate_profile") or "").strip().lower()
+    return bool(token.get("paper_bootstrap")) or lane == _PAPER_BOOTSTRAP_LANE or gate == POLICY_PAPER_BOOTSTRAP
+
+
+def _record_paper_bootstrap_event(
+    event_type: str,
+    address: str,
+    token: dict,
+    decision: object | None = None,
+    **payload: object,
+) -> None:
+    try:
+        reason_override = str(payload.pop("reason", "") or "")
+        hard_failures = tuple(getattr(decision, "hard_failures", ()) or ())
+        risk_notes = tuple(getattr(decision, "risk_notes", ()) or ())
+        event_payload = {
+            "allowed": bool(getattr(decision, "allowed", False)) if decision is not None else False,
+            "reason": reason_override or str(getattr(decision, "reason", "") or ""),
+            "amount_sol": float(getattr(decision, "amount_sol", payload.get("amount_sol", 0.0)) or 0.0),
+            "lane": str(getattr(decision, "lane", "") or token.get("entry_lane") or ""),
+            "hard_failures": ",".join(str(item) for item in hard_failures),
+            "risk_notes": ",".join(str(item) for item in risk_notes),
+            "model_cold": bool(getattr(decision, "model_cold", False)),
+            "trigger_stage": str(getattr(decision, "trigger_stage", "") or payload.get("trigger_stage", "") or ""),
+            "trigger_reason": str(getattr(decision, "trigger_reason", "") or payload.get("trigger_reason", "") or ""),
+            "entry_regime": str(token.get("entry_regime") or ""),
+            "entry_lane": str(token.get("entry_lane") or ""),
+            "gate_profile": str(token.get("gate_profile") or token.get("sniper_gate_profile") or ""),
+            "lane_policy_category": str(token.get("lane_policy_category") or ""),
+        }
+        event_payload.update(payload)
+        record_runtime_event(event_type, address, **event_payload)
+    except Exception:
+        pass
+
+
+async def _maybe_apply_paper_bootstrap(
+    token: dict,
+    ses: SessionLocal,
+    addr: str,
+    *,
+    trigger_stage: str,
+    trigger_reason: str,
+) -> object:
+    if not DRY_RUN:
+        return SimpleNamespace(allowed=False, reason="paper_bootstrap_paper_only", amount_sol=0.0)
+    if _paper_bootstrap_active(token):
+        return SimpleNamespace(
+            allowed=True,
+            reason="paper_bootstrap_existing",
+            amount_sol=float(
+                token.get("paper_bootstrap_amount_sol")
+                or getattr(CFG, "PAPER_BOOTSTRAP_AMOUNT_SOL", 0.1)
+                or 0.1
+            ),
+            lane=_PAPER_BOOTSTRAP_LANE,
+            trigger_stage=trigger_stage,
+            trigger_reason=trigger_reason,
+            hard_failures=(),
+            risk_notes=(),
+            model_cold=True,
+        )
+
+    open_count, daily_buys, hourly_buys, seconds_since_last = await _paper_bootstrap_quota_state(ses)
+    closed_trades = await _closed_position_count(ses)
+    model_status = model_runtime_status()
+    model_rows = int(
+        model_status.get("rows")
+        or model_status.get("eligible_rows")
+        or model_status.get("features_count")
+        or 0
+    )
+    decision = should_allow_paper_bootstrap(
+        token,
+        dry_run=DRY_RUN,
+        live=not DRY_RUN,
+        open_count=int(open_count),
+        daily_buys=int(daily_buys),
+        hourly_buys=int(hourly_buys),
+        seconds_since_last_buy=float(seconds_since_last),
+        closed_trades=int(closed_trades),
+        model_loaded=bool(model_status.get("model_loaded")),
+        model_rows=model_rows,
+        trigger_stage=trigger_stage,
+        trigger_reason=trigger_reason,
+    )
+    _record_paper_bootstrap_event(
+        "paper_bootstrap_eval",
+        addr,
+        token,
+        decision,
+        open_count=int(open_count),
+        daily_buys=int(daily_buys),
+        hourly_buys=int(hourly_buys),
+        seconds_since_last_buy=float(seconds_since_last),
+        closed_trades=int(closed_trades),
+        model_rows=int(model_rows),
+        model_loaded=bool(model_status.get("model_loaded")),
+    )
+    if getattr(decision, "allowed", False):
+        apply_paper_bootstrap_context(token, decision)
+        token["require_jupiter_for_buy"] = 0
+        _record_paper_bootstrap_event(
+            "paper_bootstrap_allowed",
+            addr,
+            token,
+            decision,
+            open_count=int(open_count),
+            daily_buys=int(daily_buys),
+            hourly_buys=int(hourly_buys),
+            seconds_since_last_buy=float(seconds_since_last),
+        )
+    else:
+        _record_paper_bootstrap_event(
+            "paper_bootstrap_blocked",
+            addr,
+            token,
+            decision,
+            open_count=int(open_count),
+            daily_buys=int(daily_buys),
+            hourly_buys=int(hourly_buys),
+            seconds_since_last_buy=float(seconds_since_last),
+        )
+    return decision
+
+
+async def _maybe_apply_paper_exploration_quota(token: dict, ses: SessionLocal, addr: str) -> object:
+    hours_without_buy, exploration_open, exploration_daily = await _paper_exploration_quota_state(ses)
+    api_budget_ok, api_budget_status = _paper_exploration_api_budget_ok()
+    decision = should_allow_paper_exploration(
+        token,
+        hours_without_buy=hours_without_buy,
+        open_count=exploration_open,
+        daily_buys=exploration_daily,
+        api_budget_ok=api_budget_ok,
+        dry_run=DRY_RUN,
+        live=not DRY_RUN,
+    )
+    if getattr(decision, "lane_hint", ""):
+        _record_paper_exploration_quota_event(
+            "paper_exploration_quota_eval",
+            addr,
+            token,
+            decision,
+            hours_without_buy=float(hours_without_buy),
+            open_count=int(exploration_open),
+            daily_buys=int(exploration_daily),
+            api_budget_status=api_budget_status,
+        )
+    if getattr(decision, "allowed", False):
+        apply_paper_exploration_quota_context(token, decision)
+        token["require_jupiter_for_buy"] = 0
+        _record_paper_exploration_quota_event(
+            "paper_exploration_quota_allowed",
+            addr,
+            token,
+            decision,
+            hours_without_buy=float(hours_without_buy),
+            open_count=int(exploration_open),
+            daily_buys=int(exploration_daily),
+            api_budget_status=api_budget_status,
+        )
+    elif getattr(decision, "lane_hint", ""):
+        _record_paper_exploration_quota_event(
+            "paper_exploration_quota_blocked",
+            addr,
+            token,
+            decision,
+            hours_without_buy=float(hours_without_buy),
+            open_count=int(exploration_open),
+            daily_buys=int(exploration_daily),
+            api_budget_status=api_budget_status,
+        )
+    return decision
 
 
 def _candidate_age_minutes(token: dict) -> float:
@@ -2249,6 +2601,19 @@ def _evaluate_pumpswap_profit_gate(
 
 
 def _tag_pump_sniper_gate(token: dict, rank_info: dict[str, object] | None = None) -> tuple[bool, str]:
+    sniper_micro_fallback_lane = str(
+        globals().get("_SNIPER_RESEARCH_MICRO_FALLBACK_LANE", "pump_early_sniper_research_micro_fallback")
+    )
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_paper_bootstrap_micro":
+        token["entry_lane"] = "pump_early_paper_bootstrap_micro"
+        token["gate_profile"] = "paper_bootstrap"
+        token["sniper_gate_profile"] = "paper_bootstrap"
+        token["profit_lane_tier"] = "pump_early_paper_bootstrap_micro"
+        token["lane_policy_category"] = "paper_bootstrap"
+        token["live_profit_gate_profile"] = "paper_bootstrap"
+        token["live_profit_gate_failed_count"] = 0
+        token["live_profit_gate_failures"] = ""
+        return True, ""
     if str(token.get("entry_lane") or "").strip().lower() == "pump_early_moonshot_micro_lottery":
         token["entry_lane"] = "pump_early_moonshot_micro_lottery"
         token["gate_profile"] = "moonshot_micro_lottery"
@@ -2256,6 +2621,56 @@ def _tag_pump_sniper_gate(token: dict, rank_info: dict[str, object] | None = Non
         token["profit_lane_tier"] = "pump_early_moonshot_micro_lottery"
         token["lane_policy_category"] = "moonshot_micro_lottery"
         token["live_profit_gate_profile"] = "moonshot_micro_lottery"
+        token["live_profit_gate_failed_count"] = 0
+        token["live_profit_gate_failures"] = ""
+        return True, ""
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_shadow_followup_micro":
+        token["entry_lane"] = "pump_early_shadow_followup_micro"
+        token["gate_profile"] = "shadow_followup_micro"
+        token["sniper_gate_profile"] = "shadow_followup_micro"
+        token["profit_lane_tier"] = "pump_early_shadow_followup_micro"
+        token["lane_policy_category"] = "shadow_followup_micro"
+        token["live_profit_gate_profile"] = "shadow_followup_micro"
+        token["live_profit_gate_failed_count"] = 0
+        token["live_profit_gate_failures"] = ""
+        return True, ""
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_paper_exploration_micro":
+        token["entry_lane"] = "pump_early_paper_exploration_micro"
+        token["gate_profile"] = "paper_exploration_quota"
+        token["sniper_gate_profile"] = "paper_exploration_quota"
+        token["profit_lane_tier"] = "pump_early_paper_exploration_micro"
+        token["lane_policy_category"] = "paper_exploration_quota"
+        token["live_profit_gate_profile"] = "paper_exploration_quota"
+        token["live_profit_gate_failed_count"] = 0
+        token["live_profit_gate_failures"] = ""
+        return True, ""
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_birth_probe_micro_canary":
+        token["entry_lane"] = "pump_early_birth_probe_micro_canary"
+        token["gate_profile"] = "birth_probe_micro_canary"
+        token["sniper_gate_profile"] = "birth_probe_micro_canary"
+        token["profit_lane_tier"] = "pump_early_birth_probe_micro_canary"
+        token["lane_policy_category"] = "birth_probe_micro_canary"
+        token["live_profit_gate_profile"] = "birth_probe_micro_canary"
+        token["live_profit_gate_failed_count"] = 0
+        token["live_profit_gate_failures"] = ""
+        return True, ""
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_late_momentum_watch":
+        token["entry_lane"] = "pump_early_late_momentum_watch"
+        token["gate_profile"] = "late_momentum_watch"
+        token["sniper_gate_profile"] = "late_momentum_watch"
+        token["profit_lane_tier"] = "pump_early_late_momentum_watch"
+        token["lane_policy_category"] = "late_momentum_watch"
+        token["live_profit_gate_profile"] = "late_momentum_watch"
+        token["live_profit_gate_failed_count"] = 0
+        token["live_profit_gate_failures"] = ""
+        return True, ""
+    if str(token.get("entry_lane") or "").strip().lower() == sniper_micro_fallback_lane:
+        token["entry_lane"] = sniper_micro_fallback_lane
+        token["gate_profile"] = "sniper_research_micro_fallback"
+        token["sniper_gate_profile"] = "sniper_research_micro_fallback"
+        token["profit_lane_tier"] = sniper_micro_fallback_lane
+        token["lane_policy_category"] = "sniper_research_micro_fallback"
+        token["live_profit_gate_profile"] = "sniper_research_micro_fallback"
         token["live_profit_gate_failed_count"] = 0
         token["live_profit_gate_failures"] = ""
         return True, ""
@@ -2468,6 +2883,29 @@ def _entry_quality_gate(
     rank_info: dict[str, object] | None = None,
     paper_cold_start_active: bool | None = None,
 ) -> tuple[bool, str]:
+    paper_lane_defaults = {
+        "pump_early_paper_bootstrap_micro": "paper_bootstrap",
+        "pump_early_paper_exploration_micro": "paper_exploration_quota",
+        "pump_early_shadow_followup_micro": "shadow_followup_micro",
+        "pump_early_moonshot_micro_lottery": "moonshot_micro_lottery",
+        "pump_early_sniper_research_micro_fallback": "sniper_research_micro_fallback",
+        "pump_early_birth_probe_micro_canary": "birth_probe_micro_canary",
+        "pump_early_late_momentum_watch": "late_momentum_watch",
+        "pump_early_research_rank_canary": "research_rank_canary",
+    }
+    lane = str(token.get("entry_lane") or "").strip().lower()
+    if regime == "pump_early" and DRY_RUN and lane in paper_lane_defaults:
+        profile = paper_lane_defaults[lane]
+        token["entry_lane"] = lane
+        token["gate_profile"] = str(token.get("gate_profile") or profile)
+        token["sniper_gate_profile"] = str(token.get("sniper_gate_profile") or token["gate_profile"])
+        token["profit_lane_tier"] = str(token.get("profit_lane_tier") or lane)
+        token["lane_policy_category"] = str(token.get("lane_policy_category") or profile)
+        token["live_profit_gate_profile"] = str(token.get("live_profit_gate_profile") or token["gate_profile"])
+        token["live_profit_gate_failed_count"] = 0
+        token["live_profit_gate_failures"] = ""
+        return True, ""
+
     if regime == "pump_early":
         if _PUMP_EARLY_SNIPER_ENABLED:
             ok, reason = _tag_pump_sniper_gate(token, rank_info)
@@ -2698,6 +3136,13 @@ def _research_decision(
     shadow_kind: str | None = None,
     dedup_ttl_s: int | None = None,
 ) -> None:
+    _record_blocked_before_buy_metric(
+        token,
+        action=action,
+        reason=reason,
+        stage=stage,
+        shadow_kind=shadow_kind,
+    )
     try:
         research_runtime.record_candidate_decision(
             token,
@@ -2712,6 +3157,43 @@ def _research_decision(
         )
     except Exception as exc:
         log.debug("research decision %s %s %s → %s", action, reason, str(token.get("address") or "")[:6], exc)
+
+
+def _record_blocked_before_buy_metric(
+    token: dict,
+    *,
+    action: str,
+    reason: str,
+    stage: str,
+    shadow_kind: str | None = None,
+) -> None:
+    try:
+        action_norm = str(action or "").strip().lower()
+        stage_norm = str(stage or "").strip().lower()
+        if action_norm not in {"rejected", "wait", "shadow"} or stage_norm == "execution":
+            return
+        addr = str(token.get("address") or token.get("token_address") or token.get("mint") or "").strip()
+        key = f"{addr}:{stage_norm}:{action_norm}:{str(reason or '').strip().lower()}"
+        if not key or key in _blocked_before_buy_seen:
+            return
+        _blocked_before_buy_seen.add(key)
+        _stats["blocked_before_buy"] += 1
+        if action_norm == "shadow":
+            _stats["shadow_only"] += 1
+        record_runtime_event(
+            "blocked_before_buy",
+            addr,
+            action=action_norm,
+            reason=str(reason or ""),
+            stage=stage_norm,
+            shadow_kind=str(shadow_kind or ""),
+            entry_regime=str(token.get("entry_regime") or ""),
+            entry_lane=str(token.get("entry_lane") or ""),
+            gate_profile=str(token.get("gate_profile") or token.get("sniper_gate_profile") or ""),
+            paper_bootstrap=bool(_paper_bootstrap_active(token)),
+        )
+    except Exception:
+        pass
 
 
 async def _maybe_open_research_shadow(
@@ -3260,6 +3742,32 @@ async def _refresh_reports_once(
                 _runtime_reports_refresh_state = "idle"
 
 
+async def _run_autoresearch_once_from_control(payload: dict[str, object]) -> dict[str, object]:
+    if _autoresearch_lock.locked():
+        raise RuntimeError("autoresearch_already_running")
+
+    config = {
+        "enabled": True,
+        "max_candidates_per_cycle": max(1, int(payload.get("max_candidates") or 25)),
+        "max_parallel": max(1, int(payload.get("max_parallel") or 1)),
+        "batch_mode": str(payload.get("mode") or "seeded_random"),
+        "space": payload.get("space") or None,
+        "regenerate_reports": bool(payload.get("regenerate_reports")),
+        "force_cycle": bool(payload.get("force")),
+    }
+
+    async with _autoresearch_lock:
+        from research_loop.scheduler import run_autoresearch_cycle
+
+        result = await asyncio.to_thread(
+            lambda: run_autoresearch_cycle(
+                root=PROJECT_ROOT,
+                config=config,
+            )
+        )
+        return result.as_dict()
+
+
 async def _execute_control_command(command: dict[str, object]) -> tuple[str, dict[str, object] | None, str | None]:
     global _runtime_buys_paused, _runtime_discovery_paused
 
@@ -3321,6 +3829,17 @@ async def _execute_control_command(command: dict[str, object]) -> tuple[str, dic
             force=bool(payload.get("force")),
             include=payload.get("include"),
         )
+        return COMMAND_STATUS_DONE, result, None
+
+    if command_type == "run_autoresearch":
+        if _autoresearch_lock.locked():
+            return COMMAND_STATUS_REJECTED, {"reason": "autoresearch_already_running"}, "autoresearch_already_running"
+        result = await _run_autoresearch_once_from_control(payload)
+        result_status = str(result.get("status") or "")
+        log.info("Control command: autoresearch cycle status=%s cycle_id=%s", result_status, result.get("cycle_id"))
+        if result_status == "failed":
+            failures = result.get("failures") if isinstance(result.get("failures"), list) else []
+            return COMMAND_STATUS_FAILED, result, ";".join(str(item) for item in failures) or "autoresearch_failed"
         return COMMAND_STATUS_DONE, result, None
 
     if command_type == "set_log_level":
@@ -3978,6 +4497,14 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["strategy_version"] = str(getattr(CFG, "SNIPER_STRATEGY_VERSION", "2026-04-green-sniper-v1") or "")
     token["experiment_id"] = str(getattr(CFG, "SNIPER_EXPERIMENT_ID", "green_v1") or "")
     green_decision = None
+    shadow_followup_decision = None
+    shadow_followup_fast_path = False
+    paper_exploration_decision = None
+    paper_exploration_fast_path = False
+    paper_bootstrap_decision = None
+    paper_bootstrap_fast_path = False
+    sniper_micro_fallback_decision = None
+    sniper_micro_fallback_fast_path = False
     if str(token.get("entry_regime") or "").strip().lower() == "pump_early" and bool(getattr(CFG, "GREEN_SNIPER_ENABLED", True)):
         fast = enrich_fast(token)
         token.update(fast.token)
@@ -3987,43 +4514,70 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             apply_green_sniper_context(token, green_decision)
             schedule_social_enrichment(token, lane=green_decision.lane)
         if green_decision.action == "delay":
-            _research_decision(
+            paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
                 token,
-                action="wait",
-                reason=f"green_sniper:{green_decision.reason}",
-                stage="green_sniper",
-                dedup_ttl_s=30,
+                ses,
+                addr,
+                trigger_stage="green_sniper",
+                trigger_reason=f"delay:{green_decision.reason}",
             )
-            _requeue_with_stats(addr, reason=f"green_sniper:{green_decision.reason}", backoff=2, token=token)
-            return
+            paper_bootstrap_fast_path = bool(getattr(paper_bootstrap_decision, "allowed", False))
+            if paper_bootstrap_fast_path:
+                require_jup_for_buy = False
+                token["require_jupiter_for_buy"] = 0
+            else:
+                _research_decision(
+                    token,
+                    action="wait",
+                    reason=f"green_sniper:{green_decision.reason}",
+                    stage="green_sniper",
+                    dedup_ttl_s=30,
+                )
+                _requeue_with_stats(addr, reason=f"green_sniper:{green_decision.reason}", backoff=2, token=token)
+                return
         green_shadow_canary_continue = _green_shadow_can_continue_to_runner_canary(token, green_decision)
+        if _shadow_followup_micro_probe_allowed(token, green_fast_path=green_decision.action == "buy"):
+            shadow_followup_decision = evaluate_shadow_followup_micro(token, dry_run=DRY_RUN, live=not DRY_RUN)
         if (
             green_decision.action == "shadow"
             and not green_shadow_canary_continue
             and not evaluate_moonshot_micro_lottery(token, dry_run=DRY_RUN, live=not DRY_RUN).allowed
+            and not bool(shadow_followup_decision and shadow_followup_decision.allowed)
         ):
-            vec_shadow = build_feature_vector(token)
-            _research_decision(
+            paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
                 token,
-                action="shadow",
-                reason=f"green_sniper:{green_decision.reason}",
-                stage="green_sniper",
-                shadow_kind="green_sniper_reject_shadow",
-                dedup_ttl_s=120,
-            )
-            await _open_shadow(
+                ses,
                 addr,
-                vec_shadow,
-                price_hint=token.get("price_usd"),
-                force=True,
-                regime="pump_early",
-                reason=f"green_sniper:{green_decision.reason}",
-                stage="green_sniper",
-                shadow_kind="green_sniper_reject_shadow",
+                trigger_stage="green_sniper",
+                trigger_reason=f"shadow:{green_decision.reason}",
             )
-            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "green_shadow"))
-            _remove_from_queue_if_present(addr)
-            return
+            paper_bootstrap_fast_path = bool(getattr(paper_bootstrap_decision, "allowed", False))
+            if paper_bootstrap_fast_path:
+                require_jup_for_buy = False
+                token["require_jupiter_for_buy"] = 0
+            else:
+                vec_shadow = build_feature_vector(token)
+                _research_decision(
+                    token,
+                    action="shadow",
+                    reason=f"green_sniper:{green_decision.reason}",
+                    stage="green_sniper",
+                    shadow_kind="green_sniper_reject_shadow",
+                    dedup_ttl_s=120,
+                )
+                await _open_shadow(
+                    addr,
+                    vec_shadow,
+                    price_hint=token.get("price_usd"),
+                    force=True,
+                    regime="pump_early",
+                    reason=f"green_sniper:{green_decision.reason}",
+                    stage="green_sniper",
+                    shadow_kind="green_sniper_reject_shadow",
+                )
+                _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "green_shadow"))
+                _remove_from_queue_if_present(addr)
+                return
         if green_decision.action == "shadow" and green_shadow_canary_continue:
             _research_decision(
                 token,
@@ -4038,6 +4592,15 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     if moonshot_fast_path:
         apply_moonshot_micro_lottery_context(token, moonshot_decision)
         token.setdefault("require_jupiter_for_buy", 0)
+    if not (green_fast_path or moonshot_fast_path) and _shadow_followup_micro_probe_allowed(token):
+        if shadow_followup_decision is None:
+            shadow_followup_decision = evaluate_shadow_followup_micro(token, dry_run=DRY_RUN, live=not DRY_RUN)
+        shadow_followup_fast_path = bool(shadow_followup_decision.allowed)
+        if shadow_followup_fast_path:
+            apply_shadow_followup_micro_context(token, shadow_followup_decision)
+            if shadow_followup_decision.route_proxy:
+                require_jup_for_buy = False
+            token["require_jupiter_for_buy"] = int(require_jup_for_buy)
     if green_fast_path:
         require_jup_for_buy = bool(
             getattr(CFG, "GREEN_SNIPER_REQUIRE_ROUTE_LIVE", True)
@@ -4055,6 +4618,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         token["score_total"] = filters.total_score(token)
     else:
         token["social_ok"] = await socials.has_socials(addr)
+    sniper_micro_fallback_probe = _sniper_research_micro_fallback_probe_allowed(token)
     if not (green_fast_path and DRY_RUN and bool(getattr(CFG, "PAPER_SNIPER_MODE", False))):
         try:
             token["trend"], token["trend_fallback_used"] = await trend.trend_signal(addr)
@@ -4071,7 +4635,36 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         token["score_total"] = filters.total_score(token)
 
     # 7) — filtro duro —
-    if (not (green_fast_path or moonshot_fast_path)) and filters.basic_filters(token) is not True:
+    basic_filter_result = filters.basic_filters(token)
+    if (
+        not (
+            green_fast_path
+            or moonshot_fast_path
+            or shadow_followup_fast_path
+            or sniper_micro_fallback_probe
+            or paper_bootstrap_fast_path
+        )
+    ) and basic_filter_result is not True:
+        paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
+            token,
+            ses,
+            addr,
+            trigger_stage="basic_filter",
+            trigger_reason="basic_filter",
+        )
+        paper_bootstrap_fast_path = bool(getattr(paper_bootstrap_decision, "allowed", False))
+        if paper_bootstrap_fast_path:
+            require_jup_for_buy = False
+            token["require_jupiter_for_buy"] = 0
+    if (
+        not (
+            green_fast_path
+            or moonshot_fast_path
+            or shadow_followup_fast_path
+            or sniper_micro_fallback_probe
+            or paper_bootstrap_fast_path
+        )
+    ) and basic_filter_result is not True:
         attempts = int((meta := lista_pares.meta(addr) or {}).get("attempts", 0))
         keep, delay, reason = requeue_policy.decide(token, attempts,
                                                     meta.get("first_seen", time.time()))
@@ -4123,7 +4716,17 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             return
         apply_moonshot_micro_lottery_context(token, moonshot_decision)
 
-    quality_ok, quality_reason = (True, "") if (green_fast_path or moonshot_fast_path) else filters.snapshot_quality_gate(token)
+    quality_ok, quality_reason = (
+        (True, "")
+        if (
+            green_fast_path
+            or moonshot_fast_path
+            or shadow_followup_fast_path
+            or sniper_micro_fallback_probe
+            or paper_bootstrap_fast_path
+        )
+        else filters.snapshot_quality_gate(token)
+    )
     if not quality_ok:
         log.debug("🧱 Snapshot quality gate: %s (%s)", addr[:6], quality_reason or "blocked")
         _stats["filtered_out"] += 1
@@ -4156,6 +4759,53 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         moonshot_decision = evaluate_moonshot_micro_lottery(token, dry_run=DRY_RUN, live=not DRY_RUN)
         if moonshot_decision.allowed:
             apply_moonshot_micro_lottery_context(token, moonshot_decision)
+    if (
+        shadow_followup_fast_path
+        or _shadow_followup_micro_probe_allowed(
+            token,
+            green_fast_path=green_fast_path,
+            moonshot_fast_path=moonshot_fast_path,
+        )
+    ):
+        shadow_followup_was_fast_path = bool(shadow_followup_fast_path)
+        shadow_followup_decision = evaluate_shadow_followup_micro(token, dry_run=DRY_RUN, live=not DRY_RUN)
+        if _shadow_followup_micro_event_worthy(token, shadow_followup_decision):
+            _record_shadow_followup_micro_event("shadow_followup_micro_eval", addr, token, shadow_followup_decision)
+        if shadow_followup_decision.allowed and not (green_fast_path or moonshot_fast_path):
+            shadow_followup_fast_path = True
+            apply_shadow_followup_micro_context(token, shadow_followup_decision)
+            if shadow_followup_decision.route_proxy:
+                require_jup_for_buy = False
+            token["require_jupiter_for_buy"] = int(require_jup_for_buy)
+            _record_shadow_followup_micro_event("shadow_followup_micro_allowed", addr, token, shadow_followup_decision)
+        elif shadow_followup_was_fast_path:
+            _record_shadow_followup_micro_event("shadow_followup_micro_blocked", addr, token, shadow_followup_decision)
+            _stats["filtered_out"] += 1
+            vec_shadow = build_feature_vector(token)
+            _store_policy_reject(vec_shadow, already_vector=True, reason=shadow_followup_decision.reason)
+            _research_decision(
+                token,
+                action="shadow",
+                reason=shadow_followup_decision.reason,
+                stage="shadow_followup_micro",
+                shadow_kind="shadow_followup_micro",
+                dedup_ttl_s=300,
+            )
+            await _open_shadow(
+                addr,
+                vec_shadow,
+                price_hint=token.get("price_usd"),
+                force=True,
+                regime="pump_early",
+                reason=shadow_followup_decision.reason,
+                stage="shadow_followup_micro",
+                shadow_kind="shadow_followup_micro",
+            )
+            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+            _remove_from_queue_if_present(addr)
+            return
+        elif _shadow_followup_micro_event_worthy(token, shadow_followup_decision):
+            _record_shadow_followup_micro_event("shadow_followup_micro_blocked", addr, token, shadow_followup_decision)
 
     # 9) — IA + soft score gate —
     vec = build_feature_vector(token)
@@ -4206,33 +4856,55 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     elif bool(getattr(research_canary_decision, "shadow_as_own_lane", False)):
         apply_research_rank_canary_shadow_context(token, research_canary_decision)
         vec = build_feature_vector(token)
-        _research_decision(
-            token,
-            action="shadow",
-            reason=research_canary_decision.reason,
-            stage="research_rank_canary",
-            proba=proba,
-            threshold=ai_threshold_eff,
-            rank_info=rank_info,
-            shadow_kind="shadow_rank_canary",
-            dedup_ttl_s=300,
-        )
-        await _open_shadow(
-            addr,
-            vec,
-            price_hint=token.get("price_usd"),
-            force=True,
-            regime="pump_early",
-            reason=research_canary_decision.reason,
-            stage="research_rank_canary",
-            proba=proba,
-            threshold=ai_threshold_eff,
-            rank_info=rank_info,
-            shadow_kind="shadow_rank_canary",
-        )
-        _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
-        _remove_from_queue_if_present(addr)
-        return
+        paper_exploration_decision = await _maybe_apply_paper_exploration_quota(token, ses, addr)
+        paper_exploration_fast_path = bool(getattr(paper_exploration_decision, "allowed", False))
+        if paper_exploration_fast_path:
+            vec = build_feature_vector(token)
+            vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+            rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+            require_jup_for_buy = False
+        else:
+            paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
+                token,
+                ses,
+                addr,
+                trigger_stage="research_rank_canary",
+                trigger_reason=str(research_canary_decision.reason or "shadow_rank_canary"),
+            )
+            paper_bootstrap_fast_path = bool(getattr(paper_bootstrap_decision, "allowed", False))
+            if paper_bootstrap_fast_path:
+                require_jup_for_buy = False
+                vec = build_feature_vector(token)
+                vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+                rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+        if not paper_bootstrap_fast_path and not paper_exploration_fast_path:
+            _research_decision(
+                token,
+                action="shadow",
+                reason=research_canary_decision.reason,
+                stage="research_rank_canary",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="shadow_rank_canary",
+                dedup_ttl_s=300,
+            )
+            await _open_shadow(
+                addr,
+                vec,
+                price_hint=token.get("price_usd"),
+                force=True,
+                regime="pump_early",
+                reason=research_canary_decision.reason,
+                stage="research_rank_canary",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="shadow_rank_canary",
+            )
+            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+            _remove_from_queue_if_present(addr)
+            return
     if str(token.get("entry_lane") or "").strip().lower() == "pump_early_green_candle_sniper":
         green_rank_guard = evaluate_green_sniper_rank_guard(rank_info)
         token["green_sniper_rank_score"] = float(green_rank_guard.rank_score)
@@ -4334,7 +5006,43 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         score_total=_metric_int(token, "score_total"),
     )
     log_ml_policy_decision_event(addr, ml_decision, base_rules_passed=True)
-    if not ml_decision.allow_buy and not moonshot_fast_path:
+    if not ml_decision.allow_buy and not (
+        moonshot_fast_path
+        or shadow_followup_fast_path
+        or paper_exploration_fast_path
+        or paper_bootstrap_fast_path
+        or sniper_micro_fallback_probe
+        or sniper_micro_fallback_fast_path
+    ):
+        paper_exploration_decision = await _maybe_apply_paper_exploration_quota(token, ses, addr)
+        paper_exploration_fast_path = bool(getattr(paper_exploration_decision, "allowed", False))
+        if paper_exploration_fast_path:
+            require_jup_for_buy = False
+            vec = build_feature_vector(token)
+            vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+            rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+        else:
+            paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
+                token,
+                ses,
+                addr,
+                trigger_stage="ml_policy",
+                trigger_reason=str(ml_decision.reason or "ml_policy"),
+            )
+            paper_bootstrap_fast_path = bool(getattr(paper_bootstrap_decision, "allowed", False))
+            if paper_bootstrap_fast_path:
+                require_jup_for_buy = False
+                vec = build_feature_vector(token)
+                vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+                rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+    if not ml_decision.allow_buy and not (
+        moonshot_fast_path
+        or shadow_followup_fast_path
+        or paper_exploration_fast_path
+        or paper_bootstrap_fast_path
+        or sniper_micro_fallback_probe
+        or sniper_micro_fallback_fast_path
+    ):
         _stats["filtered_out"] += 1
         reject_reason = f"ml_policy:{ml_decision.reason}"
         _store_policy_reject(vec, already_vector=True, reason=reject_reason)
@@ -4368,17 +5076,55 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     soft_score_min_eff = filters.effective_soft_score_min(token, BUY_SOFT_SCORE_MIN)
     sniper_gate_ok_preview = bool(
         _PUMP_EARLY_SNIPER_ENABLED
-        and str(token.get("entry_lane") or "").strip().lower()
-        in {
-            "pump_early_sniper",
-            "pump_early_pumpswap_profit",
-            "pump_early_green_candle_sniper",
-            "pump_early_research_rank_canary",
-            "pump_early_late_momentum_watch",
-            "pump_early_moonshot_micro_lottery",
-        }
-        and _metric_int(token, "live_profit_gate_failed_count") == 0
+        and (
+            sniper_micro_fallback_probe
+            or sniper_micro_fallback_fast_path
+            or (
+                str(token.get("entry_lane") or "").strip().lower()
+                in {
+                    "pump_early_sniper",
+                    "pump_early_pumpswap_profit",
+                    "pump_early_green_candle_sniper",
+                    "pump_early_research_rank_canary",
+                    "pump_early_late_momentum_watch",
+                    "pump_early_moonshot_micro_lottery",
+                    "pump_early_shadow_followup_micro",
+                    "pump_early_paper_exploration_micro",
+                    _PAPER_BOOTSTRAP_LANE,
+                    _SNIPER_RESEARCH_MICRO_FALLBACK_LANE,
+                }
+                and _metric_int(token, "live_profit_gate_failed_count") == 0
+            )
+        )
     )
+    if (
+        not sniper_gate_ok_preview
+        and soft_score_min_eff > 0
+        and _metric_int(token, "score_total") < int(soft_score_min_eff)
+    ):
+        paper_exploration_decision = await _maybe_apply_paper_exploration_quota(token, ses, addr)
+        paper_exploration_fast_path = bool(getattr(paper_exploration_decision, "allowed", False))
+        if paper_exploration_fast_path:
+            require_jup_for_buy = False
+            vec = build_feature_vector(token)
+            vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+            rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+            sniper_gate_ok_preview = True
+        else:
+            paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
+                token,
+                ses,
+                addr,
+                trigger_stage="soft_score",
+                trigger_reason=f"score<{int(soft_score_min_eff)}",
+            )
+            paper_bootstrap_fast_path = bool(getattr(paper_bootstrap_decision, "allowed", False))
+            if paper_bootstrap_fast_path:
+                require_jup_for_buy = False
+                vec = build_feature_vector(token)
+                vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+                rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+                sniper_gate_ok_preview = True
     if (
         not sniper_gate_ok_preview
         and soft_score_min_eff > 0
@@ -4448,7 +5194,16 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         has_route=route_probe.get("has_route"),
     )
     green_paper_health_bypass = bool(
-        (green_fast_path or research_rank_canary_fast_path or moonshot_fast_path)
+        (
+            green_fast_path
+            or research_rank_canary_fast_path
+            or moonshot_fast_path
+            or shadow_followup_fast_path
+            or paper_exploration_fast_path
+            or paper_bootstrap_fast_path
+            or sniper_micro_fallback_probe
+            or sniper_micro_fallback_fast_path
+        )
         and DRY_RUN
         and bool(getattr(CFG, "PAPER_SNIPER_MODE", False))
         and bool(getattr(CFG, "PAPER_SNIPER_CONTINUE_ON_HEALTH", True))
@@ -4539,7 +5294,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             strategy_decision.reason,
             size_decision.multiplier,
         )
-    if strategy_decision.action == "live" and not quality_ok_live:
+    if strategy_decision.action == "live" and not quality_ok_live and not paper_bootstrap_fast_path:
         rebound_shadow_watch = (
             str(token.get("pumpswap_rebound_confirmation_reason") or "").strip() == "shadow_rebound_watch"
             or str(token.get("blocked_bucket") or "").strip() == "shadow_rebound_watch"
@@ -4697,6 +5452,26 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     lane_capacity_ok, lane_open, lane_cap = await _lane_capacity(ses, token.get("entry_lane"))
     if not lane_capacity_ok:
         lane = str(token.get("entry_lane") or "unknown")
+        if lane.strip().lower() == _SHADOW_FOLLOWUP_MICRO_LANE:
+            _record_shadow_followup_micro_event(
+                "shadow_followup_micro_blocked",
+                addr,
+                token,
+                shadow_followup_decision,
+                reason=f"lane_cap:{lane}",
+                open_count=int(lane_open),
+                cap=int(lane_cap),
+            )
+        if lane.strip().lower() == _SNIPER_RESEARCH_MICRO_FALLBACK_LANE:
+            _record_sniper_research_micro_fallback_event(
+                "sniper_research_micro_fallback_blocked",
+                addr,
+                token,
+                sniper_micro_fallback_decision,
+                reason=f"lane_cap:{lane}",
+                open_count=int(lane_open),
+                cap=int(lane_cap),
+            )
         log.info(
             "Lane exposure gate: %s lane=%s open=%d cap=%d",
             addr[:6],
@@ -4762,6 +5537,15 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     if str(token.get("entry_lane") or "").strip().lower() == "pump_early_shadow_followup_micro":
         daily_ok, daily_count, daily_cap = await _shadow_followup_micro_daily_capacity(ses)
         if not daily_ok:
+            _record_shadow_followup_micro_event(
+                "shadow_followup_micro_blocked",
+                addr,
+                token,
+                shadow_followup_decision,
+                reason="shadow_followup_micro_daily_cap",
+                daily_count=int(daily_count),
+                daily_cap=int(daily_cap),
+            )
             _research_decision(
                 token,
                 action="wait",
@@ -4780,30 +5564,68 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             )
             return
 
-    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_sniper_research":
+    if str(token.get("entry_lane") or "").strip().lower() in {"pump_early_sniper_research", _SNIPER_RESEARCH_MICRO_FALLBACK_LANE}:
         subprofile_decision = evaluate_sniper_research_subprofile(token)
         apply_sniper_research_subprofile_context(token, subprofile_decision)
+        if (
+            str(getattr(subprofile_decision, "subprofile", "") or "").strip().lower()
+            == "sniper_research_micro_fallback"
+        ):
+            sniper_micro_fallback_decision = subprofile_decision
+            sniper_micro_fallback_fast_path = bool(subprofile_decision.allowed)
+            _record_sniper_research_micro_fallback_event(
+                "sniper_research_micro_fallback_eval",
+                addr,
+                token,
+                subprofile_decision,
+            )
+            if subprofile_decision.allowed:
+                require_jup_for_buy = True
+                token["require_jupiter_for_buy"] = 1
+                _record_sniper_research_micro_fallback_event(
+                    "sniper_research_micro_fallback_allowed",
+                    addr,
+                    token,
+                    subprofile_decision,
+                )
         vec = build_feature_vector(token)
         vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
         if not subprofile_decision.allowed:
-            hours_without_buy, exploration_open, exploration_daily = await _paper_exploration_quota_state(ses)
-            exploration_decision = should_allow_paper_exploration(
-                token,
-                hours_without_buy=hours_without_buy,
-                open_count=exploration_open,
-                daily_buys=exploration_daily,
-            )
-            if exploration_decision.allowed:
-                token["paper_exploration_quota"] = 1
-                token["green_sniper_reason"] = exploration_decision.reason
-                token["sniper_research_subprofile"] = "sniper_research_momentum_ignition"
-                token["entry_subprofile"] = "sniper_research_momentum_ignition"
-                token["sniper_research_subprofile_reason"] = exploration_decision.reason
+            if str(subprofile_decision.reason).startswith("sniper_research_micro_fallback_not_matched"):
+                _record_sniper_research_micro_fallback_event(
+                    "sniper_research_micro_fallback_blocked",
+                    addr,
+                    token,
+                    subprofile_decision,
+                )
+            paper_exploration_decision = await _maybe_apply_paper_exploration_quota(token, ses, addr)
+            paper_exploration_fast_path = bool(getattr(paper_exploration_decision, "allowed", False))
+            if paper_exploration_fast_path:
+                token["sniper_research_subprofile"] = "paper_exploration_quota"
+                token["entry_subprofile"] = "paper_exploration_quota"
                 token["sniper_research_subprofile_failures"] = ""
-                token["live_profit_gate_failed_count"] = 0
-                token["live_profit_gate_failures"] = ""
+                require_jup_for_buy = False
+                vec = build_feature_vector(token)
+                vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
                 rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
             else:
+                paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
+                    token,
+                    ses,
+                    addr,
+                    trigger_stage="sniper_research_subprofile",
+                    trigger_reason=str(subprofile_decision.reason or "subprofile_not_allowed"),
+                )
+                paper_bootstrap_fast_path = bool(getattr(paper_bootstrap_decision, "allowed", False))
+                if paper_bootstrap_fast_path:
+                    token["sniper_research_subprofile"] = POLICY_PAPER_BOOTSTRAP
+                    token["entry_subprofile"] = POLICY_PAPER_BOOTSTRAP
+                    token["sniper_research_subprofile_failures"] = ""
+                    require_jup_for_buy = False
+                    vec = build_feature_vector(token)
+                    vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+                    rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
+            if not paper_bootstrap_fast_path and not paper_exploration_fast_path:
                 _stats["filtered_out"] += 1
                 _store_policy_reject(vec, already_vector=True, reason=subprofile_decision.reason)
                 _research_decision(
@@ -4833,7 +5655,11 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
                 _remove_from_queue_if_present(addr)
                 return
-        if not subprofile_decision.allowed and not bool(token.get("paper_exploration_quota")):
+        if (
+            not subprofile_decision.allowed
+            and not bool(token.get("paper_exploration_quota"))
+            and not bool(token.get("paper_bootstrap"))
+        ):
             _stats["filtered_out"] += 1
             _store_policy_reject(vec, already_vector=True, reason=subprofile_decision.reason)
             _research_decision(
@@ -4866,9 +5692,69 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         if subprofile_decision.allowed:
             rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
 
+    if str(token.get("entry_lane") or "").strip().lower() == _SNIPER_RESEARCH_MICRO_FALLBACK_LANE:
+        fallback_lane_ok, fallback_open, fallback_cap = await _lane_capacity(ses, _SNIPER_RESEARCH_MICRO_FALLBACK_LANE)
+        if not fallback_lane_ok:
+            _record_sniper_research_micro_fallback_event(
+                "sniper_research_micro_fallback_blocked",
+                addr,
+                token,
+                sniper_micro_fallback_decision,
+                reason=f"lane_cap:{_SNIPER_RESEARCH_MICRO_FALLBACK_LANE}",
+                open_count=int(fallback_open),
+                cap=int(fallback_cap),
+            )
+            _research_decision(
+                token,
+                action="wait",
+                reason="sniper_research_micro_fallback_lane_cap",
+                stage="capacity",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                dedup_ttl_s=900,
+            )
+            _requeue_with_stats(
+                addr,
+                reason=f"sniper_research_micro_fallback_lane_cap:{fallback_open}/{fallback_cap}",
+                backoff=900,
+                token=token,
+            )
+            return
+        daily_ok, daily_count, daily_cap = await _sniper_research_micro_fallback_daily_capacity(ses)
+        if not daily_ok:
+            _record_sniper_research_micro_fallback_event(
+                "sniper_research_micro_fallback_blocked",
+                addr,
+                token,
+                sniper_micro_fallback_decision,
+                reason="sniper_research_micro_fallback_daily_cap",
+                daily_count=int(daily_count),
+                daily_cap=int(daily_cap),
+            )
+            _research_decision(
+                token,
+                action="wait",
+                reason="sniper_research_micro_fallback_daily_cap",
+                stage="capacity",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                dedup_ttl_s=900,
+            )
+            _requeue_with_stats(
+                addr,
+                reason=f"sniper_research_micro_fallback_daily_cap:{daily_count}/{daily_cap}",
+                backoff=900,
+                token=token,
+            )
+            return
+
     if bool(getattr(CFG, "REQUIRE_ENTRY_LANE_FOR_BUY", True)):
         untagged_decision = evaluate_untagged_buy_guard(token)
-        if not untagged_decision.allowed:
+        if untagged_decision.allowed and untagged_decision.reason == "untagged_real_liquidity_breakout":
+            apply_untagged_breakout_context(token, untagged_decision)
+        elif not untagged_decision.allowed:
             _stats["filtered_out"] += 1
             apply_untagged_buy_shadow_context(token, untagged_decision)
             vec = build_feature_vector(token)
@@ -4953,24 +5839,42 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
     # 10) — importe —
     amount_sol = _compute_trade_amount(size_decision.multiplier)
-    if green_size_decision is not None:
-        amount_sol = float(green_size_decision.amount_sol)
-    if research_rank_canary_fast_path:
-        amount_sol = float(research_canary_decision.amount_sol)
-    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_birth_probe_micro_canary":
-        amount_sol = float(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_AMOUNT_SOL", 0.01) or 0.01)
     lane_for_amount = str(token.get("entry_lane") or "").strip().lower()
-    if lane_for_amount == "pump_early_moonshot_micro_lottery":
-        amount_sol = min(
-            float(
+    fixed_trade_amount_enabled = bool(getattr(CFG, "LANE_SIZING_FIXED_TRADE_AMOUNT_ENABLED", True))
+    if not fixed_trade_amount_enabled:
+        if green_size_decision is not None:
+            amount_sol = float(green_size_decision.amount_sol)
+        if research_rank_canary_fast_path:
+            amount_sol = float(research_canary_decision.amount_sol)
+        if lane_for_amount == "pump_early_birth_probe_micro_canary":
+            amount_sol = float(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_AMOUNT_SOL", 0.01) or 0.01)
+        if lane_for_amount == "pump_early_moonshot_micro_lottery":
+            amount_sol = float(
                 token.get("moonshot_micro_lottery_amount_sol")
                 or getattr(CFG, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001)
                 or 0.001
-            ),
-            0.001,
-        )
-    if bool(token.get("paper_exploration_quota")):
-        amount_sol = min(float(getattr(CFG, "PAPER_IDLE_AMOUNT_SOL", 0.002) or 0.002), 0.002)
+            )
+        if bool(token.get("paper_exploration_quota")):
+            amount_sol = float(
+                token.get("paper_exploration_quota_amount_sol")
+                or getattr(CFG, "PAPER_IDLE_AMOUNT_SOL", 0.1)
+                or 0.1
+            )
+        if bool(token.get("paper_bootstrap")) or lane_for_amount == _PAPER_BOOTSTRAP_LANE:
+            amount_sol = min(
+                float(
+                    token.get("paper_bootstrap_amount_sol")
+                    or getattr(CFG, "PAPER_BOOTSTRAP_AMOUNT_SOL", 0.1)
+                    or 0.1
+                ),
+                float(getattr(CFG, "PAPER_BOOTSTRAP_MAX_AMOUNT_SOL", 0.1) or 0.1),
+            )
+        if lane_for_amount == _SNIPER_RESEARCH_MICRO_FALLBACK_LANE:
+            amount_sol = float(
+                token.get("sniper_research_micro_fallback_amount_sol")
+                or getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_AMOUNT_SOL", 0.003)
+                or 0.003
+            )
     lane_size_decision = resolve_lane_buy_amount(
         token,
         computed_amount_sol=float(amount_sol),
@@ -4992,9 +5896,13 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 "pump_early_moonshot_micro_lottery",
                 "pump_early_research_rank_canary",
                 "pump_early_shadow_followup_micro",
+                "pump_early_paper_exploration_micro",
+                _PAPER_BOOTSTRAP_LANE,
+                _SNIPER_RESEARCH_MICRO_FALLBACK_LANE,
                 "pump_early_late_momentum_watch",
             }
             or bool(token.get("paper_exploration_quota"))
+            or bool(token.get("paper_bootstrap"))
         )
     )
     effective_min_buy_sol = (
@@ -5033,6 +5941,36 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         return
 
     # 11) — Persistir TOKEN (NaN→0.0 saneados) —
+    # Paper exposure guard runs before token persistence and buy execution.
+    if DRY_RUN:
+        max_paper_invested = max(0.0, _to_float(getattr(CFG, "PAPER_MAX_INVESTED_SOL", 3.0), 3.0) or 0.0)
+        if max_paper_invested > 0.0:
+            paper_open_invested = await _paper_open_invested_sol(ses)
+            paper_available = max_paper_invested - paper_open_invested
+            token["paper_open_invested_sol"] = float(paper_open_invested)
+            token["paper_max_invested_sol"] = float(max_paper_invested)
+            token["paper_available_invested_sol"] = float(max(0.0, paper_available))
+            if paper_available + 1e-9 < amount_sol:
+                log.info(
+                    "BUY paper aplazado: exposicion %.3f/%.3f SOL, compra %.3f SOL",
+                    paper_open_invested,
+                    max_paper_invested,
+                    amount_sol,
+                )
+                _pending_ai_vectors.pop(addr, None)
+                _research_decision(
+                    token,
+                    action="wait",
+                    reason="paper_max_invested_sol",
+                    stage="execution_guard",
+                    proba=proba,
+                    threshold=ai_threshold_eff,
+                    rank_info=rank_info,
+                    dedup_ttl_s=60,
+                )
+                _requeue_with_stats(addr, reason="paper_max_invested_sol", backoff=60, token=token)
+                return
+
     try:
         token.setdefault("discovered_via", "dex")
         token.setdefault("discovered_at", utc_now())
@@ -5185,6 +6123,18 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         return
 
     # 13) — BUY —
+    if DRY_RUN:
+        token["_actual_paper_buy_attempted"] = 1
+        _stats["actual_paper_buy_attempts"] += 1
+        _record_paper_bootstrap_event(
+            "actual_paper_buy_attempt",
+            addr,
+            token,
+            paper_bootstrap_decision,
+            amount_sol=float(amount_sol),
+            require_jupiter_for_buy=bool(require_jup_for_buy),
+            paper_bootstrap=bool(paper_bootstrap_fast_path or token.get("paper_bootstrap")),
+        )
     try:
         if DRY_RUN:
             buy_resp = await buyer.buy(
@@ -5201,6 +6151,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 strategy_version=token.get("strategy_version"),
                 experiment_id=token.get("experiment_id"),
                 config_hash=_config_hash(),
+                require_jupiter_for_buy=bool(require_jup_for_buy),
             )
         else:
             buy_resp = await buyer.buy(
@@ -5258,6 +6209,19 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     buy_venue = str(buy_resp.get("venue") or "")
 
     if qty_lp <= 0:
+        if DRY_RUN:
+            _record_paper_bootstrap_event(
+                "actual_paper_buy_failed",
+                addr,
+                token,
+                paper_bootstrap_decision,
+                amount_sol=float(amount_sol),
+                reason="buy_zero_qty",
+                signature=buy_sig or None,
+                venue=buy_venue or None,
+                price_source=price_src or None,
+                paper_bootstrap=bool(paper_bootstrap_fast_path or token.get("paper_bootstrap")),
+            )
         strategy_runtime.record_execution(size_decision.regime, False)
         log_execution_event(
             addr,
@@ -5295,6 +6259,21 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         return
 
     strategy_runtime.record_execution(size_decision.regime, True)
+    if DRY_RUN:
+        _stats["actual_paper_buys"] += 1
+        _record_paper_bootstrap_event(
+            "actual_paper_buy",
+            addr,
+            token,
+            paper_bootstrap_decision,
+            amount_sol=float(amount_sol),
+            qty_lamports=int(qty_lp),
+            buy_price_usd=float(price_usd or 0.0),
+            signature=buy_sig or None,
+            venue=buy_venue or None,
+            price_source=price_src or None,
+            paper_bootstrap=bool(paper_bootstrap_fast_path or token.get("paper_bootstrap")),
+        )
     log_execution_event(
         addr,
         regime=size_decision.regime,
@@ -5414,6 +6393,38 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         size_multiplier=float(size_decision.multiplier),
         size_bucket=size_decision.bucket,
     )
+    if str(token.get("entry_lane") or "").strip().lower() == _SHADOW_FOLLOWUP_MICRO_LANE:
+        _record_shadow_followup_micro_event(
+            "shadow_followup_micro_buy",
+            addr,
+            token,
+            shadow_followup_decision,
+            amount_sol=float(amount_sol),
+            route_proxy=bool(token.get("route_proxy")),
+            selected_lane=str(token.get("pump_entry_selected_lane") or ""),
+            selector_reason=str(token.get("pump_entry_lane_selector_reason") or ""),
+        )
+    if str(token.get("entry_lane") or "").strip().lower() == "pump_early_paper_exploration_micro":
+        _record_paper_exploration_quota_event(
+            "paper_exploration_quota_buy",
+            addr,
+            token,
+            paper_exploration_decision,
+            amount_sol=float(amount_sol),
+            route_proxy=bool(token.get("route_proxy")),
+            selected_lane=str(token.get("pump_entry_selected_lane") or ""),
+            selector_reason=str(token.get("pump_entry_lane_selector_reason") or ""),
+        )
+    if str(token.get("entry_lane") or "").strip().lower() == _SNIPER_RESEARCH_MICRO_FALLBACK_LANE:
+        _record_sniper_research_micro_fallback_event(
+            "sniper_research_micro_fallback_buy",
+            addr,
+            token,
+            sniper_micro_fallback_decision,
+            amount_sol=float(amount_sol),
+            selected_lane=str(token.get("pump_entry_selected_lane") or ""),
+            selector_reason=str(token.get("pump_entry_lane_selector_reason") or ""),
+        )
     _remove_from_queue_if_present(addr)
 
 
@@ -5487,6 +6498,9 @@ async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[boo
         "pump_early_birth_probe_micro_canary",
         "pump_early_moonshot_micro_lottery",
         "pump_early_shadow_followup_micro",
+        "pump_early_paper_exploration_micro",
+        _PAPER_BOOTSTRAP_LANE,
+        _SNIPER_RESEARCH_MICRO_FALLBACK_LANE,
         "pump_early_research_rank_canary",
         "pump_early_late_momentum_watch",
     }:
@@ -5497,6 +6511,9 @@ async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[boo
         "pump_early_birth_probe_micro_canary",
         "pump_early_moonshot_micro_lottery",
         "pump_early_shadow_followup_micro",
+        "pump_early_paper_exploration_micro",
+        _PAPER_BOOTSTRAP_LANE,
+        _SNIPER_RESEARCH_MICRO_FALLBACK_LANE,
         "pump_early_research_rank_canary",
         "pump_early_late_momentum_watch",
     }:
@@ -5506,7 +6523,12 @@ async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[boo
             dry_run=DRY_RUN,
             live=not DRY_RUN,
         )
-        return decision.allowed, decision.open_count, min(int(CFG.MAX_ACTIVE_POSITIONS), max(1, int(decision.cap or 1)))
+        display_cap = int(decision.cap or 0)
+        if display_cap > 0:
+            max_active = _cfg_int_preserve_zero("MAX_ACTIVE_POSITIONS", int(CFG.MAX_ACTIVE_POSITIONS))
+            if max_active > 0:
+                display_cap = min(max_active, display_cap)
+        return decision.allowed, decision.open_count, display_cap
     current = sum(1 for value in open_lanes if value == lane)
     if lane == "pump_early_pumpswap_breakout_probe":
         limit = (
@@ -5516,20 +6538,25 @@ async def _lane_capacity(ses: SessionLocal, entry_lane: str | None) -> tuple[boo
         )
     else:
         limit = (
-            int(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2) or 2)
+            _cfg_int_preserve_zero("PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 0)
             if DRY_RUN
-            else int(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY", 1) or 1)
+            else _cfg_int_preserve_zero("PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY", 0)
         )
-    limit = min(int(CFG.MAX_ACTIVE_POSITIONS), max(1, int(limit or 1)))
+    limit = int(limit)
+    if limit <= 0:
+        return True, current, 0
+    max_active = _cfg_int_preserve_zero("MAX_ACTIVE_POSITIONS", int(CFG.MAX_ACTIVE_POSITIONS))
+    if max_active > 0:
+        limit = min(max_active, limit)
     return current < limit, current, limit
 
 
 async def _birth_probe_micro_daily_capacity(ses: SessionLocal) -> tuple[bool, int, int]:
-    if not DRY_RUN:
+    if not DRY_RUN and not bool(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED", False)):
         return False, 0, 0
-    max_daily = max(0, int(getattr(CFG, "BIRTH_PROBE_MICRO_CANARY_MAX_DAILY_BUYS", 5) or 5))
+    max_daily = max(0, _cfg_int_preserve_zero("BIRTH_PROBE_MICRO_CANARY_MAX_DAILY_BUYS", 0))
     if max_daily <= 0:
-        return False, 0, 0
+        return True, 0, 0
     start = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     stmt = select(func.count()).select_from(Position).where(
         Position.entry_lane == "pump_early_birth_probe_micro_canary",
@@ -5540,13 +6567,11 @@ async def _birth_probe_micro_daily_capacity(ses: SessionLocal) -> tuple[bool, in
 
 
 async def _moonshot_micro_daily_capacity(ses: SessionLocal) -> tuple[bool, int, int]:
-    if not DRY_RUN:
+    if not DRY_RUN and not bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED", False)):
         return False, 0, 0
-    if bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED", False)):
-        return False, 0, 0
-    max_daily = max(0, int(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MAX_DAILY_BUYS", 3) or 3))
+    max_daily = max(0, _cfg_int_preserve_zero("MOONSHOT_MICRO_LOTTERY_MAX_DAILY_BUYS", 0))
     if max_daily <= 0:
-        return False, 0, 0
+        return True, 0, 0
     start = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     stmt = select(func.count()).select_from(Position).where(
         Position.entry_lane == "pump_early_moonshot_micro_lottery",
@@ -5557,16 +6582,29 @@ async def _moonshot_micro_daily_capacity(ses: SessionLocal) -> tuple[bool, int, 
 
 
 async def _shadow_followup_micro_daily_capacity(ses: SessionLocal) -> tuple[bool, int, int]:
-    if not DRY_RUN:
+    if not DRY_RUN and not bool(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED", False)):
         return False, 0, 0
-    if bool(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED", False)):
-        return False, 0, 0
-    max_daily = max(0, int(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_MAX_DAILY_BUYS", 5) or 5))
+    max_daily = max(0, _cfg_int_preserve_zero("SHADOW_FOLLOWUP_MICRO_MAX_DAILY_BUYS", 0))
     if max_daily <= 0:
-        return False, 0, 0
+        return True, 0, 0
     start = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     stmt = select(func.count()).select_from(Position).where(
         Position.entry_lane == "pump_early_shadow_followup_micro",
+        Position.opened_at >= start,
+    )
+    count = int((await ses.execute(stmt)).scalar() or 0)
+    return count < max_daily, count, max_daily
+
+
+async def _sniper_research_micro_fallback_daily_capacity(ses: SessionLocal) -> tuple[bool, int, int]:
+    if not DRY_RUN and not bool(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_LIVE_ENABLED", False)):
+        return False, 0, 0
+    max_daily = max(0, _cfg_int_preserve_zero("SNIPER_RESEARCH_MICRO_FALLBACK_MAX_DAILY_BUYS", 0))
+    if max_daily <= 0:
+        return True, 0, 0
+    start = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    stmt = select(func.count()).select_from(Position).where(
+        Position.entry_lane == _SNIPER_RESEARCH_MICRO_FALLBACK_LANE,
         Position.opened_at >= start,
     )
     count = int((await ses.execute(stmt)).scalar() or 0)
@@ -5578,10 +6616,13 @@ async def _paper_exploration_quota_state(ses: SessionLocal) -> tuple[float, int,
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     open_stmt = select(func.count()).select_from(Position).where(
         Position.closed.is_(False),
-        Position.entry_reason == "paper_exploration_quota",
     )
     daily_stmt = select(func.count()).select_from(Position).where(
-        Position.entry_reason == "paper_exploration_quota",
+        (
+            (Position.entry_lane == "pump_early_paper_exploration_micro")
+            | (Position.entry_reason == "paper_exploration_quota")
+            | (Position.gate_profile == "paper_exploration_quota")
+        ),
         Position.opened_at >= start,
     )
     last_stmt = select(func.max(Position.opened_at)).select_from(Position)
@@ -5596,28 +6637,81 @@ async def _paper_exploration_quota_state(ses: SessionLocal) -> tuple[float, int,
     return hours_without_buy, open_count, daily_count
 
 
+async def _paper_open_invested_sol(ses: SessionLocal) -> float:
+    stmt = select(func.coalesce(func.sum(Position.buy_amount_sol), 0.0)).select_from(Position).where(
+        Position.closed.is_not(True),
+    )
+    return max(0.0, float((await ses.execute(stmt)).scalar() or 0.0))
+
+
+async def _paper_bootstrap_quota_state(ses: SessionLocal) -> tuple[int, int, int, float]:
+    now = dt.datetime.now(dt.timezone.utc)
+    start_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_hour = now - dt.timedelta(hours=1)
+    bootstrap_match = (
+        (Position.entry_lane == _PAPER_BOOTSTRAP_LANE)
+        | (Position.entry_reason == POLICY_PAPER_BOOTSTRAP)
+        | (Position.gate_profile == POLICY_PAPER_BOOTSTRAP)
+    )
+    open_stmt = select(func.count()).select_from(Position).where(
+        Position.closed.is_(False),
+        bootstrap_match,
+    )
+    daily_stmt = select(func.count()).select_from(Position).where(
+        bootstrap_match,
+        Position.opened_at >= start_day,
+    )
+    hourly_stmt = select(func.count()).select_from(Position).where(
+        bootstrap_match,
+        Position.opened_at >= start_hour,
+    )
+    last_stmt = select(func.max(Position.opened_at)).select_from(Position).where(bootstrap_match)
+    open_count = int((await ses.execute(open_stmt)).scalar() or 0)
+    daily_count = int((await ses.execute(daily_stmt)).scalar() or 0)
+    hourly_count = int((await ses.execute(hourly_stmt)).scalar() or 0)
+    last_opened = (await ses.execute(last_stmt)).scalar()
+    if isinstance(last_opened, dt.datetime):
+        last_opened = last_opened if last_opened.tzinfo else last_opened.replace(tzinfo=dt.timezone.utc)
+        seconds_since_last = max(0.0, (now - last_opened).total_seconds())
+    else:
+        seconds_since_last = 999999.0
+    return open_count, daily_count, hourly_count, seconds_since_last
+
+
 async def _regime_capacity(ses: SessionLocal, regime: str) -> tuple[bool, int, int]:
     open_regimes = await _load_open_position_regimes(ses)
     counts = entry_sizing.count_open_by_regime(open_regimes)
     current = int(counts.get(regime, 0))
-    limit = int(entry_sizing.regime_position_cap(regime, CFG.MAX_ACTIVE_POSITIONS))
+    global_cap = _cfg_int_preserve_zero("MAX_ACTIVE_POSITIONS", int(CFG.MAX_ACTIVE_POSITIONS))
+    limit = 0 if global_cap <= 0 else int(entry_sizing.regime_position_cap(regime, global_cap))
+
+    def combined_cap(*caps: int) -> int:
+        values = [int(cap) for cap in caps]
+        if any(cap <= 0 for cap in values):
+            return 0
+        return sum(values)
+
+    def clamp_global(cap: int) -> int:
+        if cap <= 0:
+            return 0
+        return min(global_cap, cap) if global_cap > 0 else cap
+
     if regime == "pump_early" and _PUMP_EARLY_SNIPER_ENABLED:
         if DRY_RUN:
-            profit_cap = int(getattr(CFG, "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 2) or 2)
-            breakout_cap = int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 1) or 1)
-            green_cap = int(getattr(CFG, "GREEN_SNIPER_MAX_OPEN_PAPER", getattr(CFG, "PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 6)) or 6)
-            fallback_cap = int(getattr(CFG, "PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 3) or 3)
-            limit = min(
-                int(CFG.MAX_ACTIVE_POSITIONS),
-                max(
-                    1,
-                    (profit_cap + breakout_cap + green_cap)
-                    if _PUMP_EARLY_PROFIT_LANE_ENABLED and _PUMP_EARLY_BREAKOUT_PROBE_ENABLED
-                    else profit_cap
-                    if _PUMP_EARLY_PROFIT_LANE_ENABLED
-                    else fallback_cap,
-                ),
+            profit_cap = _cfg_int_preserve_zero("PUMP_EARLY_PROFIT_MAX_OPEN_PAPER", 0)
+            breakout_cap = _cfg_int_preserve_zero("PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER", 0)
+            green_cap = _cfg_int_preserve_zero(
+                "GREEN_SNIPER_MAX_OPEN_PAPER",
+                _cfg_int_preserve_zero("PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 0),
             )
+            fallback_cap = _cfg_int_preserve_zero("PUMP_EARLY_SNIPER_MAX_OPEN_PAPER", 0)
+            if _PUMP_EARLY_PROFIT_LANE_ENABLED and _PUMP_EARLY_BREAKOUT_PROBE_ENABLED:
+                limit = combined_cap(profit_cap, breakout_cap, green_cap)
+            elif _PUMP_EARLY_PROFIT_LANE_ENABLED:
+                limit = profit_cap
+            else:
+                limit = fallback_cap
+            limit = clamp_global(limit)
         else:
             health = (strategy_runtime.describe_regime_health().get("pump_early") or {})
             trade_count = int(health.get("trade_count") or 0)
@@ -5631,25 +6725,23 @@ async def _regime_capacity(ses: SessionLocal, regime: str) -> tuple[bool, int, i
                 and severe <= 0
                 and loss_streak <= int(getattr(CFG, "PUMP_EARLY_SNIPER_ADVANCED_MAX_LOSS_STREAK", 3) or 3)
             )
-            live_cap = (
-                int(getattr(CFG, "PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY_ADVANCED", 2) or 2)
+            live_caps = [
+                _cfg_int_preserve_zero("PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY_ADVANCED", 0)
                 if advanced_ready
-                else int(
-                    getattr(
-                        CFG,
-                        "PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY"
-                        if _PUMP_EARLY_PROFIT_LANE_ENABLED
-                        else "PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY",
-                        1,
-                    )
-                    or 1
+                else _cfg_int_preserve_zero(
+                    "PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY"
+                    if _PUMP_EARLY_PROFIT_LANE_ENABLED
+                    else "PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY",
+                    0,
                 )
-            )
+            ]
             if _PUMP_EARLY_PROFIT_LANE_ENABLED and _PUMP_EARLY_BREAKOUT_PROBE_ENABLED and not advanced_ready:
-                live_cap += int(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY", 1) or 1)
+                live_caps.append(_cfg_int_preserve_zero("PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY", 0))
             if bool(getattr(CFG, "GREEN_SNIPER_LIVE_ENABLED", False)):
-                live_cap += int(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_OPEN", 1) or 1)
-            limit = min(int(CFG.MAX_ACTIVE_POSITIONS), max(1, live_cap))
+                live_caps.append(_cfg_int_preserve_zero("GREEN_SNIPER_LIVE_MAX_OPEN", 0))
+            limit = clamp_global(combined_cap(*live_caps))
+    if limit <= 0:
+        return True, current, 0
     return current < limit, current, limit
 
 

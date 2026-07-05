@@ -20,14 +20,21 @@ from analytics.report_utils import (
     write_markdown,
 )
 from config.config import CFG, PROJECT_ROOT
+from analytics.lane_policy_categories import POLICY_SHADOW_FOLLOWUP_MICRO
+from ml.lane_taxonomy import LANE_SHADOW_FOLLOWUP_MICRO
 
 
 VALID_DIRECT_LANES = {
+    "pump_early_paper_bootstrap_micro",
+    "pump_early_paper_exploration_micro",
     "pump_early_research_rank_canary",
     "pump_early_pumpswap_rebound_prime",
     "pump_early_sniper_research",
+    "pump_early_sniper_research_micro_fallback",
     "pump_early_birth_probe_micro_canary",
+    "pump_early_shadow_followup_micro",
     "pump_early_moonshot_micro_lottery",
+    "pump_early_late_momentum_watch",
 }
 REASON_UNTAGGED_BLOCKED = "untagged_buy_blocked"
 
@@ -52,6 +59,46 @@ def _first(row: dict[str, Any], *keys: str) -> Any:
         if value is not None and not (isinstance(value, str) and not value.strip()):
             return value
     return None
+
+
+def _cfg_float(cfg: Any, key: str, default: float) -> float:
+    return fnum(getattr(cfg, key, default), default)
+
+
+def _real_liquidity_breakout(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
+    if not boolish(getattr(cfg, "UNTAGGED_REAL_LIQUIDITY_BREAKOUT_ENABLED", True), True):
+        return False
+    if boolish(_first(row, "liquidity_is_proxy", "liquidity_usd_is_proxy", "buy_liquidity_is_proxy"), False):
+        return False
+    if not boolish(_first(row, "has_jupiter_route", "route_ok", "route_available"), False):
+        return False
+
+    liq = fnum(_first(row, "liquidity_usd", "buy_liquidity_usd"), 0.0)
+    txns = fnum(_first(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m"), 0.0)
+    volume = fnum(_first(row, "volume_24h_usd", "volume_usd_24h", "buy_volume_24h_usd"), 0.0)
+    mcap = fnum(_first(row, "market_cap_usd", "buy_market_cap_usd", "mcap"), 0.0)
+    age = fnum(_first(row, "age_minutes", "age_min", "token_age_min", "queue_age_minutes"), 999.0)
+    impact = fnum(_first(row, "price_impact_pct", "buy_price_impact_pct", "jupiter_price_impact_pct"), 0.0)
+    price5m = fnum(_first(row, "price_pct_5m", "buy_price_pct_5m", "price5m"), 0.0)
+    rank = fnum(_first(row, "rank_score", "research_rank_score", "research_rank_canary_rank_score"), 0.0)
+    score_total = fnum(_first(row, "score_total", "total_score"), 0.0)
+
+    min_rank = _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_RANK_SCORE", 50.0)
+    min_score = _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_SCORE_TOTAL", 35.0)
+    return (
+        (rank >= min_rank or score_total >= min_score)
+        and liq >= _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_USD", 10_000.0)
+        and txns >= _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_TXNS_5M", 300.0)
+        and volume >= _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_VOLUME_24H", 15_000.0)
+        and _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_MCAP_USD", 4_000.0)
+        <= mcap
+        <= _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MAX_MCAP_USD", 120_000.0)
+        and age <= _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MAX_AGE_MIN", 45.0)
+        and impact <= _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MAX_PRICE_IMPACT_PCT", 12.0)
+        and _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_PRICE5M", -30.0)
+        <= price5m
+        <= _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MAX_PRICE5M", 180.0)
+    )
 
 
 def _strict_prime_passed(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
@@ -87,7 +134,12 @@ def evaluate_untagged_buy_guard(row: dict[str, Any], *, cfg: Any = CFG) -> Untag
             getattr(cfg, "SNIPER_RESEARCH_SUBPROFILES_ENABLED", True)
         ):
             subprofile = _norm(_first(row, "sniper_research_subprofile", "entry_subprofile"))
-            if subprofile not in {"sniper_research_high_activity", "sniper_research_momentum_ignition"}:
+            if subprofile not in {
+                "sniper_research_high_activity",
+                "sniper_research_momentum_ignition",
+                "sniper_research_deep_reversal",
+                "sniper_research_micro_fallback",
+            }:
                 failures.append("sniper_research_subprofile_missing")
         if not failures or failures == ["profit_lane_tier_missing"]:
             return UntaggedBuyDecision(True, "valid_tagged_lane", lane, gate, tier, ())
@@ -100,6 +152,17 @@ def evaluate_untagged_buy_guard(row: dict[str, Any], *, cfg: Any = CFG) -> Untag
         if not failures:
             return UntaggedBuyDecision(True, "pumpswap_prime_strict", lane, gate, tier, ())
 
+    metadata_failures = {"entry_lane_missing", "gate_profile_missing", "profit_lane_tier_missing"}
+    if failures and set(failures) <= metadata_failures and _real_liquidity_breakout(row, cfg=cfg):
+        return UntaggedBuyDecision(
+            True,
+            "untagged_real_liquidity_breakout",
+            LANE_SHADOW_FOLLOWUP_MICRO,
+            "shadow_followup_micro",
+            LANE_SHADOW_FOLLOWUP_MICRO,
+            (),
+        )
+
     if not bool(getattr(cfg, "ALLOW_UNTAGGED_STANDARD_BUY", False)):
         failures.append("untagged_standard_buy_disabled")
     if regime == "dex_mature" and not bool(getattr(cfg, "DEX_MATURE_STANDARD_BUY_ENABLED", False)):
@@ -111,6 +174,21 @@ def evaluate_untagged_buy_guard(row: dict[str, Any], *, cfg: Any = CFG) -> Untag
 
     deduped = tuple(dict.fromkeys(failures or ["invalid_entry_lane_context"]))
     return UntaggedBuyDecision(False, REASON_UNTAGGED_BLOCKED, lane, gate, tier, deduped)
+
+
+def apply_untagged_breakout_context(row: dict[str, Any], decision: UntaggedBuyDecision) -> dict[str, Any]:
+    row["entry_lane"] = decision.entry_lane or LANE_SHADOW_FOLLOWUP_MICRO
+    row["gate_profile"] = decision.gate_profile or "shadow_followup_micro"
+    row["sniper_gate_profile"] = "shadow_followup_micro"
+    row["live_profit_gate_profile"] = "shadow_followup_micro"
+    row["profit_lane_tier"] = decision.profit_lane_tier or LANE_SHADOW_FOLLOWUP_MICRO
+    row["lane_policy_category"] = POLICY_SHADOW_FOLLOWUP_MICRO
+    row["green_sniper_reason"] = decision.reason
+    row["runner_exit_profile"] = "shadow_followup_micro"
+    row["untagged_real_liquidity_breakout"] = 1
+    row["live_profit_gate_failed_count"] = 0
+    row["live_profit_gate_failures"] = ""
+    return row
 
 
 def apply_untagged_buy_shadow_context(row: dict[str, Any], decision: UntaggedBuyDecision) -> dict[str, Any]:
@@ -182,6 +260,9 @@ def build_untagged_buy_block_report(root: Path | None = None) -> dict[str, Any]:
             "dex_mature_standard_buy_enabled": bool(getattr(CFG, "DEX_MATURE_STANDARD_BUY_ENABLED", False)),
             "pumpfun_standard_buy_enabled": bool(getattr(CFG, "PUMPFUN_STANDARD_BUY_ENABLED", False)),
             "untagged_buy_shadow_enabled": bool(getattr(CFG, "UNTAGGED_BUY_SHADOW_ENABLED", True)),
+            "untagged_real_liquidity_breakout_enabled": bool(
+                getattr(CFG, "UNTAGGED_REAL_LIQUIDITY_BREAKOUT_ENABLED", True)
+            ),
         },
         "summary": {
             "rows_evaluated": len(rows),
@@ -231,6 +312,7 @@ def write_untagged_buy_block_report(root: Path | None = None) -> dict[str, Any]:
 __all__ = [
     "REASON_UNTAGGED_BLOCKED",
     "UntaggedBuyDecision",
+    "apply_untagged_breakout_context",
     "apply_untagged_buy_shadow_context",
     "build_untagged_buy_block_report",
     "evaluate_untagged_buy_guard",

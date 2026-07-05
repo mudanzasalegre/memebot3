@@ -12,9 +12,8 @@ from analytics.report_utils import (
     boolish,
     fnum,
     load_candidate_outcomes,
-    load_paper_positions,
+    load_deduped_positions,
     load_runtime_events,
-    load_sqlite_positions,
     metrics_dir,
     write_json,
 )
@@ -49,6 +48,16 @@ def _norm(value: Any) -> str:
 
 def _field_float(row: dict[str, Any], *keys: str, default: float = 0.0) -> float:
     return fnum(_first(row, *keys), default)
+
+
+def _cfg_int(cfg: Any, key: str, default: int) -> int:
+    value = getattr(cfg, key, default)
+    if value in (None, ""):
+        return int(default)
+    try:
+        return int(float(value))
+    except Exception:
+        return int(default)
 
 
 def _source(row: dict[str, Any]) -> str:
@@ -100,12 +109,81 @@ def _cluster_bad(row: dict[str, Any]) -> bool:
     return "cluster_bad" in reason
 
 
+def _mcap_known(row: dict[str, Any]) -> bool:
+    value = _first(row, "market_cap_usd", "buy_market_cap_usd", "mcap")
+    if value in (None, ""):
+        return False
+    return _field_float(row, "market_cap_usd", "buy_market_cap_usd", "mcap", default=0.0) > 0.0
+
+
+def _relaxed_ultralow_moonshot(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
+    min_price5m = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MIN_PRICE5M", 300.0) or 300.0)
+    min_txns = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MIN_TXNS_5M", 80) or 80)
+    max_age = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MAX_AGE_MIN", 10.0) or 10.0)
+    return (
+        _field_float(row, "price_pct_5m", "buy_price_pct_5m", "price5m") > min_price5m
+        and _field_float(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m") >= min_txns
+        and _field_float(row, "queue_age_minutes", "age_minutes", "age_min", "token_age_min", default=999.0) <= max_age
+        and _mcap_known(row)
+        and not _toxic(row)
+    )
+
+
+def _route_proxy_row(row: dict[str, Any]) -> bool:
+    if boolish(_first(row, "moonshot_micro_lottery_route_proxy", "route_proxy"), False):
+        return True
+    route_value = _first(row, "has_jupiter_route", "route_ok", "route_available")
+    return route_value is not None and not boolish(route_value, False)
+
+
+def _liquidity_proxy_row(row: dict[str, Any]) -> bool:
+    return boolish(_first(row, "liquidity_is_proxy", "liquidity_usd_is_proxy", "buy_liquidity_is_proxy"), False)
+
+
 def _extreme_hot_queue(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
     return (
         _field_float(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m")
         >= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_EXTREME_MIN_TXNS_5M", 300) or 300)
         and _field_float(row, "queue_age_minutes", "age_minutes", "age_min", default=999.0)
-        <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MAX_AGE_MIN", 6.0) or 6.0)
+        <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MAX_AGE_MIN", 10.0) or 10.0)
+    )
+
+
+def _extreme_cluster_bad_override(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
+    if not bool(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_BUY_ENABLED", False)):
+        return False
+    if not _cluster_bad(row) or _toxic(row) or not _mcap_known(row):
+        return False
+    if bool(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_REQUIRE_REAL_LIQUIDITY", True)):
+        if _liquidity_proxy_row(row):
+            return False
+        if not boolish(_first(row, "has_jupiter_route", "route_ok", "route_available"), False):
+            return False
+        if _field_float(row, "liquidity_usd", "buy_liquidity_usd") < float(
+            getattr(cfg, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_MIN_REAL_LIQUIDITY_USD", 10_000.0)
+            or 10_000.0
+        ):
+            return False
+        if _field_float(row, "price_impact_pct", "buy_price_impact_pct", "jupiter_price_impact_pct") > float(
+            getattr(cfg, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_MAX_PRICE_IMPACT_PCT", 12.0)
+            or 12.0
+        ):
+            return False
+    max_age = float(
+        getattr(
+            cfg,
+            "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_MAX_AGE_MIN",
+            getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MAX_AGE_MIN", 10.0),
+        )
+        or 10.0
+    )
+    return (
+        _field_float(row, "price_pct_5m", "buy_price_pct_5m", "price5m")
+        >= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_MIN_PRICE5M", 500.0) or 500.0)
+        and _field_float(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m")
+        >= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_MIN_TXNS_5M", 80) or 80)
+        and _field_float(row, "queue_age_minutes", "age_minutes", "age_min", "token_age_min", default=999.0)
+        <= max_age
     )
 
 
@@ -191,11 +269,14 @@ def _candidate_partial_move(row: dict[str, Any]) -> float:
     return _field_float(row, "candidate_partial_pnl_pct", "partial_pnl_pct", "shadow_partial_pnl_pct")
 
 
-def _confirmation_reason(row: dict[str, Any]) -> str | None:
-    if _observed_shadow_move(row) >= 75.0:
-        return "observed_shadow_move_75"
-    if _candidate_partial_move(row) >= 75.0:
-        return "candidate_partial_75"
+def _confirmation_reason(row: dict[str, Any], *, cfg: Any = CFG) -> str | None:
+    confirmation_pnl = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_CONFIRMATION_PNL", 75.0) or 75.0)
+    if _observed_shadow_move(row) >= confirmation_pnl:
+        return f"observed_shadow_move_{confirmation_pnl:g}"
+    if _candidate_partial_move(row) >= confirmation_pnl:
+        return f"candidate_partial_{confirmation_pnl:g}"
+    if _relaxed_ultralow_moonshot(row, cfg=cfg):
+        return "relaxed_ultralow_moonshot"
     price5m = _field_float(row, "price_pct_5m", "buy_price_pct_5m", "price5m")
     txns = _field_float(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m")
     mcap_raw = _first(row, "market_cap_usd", "buy_market_cap_usd", "mcap")
@@ -213,11 +294,13 @@ def evaluate_moonshot_micro_lottery(
     live: bool,
     cfg: Any = CFG,
 ) -> MoonshotMicroLotteryDecision:
-    amount = min(float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001) or 0.001), 0.001)
-    cluster_tail_amount = min(
-        float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_AMOUNT_SOL", 0.001) or 0.001),
-        0.001,
+    raw_amount = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001) or 0.001)
+    amount = max(raw_amount, 0.0)
+    raw_cluster_tail_amount = float(
+        getattr(cfg, "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_AMOUNT_SOL", raw_amount) or raw_amount
     )
+    cluster_tail_amount = max(raw_cluster_tail_amount, 0.0)
+    risky_cluster_amount = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_RISKY_CLUSTER_AMOUNT_SOL", 0.0005) or 0.0005)
 
     def decision(
         allowed: bool,
@@ -231,18 +314,17 @@ def evaluate_moonshot_micro_lottery(
             bool(allowed),
             str(reason),
             tuple(failures),
-            amount if amount_override is None else min(max(float(amount_override), 0.0), 0.001),
+            amount if amount_override is None else max(float(amount_override), 0.0),
             route_proxy=bool(route_proxy),
         )
 
     if not bool(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_ENABLED", True)):
         return decision(False, "moonshot_disabled", ["disabled"])
-    if live or not dry_run or not bool(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_PAPER_ENABLED", True)):
-        return decision(False, "moonshot_paper_only", ["paper_only"])
-    if bool(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED", False)):
-        return decision(False, "moonshot_live_flag_blocked", ["live_flag_enabled"])
-    if amount > 0.001:
-        return decision(False, "moonshot_amount_cap", ["amount>0.001"])
+    if live or not dry_run:
+        if not bool(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED", False)):
+            return decision(False, "moonshot_live_disabled", ["live_disabled"])
+    elif not bool(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_PAPER_ENABLED", True)):
+        return decision(False, "moonshot_paper_disabled", ["paper_disabled"])
 
     failures: list[str] = []
     age = _field_float(row, "queue_age_minutes", "age_minutes", "age_min", "token_age_min", default=999.0)
@@ -256,19 +338,25 @@ def evaluate_moonshot_micro_lottery(
     late_proxy_momentum = _late_proxy_momentum_probe(row, cfg=cfg)
     cluster_tail = _cluster_tail_probe(row, cfg=cfg)
     special_probe = birth_velocity or late_proxy_momentum or cluster_tail
-    confirmation = _confirmation_reason(row)
+    confirmation = _confirmation_reason(row, cfg=cfg)
+    extreme_cluster_allowed = _extreme_cluster_bad_override(row, cfg=cfg)
+    if extreme_cluster_allowed and confirmation is None:
+        confirmation = "extreme_cluster_bad_override"
 
     if not _source_ok(row):
         failures.append("source_not_allowed")
-    if not special_probe and age > float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MAX_AGE_MIN", 6.0) or 6.0):
-        failures.append("age_gt_6m")
+    max_age = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MAX_AGE_MIN", 10.0) or 10.0)
+    if not special_probe and age > max_age:
+        failures.append(f"age_gt_{max_age:g}m")
     if not special_probe and txns < float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MIN_TXNS_5M", 80) or 80):
         failures.append("txns5m<80")
+    if not special_probe and not _mcap_known(row):
+        failures.append("mcap_missing")
     if mcap_raw not in (None, "") and mcap > float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MAX_MCAP_USD", 150_000.0) or 150_000.0):
         failures.append("mcap>150000")
     if (
         not special_probe
-        and price5m < float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MIN_PRICE5M", 500.0) or 500.0)
+        and price5m <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MIN_PRICE5M", 300.0) or 300.0)
         and not _extreme_hot_queue(row, cfg=cfg)
     ):
         failures.append("not_extreme_momentum")
@@ -276,10 +364,11 @@ def evaluate_moonshot_micro_lottery(
         failures.append("toxic_initial_sell_pressure")
     risky_cluster_allowed = (
         bool(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_RISKY_CLUSTER_MODE_ENABLED", False))
-        and amount <= 0.0005
+        and 0.0 < risky_cluster_amount <= 0.0005
         and confirmation is not None
     )
-    if _cluster_bad(row) and not risky_cluster_allowed:
+    cluster_is_bad = _cluster_bad(row)
+    if cluster_is_bad and not (risky_cluster_allowed or extreme_cluster_allowed):
         failures.append("cluster_bad")
     if failures:
         return decision(False, "moonshot_micro_lottery_shadow:" + ",".join(failures[:8]), failures, route_proxy=route_proxy)
@@ -297,16 +386,18 @@ def evaluate_moonshot_micro_lottery(
             return decision(False, "moonshot_needs_confirmation:cluster_tail_shadow", ["cluster_tail_buy_disabled"], route_proxy=route_proxy)
         return decision(
             True,
-            "confirmed_moonshot_buy",
+            "confirmed_moonshot_buy:extreme_cluster_bad" if extreme_cluster_allowed else "confirmed_moonshot_buy",
             [],
             route_proxy=route_proxy,
-            amount_override=cluster_tail_amount,
+            amount_override=risky_cluster_amount if cluster_is_bad and risky_cluster_allowed else cluster_tail_amount,
         )
+    risky_amount_override = risky_cluster_amount if cluster_is_bad and risky_cluster_allowed else None
+    reason = "confirmed_moonshot_buy:extreme_cluster_bad" if extreme_cluster_allowed else "confirmed_moonshot_buy"
     if birth_velocity:
-        return decision(True, "confirmed_moonshot_buy", [], route_proxy=route_proxy)
+        return decision(True, reason, [], route_proxy=route_proxy, amount_override=risky_amount_override)
     if late_proxy_momentum:
-        return decision(True, "confirmed_moonshot_buy", [], route_proxy=route_proxy)
-    return decision(True, "confirmed_moonshot_buy", [], route_proxy=route_proxy)
+        return decision(True, reason, [], route_proxy=route_proxy, amount_override=risky_amount_override)
+    return decision(True, reason, [], route_proxy=route_proxy, amount_override=risky_amount_override)
 
 
 def apply_moonshot_micro_lottery_context(
@@ -331,7 +422,7 @@ def apply_moonshot_micro_lottery_context(
 
 
 def _pnl(row: dict[str, Any]) -> float:
-    return fnum(_first(row, "realized_pnl_pct", "total_pnl_pct", "pnl_pct", "target_total_pnl_pct"), 0.0)
+    return fnum(_first(row, "total_pnl_pct", "realized_pnl_pct", "pnl_pct", "target_total_pnl_pct"), 0.0)
 
 
 def _peak(row: dict[str, Any]) -> float:
@@ -349,9 +440,41 @@ def _is_moonshot_row(row: dict[str, Any]) -> bool:
     return "moonshot_micro_lottery" in haystack
 
 
+def _event(row: dict[str, Any]) -> str:
+    return str(_first(row, "event_type", "event", "action", "decision_action") or "").strip().lower()
+
+
+def _position_opened(row: dict[str, Any]) -> bool:
+    return _first(row, "opened_at", "entry_price_usd", "buy_price_usd", "buy_amount_sol") is not None
+
+
+def _unique_count(rows: list[dict[str, Any]]) -> int:
+    addresses = {address_of(row) for row in rows if address_of(row)}
+    return len(addresses) if addresses else len(rows)
+
+
+def _dedupe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        key = address_of(row)
+        if not key:
+            out.append(row)
+            continue
+        normalized = key.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        out.append(row)
+    return out
+
+
 def build_moonshot_micro_lottery_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_runtime_events(root) + load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    runtime_rows = load_runtime_events(root)
+    outcome_rows = load_candidate_outcomes(root)
+    position_rows = load_deduped_positions(root)
+    rows = runtime_rows + outcome_rows + position_rows
     candidates = [
         row
         for row in rows
@@ -359,7 +482,7 @@ def build_moonshot_micro_lottery_report(root: Path | None = None) -> dict[str, A
         or (
             _source_ok(row)
             and (
-                _field_float(row, "price_pct_5m", "buy_price_pct_5m") >= 500.0
+                _field_float(row, "price_pct_5m", "buy_price_pct_5m") > 300.0
                 or _extreme_hot_queue(row)
                 or _birth_velocity_probe(row)
                 or _late_proxy_momentum_probe(row)
@@ -368,16 +491,22 @@ def build_moonshot_micro_lottery_report(root: Path | None = None) -> dict[str, A
         )
     ]
     moonshot_rows = [row for row in rows if _is_moonshot_row(row)]
-    buys = [
-        row
-        for row in moonshot_rows
-        if str(_first(row, "event_type", "action", "decision_action") or "").strip().lower() in {"buy", "bought", "paper_buy", "trade_close", ""}
+    moonshot_position_rows = [row for row in position_rows if _is_moonshot_row(row) and _position_opened(row)]
+    moonshot_actual_buy_events = [row for row in runtime_rows if _is_moonshot_row(row) and _event(row) == "actual_paper_buy"]
+    moonshot_legacy_buy_events = [
+        row for row in runtime_rows if _is_moonshot_row(row) and _event(row) in {"buy", "bought", "paper_buy", "buy_ok"}
     ]
+    buy_count = max(
+        _unique_count(moonshot_position_rows),
+        _unique_count(moonshot_actual_buy_events),
+        _unique_count(moonshot_legacy_buy_events),
+    )
     shadows = [row for row in moonshot_rows if "shadow" in _norm(_first(row, "reason", "action", "decision_action"))]
-    closed_pnls = [_pnl(row) for row in moonshot_rows if _first(row, "realized_pnl_pct", "total_pnl_pct", "pnl_pct") is not None]
-    peak100 = [row for row in moonshot_rows if _peak(row) >= 100.0]
-    peak500 = [row for row in moonshot_rows if _peak(row) >= 500.0]
-    peak1000 = [row for row in moonshot_rows if _peak(row) >= 1000.0]
+    result_rows = _dedupe_rows([row for row in position_rows + outcome_rows if _is_moonshot_row(row)])
+    closed_pnls = [_pnl(row) for row in result_rows if _first(row, "total_pnl_pct", "realized_pnl_pct", "pnl_pct") is not None]
+    peak100 = [row for row in result_rows if _peak(row) >= 100.0]
+    peak500 = [row for row in result_rows if _peak(row) >= 500.0]
+    peak1000 = [row for row in result_rows if _peak(row) >= 1000.0]
     missed_tail_candidates = [row for row in candidates if _peak(row) >= 100.0]
     cluster_tail_shadow = [
         row
@@ -403,16 +532,31 @@ def build_moonshot_micro_lottery_report(root: Path | None = None) -> dict[str, A
         if "confirmed_moonshot_buy" in _norm(_first(row, "reason", "green_sniper_reason", "entry_reason"))
         or boolish(row.get("moonshot_micro_lottery"), False)
     ]
+    risky_cluster_shadow = [
+        row
+        for row in candidates
+        if _cluster_bad(row)
+        and not ("confirmed_moonshot_buy" in _norm(_first(row, "reason", "green_sniper_reason", "entry_reason")))
+        and not boolish(row.get("moonshot_micro_lottery"), False)
+    ]
+    extreme_cluster_candidates = [row for row in candidates if _extreme_cluster_bad_override(row)]
+    confirmed_buy_count = max(_unique_count(confirmed_buy), buy_count)
+    route_proxy_buys = [row for row in confirmed_buy if _route_proxy_row(row)]
     return {
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "config": {
             "enabled": bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_ENABLED", True)),
             "paper_enabled": bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_PAPER_ENABLED", True)),
             "live_enabled": bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED", False)),
-            "amount_sol": min(float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001) or 0.001), 0.001),
-            "max_open": int(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MAX_OPEN", 1) or 1),
-            "max_daily_buys": int(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MAX_DAILY_BUYS", 3) or 3),
+            "amount_sol": max(float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001) or 0.001), 0.0),
+            "max_open": _cfg_int(CFG, "MOONSHOT_MICRO_LOTTERY_MAX_OPEN", 0),
+            "max_daily_buys": _cfg_int(CFG, "MOONSHOT_MICRO_LOTTERY_MAX_DAILY_BUYS", 0),
             "confirmation_required": bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_CONFIRMATION_REQUIRED", True)),
+            "confirmation_pnl": float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_CONFIRMATION_PNL", 75.0) or 75.0),
+            "max_age_min": float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MAX_AGE_MIN", 10.0) or 10.0),
+            "min_txns_5m": int(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MIN_TXNS_5M", 80) or 80),
+            "max_mcap_usd": float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MAX_MCAP_USD", 150_000.0) or 150_000.0),
+            "min_price5m": float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MIN_PRICE5M", 300.0) or 300.0),
             "birth_velocity_enabled": bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_BIRTH_VELOCITY_ENABLED", True)),
             "birth_velocity_price5m": [
                 float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_BIRTH_VELOCITY_MIN_PRICE5M", 25.0) or 25.0),
@@ -429,9 +573,42 @@ def build_moonshot_micro_lottery_report(root: Path | None = None) -> dict[str, A
             "late_proxy_enabled": bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_LATE_PROXY_ENABLED", True)),
             "cluster_tail_enabled": bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_ENABLED", True)),
             "cluster_tail_buy_enabled": bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_BUY_ENABLED", False)),
-            "cluster_tail_amount_sol": min(
+            "extreme_cluster_buy_enabled": bool(
+                getattr(CFG, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_BUY_ENABLED", False)
+            ),
+            "extreme_cluster_min_price5m": float(
+                getattr(CFG, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_MIN_PRICE5M", 500.0)
+                or 500.0
+            ),
+            "extreme_cluster_min_txns_5m": int(
+                getattr(CFG, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_MIN_TXNS_5M", 80)
+                or 80
+            ),
+            "extreme_cluster_max_age_min": float(
+                getattr(CFG, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_MAX_AGE_MIN", 10.0)
+                or 10.0
+            ),
+            "extreme_cluster_require_real_liquidity": bool(
+                getattr(CFG, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_REQUIRE_REAL_LIQUIDITY", True)
+            ),
+            "extreme_cluster_min_real_liquidity_usd": float(
+                getattr(CFG, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_MIN_REAL_LIQUIDITY_USD", 10_000.0)
+                or 10_000.0
+            ),
+            "extreme_cluster_max_price_impact_pct": float(
+                getattr(CFG, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_MAX_PRICE_IMPACT_PCT", 12.0)
+                or 12.0
+            ),
+            "risky_cluster_mode_enabled": bool(
+                getattr(CFG, "MOONSHOT_MICRO_LOTTERY_RISKY_CLUSTER_MODE_ENABLED", False)
+            ),
+            "risky_cluster_amount_sol": max(
+                float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_RISKY_CLUSTER_AMOUNT_SOL", 0.0005) or 0.0005),
+                0.0,
+            ),
+            "cluster_tail_amount_sol": max(
                 float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_AMOUNT_SOL", 0.001) or 0.001),
-                0.005,
+                0.0,
             ),
             "cluster_tail_min_liquidity_usd": float(
                 getattr(CFG, "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_MIN_LIQUIDITY_USD", 10_000.0)
@@ -447,15 +624,18 @@ def build_moonshot_micro_lottery_report(root: Path | None = None) -> dict[str, A
             ),
         },
         "candidates_seen": len(candidates),
-        "buys": len(buys),
+        "buys": buy_count,
         "shadows": len(shadows),
         "birth_velocity_candidates": sum(1 for row in candidates if _birth_velocity_probe(row)),
         "late_proxy_candidates": sum(1 for row in candidates if _late_proxy_momentum_probe(row)),
         "cluster_tail_candidates": sum(1 for row in candidates if _cluster_tail_probe(row)),
         "cluster_tail_shadow": len(cluster_tail_shadow),
-        "confirmed_moonshot_buy": len(confirmed_buy),
+        "confirmed_moonshot_buy": confirmed_buy_count,
         "late_proxy_shadow": len(late_proxy_shadow),
         "birth_velocity_shadow": len(birth_velocity_shadow),
+        "risky_cluster_shadow": len(risky_cluster_shadow),
+        "extreme_cluster_candidates": _unique_count(extreme_cluster_candidates),
+        "route_proxy_buys": _unique_count(route_proxy_buys),
         "peak100_captured": len(peak100),
         "peak500_captured": len(peak500),
         "peak1000_captured": len(peak1000),

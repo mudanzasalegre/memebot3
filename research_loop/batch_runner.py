@@ -125,7 +125,7 @@ def build_batch_baseline(
             if regenerate_func is None:
                 from analytics.core_report_scheduler import regenerate_core_reports
 
-                summary = regenerate_core_reports(resolved_root, include_test_events=False)
+                summary = regenerate_core_reports(resolved_root, include_test_events=False, report_names=REPLAY_REPORTS)
             else:
                 summary = regenerate_func(resolved_root)
             regen_warnings = summary.get("warnings") if isinstance(summary, dict) else {}

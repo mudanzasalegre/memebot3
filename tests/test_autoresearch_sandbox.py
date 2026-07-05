@@ -15,6 +15,8 @@ def _candidate() -> dict:
         "target_lanes": ["pump_early_moonshot_micro_lottery"],
         "changes": {"MOONSHOT_MICRO_LOTTERY_CONFIRMATION_PNL": "75"},
         "expected_effect": {"increase_moonshot_capture": True},
+        "optimized_metric": "moonshot_peak100_capture",
+        "optimization_scope": "combined",
         "required_gates": ["replay_positive", "api_budget_ok"],
         "api_budget_sensitive": True,
         "live_allowed": False,

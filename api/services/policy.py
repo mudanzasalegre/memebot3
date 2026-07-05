@@ -9,7 +9,7 @@ from analytics.drift_monitor import drift_snapshot
 from analytics.funnel_attribution import build_funnel_attribution
 from analytics.runner_capture import build_runner_capture
 from analytics.trade_diagnostics import build_trade_diagnostics
-from api.repositories.filesystem import file_mtime, load_jsonl_rows, read_json_file
+from api.repositories.filesystem import file_mtime, file_size_bytes, load_jsonl_rows, load_jsonl_tail_rows, read_json_file
 from api.schemas.common import Envelope, SourceStatus
 from api.services.common import build_envelope, iso_or_none, make_source_status, utc_now
 from api.services.sources import json_status, jsonl_status, paper_portfolio_status, sqlite_main_status
@@ -30,6 +30,8 @@ DISPLAY_POLICIES = (
     "combined_v1",
     "combined_policy_v2",
 )
+POLICY_JSONL_FULL_READ_MAX_BYTES = 5 * 1024 * 1024
+POLICY_LEDGER_TAIL_ROWS = 2_000
 
 
 def _metrics_path(settings: APISettings, name: str) -> Path:
@@ -111,6 +113,51 @@ def _policy_rows(replay: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _load_policy_replay(settings: APISettings) -> tuple[dict[str, Any], SourceStatus]:
+    path = _metrics_path(settings, "policy_replay.json")
+    payload = read_json_file(path)
+    if isinstance(payload, dict) and payload and not payload.get("placeholder"):
+        return payload, _status_from_artifact(settings, "policy_replay.json")
+    return build_policy_replay(settings.project_root), _derived_status("policy.replay", "computed_not_persisted")
+
+
+def _funnel_rows_from_cached_payload(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    if not isinstance(payload, dict):
+        return []
+    rows = payload.get("rows") or payload.get("items") or payload.get("data")
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        state = str(row.get("final_state") or "unknown")
+        out.append(
+            {
+                "address": row.get("address"),
+                "final_state": state,
+                "final_blocking_reason": row.get("final_blocking_reason") or row.get("reason") or state,
+                "primary_stage": row.get("primary_stage") or row.get("stage") or row.get("final_blocking_reason") or state,
+                "timeline": row.get("timeline") or [],
+                "was_bought": bool(row.get("was_bought")) or state == "bought",
+                "has_shadow_outcome": bool(row.get("has_shadow_outcome")) or state == "shadow",
+                "confirmed_later_peak_pct": row.get("confirmed_later_peak_pct"),
+            }
+        )
+    return out
+
+
+def _load_funnel_rows(settings: APISettings) -> tuple[list[dict[str, Any]], SourceStatus]:
+    for name in ("funnel_attribution.json", "current_run_funnel.json"):
+        path = _metrics_path(settings, name)
+        rows = _funnel_rows_from_cached_payload(read_json_file(path))
+        if rows:
+            return rows, _status_from_artifact(settings, name)
+    return build_funnel_attribution(settings.project_root), _derived_status("policy.funnel_attribution")
+
+
 def _best_policy(replay: dict[str, Any]) -> str | None:
     rows = _policy_rows(replay)
     if not rows:
@@ -188,7 +235,7 @@ def get_current_baseline_envelope(settings: APISettings) -> Envelope:
 
 
 def get_funnel_attribution_envelope(settings: APISettings, *, limit: int = 50) -> Envelope:
-    rows = build_funnel_attribution(settings.project_root)
+    rows, funnel_status = _load_funnel_rows(settings)
     data = {
         "count": len(rows),
         "summary": {
@@ -199,18 +246,17 @@ def get_funnel_attribution_envelope(settings: APISettings, *, limit: int = 50) -
         "items": rows[: max(1, min(int(limit), 250))],
     }
     statuses = [
-        jsonl_status(source_key="metrics.runtime_events", path=settings.runtime_events_path, optional=True),
-        jsonl_status(source_key="metrics.candidate_outcomes", path=_metrics_path(settings, "candidate_outcomes.jsonl"), optional=True),
+        funnel_status,
         paper_portfolio_status(settings),
         sqlite_main_status(settings),
-        _derived_status("policy.funnel_attribution"),
     ]
     return build_envelope(data, source_status=statuses, empty=not rows)
 
 
 def get_decision_ledger_envelope(settings: APISettings, *, limit: int = 50) -> Envelope:
     path = _metrics_path(settings, "decision_ledger.jsonl")
-    rows = load_jsonl_rows(path)
+    full_read = file_size_bytes(path) <= POLICY_JSONL_FULL_READ_MAX_BYTES
+    rows = load_jsonl_rows(path) if full_read else load_jsonl_tail_rows(path, limit=max(POLICY_LEDGER_TAIL_ROWS, int(limit) * 20))
     by_action = _count_by(rows, "decision")
     by_lane = _count_by(rows, "lane")
     data = {
@@ -219,6 +265,7 @@ def get_decision_ledger_envelope(settings: APISettings, *, limit: int = 50) -> E
             "rows": len(rows),
             "by_action": {item["key"]: item["count"] for item in by_action},
             "by_lane": {item["key"]: item["count"] for item in by_lane},
+            "sampled": not full_read,
         },
         "items": list(reversed(rows[-max(1, min(int(limit), 250)) :])),
     }
@@ -252,7 +299,7 @@ def get_runner_capture_envelope(settings: APISettings) -> Envelope:
 
 
 def get_policy_replay_envelope(settings: APISettings) -> Envelope:
-    replay = build_policy_replay(settings.project_root)
+    replay, replay_status = _load_policy_replay(settings)
     rows = _policy_rows(replay)
     current = replay.get("current") if isinstance(replay.get("current"), dict) else None
     data = {
@@ -262,10 +309,9 @@ def get_policy_replay_envelope(settings: APISettings) -> Envelope:
         "raw": replay,
     }
     statuses = [
-        jsonl_status(source_key="metrics.candidate_outcomes", path=_metrics_path(settings, "candidate_outcomes.jsonl"), optional=True),
+        replay_status,
         paper_portfolio_status(settings),
         sqlite_main_status(settings),
-        _derived_status("policy.replay"),
     ]
     return build_envelope(data, source_status=statuses, empty=not rows)
 
@@ -326,8 +372,8 @@ def get_policy_safety_envelope(settings: APISettings) -> Envelope:
     preflight = read_json_file(_metrics_path(settings, "preflight_status.json")) or {}
     config_audit = read_json_file(_metrics_path(settings, "config_effect_audit.json"))
     if not isinstance(config_audit, dict):
-        config_audit = build_config_effect_audit(settings.project_root)
-    replay = build_policy_replay(settings.project_root)
+        config_audit = {}
+    replay, replay_status = _load_policy_replay(settings)
     replay_current = replay.get("current") if isinstance(replay.get("current"), dict) else {}
     replay_candidate = replay.get("combined_policy_v2") or replay.get("combined_v1") or {}
     paper_forward = read_json_file(_metrics_path(settings, "paper_forward_report.json")) or {}
@@ -449,8 +495,8 @@ def get_policy_safety_envelope(settings: APISettings) -> Envelope:
         _status_from_artifact(settings, "config_effect_audit.json"),
         _status_from_artifact(settings, "paper_forward_report.json"),
         json_status(source_key="ml.model_registry", path=_model_registry_path(settings), optional=True, empty_when_missing=True),
+        replay_status,
         jsonl_status(source_key="metrics.runtime_events", path=settings.runtime_events_path, optional=True),
         _derived_status("policy.safety"),
     ]
     return build_envelope(data, source_status=statuses, empty=False)
-

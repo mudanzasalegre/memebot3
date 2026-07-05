@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from api.repositories.filesystem import file_mtime, read_json_file
+from api.repositories.filesystem import file_mtime, file_size_bytes, read_json_file
 from api.schemas.common import Envelope, SourceStatus
 from api.services.common import build_envelope, iso_or_none
 from api.services.common import make_source_status
@@ -11,6 +11,7 @@ from api.services.sources import json_status
 from api.settings import APISettings
 
 ACCEPTED_STATUSES = {"accepted_paper", "accepted_replay"}
+PENDING_PAPER_STATUSES = {"needs_paper"}
 REJECTED_STATUSES = {"rejected_paper", "rejected", "failed"}
 
 
@@ -59,6 +60,20 @@ def _proposal_path(settings: APISettings, proposal_id: str | None) -> Path | Non
 def _read_dict(path: Path) -> dict[str, Any]:
     payload = read_json_file(path)
     return payload if isinstance(payload, dict) else {}
+
+
+def _read_large_report_summary(path: Path) -> dict[str, Any]:
+    if file_size_bytes(path) <= 5 * 1024 * 1024:
+        return _read_dict(path)
+    status_payload = {
+        "truncated": True,
+        "path": str(path),
+        "size_bytes": file_size_bytes(path),
+    }
+    generated_at = iso_or_none(file_mtime(path))
+    if generated_at:
+        status_payload["generated_at_utc"] = generated_at
+    return status_payload
 
 
 def _read_list(path: Path) -> list[Any]:
@@ -139,7 +154,8 @@ def _entry_sort_key(entry: dict[str, Any]) -> tuple[str, float]:
 def _accepted_entry_pool(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     accepted_paper = [entry for entry in entries if entry.get("status") == "accepted_paper"]
     accepted_replay = [entry for entry in entries if entry.get("status") == "accepted_replay"]
-    return accepted_paper or accepted_replay
+    needs_paper = [entry for entry in entries if entry.get("status") == "needs_paper"]
+    return accepted_paper or accepted_replay or needs_paper
 
 
 def _best_entry(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -302,22 +318,25 @@ def get_research_api_budget_envelope(settings: APISettings) -> Envelope:
 def get_research_moonshot_progress_envelope(settings: APISettings) -> Envelope:
     moonshot = _read_dict(_metrics_path(settings, "moonshot_micro_lottery_report.json"))
     runner = _read_dict(_metrics_path(settings, "runner_capture_ladder_report.json"))
-    missed = _read_dict(_metrics_path(settings, "missed_pumps.json"))
+    missed = _read_large_report_summary(_metrics_path(settings, "missed_pumps.json"))
+    current_missed = _read_dict(_metrics_path(settings, "current_run_missed_pumps.json"))
+    current_missed_summary = current_missed.get("summary") if isinstance(current_missed.get("summary"), dict) else {}
     summary = {
         "moonshot_candidates_seen": moonshot.get("candidates_seen") or moonshot.get("rows"),
         "moonshot_buys": moonshot.get("buys") or moonshot.get("paper_buys"),
         "moonshot_peak100_capture": moonshot.get("peak100_capture") or moonshot.get("moonshot_peak100_capture"),
         "moonshot_peak500_capture": moonshot.get("peak500_capture") or moonshot.get("moonshot_peak500_capture"),
         "runner_capture_ratio": runner.get("runner_capture_ratio") or runner.get("capture_ratio"),
-        "missed_peak100_count": missed.get("missed_peak100_count"),
-        "missed_peak500_count": missed.get("missed_peak500_count"),
-        "missed_peak1000_count": missed.get("missed_peak1000_count"),
+        "missed_peak100_count": missed.get("missed_peak100_count") or current_missed_summary.get("peak_100"),
+        "missed_peak500_count": missed.get("missed_peak500_count") or current_missed_summary.get("peak_500"),
+        "missed_peak1000_count": missed.get("missed_peak1000_count") or current_missed_summary.get("peak_1000"),
     }
     data = {
         "summary": summary,
         "moonshot_micro_lottery": moonshot,
         "runner_capture_ladder": runner,
         "missed_pumps": missed,
+        "current_run_missed_pumps": current_missed,
     }
     statuses = [
         _json_status(settings, "metrics.moonshot_micro_lottery", _metrics_path(settings, "moonshot_micro_lottery_report.json")),

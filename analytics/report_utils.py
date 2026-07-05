@@ -23,7 +23,7 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+    for line in path.read_text(encoding="utf-8-sig", errors="ignore").splitlines():
         if not line.strip():
             continue
         try:
@@ -94,6 +94,22 @@ def address_of(row: dict[str, Any]) -> str:
     return str(row.get("address") or row.get("mint") or row.get("token_address") or "").strip()
 
 
+def first_nonempty(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = row.get(key)
+        if value is not None and not (isinstance(value, str) and not value.strip()):
+            return value
+    return None
+
+
+def position_key(row: dict[str, Any]) -> str:
+    address = address_of(row).lower()
+    lane = str(row.get("entry_lane") or row.get("lane") or row.get("profit_lane_tier") or row.get("size_bucket") or "").strip().lower()
+    stamp = first_nonempty(row, "run_id", "opened_at", "buy_tx_sig", "created_at", "closed_at", "id")
+    identity = address or lane or "position"
+    return f"{identity}:{stamp if stamp is not None else id(row)}"
+
+
 def metrics_dir(root: Path | None = None) -> Path:
     return (root or PROJECT_ROOT) / "data" / "metrics"
 
@@ -118,8 +134,20 @@ def load_paper_positions(root: Path | None = None) -> list[dict[str, Any]]:
     except Exception:
         return []
     rows = payload.get("positions") if isinstance(payload, dict) else payload
+    if rows is None and isinstance(payload, dict):
+        rows = []
+        for token_address, row in payload.items():
+            if not isinstance(row, dict):
+                continue
+            item = dict(row)
+            item.setdefault("token_address", token_address)
+            rows.append(item)
     if isinstance(rows, dict):
-        rows = list(rows.values())
+        rows = [
+            {**row, "token_address": str(token_address)}
+            for token_address, row in rows.items()
+            if isinstance(row, dict)
+        ]
     return [row for row in rows or [] if isinstance(row, dict)]
 
 
@@ -137,6 +165,34 @@ def load_sqlite_positions(root: Path | None = None) -> list[dict[str, Any]]:
         return []
 
 
+def dedupe_position_rows(json_rows: list[dict[str, Any]], sqlite_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    sqlite_addresses = {address_of(row).lower() for row in sqlite_rows if address_of(row)}
+    source_order = (
+        (("sqlite_positions", sqlite_rows), ("paper_portfolio", json_rows))
+        if sqlite_rows
+        else (("paper_portfolio", json_rows),)
+    )
+    for source, source_rows in source_order:
+        for row in source_rows:
+            item = dict(row)
+            item["_source"] = source
+            address = address_of(item).lower()
+            if source == "paper_portfolio" and address and address in sqlite_addresses:
+                continue
+            key = position_key(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(item)
+    return rows
+
+
+def load_deduped_positions(root: Path | None = None) -> list[dict[str, Any]]:
+    return dedupe_position_rows(load_paper_positions(root), load_sqlite_positions(root))
+
+
 def bought_addresses(root: Path | None = None) -> set[str]:
     bought: set[str] = set()
     for row in load_runtime_events(root):
@@ -145,7 +201,7 @@ def bought_addresses(root: Path | None = None) -> set[str]:
             addr = address_of(row)
             if addr:
                 bought.add(addr)
-    for row in load_paper_positions(root) + load_sqlite_positions(root):
+    for row in load_deduped_positions(root):
         addr = address_of(row)
         if addr:
             bought.add(addr)
@@ -216,18 +272,22 @@ __all__ = [
     "address_of",
     "boolish",
     "bought_addresses",
+    "dedupe_position_rows",
     "filter_test_events",
+    "first_nonempty",
     "fnum",
     "inum",
     "include_test_events_enabled",
     "is_test_event",
     "is_severe_exit",
     "load_candidate_outcomes",
+    "load_deduped_positions",
     "load_paper_positions",
     "load_runtime_events",
     "load_sqlite_positions",
     "mcap_bucket",
     "metrics_dir",
+    "position_key",
     "price5m_bucket",
     "rank_bucket",
     "read_jsonl",

@@ -12,6 +12,7 @@ DEFAULT_SPACES = (
     "runner_exit",
     "sniper_momentum",
     "paper_exploration",
+    "paper_bootstrap",
     "late_momentum",
     "lane_sizing",
 )

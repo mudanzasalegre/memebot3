@@ -41,8 +41,8 @@ def checks() -> list[str]:
             errors.append("GREEN_SNIPER_LIVE_MAX_OPEN must be <=2")
         if _float("GREEN_SNIPER_LIVE_MAX_DAILY_LOSS_SOL", 0.0) <= 0:
             errors.append("GREEN_SNIPER_LIVE_MAX_DAILY_LOSS_SOL must be defined")
-        if _int("GREEN_SNIPER_LIVE_MAX_DAILY_BUYS", 0) <= 0:
-            errors.append("GREEN_SNIPER_LIVE_MAX_DAILY_BUYS must be defined")
+        if _int("GREEN_SNIPER_LIVE_MAX_DAILY_BUYS", 0) < 0:
+            errors.append("GREEN_SNIPER_LIVE_MAX_DAILY_BUYS must be >=0 (0 means unlimited)")
     if _bool("PAPER_SNIPER_MODE", False):
         if _bool("PAPER_PNL_STRICT_HEALTH", True) and _bool("PAPER_SNIPER_CONTINUE_ON_HEALTH", True):
             errors.append("PAPER_SNIPER_MODE with strict health contradicts PAPER_SNIPER_CONTINUE_ON_HEALTH")

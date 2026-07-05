@@ -10,8 +10,7 @@ from analytics.report_utils import (
     fnum,
     is_severe_exit,
     load_candidate_outcomes,
-    load_paper_positions,
-    load_sqlite_positions,
+    load_deduped_positions,
     metrics_dir,
     write_json,
     write_markdown,
@@ -238,7 +237,7 @@ def apply_pumpswap_rebound_watch_context(row: dict[str, Any], decision: Pumpswap
 
 
 def _pnl(row: dict[str, Any]) -> float:
-    return fnum(_first(row, "realized_pnl_pct", "total_pnl_pct", "pnl_pct", "target_total_pnl_pct"), 0.0)
+    return fnum(_first(row, "total_pnl_pct", "realized_pnl_pct", "pnl_pct", "target_total_pnl_pct"), 0.0)
 
 
 def _peak(row: dict[str, Any]) -> float:
@@ -263,7 +262,7 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def build_pumpswap_rebound_prime_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rows = load_candidate_outcomes(root) + load_deduped_positions(root)
     candidates = [row for row in rows if evaluate_pumpswap_rebound_prime(row).allowed]
     failures: dict[str, int] = {}
     for row in rows:
@@ -315,7 +314,7 @@ def write_pumpswap_rebound_prime_report(root: Path | None = None) -> dict[str, A
 
 def build_pumpswap_rebound_confirmation_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rows = load_candidate_outcomes(root) + load_deduped_positions(root)
     base_rows: list[dict[str, Any]] = []
     confirmed_rows: list[dict[str, Any]] = []
     shadow_rows: list[dict[str, Any]] = []

@@ -68,3 +68,7 @@ def test_live_promotion_preflight_writes_live_profile_after_gates_pass(tmp_path)
     assert "DRY_RUN=0" in text
     assert "STRATEGY_OPTIMIZATION_LOCK=false" in text
     assert "ALLOW_UNTAGGED_STANDARD_BUY=false" in text
+    assert "LIVE_CANARY_MAX_OPEN=0" in text
+    assert "LIVE_CANARY_MAX_DAILY_BUYS=0" in text
+    assert "RESEARCH_RANK_CANARY_MAX_OPEN=0" in text
+    assert "RESEARCH_RANK_CANARY_MAX_DAILY_BUYS=0" in text

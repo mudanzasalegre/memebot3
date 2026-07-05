@@ -171,25 +171,31 @@ API + UI + bot en paper:
 .\scripts\start_stack.ps1 -IncludeBot
 ```
 
-Ese comando tambien inicia AutoResearch en una ventana propia, en modo daemon
-paper/replay seguro. Por defecto arranca con `AutoResearchMaxCandidates=3`,
-`MaxParallel=1` e intervalo de 6 horas. El stack limpia locks muertos del bot,
-regenera core reports antes de levantar AutoResearch, refresca reports antes de
-los ciclos de investigacion, mantiene live promotion apagado y bloquea LLM
-live-touch.
-
-Si quieres levantar API + UI + bot sin AutoResearch:
+Ese comando arranca solo el bot en paper. AutoResearch es explicito y se
+incluye con:
 
 ```powershell
-.\scripts\start_stack.ps1 -IncludeBot -SkipAutoResearch
+.\scripts\start_stack.ps1 -IncludeBot -IncludeAutoResearch
+```
+
+AutoResearch arranca en modo daemon paper/replay seguro. Por defecto usa
+`AutoResearchMaxCandidates=3`, `MaxParallel=1` e intervalo de 360 minutos. El
+stack limpia locks muertos del bot, regenera core reports antes de levantar
+AutoResearch, refresca reports antes de los ciclos de investigacion, mantiene
+live promotion apagado y bloquea LLM live-touch.
+
+Para una sola iteracion:
+
+```powershell
+.\scripts\start_stack.ps1 -IncludeBot -IncludeAutoResearch -AutoResearchOnce
 ```
 
 Opciones utiles:
 
 ```powershell
-.\scripts\start_stack.ps1 -IncludeBot -AutoResearchSpace moonshot_micro -AutoResearchMaxCandidates 10
-.\scripts\start_stack.ps1 -IncludeBot -AutoResearchOnce -AutoResearchNoPaperPromote
-.\scripts\start_stack.ps1 -IncludeBot -AutoResearchSkipRegenerateReports
+.\scripts\start_stack.ps1 -IncludeBot -IncludeAutoResearch -AutoResearchSpace moonshot_micro -AutoResearchMaxCandidates 10
+.\scripts\start_stack.ps1 -IncludeBot -IncludeAutoResearch -AutoResearchOnce -AutoResearchNoPaperPromote
+.\scripts\start_stack.ps1 -IncludeBot -IncludeAutoResearch -AutoResearchSkipRegenerateReports
 ```
 
 API + UI + bot en real mode:

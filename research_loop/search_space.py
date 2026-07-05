@@ -25,7 +25,8 @@ SPACE_METADATA: dict[str, dict[str, Any]] = {
             "increase_moonshot_capture": False,
             "reduce_severe_losses": True,
         },
-        "risk_notes": ["paper only", "rank canary caps enforced"],
+        "optimization_targets": ["win_rate_pct", "median_pnl_pct", "total_pnl_usd", "severe_loss_count"],
+        "risk_notes": ["paper only", "rank canary quality gates enforced"],
     },
     "shadow_followup_micro": {
         "target_lanes": ["shadow_followup_micro"],
@@ -36,6 +37,13 @@ SPACE_METADATA: dict[str, dict[str, Any]] = {
             "increase_moonshot_capture": True,
             "reduce_severe_losses": True,
         },
+        "optimization_targets": [
+            "real_liquidity_breakout_capture",
+            "avg_pnl_pct",
+            "median_pnl_pct",
+            "total_pnl_usd",
+            "severe_loss_count",
+        ],
         "risk_notes": ["paper only", "micro amount capped"],
     },
     "moonshot_micro": {
@@ -47,6 +55,12 @@ SPACE_METADATA: dict[str, dict[str, Any]] = {
             "increase_moonshot_capture": True,
             "reduce_severe_losses": True,
         },
+        "optimization_targets": [
+            "moonshot_peak100_capture",
+            "moonshot_peak500_capture",
+            "moonshot_peak1000_capture",
+            "moonshot_micro_tail_capture_ratio",
+        ],
         "risk_notes": ["paper only", "moonshot amount capped"],
     },
     "runner_ladder": {
@@ -58,6 +72,7 @@ SPACE_METADATA: dict[str, dict[str, Any]] = {
             "increase_moonshot_capture": True,
             "reduce_severe_losses": False,
         },
+        "optimization_targets": ["runner_capture_ratio", "realized_pnl_on_runners", "total_pnl_usd"],
         "risk_notes": ["paper only", "exit parameters only"],
     },
     "sniper_momentum": {
@@ -69,18 +84,32 @@ SPACE_METADATA: dict[str, dict[str, Any]] = {
             "increase_moonshot_capture": False,
             "reduce_severe_losses": True,
         },
+        "optimization_targets": ["win_rate_pct", "median_pnl_pct", "total_pnl_usd", "severe_loss_count"],
         "risk_notes": ["paper only", "no API cadence changes"],
     },
     "paper_exploration": {
         "target_lanes": ["paper_exploration"],
-        "hypothesis": "Reduce idle periods with capped paper exploration while preserving safety.",
+        "hypothesis": "Reduce idle periods with paper exploration while preserving entry quality.",
         "expected_effect": {
             "increase_pnl": True,
             "increase_win_rate": False,
             "increase_moonshot_capture": True,
             "reduce_severe_losses": False,
         },
-        "risk_notes": ["paper only", "idle exploration cap enforced"],
+        "optimization_targets": ["idle_no_buy_hours", "total_pnl_usd", "moonshot_peak100_capture"],
+        "risk_notes": ["paper only", "idle exploration quality gates enforced; buy quotas remain unlimited"],
+    },
+    "paper_bootstrap": {
+        "target_lanes": ["paper_bootstrap", "pump_early_paper_bootstrap_micro"],
+        "hypothesis": "Accelerate clean cold-start data acquisition with paper bootstrap entries.",
+        "expected_effect": {
+            "increase_pnl": True,
+            "increase_win_rate": False,
+            "increase_moonshot_capture": True,
+            "reduce_severe_losses": False,
+        },
+        "optimization_targets": ["idle_no_buy_hours", "total_pnl_usd", "overtrading_count", "severe_loss_count"],
+        "risk_notes": ["paper only", "bootstrap amount cap enforced; buy quotas remain unlimited"],
     },
 }
 
@@ -102,6 +131,7 @@ class SearchSpace:
     target_lanes: list[str] = field(default_factory=list)
     hypothesis: str = ""
     expected_effect: dict[str, Any] = field(default_factory=dict)
+    optimization_targets: list[str] = field(default_factory=list)
     risk_notes: list[str] = field(default_factory=list)
 
     def keys(self) -> list[str]:
@@ -206,6 +236,7 @@ def _space_from_payload(name: str, payload: dict[str, Any]) -> SearchSpace:
         target_lanes=list(metadata.get("target_lanes") or [resolved_name]),
         hypothesis=str(metadata.get("hypothesis") or f"Optimize {resolved_name}."),
         expected_effect=dict(metadata.get("expected_effect") or {"increase_pnl": True}),
+        optimization_targets=list(metadata.get("optimization_targets") or ["total_pnl_usd"]),
         risk_notes=list(metadata.get("risk_notes") or ["paper only"]),
     )
 
@@ -252,13 +283,14 @@ def validate_search_space(space: SearchSpace) -> SearchSpaceValidationResult:
             errors.append(f"forbidden_key:{space.name}:{key}")
         if upper in protected_api:
             errors.append(f"api_budget_protected_key:{space.name}:{key}")
-        sample_policy = {
-            "live_allowed": False,
-            "changes": {key: values[0]},
-        }
-        safety = validate_candidate_safety(sample_policy)
-        if not safety.ok:
-            errors.extend(f"safety:{space.name}:{error}" for error in safety.errors)
+        for value in values:
+            sample_policy = {
+                "live_allowed": False,
+                "changes": {key: value},
+            }
+            safety = validate_candidate_safety(sample_policy)
+            if not safety.ok:
+                errors.extend(f"safety:{space.name}:{error}" for error in safety.errors)
 
     return SearchSpaceValidationResult(ok=not errors, errors=errors, warnings=warnings)
 

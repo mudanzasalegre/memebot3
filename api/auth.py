@@ -31,6 +31,7 @@ OPERATOR_PERMISSIONS = VIEWER_PERMISSIONS | {
     "control.command.reload_model",
     "control.command.trigger_retrain",
     "control.command.refresh_reports",
+    "control.command.run_autoresearch",
 }
 ADMIN_PERMISSIONS = OPERATOR_PERMISSIONS | {
     "control.process.start",
@@ -54,6 +55,7 @@ CONTROL_COMMAND_PERMISSIONS = {
     "reload_model": "control.command.reload_model",
     "trigger_retrain": "control.command.trigger_retrain",
     "refresh_reports": "control.command.refresh_reports",
+    "run_autoresearch": "control.command.run_autoresearch",
     "set_log_level": "control.command.set_log_level",
 }
 

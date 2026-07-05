@@ -26,7 +26,7 @@ def main() -> int:
     parser.add_argument("--run-id", default=None, help="Paper-forward run id.")
     parser.add_argument("--profile-id", default=None, help="Suffix for config/profiles/paper_research_candidate_<id>.env.")
     parser.add_argument("--source-profile", default=DEFAULT_SOURCE_PROFILE)
-    parser.add_argument("--evaluation-status", default="accepted_replay")
+    parser.add_argument("--evaluation-status", default="needs_paper")
     parser.add_argument("--budget-json", default=None, help="Optional JSON file with paper budget overrides.")
     parser.add_argument("--allow-needs-paper", action="store_true")
     args = parser.parse_args()
@@ -39,7 +39,7 @@ def main() -> int:
         budget=_read_json(args.budget_json),
         source_profile=args.source_profile,
         profile_id=args.profile_id,
-        allow_needs_paper=args.allow_needs_paper,
+        allow_needs_paper=args.allow_needs_paper or args.evaluation_status == "needs_paper",
     )
     print(json.dumps(result.as_dict(), indent=2, sort_keys=True, default=str))
     return 0

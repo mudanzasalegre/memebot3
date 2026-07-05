@@ -8,9 +8,8 @@ from analytics.report_utils import (
     address_of,
     fnum,
     load_candidate_outcomes,
-    load_paper_positions,
+    load_deduped_positions,
     load_runtime_events,
-    load_sqlite_positions,
     metrics_dir,
     write_json,
 )
@@ -39,7 +38,7 @@ def _is_sniper_research(row: dict[str, Any]) -> bool:
 
 def build_momentum_ignition_fallback_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_runtime_events(root) + load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rows = load_runtime_events(root) + load_candidate_outcomes(root) + load_deduped_positions(root)
     sniper_rows = [row for row in rows if _is_sniper_research(row)]
     fallback_allowed: list[dict[str, Any]] = []
     needs_confirmation: list[dict[str, Any]] = []

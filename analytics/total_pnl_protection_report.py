@@ -8,8 +8,7 @@ from analytics.report_utils import (
     address_of,
     fnum,
     load_candidate_outcomes,
-    load_paper_positions,
-    load_sqlite_positions,
+    load_deduped_positions,
     metrics_dir,
     write_json,
 )
@@ -56,7 +55,7 @@ def _floor(row: dict[str, Any]) -> float | None:
 
 def build_total_pnl_protection_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rows = load_candidate_outcomes(root) + load_deduped_positions(root)
     protected = [
         row for row in rows if str(_first(row, "exit_reason", "reason") or "").strip().upper() == "TOTAL_PNL_PROTECTION_EXIT"
     ]

@@ -8,7 +8,7 @@ from analytics.social_signal import (
     SOCIAL_ENRICHMENT_EVENTS_PATH,
     latest_social_payload,
 )
-from api.repositories.filesystem import load_jsonl_rows
+from api.repositories.filesystem import load_jsonl_tail_rows
 from api.schemas.common import Envelope, SourceStatus
 from api.services.common import build_envelope, make_source_status
 from api.services.sources import jsonl_status
@@ -41,7 +41,7 @@ def get_social_token_envelope(settings: APISettings, *, address: str) -> Envelop
 
 def get_socials_summary_envelope(settings: APISettings) -> Envelope:
     _ = settings
-    rows = load_jsonl_rows(SOCIAL_ENRICHMENT_EVENTS_PATH)
+    rows = load_jsonl_tail_rows(SOCIAL_ENRICHMENT_EVENTS_PATH, limit=25_000)
     status_counts: Counter[str] = Counter()
     lane_counts: dict[str, Counter[str]] = defaultdict(Counter)
     risk_flags: Counter[str] = Counter()
@@ -66,6 +66,8 @@ def get_socials_summary_envelope(settings: APISettings) -> Envelope:
         "lane_status_counts": {lane: dict(counts) for lane, counts in lane_counts.items()},
         "risk_flags": dict(risk_flags.most_common(20)),
         "queue": GLOBAL_SOCIAL_ENRICHMENT_QUEUE.snapshot(),
+        "sampled": True,
+        "sample_rows": len(rows),
     }
     status = _social_events_status()
     return build_envelope(

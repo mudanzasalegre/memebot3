@@ -10,6 +10,7 @@ from analytics.report_utils import (
     address_of,
     boolish,
     fnum,
+    is_severe_exit,
     load_candidate_outcomes,
     load_paper_positions,
     load_runtime_events,
@@ -19,10 +20,12 @@ from analytics.report_utils import (
     write_markdown,
 )
 from config.config import CFG, PROJECT_ROOT
+from ml.lane_taxonomy import LANE_RESEARCH_SNIPER, LANE_SNIPER_RESEARCH_MICRO_FALLBACK
 
 
 SUBPROFILE_MOMENTUM_IGNITION = "sniper_research_momentum_ignition"
 SUBPROFILE_DEEP_REVERSAL = "sniper_research_deep_reversal"
+SUBPROFILE_MICRO_FALLBACK = "sniper_research_micro_fallback"
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,8 @@ class SniperResearchSubprofileDecision:
     subprofile: str | None
     reason: str
     failures: tuple[str, ...]
+    amount_sol: float = 0.0
+    entry_lane: str | None = None
 
 
 def _norm(value: Any) -> str:
@@ -49,6 +54,16 @@ def _field_float(row: dict[str, Any], *keys: str, default: float = 0.0) -> float
     return fnum(_first(row, *keys), default)
 
 
+def _cfg_int(cfg: Any, key: str, default: int) -> int:
+    value = getattr(cfg, key, default)
+    if value in (None, ""):
+        return int(default)
+    try:
+        return int(float(value))
+    except Exception:
+        return int(default)
+
+
 def _dex_id(row: dict[str, Any]) -> str:
     return _norm(_first(row, "buy_dex_id", "dex_id", "dexId"))
 
@@ -62,7 +77,12 @@ def _proxy_liquidity(row: dict[str, Any]) -> bool:
 
 
 def _is_sniper_research(row: dict[str, Any]) -> bool:
-    return str(_first(row, "entry_lane", "lane") or "").strip().lower() == "pump_early_sniper_research"
+    lane = str(_first(row, "entry_lane", "lane") or "").strip().lower()
+    return lane in {LANE_RESEARCH_SNIPER, LANE_SNIPER_RESEARCH_MICRO_FALLBACK}
+
+
+def _is_base_sniper_research(row: dict[str, Any]) -> bool:
+    return str(_first(row, "entry_lane", "lane") or "").strip().lower() == LANE_RESEARCH_SNIPER
 
 
 def _second_tick_confirmed(row: dict[str, Any]) -> bool:
@@ -99,6 +119,20 @@ def _toxic_initial_sell_pressure(row: dict[str, Any]) -> bool:
         return True
     reason = str(_first(row, "toxic_initial_sell_pressure_reason", "green_sniper_reason", "reason") or "").lower()
     return "toxic_initial_sell_pressure" in reason or ">70% ventas iniciales" in reason
+
+
+def _cluster_bad(row: dict[str, Any]) -> bool:
+    if boolish(_first(row, "cluster_bad", "helius_cluster_bad"), False):
+        return True
+    reason = str(_first(row, "cluster_reason", "green_sniper_reason", "reason") or "").lower()
+    return "cluster_bad" in reason
+
+
+def _has_price_source(row: dict[str, Any]) -> bool:
+    if _field_float(row, "price_usd", "buy_price_usd", "entry_price_usd", "price", default=0.0) > 0.0:
+        return True
+    source = str(_first(row, "price_source", "price_source_at_buy", "buy_price_source") or "").strip().lower()
+    return bool(source and source not in {"none", "unknown", "missing", "nan", "null"})
 
 
 def _rank_score(row: dict[str, Any]) -> float:
@@ -191,6 +225,39 @@ def _deep_reversal_failures(row: dict[str, Any], *, cfg: Any = CFG) -> list[str]
     return failures
 
 
+def _micro_fallback_failures(row: dict[str, Any], *, cfg: Any = CFG) -> list[str]:
+    failures: list[str] = []
+    if not bool(getattr(cfg, "SNIPER_RESEARCH_MICRO_FALLBACK_ENABLED", True)):
+        failures.append("micro_fallback:disabled")
+
+    txns = _field_float(row, "buy_txns_last_5m", "txns_last_5m", "txns_5m")
+    min_txns = float(getattr(cfg, "SNIPER_RESEARCH_MICRO_FALLBACK_MIN_TXNS_5M", 800) or 800)
+    if txns < min_txns:
+        failures.append(f"micro_fallback:txns5m<{min_txns:g}")
+
+    liq = _field_float(row, "buy_liquidity_usd", "liquidity_usd")
+    min_liq = float(getattr(cfg, "SNIPER_RESEARCH_MICRO_FALLBACK_MIN_LIQUIDITY_USD", 10_000.0) or 10_000.0)
+    if liq < min_liq:
+        failures.append(f"micro_fallback:liq<{min_liq:g}")
+
+    mcap = _field_float(row, "buy_market_cap_usd", "market_cap_usd", "mcap")
+    max_mcap = float(getattr(cfg, "SNIPER_RESEARCH_MICRO_FALLBACK_MAX_MCAP_USD", 120_000.0) or 120_000.0)
+    if mcap <= 0:
+        failures.append("micro_fallback:mcap_missing")
+    elif mcap > max_mcap:
+        failures.append(f"micro_fallback:mcap>{max_mcap:g}")
+
+    if not _route_ok(row):
+        failures.append("micro_fallback:route_required")
+    if not _has_price_source(row):
+        failures.append("micro_fallback:price_source_missing")
+    if _toxic_initial_sell_pressure(row):
+        failures.append("micro_fallback:toxic_initial_sell_pressure")
+    if _cluster_bad(row):
+        failures.append("micro_fallback:cluster_bad")
+    return failures
+
+
 def evaluate_sniper_research_subprofile(
     row: dict[str, Any],
     *,
@@ -198,7 +265,16 @@ def evaluate_sniper_research_subprofile(
 ) -> SniperResearchSubprofileDecision:
     if not bool(getattr(cfg, "SNIPER_RESEARCH_SUBPROFILES_ENABLED", True)):
         return SniperResearchSubprofileDecision(True, None, "subprofiles_disabled", ())
-    if not _is_sniper_research(row):
+    if str(_first(row, "entry_lane", "lane") or "").strip().lower() == LANE_SNIPER_RESEARCH_MICRO_FALLBACK:
+        return SniperResearchSubprofileDecision(
+            True,
+            SUBPROFILE_MICRO_FALLBACK,
+            SUBPROFILE_MICRO_FALLBACK,
+            (),
+            amount_sol=float(getattr(cfg, "SNIPER_RESEARCH_MICRO_FALLBACK_AMOUNT_SOL", 0.003) or 0.003),
+            entry_lane=LANE_SNIPER_RESEARCH_MICRO_FALLBACK,
+        )
+    if not _is_base_sniper_research(row):
         return SniperResearchSubprofileDecision(True, None, "not_sniper_research", ())
 
     failures: list[str] = []
@@ -229,11 +305,28 @@ def evaluate_sniper_research_subprofile(
             return SniperResearchSubprofileDecision(True, SUBPROFILE_DEEP_REVERSAL, SUBPROFILE_DEEP_REVERSAL, ())
         failures.extend(deep_failures)
 
+    if bool(getattr(cfg, "SNIPER_RESEARCH_MICRO_FALLBACK_ENABLED", True)):
+        micro_failures = _micro_fallback_failures(row, cfg=cfg)
+        if not micro_failures:
+            amount_sol = float(getattr(cfg, "SNIPER_RESEARCH_MICRO_FALLBACK_AMOUNT_SOL", 0.003) or 0.003)
+            return SniperResearchSubprofileDecision(
+                True,
+                SUBPROFILE_MICRO_FALLBACK,
+                SUBPROFILE_MICRO_FALLBACK,
+                (),
+                amount_sol=max(amount_sol, 0.0),
+                entry_lane=LANE_SNIPER_RESEARCH_MICRO_FALLBACK,
+            )
+        failures.extend(micro_failures)
+
     compact = tuple(dict.fromkeys(failures or ["no_subprofile_enabled"]))
+    reason = "sniper_research_subprofile_not_matched"
+    if any(str(failure).startswith("micro_fallback:") for failure in compact):
+        reason = "sniper_research_micro_fallback_not_matched"
     return SniperResearchSubprofileDecision(
         False,
         None,
-        "sniper_research_subprofile_not_matched:" + ",".join(compact[:10]),
+        reason + ":" + ",".join(compact[:10]),
         compact,
     )
 
@@ -248,6 +341,19 @@ def apply_sniper_research_subprofile_context(
         row["sniper_research_subprofile_reason"] = decision.reason
         row["sniper_research_subprofile_failures"] = ""
         row["green_sniper_reason"] = decision.reason
+        if decision.subprofile == SUBPROFILE_MICRO_FALLBACK:
+            row["entry_lane"] = decision.entry_lane or LANE_SNIPER_RESEARCH_MICRO_FALLBACK
+            row["profit_lane_tier"] = LANE_SNIPER_RESEARCH_MICRO_FALLBACK
+            row["gate_profile"] = SUBPROFILE_MICRO_FALLBACK
+            row["sniper_gate_profile"] = SUBPROFILE_MICRO_FALLBACK
+            row["live_profit_gate_profile"] = SUBPROFILE_MICRO_FALLBACK
+            row["lane_policy_category"] = SUBPROFILE_MICRO_FALLBACK
+            row["sniper_research_micro_fallback"] = 1
+            row["sniper_research_micro_fallback_amount_sol"] = float(decision.amount_sol or 0.003)
+            row["amount_sol"] = float(decision.amount_sol or 0.003)
+            row["runner_exit_profile"] = "broad_runner"
+            row["live_profit_gate_failed_count"] = 0
+            row["live_profit_gate_failures"] = ""
         if decision.subprofile == SUBPROFILE_DEEP_REVERSAL:
             row["exit_profile"] = "sniper_deep_reversal_defensive"
     else:
@@ -260,6 +366,33 @@ def apply_sniper_research_subprofile_context(
 
 def _pnl(row: dict[str, Any]) -> float:
     return fnum(_first(row, "realized_pnl_pct", "total_pnl_pct", "pnl_pct", "target_total_pnl_pct"), 0.0)
+
+
+def _peak(row: dict[str, Any]) -> float:
+    return fnum(
+        _first(row, "highest_pnl_pct", "max_pnl_pct_seen", "peak_pnl_pct", "observed_peak_after_seen"),
+        0.0,
+    )
+
+
+def _is_micro_fallback_row(row: dict[str, Any]) -> bool:
+    lane = str(_first(row, "entry_lane", "lane", "profit_lane_tier") or "").strip().lower()
+    gate = str(_first(row, "gate_profile", "sniper_gate_profile", "live_profit_gate_profile") or "").strip().lower()
+    subprofile = str(_first(row, "entry_subprofile", "sniper_research_subprofile") or "").strip().lower()
+    reason = str(_first(row, "reason", "entry_reason", "green_sniper_reason") or "").strip().lower()
+    return (
+        lane == LANE_SNIPER_RESEARCH_MICRO_FALLBACK
+        or gate == SUBPROFILE_MICRO_FALLBACK
+        or subprofile == SUBPROFILE_MICRO_FALLBACK
+        or "sniper_research_micro_fallback" in reason
+    )
+
+
+def _is_bought_row(row: dict[str, Any]) -> bool:
+    event = str(_first(row, "event_type", "event", "action", "decision") or "").strip().lower()
+    if event in {"buy", "bought", "buy_ok", "paper_buy", "sniper_research_micro_fallback_buy"}:
+        return True
+    return fnum(_first(row, "buy_amount_sol", "amount_sol", "trade_amount_sol"), 0.0) > 0.0 and _is_micro_fallback_row(row)
 
 
 def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -299,6 +432,7 @@ def build_sniper_research_subprofile_report(root: Path | None = None) -> dict[st
             "enabled": bool(getattr(CFG, "SNIPER_RESEARCH_SUBPROFILES_ENABLED", True)),
             "momentum_ignition_enabled": bool(getattr(CFG, "SNIPER_RESEARCH_MOMENTUM_IGNITION_ENABLED", True)),
             "deep_reversal_enabled": bool(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_ENABLED", True)),
+            "micro_fallback_enabled": bool(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_ENABLED", True)),
             "momentum": {
                 "price5m_min": float(getattr(CFG, "SNIPER_RESEARCH_MOMENTUM_MIN_PRICE5M", 100.0) or 100.0),
                 "price5m_max": float(getattr(CFG, "SNIPER_RESEARCH_MOMENTUM_MAX_PRICE5M", 150.0) or 150.0),
@@ -313,6 +447,12 @@ def build_sniper_research_subprofile_report(root: Path | None = None) -> dict[st
                 "price5m_max": float(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_MAX_PRICE5M", -50.0) or -50.0),
                 "min_txns_5m": int(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_MIN_TXNS_5M", 500) or 500),
                 "max_mcap_usd": float(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_MAX_MCAP_USD", 25_000.0) or 25_000.0),
+            },
+            "micro_fallback": {
+                "min_txns_5m": int(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_MIN_TXNS_5M", 800) or 800),
+                "min_liquidity_usd": float(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_MIN_LIQUIDITY_USD", 10_000.0) or 10_000.0),
+                "max_mcap_usd": float(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_MAX_MCAP_USD", 120_000.0) or 120_000.0),
+                "amount_sol": float(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_AMOUNT_SOL", 0.003) or 0.003),
             },
         },
         "summary": {
@@ -360,13 +500,79 @@ def write_sniper_research_subprofile_report(root: Path | None = None) -> dict[st
     return report
 
 
+def build_sniper_research_micro_fallback_report(root: Path | None = None) -> dict[str, Any]:
+    root = root or PROJECT_ROOT
+    rows = (
+        load_runtime_events(root)
+        + load_candidate_outcomes(root)
+        + load_paper_positions(root)
+        + load_sqlite_positions(root)
+    )
+    sniper_rows = [row for row in rows if _is_sniper_research(row)]
+    decisions = [(row, evaluate_sniper_research_subprofile(row)) for row in sniper_rows]
+    allowed_rows = [row for row, decision in decisions if decision.subprofile == SUBPROFILE_MICRO_FALLBACK]
+    fallback_rows = [row for row in rows if _is_micro_fallback_row(row)]
+    if fallback_rows:
+        by_address = {address_of(row): row for row in allowed_rows if address_of(row)}
+        for row in fallback_rows:
+            addr = address_of(row)
+            if addr and addr not in by_address:
+                allowed_rows.append(row)
+                by_address[addr] = row
+            elif not addr:
+                allowed_rows.append(row)
+    shadowed_rows = [
+        row
+        for row, decision in decisions
+        if not decision.allowed and str(decision.reason).startswith("sniper_research_micro_fallback_not_matched")
+    ]
+    bought_rows = [row for row in allowed_rows if _is_bought_row(row)]
+    pnl_rows = [row for row in allowed_rows if _pnl(row) != 0.0 or _peak(row) != 0.0]
+    pnls = [_pnl(row) for row in pnl_rows]
+    return {
+        "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "config": {
+            "enabled": bool(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_ENABLED", True)),
+            "live_enabled": bool(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_LIVE_ENABLED", False)),
+            "amount_sol": float(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_AMOUNT_SOL", 0.003) or 0.003),
+            "max_open": _cfg_int(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_MAX_OPEN", 0),
+            "max_daily_buys": _cfg_int(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_MAX_DAILY_BUYS", 0),
+            "min_txns_5m": int(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_MIN_TXNS_5M", 800) or 800),
+            "min_liquidity_usd": float(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_MIN_LIQUIDITY_USD", 10_000.0) or 10_000.0),
+            "max_mcap_usd": float(getattr(CFG, "SNIPER_RESEARCH_MICRO_FALLBACK_MAX_MCAP_USD", 120_000.0) or 120_000.0),
+        },
+        "seen": len(sniper_rows),
+        "allowed": len(allowed_rows),
+        "bought": len(bought_rows),
+        "shadowed": len(shadowed_rows),
+        "avg_pnl": round(sum(pnls) / len(pnls), 3) if pnls else 0.0,
+        "peak100_count": sum(1 for row in allowed_rows if _peak(row) >= 100.0),
+        "peak500_count": sum(1 for row in allowed_rows if _peak(row) >= 500.0),
+        "severe_loss_count": sum(1 for row in allowed_rows if is_severe_exit(row)),
+        "shadow_reasons": {
+            failure: sum(1 for _, decision in decisions if failure in decision.failures)
+            for failure in sorted({failure for _, decision in decisions for failure in decision.failures if str(failure).startswith("micro_fallback:")})
+        },
+    }
+
+
+def write_sniper_research_micro_fallback_report(root: Path | None = None) -> dict[str, Any]:
+    root = root or PROJECT_ROOT
+    report = build_sniper_research_micro_fallback_report(root)
+    write_json(metrics_dir(root) / "sniper_research_micro_fallback_report.json", report)
+    return report
+
+
 __all__ = [
     "SUBPROFILE_DEEP_REVERSAL",
+    "SUBPROFILE_MICRO_FALLBACK",
     "SUBPROFILE_MOMENTUM_IGNITION",
     "SniperResearchSubprofileDecision",
     "apply_sniper_research_subprofile_context",
+    "build_sniper_research_micro_fallback_report",
     "build_sniper_research_subprofile_report",
     "evaluate_sniper_research_subprofile",
     "momentum_trend_missing_strong_reasons",
+    "write_sniper_research_micro_fallback_report",
     "write_sniper_research_subprofile_report",
 ]

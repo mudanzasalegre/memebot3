@@ -20,6 +20,52 @@ REQUIRED_SAFE_FLAG_VALUES = {
     "AUTORESEARCH_LLM_CAN_CALL_APIS": False,
     "SOCIALS_HOT_PATH_BLOCKING": False,
     "GREEN_SNIPER_REQUIRE_SOCIALS": False,
+    "PAPER_BOOTSTRAP_REQUIRE_COLD_START": False,
+}
+
+UNLIMITED_BUY_QUOTA_KEYS = {
+    "BUY_RATE_LIMIT_N",
+    "BUY_RATE_LIMIT_WINDOW_S",
+    "MAX_ACTIVE_POSITIONS",
+    "MAX_ACTIVE_POSITIONS_PER_REGIME",
+    "PUMP_EARLY_MAX_ACTIVE_POSITIONS",
+    "DEX_MATURE_MAX_ACTIVE_POSITIONS",
+    "REVIVAL_MAX_ACTIVE_POSITIONS",
+    "LIVE_MAX_DAILY_BUYS",
+    "LIVE_CANARY_MAX_OPEN",
+    "LIVE_CANARY_MAX_DAILY_BUYS",
+    "PUMP_EARLY_SNIPER_MAX_OPEN_PAPER",
+    "PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY",
+    "PUMP_EARLY_SNIPER_MAX_OPEN_LIVE_CANARY_ADVANCED",
+    "PUMP_EARLY_PROFIT_MAX_OPEN_PAPER",
+    "PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY",
+    "PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER",
+    "PUMP_EARLY_BREAKOUT_MAX_OPEN_LIVE_CANARY",
+    "GREEN_SNIPER_LIVE_MAX_OPEN",
+    "GREEN_SNIPER_MAX_OPEN_PAPER",
+    "GREEN_SNIPER_LIVE_MAX_DAILY_BUYS",
+    "RESEARCH_RANK_CANARY_MAX_OPEN",
+    "RESEARCH_RANK_CANARY_MAX_DAILY_BUYS",
+    "RESEARCH_RANK_CANARY_PRIORITY_MAX_OPEN",
+    "BIRTH_PROBE_MICRO_CANARY_MAX_OPEN",
+    "BIRTH_PROBE_MICRO_CANARY_MAX_DAILY_BUYS",
+    "LATE_MOMENTUM_WATCH_MAX_OPEN_PAPER",
+    "LATE_MOMENTUM_WATCH_MAX_OPEN_LIVE",
+    "SNIPER_RESEARCH_MICRO_FALLBACK_MAX_OPEN",
+    "SNIPER_RESEARCH_MICRO_FALLBACK_MAX_DAILY_BUYS",
+    "MOONSHOT_MICRO_LOTTERY_MAX_OPEN",
+    "MOONSHOT_MICRO_LOTTERY_MAX_DAILY_BUYS",
+    "PAPER_EXPLORATION_MAX_OPEN",
+    "PAPER_EXPLORATION_MAX_DAILY_BUYS",
+    "PAPER_EXPLORATION_IDLE_HOURS",
+    "PAPER_IDLE_AFTER_HOURS",
+    "PAPER_IDLE_MAX_DAILY_BUYS",
+    "PAPER_BOOTSTRAP_MAX_OPEN",
+    "PAPER_BOOTSTRAP_MAX_DAILY_BUYS",
+    "PAPER_BOOTSTRAP_MAX_HOURLY_BUYS",
+    "PAPER_BOOTSTRAP_MIN_SECONDS_BETWEEN_BUYS",
+    "SHADOW_FOLLOWUP_MICRO_MAX_OPEN",
+    "SHADOW_FOLLOWUP_MICRO_MAX_DAILY_BUYS",
 }
 
 
@@ -133,8 +179,14 @@ def _candidate_changes(candidate_policy: dict[str, Any], errors: list[str]) -> d
 def _amount_cap_for_key(key: str, max_amounts: dict[str, Any]) -> float | None:
     if not any(marker in key for marker in AMOUNT_KEY_MARKERS):
         return None
+    if "MOONSHOT_MICRO" in key and "RISKY_CLUSTER_AMOUNT_SOL" in key:
+        return _float_value(max_amounts.get("moonshot_risky_cluster_max_sol"))
+    if "MOONSHOT_MICRO" in key and "CLUSTER_TAIL_AMOUNT_SOL" in key:
+        return _float_value(max_amounts.get("moonshot_cluster_tail_max_sol"))
     if "MOONSHOT_MICRO" in key:
         return _float_value(max_amounts.get("moonshot_micro_max_sol"))
+    if "PAPER_BOOTSTRAP" in key:
+        return _float_value(max_amounts.get("paper_bootstrap_max_sol"))
     if "RESEARCH_RANK_CANARY" in key:
         return _float_value(max_amounts.get("rank_canary_max_sol"))
     if "PAPER_EXPLORATION" in key or "PAPER_IDLE" in key:
@@ -202,6 +254,13 @@ def validate_candidate_safety(candidate_policy: dict[str, Any]) -> SafetyResult:
 
         cap = _amount_cap_for_key(key, max_amounts)
         numeric_value = _float_value(value)
+        if key in UNLIMITED_BUY_QUOTA_KEYS:
+            if numeric_value is None:
+                errors.append(f"unlimited_quota_must_be_numeric:{key}")
+                continue
+            if numeric_value != 0.0:
+                errors.append(f"unlimited_quota_required:{key}:{numeric_value}")
+                forbidden_changes.append(key)
         if cap is not None and numeric_value is None:
             errors.append(f"amount_must_be_numeric:{key}")
             continue
@@ -220,4 +279,4 @@ def validate_candidate_safety(candidate_policy: dict[str, Any]) -> SafetyResult:
     )
 
 
-__all__ = ["SafetyResult", "load_safety_config", "validate_candidate_safety"]
+__all__ = ["SafetyResult", "UNLIMITED_BUY_QUOTA_KEYS", "load_safety_config", "validate_candidate_safety"]

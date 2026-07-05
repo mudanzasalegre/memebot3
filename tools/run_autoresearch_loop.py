@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import sys
 import time
@@ -15,6 +16,19 @@ from research_loop.scheduler import (
     load_scheduler_config,
     run_autoresearch_cycle,
 )
+from research_loop.runtime_state import (
+    EVENT_AUTORESEARCH_ERROR,
+    EVENT_AUTORESEARCH_STOP,
+    append_event,
+    record_cycle_completion,
+    record_cycle_start,
+    record_runtime_error,
+    record_runtime_start,
+)
+
+
+def _next_cycle_at(interval_hours: float) -> str:
+    return (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=interval_hours)).isoformat()
 
 
 def main() -> int:
@@ -60,13 +74,33 @@ def main() -> int:
 
     once = args.once or not args.daemon
     results = []
-    while True:
-        result = run_autoresearch_cycle(root=root, config=config, seed=args.seed)
-        results.append(result.as_dict())
-        print(json.dumps(result.as_dict(), indent=2, sort_keys=True, default=str))
-        if once:
-            return 0 if result.status != "failed" else 1
-        time.sleep(config.interval_hours * 3600.0)
+    record_runtime_start(root, config, once=once, interval_hours=config.interval_hours)
+    exit_code = 0
+    try:
+        while True:
+            record_cycle_start(root, config, next_cycle_at_utc=None if once else _next_cycle_at(config.interval_hours))
+            result = run_autoresearch_cycle(root=root, config=config, seed=args.seed)
+            result_payload = result.as_dict()
+            results.append(result_payload)
+            record_cycle_completion(
+                root,
+                config,
+                result,
+                next_cycle_at_utc=None if once else _next_cycle_at(config.interval_hours),
+            )
+            print(json.dumps(result_payload, indent=2, sort_keys=True, default=str), flush=True)
+            if once:
+                exit_code = 0 if result.status != "failed" else 1
+                break
+            time.sleep(config.interval_hours * 3600.0)
+    except Exception as exc:
+        exit_code = 1
+        record_runtime_error(root, str(exc))
+        append_event(root, EVENT_AUTORESEARCH_ERROR, {"phase": "process", "error": str(exc)})
+        raise
+    finally:
+        append_event(root, EVENT_AUTORESEARCH_STOP, {"exit_code": exit_code})
+    return exit_code
 
 
 if __name__ == "__main__":

@@ -10,8 +10,7 @@ from analytics.lane_policy_categories import classify_policy_category
 from analytics.report_utils import (
     fnum,
     load_candidate_outcomes,
-    load_paper_positions,
-    load_sqlite_positions,
+    load_deduped_positions,
     metrics_dir,
     write_json,
     write_markdown,
@@ -82,7 +81,7 @@ def _baseline_comparison(root: Path) -> dict[str, Any]:
 
 def build_early_dump_cut_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    all_rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    all_rows = load_candidate_outcomes(root) + load_deduped_positions(root)
     rows = [row for row in all_rows if str(row.get("exit_reason") or row.get("reason") or "").upper() == "EARLY_DUMP_CUT"]
     by_lane: dict[str, list[dict[str, Any]]] = {}
     for row in rows:

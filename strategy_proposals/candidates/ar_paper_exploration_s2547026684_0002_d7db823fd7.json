@@ -1,0 +1,40 @@
+{
+  "api_budget_sensitive": true,
+  "changes": {
+    "PAPER_EXPLORATION_AMOUNT_SOL": 0.1,
+    "PAPER_EXPLORATION_MAX_DAILY_BUYS": 0,
+    "PAPER_EXPLORATION_MAX_OPEN": 0,
+    "PAPER_IDLE_AFTER_HOURS": 0,
+    "PAPER_IDLE_AMOUNT_SOL": 0.02,
+    "PAPER_IDLE_MAX_DAILY_BUYS": 0
+  },
+  "created_at_utc": "2026-06-20T09:58:04.002160+00:00",
+  "expected_effect": {
+    "increase_moonshot_capture": true,
+    "increase_pnl": true,
+    "increase_win_rate": false,
+    "reduce_severe_losses": false
+  },
+  "experiment_type": "replay",
+  "hypothesis": "Reduce idle periods with paper exploration while preserving entry quality.",
+  "live_allowed": false,
+  "optimization_scope": "combined",
+  "optimization_targets": [
+    "idle_no_buy_hours",
+    "total_pnl_usd",
+    "moonshot_peak100_capture"
+  ],
+  "optimized_metric": "idle_no_buy_hours",
+  "proposal_id": "ar_paper_exploration_s2547026684_0002_d7db823fd7",
+  "required_gates": [
+    "replay_positive",
+    "api_budget_ok"
+  ],
+  "risk_notes": [
+    "paper only",
+    "idle exploration quality gates enforced; buy quotas remain unlimited"
+  ],
+  "target_lanes": [
+    "paper_exploration"
+  ]
+}

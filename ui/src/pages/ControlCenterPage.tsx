@@ -33,6 +33,19 @@ import { formatCount, formatRelative, formatTimestamp, humanizeKey } from "../li
 const statusOptions: Array<ControlCommandStatus | "all"> = ["all", "pending", "running", "done", "failed", "rejected", "cancelled"];
 const reportOptions = ["baseline", "edge", "research"] as const;
 const logLevelOptions = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
+const autoresearchSpaceOptions = [
+  "",
+  "auto",
+  "moonshot_micro",
+  "shadow_followup_micro",
+  "paper_bootstrap",
+  "paper_exploration",
+  "rank_canary",
+  "runner_exit",
+  "late_momentum",
+  "lane_sizing",
+] as const;
+const autoresearchModeOptions = ["seeded_random", "bandit_suggested", "local_search", "grid", "random"] as const;
 const commandOrder: ControlCommandType[] = [
   "pause_discovery",
   "resume_discovery",
@@ -41,6 +54,7 @@ const commandOrder: ControlCommandType[] = [
   "reload_model",
   "trigger_retrain",
   "refresh_reports",
+  "run_autoresearch",
   "set_log_level",
 ];
 
@@ -91,6 +105,12 @@ const commandCatalog: Array<{
     label: "Refresh reports",
     summary: "Regenerates operator-facing reports and research scorecards from current state.",
     confirmation: "This rebuilds report artifacts on disk. It does not change runtime flags or portfolio state.",
+  },
+  {
+    type: "run_autoresearch",
+    label: "Run AutoResearch",
+    summary: "Starts an on-demand AutoResearch replay cycle from the bot control queue.",
+    confirmation: "This runs the research cycle now. Live promotion remains blocked by the scheduler safety guard.",
   },
   {
     type: "set_log_level",
@@ -235,6 +255,12 @@ export function ControlCenterPage() {
   const [retrainForce, setRetrainForce] = useState(false);
   const [refreshForce, setRefreshForce] = useState(true);
   const [refreshReports, setRefreshReports] = useState<Array<(typeof reportOptions)[number]>>(["baseline", "edge", "research"]);
+  const [autoresearchForce, setAutoresearchForce] = useState(true);
+  const [autoresearchRegenerateReports, setAutoresearchRegenerateReports] = useState(false);
+  const [autoresearchSpace, setAutoresearchSpace] = useState<(typeof autoresearchSpaceOptions)[number]>("");
+  const [autoresearchMode, setAutoresearchMode] = useState<(typeof autoresearchModeOptions)[number]>("seeded_random");
+  const [autoresearchMaxCandidates, setAutoresearchMaxCandidates] = useState(25);
+  const [autoresearchMaxParallel, setAutoresearchMaxParallel] = useState(1);
   const [logLevel, setLogLevel] = useState<(typeof logLevelOptions)[number]>("INFO");
   const [loggerName, setLoggerName] = useState("root");
   const [processDryRun, setProcessDryRun] = useState(true);
@@ -263,7 +289,20 @@ export function ControlCenterPage() {
 
   useEffect(() => {
     setIsConfirmed(false);
-  }, [selectedCommand, retrainForce, refreshForce, refreshReports, logLevel, loggerName]);
+  }, [
+    selectedCommand,
+    retrainForce,
+    refreshForce,
+    refreshReports,
+    autoresearchForce,
+    autoresearchRegenerateReports,
+    autoresearchSpace,
+    autoresearchMode,
+    autoresearchMaxCandidates,
+    autoresearchMaxParallel,
+    logLevel,
+    loggerName,
+  ]);
 
   useEffect(() => {
     setConfirmLiveStart(false);
@@ -308,6 +347,15 @@ export function ControlCenterPage() {
         return { force: retrainForce };
       case "refresh_reports":
         return { force: refreshForce, include: refreshReports };
+      case "run_autoresearch":
+        return {
+          force: autoresearchForce,
+          space: autoresearchSpace || null,
+          max_candidates: Math.max(1, Math.round(autoresearchMaxCandidates)),
+          max_parallel: Math.max(1, Math.round(autoresearchMaxParallel)),
+          mode: autoresearchMode,
+          regenerate_reports: autoresearchRegenerateReports,
+        };
       case "set_log_level":
         return { level: logLevel, logger: loggerName.trim() || "root" };
       default:
@@ -333,6 +381,12 @@ export function ControlCenterPage() {
     }
     if (selectedCommand === "refresh_reports" && !refreshReports.length) {
       return "Select at least one report lane.";
+    }
+    if (selectedCommand === "run_autoresearch" && autoresearchMaxCandidates < 1) {
+      return "AutoResearch needs at least one candidate.";
+    }
+    if (selectedCommand === "run_autoresearch" && autoresearchMaxParallel < 1) {
+      return "AutoResearch needs at least one execution lane.";
     }
     return null;
   }
@@ -368,6 +422,12 @@ export function ControlCenterPage() {
     setRetrainForce(Boolean(filters.retrainForce));
     setRefreshForce(typeof filters.refreshForce === "boolean" ? filters.refreshForce : true);
     setRefreshReports(Array.isArray(filters.refreshReports) ? filters.refreshReports.filter((item): item is (typeof reportOptions)[number] => reportOptions.includes(item as (typeof reportOptions)[number])) : ["baseline", "edge", "research"]);
+    setAutoresearchForce(typeof filters.autoresearchForce === "boolean" ? filters.autoresearchForce : true);
+    setAutoresearchRegenerateReports(typeof filters.autoresearchRegenerateReports === "boolean" ? filters.autoresearchRegenerateReports : false);
+    setAutoresearchSpace(typeof filters.autoresearchSpace === "string" && autoresearchSpaceOptions.includes(filters.autoresearchSpace as (typeof autoresearchSpaceOptions)[number]) ? (filters.autoresearchSpace as (typeof autoresearchSpaceOptions)[number]) : "");
+    setAutoresearchMode(typeof filters.autoresearchMode === "string" && autoresearchModeOptions.includes(filters.autoresearchMode as (typeof autoresearchModeOptions)[number]) ? (filters.autoresearchMode as (typeof autoresearchModeOptions)[number]) : "seeded_random");
+    setAutoresearchMaxCandidates(typeof filters.autoresearchMaxCandidates === "number" ? Math.max(1, Math.round(filters.autoresearchMaxCandidates)) : 25);
+    setAutoresearchMaxParallel(typeof filters.autoresearchMaxParallel === "number" ? Math.max(1, Math.round(filters.autoresearchMaxParallel)) : 1);
     setLogLevel(typeof filters.logLevel === "string" && logLevelOptions.includes(filters.logLevel as (typeof logLevelOptions)[number]) ? (filters.logLevel as (typeof logLevelOptions)[number]) : "INFO");
     setLoggerName(typeof filters.loggerName === "string" ? filters.loggerName : "root");
     setProcessDryRun(typeof filters.processDryRun === "boolean" ? filters.processDryRun : true);
@@ -951,6 +1011,73 @@ export function ControlCenterPage() {
               </>
             ) : null}
 
+            {selectedCommand === "run_autoresearch" ? (
+              <>
+                <div className="checkbox-grid">
+                  <label className="checkbox-chip">
+                    <input checked={autoresearchForce} onChange={(event) => setAutoresearchForce(event.target.checked)} type="checkbox" />
+                    <span>Force cycle now</span>
+                  </label>
+                  <label className="checkbox-chip">
+                    <input checked={autoresearchRegenerateReports} onChange={(event) => setAutoresearchRegenerateReports(event.target.checked)} type="checkbox" />
+                    <span>Regenerate reports first</span>
+                  </label>
+                </div>
+                <div className="filter-row">
+                  <label className="filter-field">
+                    <span>Research space</span>
+                    <select
+                      className="ui-field"
+                      onChange={(event) => setAutoresearchSpace(event.target.value as (typeof autoresearchSpaceOptions)[number])}
+                      value={autoresearchSpace}
+                    >
+                      {autoresearchSpaceOptions.map((option) => (
+                        <option key={option || "scheduler"} value={option}>
+                          {option || "scheduler selection"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="filter-field">
+                    <span>Generation mode</span>
+                    <select
+                      className="ui-field"
+                      onChange={(event) => setAutoresearchMode(event.target.value as (typeof autoresearchModeOptions)[number])}
+                      value={autoresearchMode}
+                    >
+                      {autoresearchModeOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="filter-row">
+                  <label className="filter-field">
+                    <span>Max candidates</span>
+                    <input
+                      className="ui-field"
+                      min={1}
+                      onChange={(event) => setAutoresearchMaxCandidates(Math.max(1, Math.round(Number(event.target.value || "1"))))}
+                      type="number"
+                      value={autoresearchMaxCandidates}
+                    />
+                  </label>
+                  <label className="filter-field">
+                    <span>Max parallel</span>
+                    <input
+                      className="ui-field"
+                      min={1}
+                      onChange={(event) => setAutoresearchMaxParallel(Math.max(1, Math.round(Number(event.target.value || "1"))))}
+                      type="number"
+                      value={autoresearchMaxParallel}
+                    />
+                  </label>
+                </div>
+              </>
+            ) : null}
+
             {selectedCommand === "set_log_level" ? (
               <div className="filter-row">
                 <label className="filter-field">
@@ -976,7 +1103,7 @@ export function ControlCenterPage() {
               </div>
             ) : null}
 
-            {!["trigger_retrain", "refresh_reports", "set_log_level"].includes(selectedCommand) ? (
+            {!["trigger_retrain", "refresh_reports", "run_autoresearch", "set_log_level"].includes(selectedCommand) ? (
               <p className="empty-note">This command has no additional payload fields in v1.</p>
             ) : null}
           </div>
@@ -1079,6 +1206,12 @@ export function ControlCenterPage() {
                 retrainForce,
                 refreshForce,
                 refreshReports,
+                autoresearchForce,
+                autoresearchRegenerateReports,
+                autoresearchSpace,
+                autoresearchMode,
+                autoresearchMaxCandidates,
+                autoresearchMaxParallel,
                 logLevel,
                 loggerName,
                 processDryRun,

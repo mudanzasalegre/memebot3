@@ -842,9 +842,13 @@ def _live_sniper_continue_on_health(token: dict[str, Any], regime: str) -> bool:
     profile = str(token.get("gate_profile") or token.get("sniper_gate_profile") or "").strip().lower()
     tier = str(token.get("profit_lane_tier") or "").strip().lower()
     return (
-        lane in {"pump_early_sniper_research", "pump_early_research_rank_canary"}
+        lane in {
+            "pump_early_sniper_research",
+            "pump_early_sniper_research_micro_fallback",
+            "pump_early_research_rank_canary",
+        }
         or tier == "pump_early_research_rank_canary"
-        or profile in {"pumpswap_profit_research", "research_rank_canary"}
+        or profile in {"pumpswap_profit_research", "research_rank_canary", "sniper_research_micro_fallback"}
     )
 
 

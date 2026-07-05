@@ -1098,3 +1098,25 @@ def test_live_aggressive_buys_research_lane_in_live_mode() -> None:
     assert reason == ""
     assert token["gate_profile"] == "live_aggressive_research_buy"
     assert token["entry_lane"] == "pump_early_sniper_research"
+
+
+def test_entry_quality_preserves_pretagged_paper_bootstrap_lane() -> None:
+    gate = _load_entry_quality_gate(
+        DRY_RUN=True,
+        _PUMP_EARLY_SNIPER_ENABLED=True,
+        _PUMP_EARLY_PROFIT_LANE_ENABLED=True,
+        _PAPER_AGGRESSIVE_TRADING_ENABLED=True,
+    )
+    token = {
+        "entry_lane": "pump_early_paper_bootstrap_micro",
+        "gate_profile": "paper_bootstrap",
+        "profit_lane_tier": "pump_early_paper_bootstrap_micro",
+    }
+
+    ok, reason = gate(token, "pump_early", quality_points=0, rank_info={"rank_score": 0.0})
+
+    assert ok is True
+    assert reason == ""
+    assert token["entry_lane"] == "pump_early_paper_bootstrap_micro"
+    assert token["gate_profile"] == "paper_bootstrap"
+    assert token["live_profit_gate_failed_count"] == 0

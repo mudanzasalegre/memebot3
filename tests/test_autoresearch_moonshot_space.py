@@ -9,7 +9,11 @@ def test_moonshot_space_optimizes_expected_keys_and_caps() -> None:
 
     assert moonshot_micro.safety_caps_ok()
     assert "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL" in space.parameters
-    assert max(space.parameters["MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL"]) <= 0.005
+    assert "MOONSHOT_MICRO_LOTTERY_MIN_PRICE5M" in space.parameters
+    assert "MOONSHOT_MICRO_LOTTERY_MIN_TXNS_5M" in space.parameters
+    assert "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_REQUIRE_REAL_LIQUIDITY" in space.parameters
+    assert "MOONSHOT_MICRO_MIN_TXNS_5M" not in space.parameters
+    assert max(space.parameters["MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL"]) <= 0.02
     assert "moonshot_peak1000_capture" in moonshot_micro.optimization_targets()
 
 

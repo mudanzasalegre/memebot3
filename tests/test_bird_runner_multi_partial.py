@@ -163,5 +163,7 @@ def test_moonshot_lottery_uses_own_ladder_not_bird_tp1() -> None:
         assert exit_policy.should_take_partial(subject, 40.0) is False
         assert exit_policy.should_take_partial(subject, 50.0) is True
         assert exit_policy.partial_sell_fraction(subject, 50.0) == pytest.approx(0.40)
+        assert exit_policy.partial_sell_fraction(subject, 300.0) == pytest.approx(0.85)
+        assert exit_policy.partial_sell_fraction(subject, 700.0) == pytest.approx(0.85)
     finally:
         exit_policy.CFG = original_cfg

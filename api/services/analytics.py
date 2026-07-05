@@ -53,6 +53,7 @@ def get_edge_envelope(settings: APISettings) -> Envelope:
         db_path=settings.db_path,
         features_dir=settings.features_dir,
         runtime_events_path=settings.runtime_events_path,
+        runtime_tail_rows=10_000,
     )
     snapshot["consistency"] = build_trade_consistency(
         db_path=settings.db_path,

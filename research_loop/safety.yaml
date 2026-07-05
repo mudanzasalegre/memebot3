@@ -29,10 +29,13 @@ forbidden_true_flags:
   - AUTORESEARCH_LLM_CAN_CALL_APIS
 
 max_amounts:
-  experimental_lane_max_sol: 0.005
+  experimental_lane_max_sol: 0.02
   rank_canary_max_sol: 0.03
-  paper_exploration_max_sol: 0.01
-  moonshot_micro_max_sol: 0.005
+  paper_bootstrap_max_sol: 0.1
+  paper_exploration_max_sol: 0.1
+  moonshot_micro_max_sol: 0.02
+  moonshot_cluster_tail_max_sol: 0.002
+  moonshot_risky_cluster_max_sol: 0.0005
 
 api_budget_protected_keys:
   - DISCOVERY_INTERVAL

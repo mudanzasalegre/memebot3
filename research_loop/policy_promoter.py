@@ -11,17 +11,20 @@ from typing import Any
 from research_loop.evaluator import STATUS_ACCEPTED_REPLAY, STATUS_NEEDS_PAPER, EvaluationResult
 from research_loop.experiment_schema import CandidatePolicy, validate_candidate_policy
 from research_loop.paths import project_root
-from research_loop.safety import load_safety_config, validate_candidate_safety
+from research_loop.safety import UNLIMITED_BUY_QUOTA_KEYS, load_safety_config, validate_candidate_safety
 from research_loop.sandbox import SAFE_BASE_ENV, SECRET_MARKERS
 
 PAPER_PROFILE_PREFIX = "paper_research_candidate_"
 DEFAULT_SOURCE_PROFILE = "paper_hotfix_runner_v2"
-PROFILE_STATUS = "paper_candidate"
+PROFILE_STATUS = STATUS_NEEDS_PAPER
 
 FORCED_SAFE_PROFILE_VALUES = {
     **SAFE_BASE_ENV,
+    **{key: "0" for key in UNLIMITED_BUY_QUOTA_KEYS},
     "PAPER_SNIPER_MODE": "true",
     "AUTORESEARCH_PAPER_CANDIDATE": "true",
+    "AUTORESEARCH_NEEDS_PAPER": "true",
+    "AUTORESEARCH_PAPER_STATUS": STATUS_NEEDS_PAPER,
     "AUTORESEARCH_LIVE_PROMOTION_ENABLED": "false",
     "AUTORESEARCH_AUTO_LIVE_PROMOTE": "false",
     "LIVE_AGGRESSIVE_TRADING_ENABLED": "false",

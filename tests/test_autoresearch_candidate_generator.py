@@ -52,7 +52,28 @@ def test_candidate_generator_outputs_schema_and_safety_valid_candidates() -> Non
         validate_candidate_policy(candidate)
         assert validate_candidate_safety(candidate).ok
         assert candidate["live_allowed"] is False
+        assert candidate["optimized_metric"]
+        assert candidate["optimization_scope"] == "combined"
         assert "api_budget_ok" in candidate["required_gates"]
+
+
+def test_candidate_generator_grid_seed_offsets_candidates() -> None:
+    first = generate_candidate_policies(
+        space_name="rank_canary",
+        n=2,
+        mode="grid",
+        seed=1,
+        created_at_utc="2026-06-04T00:00:00+00:00",
+    )
+    second = generate_candidate_policies(
+        space_name="rank_canary",
+        n=2,
+        mode="grid",
+        seed=3,
+        created_at_utc="2026-06-04T00:00:00+00:00",
+    )
+
+    assert [candidate["changes"] for candidate in first] != [candidate["changes"] for candidate in second]
 
 
 def test_candidate_generator_writes_candidate_files(tmp_path) -> None:

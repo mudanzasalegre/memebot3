@@ -270,6 +270,7 @@ def describe_sizing_policy() -> dict[str, Any]:
         "default_trade_amount_sol": float(getattr(CFG, "TRADE_AMOUNT_SOL", 0.1) or 0.1),
         "min_buy_sol": float(getattr(CFG, "MIN_BUY_SOL", 0.1) or 0.1),
         "multipliers_affect_trade_amount": False,
+        "lane_fixed_trade_amount_enabled": bool(getattr(CFG, "LANE_SIZING_FIXED_TRADE_AMOUNT_ENABLED", True)),
         "pump_early_max_age_min": float(REGIME_PUMP_EARLY_MAX_AGE_MIN),
         "size_multipliers": {
             "standard": float(SIZE_MID_MULTIPLIER),

@@ -26,3 +26,18 @@ def test_report_bundle_separates_current_run_and_historical(tmp_path) -> None:
     assert bundle["historical"]["policy_replay"]["current"]["trades"] == 10
     saved = json.loads((tmp_path / "data" / "research_runs" / "report_bundle_latest.json").read_text())
     assert saved["recommendation_context"]["source"] == "local_reports_only"
+
+
+def test_report_bundle_compacts_large_missed_pumps(tmp_path) -> None:
+    metrics = tmp_path / "data" / "metrics"
+    metrics.mkdir(parents=True)
+    rows = [{"address": f"A{i}", "confirmed_later_peak_pct": 500 if i % 2 == 0 else 50} for i in range(150)]
+    (metrics / "missed_pumps.json").write_text(json.dumps({"data": rows}), encoding="utf-8")
+
+    bundle = build_report_bundle(tmp_path, include_api_budget=False)
+
+    missed = bundle["historical"]["missed_pumps"]
+    assert missed["truncated"] is True
+    assert missed["data_total_rows"] == 150
+    assert len(missed["data"]) == 100
+    assert missed["missed_peak500_count"] == 75

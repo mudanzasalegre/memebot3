@@ -63,6 +63,33 @@ Use this sequence after AutoResearch changes:
 .\.venv\Scripts\python.exe scripts\strategy_quality_gate.py --warn-only
 ```
 
+## One-Command Startup
+
+The normal operator command is now:
+
+```powershell
+.\scripts\start_stack.ps1 -IncludeBot
+```
+
+That command runs the startup preflight first:
+
+- `pytest -q`
+- core report regeneration
+- isolated AutoResearch smoke in a temporary root
+- strategy quality gate in `--warn-only` mode
+
+Then it launches the bot in dry-run paper mode and starts AutoResearch as a
+paper/replay daemon. Use `-SkipAutoResearch` only when you intentionally want
+bot-only startup, and `-SkipStartupPreflight` only for a fast restart after a
+known-good validation.
+
+For a foreground one-cycle AutoResearch validation without leaving bot/API/UI
+processes open:
+
+```powershell
+.\tests\test_start_stack_autoresearch.ps1
+```
+
 ## Hard Boundaries
 
 Do not use AutoResearch to:

@@ -1,0 +1,50 @@
+{
+  "api_budget_sensitive": true,
+  "changes": {
+    "RESEARCH_RANK_CANARY_PAPER_NORMAL_MAX_PRICE5M": 100,
+    "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_LIQUIDITY_USD": 8000,
+    "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_RANK_SCORE": 58,
+    "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_TXNS_5M": 500,
+    "RESEARCH_RANK_CANARY_PAPER_NORMAL_SIZE_SOL": 0.01,
+    "RESEARCH_RANK_CANARY_PRIORITY_MAX_PRICE5M": 120,
+    "RESEARCH_RANK_CANARY_PRIORITY_MIN_LIQUIDITY_USD": 20000,
+    "RESEARCH_RANK_CANARY_PRIORITY_MIN_PRICE5M": 50,
+    "RESEARCH_RANK_CANARY_PRIORITY_MIN_RANK_SCORE": 68,
+    "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M": 1200,
+    "RESEARCH_RANK_CANARY_PRIORITY_SIZE_SOL": 0.01,
+    "RESEARCH_RANK_CANARY_PULLBACK_TAIL_AMOUNT_SOL": 0.003,
+    "RESEARCH_RANK_CANARY_SIZE_SOL": 0.03,
+    "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MIN": 70
+  },
+  "created_at_utc": "2026-06-19T11:10:35.513952+00:00",
+  "expected_effect": {
+    "increase_moonshot_capture": false,
+    "increase_pnl": true,
+    "increase_win_rate": true,
+    "reduce_severe_losses": true
+  },
+  "experiment_type": "replay",
+  "hypothesis": "Improve rank canary quality by tuning priority thresholds and paper size.",
+  "live_allowed": false,
+  "optimization_scope": "combined",
+  "optimization_targets": [
+    "win_rate_pct",
+    "median_pnl_pct",
+    "total_pnl_usd",
+    "severe_loss_count"
+  ],
+  "optimized_metric": "win_rate_pct",
+  "proposal_id": "ar_rank_canary_s342745459_0002_4860ac2864",
+  "required_gates": [
+    "replay_positive",
+    "api_budget_ok"
+  ],
+  "risk_notes": [
+    "paper only",
+    "rank canary quality gates enforced"
+  ],
+  "target_lanes": [
+    "pump_early_sniper_research",
+    "research_rank_canary"
+  ]
+}

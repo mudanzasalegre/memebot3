@@ -38,9 +38,11 @@ CONTROL_COMMAND_TYPES = (
     "reload_model",
     "trigger_retrain",
     "refresh_reports",
+    "run_autoresearch",
     "set_log_level",
 )
 CONTROL_REPORT_TYPES = ("baseline", "edge", "research")
+AUTORESEARCH_BATCH_MODES = ("grid", "random", "seeded_random", "local_search", "bandit_suggested")
 
 
 def utc_now() -> dt.datetime:
@@ -155,6 +157,13 @@ def _to_bool(value: Any, default: bool = False) -> bool:
     return bool(default)
 
 
+def _to_int(value: Any, default: int) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return int(default)
+
+
 def validate_command_payload(command_type: Any, payload: Any) -> tuple[str, dict[str, Any]]:
     normalized_type = normalize_command_type(command_type)
     raw = _require_object_payload(payload)
@@ -193,6 +202,24 @@ def validate_command_payload(command_type: Any, payload: Any) -> tuple[str, dict
         return normalized_type, {
             "force": _to_bool(raw.get("force"), default=True),
             "include": include,
+        }
+
+    if normalized_type == "run_autoresearch":
+        _reject_extra_keys(
+            raw,
+            allowed=("force", "space", "max_candidates", "max_parallel", "mode", "regenerate_reports"),
+        )
+        space_raw = str(raw.get("space") or "").strip()
+        mode = str(raw.get("mode") or "seeded_random").strip().lower()
+        if mode not in AUTORESEARCH_BATCH_MODES:
+            raise ValueError(f"unsupported autoresearch mode: {mode}")
+        return normalized_type, {
+            "force": _to_bool(raw.get("force"), default=True),
+            "space": space_raw or None,
+            "max_candidates": max(1, _to_int(raw.get("max_candidates"), 25)),
+            "max_parallel": max(1, _to_int(raw.get("max_parallel"), 1)),
+            "mode": mode,
+            "regenerate_reports": _to_bool(raw.get("regenerate_reports"), default=False),
         }
 
     if normalized_type == "set_log_level":

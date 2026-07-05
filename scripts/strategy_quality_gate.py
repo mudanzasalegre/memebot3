@@ -34,6 +34,7 @@ AUTORESEARCH_PAPER_PROFILE_FALSE_FLAGS = (
     "RESEARCH_RANK_CANARY_LIVE_ENABLED",
     "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED",
     "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED",
+    "SNIPER_RESEARCH_MICRO_FALLBACK_LIVE_ENABLED",
     "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED",
     "LATE_MOMENTUM_WATCH_LIVE_ENABLED",
     "AUTO_PROMOTE_LIVE",
@@ -52,6 +53,13 @@ AUTORESEARCH_CANDIDATE_DIRS = (
     "rejected",
     "failed",
     "live_ready_disabled",
+)
+
+AUTORESEARCH_PROFILE_REQUIRED_STATUSES = (
+    "accepted_replay",
+    "needs_paper",
+    "paper_forward_started",
+    "accepted_paper",
 )
 
 AUTORESEARCH_SECRET_MARKERS = (
@@ -253,7 +261,8 @@ def _validate_autoresearch_paper_profiles(errors: list[str]) -> None:
     profiles_dir = ROOT / "config" / "profiles"
     profiles = sorted(profiles_dir.glob("paper_research_candidate_*.env")) if profiles_dir.exists() else []
     if not profiles:
-        errors.append("autoresearch paper profile missing: config/profiles/paper_research_candidate_*.env")
+        if _autoresearch_paper_profile_required():
+            errors.append("autoresearch paper profile missing: config/profiles/paper_research_candidate_*.env")
         return
     for profile in profiles:
         values = _env_values_upper(profile)
@@ -266,6 +275,30 @@ def _validate_autoresearch_paper_profiles(errors: list[str]) -> None:
         secret_keys = _env_has_secret_keys(values)
         if secret_keys:
             errors.append(f"autoresearch paper profile must not contain secrets: {label}:{','.join(secret_keys)}")
+
+
+def _autoresearch_paper_profile_required() -> bool:
+    scoreboard_path = ROOT / "data" / "research_runs" / "scoreboard.json"
+    try:
+        payload = json.loads(scoreboard_path.read_text(encoding="utf-8", errors="ignore")) if scoreboard_path.exists() else {}
+    except Exception:
+        payload = {}
+    entries = payload.get("entries") if isinstance(payload, dict) else payload
+    if isinstance(entries, list):
+        for entry in entries:
+            if isinstance(entry, dict) and str(entry.get("status") or "") in AUTORESEARCH_PROFILE_REQUIRED_STATUSES:
+                return True
+
+    paper_root = ROOT / "data" / "research_runs" / "paper_forward"
+    if paper_root.exists():
+        for state_path in paper_root.glob("*/paper_forward_state.json"):
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8", errors="ignore"))
+            except Exception:
+                continue
+            if isinstance(state, dict) and str(state.get("status") or "") in AUTORESEARCH_PROFILE_REQUIRED_STATUSES:
+                return True
+    return False
 
 
 def _validate_autoresearch_scoreboard(errors: list[str]) -> None:
@@ -404,6 +437,7 @@ def checks() -> list[str]:
             "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED",
             "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED",
             "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED",
+            "SNIPER_RESEARCH_MICRO_FALLBACK_LIVE_ENABLED",
             "AUTO_PROMOTE_LIVE",
             "MODEL_AUTO_PROMOTE",
             "ML_AUTO_PROMOTE_LANES",
@@ -444,35 +478,50 @@ def checks() -> list[str]:
         errors.append("MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED must remain false")
     if _bool("SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED", False):
         errors.append("SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED must remain false")
+    if _bool("SNIPER_RESEARCH_MICRO_FALLBACK_LIVE_ENABLED", False):
+        errors.append("SNIPER_RESEARCH_MICRO_FALLBACK_LIVE_ENABLED must remain false")
     if _bool("PUMPSWAP_PRIME_STRICT_BUY_ENABLED", False):
         errors.append("PUMPSWAP_PRIME_STRICT_BUY_ENABLED must remain false")
     if not _bool("LANE_SIZING_ENABLED", True):
         errors.append("LANE_SIZING_ENABLED must remain true")
-    if _float("DEFAULT_PAPER_BUY_SOL", 0.005) > 0.005:
-        errors.append("DEFAULT_PAPER_BUY_SOL must stay <=0.005")
-    if _float("MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001) > 0.001:
-        errors.append("MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL must stay <=0.001")
+    if _float("DEFAULT_PAPER_BUY_SOL", 0.1) > 0.1:
+        errors.append("DEFAULT_PAPER_BUY_SOL must stay <=0.1")
+    if _float("MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001) > 0.02:
+        errors.append("MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL must stay <=0.02")
     if _float("MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_AMOUNT_SOL", 0.001) > 0.002:
         errors.append("MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_AMOUNT_SOL must stay <=0.002")
+    if _float("MOONSHOT_MICRO_LOTTERY_RISKY_CLUSTER_AMOUNT_SOL", 0.0005) > 0.0005:
+        errors.append("MOONSHOT_MICRO_LOTTERY_RISKY_CLUSTER_AMOUNT_SOL must stay <=0.0005")
     if _int("MOONSHOT_MICRO_LOTTERY_MAX_OPEN", 1) > 1:
         errors.append("MOONSHOT_MICRO_LOTTERY_MAX_OPEN must stay <=1")
-    if _float("PAPER_EXPLORATION_AMOUNT_SOL", 0.005) > 0.01:
-        errors.append("PAPER_EXPLORATION_AMOUNT_SOL must stay <=0.01")
-    if _float("PAPER_IDLE_AMOUNT_SOL", 0.002) > 0.002:
-        errors.append("PAPER_IDLE_AMOUNT_SOL must stay <=0.002")
-    if _float("RESEARCH_RANK_CANARY_SIZE_SOL", 0.02) > 0.03:
+    if _float("PAPER_EXPLORATION_AMOUNT_SOL", 0.1) > 0.1:
+        errors.append("PAPER_EXPLORATION_AMOUNT_SOL must stay <=0.1")
+    if _float("PAPER_IDLE_AMOUNT_SOL", 0.1) > 0.1:
+        errors.append("PAPER_IDLE_AMOUNT_SOL must stay <=0.1")
+    if _float("RESEARCH_RANK_CANARY_SIZE_SOL", 0.005) > 0.03:
         errors.append("RESEARCH_RANK_CANARY_SIZE_SOL must stay <=0.03")
     if _float("RESEARCH_RANK_CANARY_MAX_SIZE_SOL", 0.03) > 0.03:
         errors.append("RESEARCH_RANK_CANARY_MAX_SIZE_SOL must stay <=0.03")
-    if _float("SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL", 0.003) > 0.003:
-        errors.append("SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL must stay <=0.003")
-    if _float("LATE_MOMENTUM_MICRO_AMOUNT_SOL", 0.003) > 0.003:
-        errors.append("LATE_MOMENTUM_MICRO_AMOUNT_SOL must stay <=0.003")
+    if _float("SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL", 0.003) > 0.02:
+        errors.append("SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL must stay <=0.02")
+    if _float("SNIPER_RESEARCH_MICRO_FALLBACK_AMOUNT_SOL", 0.003) > 0.02:
+        errors.append("SNIPER_RESEARCH_MICRO_FALLBACK_AMOUNT_SOL must stay <=0.02")
+    if _int("SNIPER_RESEARCH_MICRO_FALLBACK_MAX_OPEN", 1) > 1:
+        errors.append("SNIPER_RESEARCH_MICRO_FALLBACK_MAX_OPEN must stay <=1")
+    if _float("LATE_MOMENTUM_MICRO_AMOUNT_SOL", 0.003) > 0.02:
+        errors.append("LATE_MOMENTUM_MICRO_AMOUNT_SOL must stay <=0.02")
     if _float("RESEARCH_RANK_CANARY_PULLBACK_TAIL_AMOUNT_SOL", 0.005) > 0.005:
         errors.append("RESEARCH_RANK_CANARY_PULLBACK_TAIL_AMOUNT_SOL must stay <=0.005")
     if _bool("STRATEGY_OPTIMIZATION_LOCK", True):
         if _bool("RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED", False):
-            errors.append("STRATEGY_OPTIMIZATION_LOCK=true requires RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED=false")
+            if _bool("RESEARCH_RANK_CANARY_LIVE_ENABLED", False):
+                errors.append(
+                    "STRATEGY_OPTIMIZATION_LOCK=true allows RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED only with live disabled"
+                )
+            if _float("RESEARCH_RANK_CANARY_SIZE_SOL", 0.005) > 0.005:
+                errors.append(
+                    "STRATEGY_OPTIMIZATION_LOCK=true allows RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED only with RESEARCH_RANK_CANARY_SIZE_SOL<=0.005"
+                )
         if _bool("RESEARCH_RANK_CANARY_PULLBACK_BUY_ENABLED", False):
             errors.append("STRATEGY_OPTIMIZATION_LOCK=true requires RESEARCH_RANK_CANARY_PULLBACK_BUY_ENABLED=false")
     if _float("BIRD_TP1_PCT", 25.0) <= 0:
@@ -516,8 +565,8 @@ def checks() -> list[str]:
             errors.append("GREEN_SNIPER_LIVE_MAX_OPEN must stay <=1 in safe canary")
         if _float("GREEN_SNIPER_LIVE_MAX_DAILY_LOSS_SOL", 0.0) <= 0:
             errors.append("GREEN_SNIPER_LIVE_MAX_DAILY_LOSS_SOL is required")
-        if _int("GREEN_SNIPER_LIVE_MAX_DAILY_BUYS", 0) <= 0:
-            errors.append("GREEN_SNIPER_LIVE_MAX_DAILY_BUYS is required")
+        if _int("GREEN_SNIPER_LIVE_MAX_DAILY_BUYS", 0) < 0:
+            errors.append("GREEN_SNIPER_LIVE_MAX_DAILY_BUYS must be >=0 (0 means unlimited)")
         provider_health = provider_health_snapshot()
         if provider_health.get("overall_status") == "critical":
             errors.append("provider health critical; live canary must not start")

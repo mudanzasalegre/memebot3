@@ -14,8 +14,7 @@ from analytics.report_utils import (
     fnum,
     is_severe_exit,
     load_candidate_outcomes,
-    load_paper_positions,
-    load_sqlite_positions,
+    load_deduped_positions,
     mcap_bucket,
     metrics_dir,
     price5m_bucket,
@@ -27,7 +26,16 @@ from config.config import PROJECT_ROOT
 
 
 def _pnl(row: dict[str, Any]) -> float:
-    return fnum(row.get("realized_pnl_pct") or row.get("total_pnl_pct") or row.get("pnl_pct") or row.get("target_total_pnl_pct"), 0.0)
+    return fnum(
+        row.get("total_pnl_pct")
+        if row.get("total_pnl_pct") is not None
+        else row.get("realized_pnl_pct")
+        if row.get("realized_pnl_pct") is not None
+        else row.get("pnl_pct")
+        if row.get("pnl_pct") is not None
+        else row.get("target_total_pnl_pct"),
+        0.0,
+    )
 
 
 def _peak(row: dict[str, Any]) -> float:
@@ -76,7 +84,7 @@ def _group(rows: list[dict[str, Any]], name: str, value_fn: Callable[[dict[str, 
 
 def build_research_rank_edge_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    all_rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    all_rows = load_candidate_outcomes(root) + load_deduped_positions(root)
     rows = [
         row
         for row in all_rows

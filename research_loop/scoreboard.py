@@ -82,6 +82,8 @@ def build_scoreboard_entry(
         "run_id": run_id,
         "proposal_id": proposal_id,
         "status": evaluation_result.status,
+        "optimized_metric": evaluation_result.optimized_metric or str(policy.get("optimized_metric") or ""),
+        "optimization_scope": evaluation_result.optimization_scope,
         "objective_score": objective.score if objective is not None else None,
         "total_pnl_delta": _delta(deltas, "total_pnl_usd"),
         "avg_pnl_delta": _delta(deltas, "avg_pnl_pct"),

@@ -6,12 +6,14 @@ SPACE_NAME = "late_momentum"
 TARGET_LANES = ["late_momentum_micro"]
 
 LATE_MOMENTUM_PARAMETERS = {
-    "LATE_MOMENTUM_MICRO_AMOUNT_SOL": [0.001, 0.002, 0.003],
-    "LATE_MOMENTUM_MIN_PRICE5M": [80, 100, 120],
-    "LATE_MOMENTUM_MAX_PRICE5M": [180, 250, 300],
-    "LATE_MOMENTUM_MIN_TXNS": [80, 120, 200],
-    "LATE_MOMENTUM_MIN_LIQ": [10000, 15000, 25000],
-    "LATE_MOMENTUM_CONFIRMATION": [1, 2, 3],
+    "LATE_MOMENTUM_MICRO_AMOUNT_SOL": [0.003, 0.005, 0.01, 0.02],
+    "LATE_MOMENTUM_WATCH_MIN_PRICE5M": [250, 300, 400],
+    "LATE_MOMENTUM_WATCH_MAX_PRICE5M": [650, 750, 1000],
+    "LATE_MOMENTUM_WATCH_MIN_RANK_SCORE": [45, 55, 65],
+    "LATE_MOMENTUM_WATCH_MIN_TXNS_5M": [150, 300, 500],
+    "LATE_MOMENTUM_WATCH_MIN_LIQUIDITY_USD": [1500, 2000, 5000],
+    "LATE_MOMENTUM_WATCH_MAX_PRICE_IMPACT_PCT": [10, 12, 18],
+    "LATE_MOMENTUM_WATCH_MAX_OPEN_PAPER": [0],
 }
 
 
@@ -20,13 +22,14 @@ def build_space() -> SearchSpace:
         name=SPACE_NAME,
         parameters={key: list(values) for key, values in LATE_MOMENTUM_PARAMETERS.items()},
         target_lanes=list(TARGET_LANES),
-        hypothesis="Improve late momentum micro entries with capped paper-only sizing.",
+        hypothesis="Improve late momentum micro entries without buy quotas.",
         expected_effect={
             "increase_pnl": True,
             "increase_win_rate": True,
             "increase_moonshot_capture": True,
             "reduce_severe_losses": True,
         },
+        optimization_targets=optimization_targets(),
         risk_notes=["paper only", "late momentum live remains disabled"],
     )
 

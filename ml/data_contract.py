@@ -14,6 +14,7 @@ from ml.lane_taxonomy import (
     LANE_PUMP_EARLY_PRIME,
     LANE_PUMP_EARLY_PROFIT,
     LANE_RESEARCH_SNIPER,
+    LANE_SNIPER_RESEARCH_MICRO_FALLBACK,
     LANE_UNKNOWN,
     normalize_entry_lane,
 )
@@ -170,6 +171,8 @@ def reconstruct_entry_lane(row: Mapping[str, Any]) -> str:
         return LANE_PUMP_EARLY_PRIME
     if profile.startswith("pumpswap_profit"):
         return LANE_PUMP_EARLY_PROFIT
+    if profile == "sniper_research_micro_fallback":
+        return LANE_SNIPER_RESEARCH_MICRO_FALLBACK
     if profile.startswith("sniper"):
         return LANE_RESEARCH_SNIPER
 

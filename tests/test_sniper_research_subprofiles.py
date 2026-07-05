@@ -5,9 +5,11 @@ from types import SimpleNamespace
 
 from analytics.sniper_research_subprofiles import (
     SUBPROFILE_DEEP_REVERSAL,
+    SUBPROFILE_MICRO_FALLBACK,
     SUBPROFILE_MOMENTUM_IGNITION,
     apply_sniper_research_subprofile_context,
     evaluate_sniper_research_subprofile,
+    write_sniper_research_micro_fallback_report,
     write_sniper_research_subprofile_report,
 )
 
@@ -15,6 +17,14 @@ from analytics.sniper_research_subprofiles import (
 def _cfg() -> SimpleNamespace:
     return SimpleNamespace(
         SNIPER_RESEARCH_SUBPROFILES_ENABLED=True,
+        SNIPER_RESEARCH_MICRO_FALLBACK_ENABLED=True,
+        SNIPER_RESEARCH_MICRO_FALLBACK_LIVE_ENABLED=False,
+        SNIPER_RESEARCH_MICRO_FALLBACK_AMOUNT_SOL=0.003,
+        SNIPER_RESEARCH_MICRO_FALLBACK_MAX_OPEN=1,
+        SNIPER_RESEARCH_MICRO_FALLBACK_MAX_DAILY_BUYS=5,
+        SNIPER_RESEARCH_MICRO_FALLBACK_MIN_TXNS_5M=800,
+        SNIPER_RESEARCH_MICRO_FALLBACK_MIN_LIQUIDITY_USD=10_000,
+        SNIPER_RESEARCH_MICRO_FALLBACK_MAX_MCAP_USD=120_000,
         SNIPER_RESEARCH_MOMENTUM_IGNITION_ENABLED=True,
         SNIPER_RESEARCH_MOMENTUM_MIN_PRICE5M=100,
         SNIPER_RESEARCH_MOMENTUM_MAX_PRICE5M=150,
@@ -188,7 +198,84 @@ def test_unmatched_sniper_research_goes_shadow() -> None:
     )
 
     assert decision.allowed is False
-    assert decision.reason.startswith("sniper_research_subprofile_not_matched:")
+    assert decision.reason.startswith("sniper_research_micro_fallback_not_matched:")
+
+
+def _micro_candidate(**overrides: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "entry_lane": "pump_early_sniper_research",
+        "dex_id": "pumpswap",
+        "price_pct_5m": 60,
+        "liquidity_usd": 12_000,
+        "txns_last_5m": 900,
+        "market_cap_usd": 80_000,
+        "has_jupiter_route": True,
+        "price_usd": 0.0001,
+        "cluster_bad": False,
+        "toxic_initial_sell_pressure": False,
+        "trend": "unknown",
+        "trend_fallback_used": True,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_sniper_research_micro_fallback_strong_candidate_allowed() -> None:
+    token = _micro_candidate()
+    decision = evaluate_sniper_research_subprofile(token, cfg=_cfg())
+    apply_sniper_research_subprofile_context(token, decision)
+
+    assert decision.allowed is True
+    assert decision.subprofile == SUBPROFILE_MICRO_FALLBACK
+    assert token["entry_lane"] == "pump_early_sniper_research_micro_fallback"
+    assert token["profit_lane_tier"] == "pump_early_sniper_research_micro_fallback"
+    assert token["gate_profile"] == "sniper_research_micro_fallback"
+    assert token["lane_policy_category"] == "sniper_research_micro_fallback"
+    assert token["amount_sol"] == 0.003
+
+
+def test_sniper_research_micro_fallback_honors_configured_amount_without_hidden_cap() -> None:
+    cfg = _cfg()
+    cfg.SNIPER_RESEARCH_MICRO_FALLBACK_AMOUNT_SOL = 0.02
+    token = _micro_candidate()
+    decision = evaluate_sniper_research_subprofile(token, cfg=cfg)
+    apply_sniper_research_subprofile_context(token, decision)
+
+    assert decision.allowed is True
+    assert decision.subprofile == SUBPROFILE_MICRO_FALLBACK
+    assert token["amount_sol"] == 0.02
+
+
+def test_sniper_research_micro_fallback_toxic_blocked() -> None:
+    decision = evaluate_sniper_research_subprofile(
+        _micro_candidate(toxic_initial_sell_pressure=True),
+        cfg=_cfg(),
+    )
+
+    assert decision.allowed is False
+    assert decision.reason.startswith("sniper_research_micro_fallback_not_matched:")
+    assert "micro_fallback:toxic_initial_sell_pressure" in decision.failures
+
+
+def test_sniper_research_micro_fallback_cluster_bad_blocked() -> None:
+    decision = evaluate_sniper_research_subprofile(_micro_candidate(cluster_bad=True), cfg=_cfg())
+
+    assert decision.allowed is False
+    assert "micro_fallback:cluster_bad" in decision.failures
+
+
+def test_sniper_research_micro_fallback_high_mcap_blocked() -> None:
+    decision = evaluate_sniper_research_subprofile(_micro_candidate(market_cap_usd=150_000), cfg=_cfg())
+
+    assert decision.allowed is False
+    assert "micro_fallback:mcap>120000" in decision.failures
+
+
+def test_sniper_research_micro_fallback_no_route_blocked() -> None:
+    decision = evaluate_sniper_research_subprofile(_micro_candidate(has_jupiter_route=False), cfg=_cfg())
+
+    assert decision.allowed is False
+    assert "micro_fallback:route_required" in decision.failures
 
 
 def test_report_splits_pnl_by_subprofile(tmp_path) -> None:
@@ -224,3 +311,40 @@ def test_report_splits_pnl_by_subprofile(tmp_path) -> None:
 
     assert report["by_subprofile"][SUBPROFILE_DEEP_REVERSAL]["rows"] == 1
     assert report["by_subprofile"][SUBPROFILE_MOMENTUM_IGNITION]["rows"] == 1
+
+
+def test_micro_fallback_report_fields(tmp_path) -> None:
+    metrics = tmp_path / "data" / "metrics"
+    metrics.mkdir(parents=True)
+    rows = [
+        {
+            **_micro_candidate(address="A"),
+            "entry_lane": "pump_early_sniper_research_micro_fallback",
+            "gate_profile": "sniper_research_micro_fallback",
+            "event_type": "sniper_research_micro_fallback_buy",
+            "amount_sol": 0.003,
+            "total_pnl_pct": 25,
+            "highest_pnl_pct": 120,
+        },
+        {
+            **_micro_candidate(address="B", market_cap_usd=150_000),
+            "reason": "sniper_research_micro_fallback_not_matched",
+        },
+    ]
+    (metrics / "runtime_events.jsonl").write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+
+    report = write_sniper_research_micro_fallback_report(tmp_path)
+
+    assert set(report) >= {
+        "seen",
+        "allowed",
+        "bought",
+        "shadowed",
+        "avg_pnl",
+        "peak100_count",
+        "peak500_count",
+        "severe_loss_count",
+    }
+    assert report["allowed"] >= 1
+    assert report["bought"] == 1
+    assert report["peak100_count"] == 1

@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from analytics.social_signal import latest_social_payload, social_signal_from_token
 from analytics.audit import build_trade_consistency
 from analytics.reporting import load_positions_frame, load_tokens_frame
-from api.repositories.filesystem import load_jsonl_rows, parse_timestamp
+from api.repositories.filesystem import file_size_bytes, load_jsonl_rows, load_jsonl_tail_rows, parse_timestamp
 from api.schemas.common import Envelope, SourceStatus
 from api.services.common import build_envelope, to_jsonable
 from api.services.events import _normalize_event
@@ -380,7 +380,10 @@ def _apply_closed_trade_cursor(
 
 
 def _event_timeline(path: Path, *, address: str) -> list[dict[str, Any]]:
-    rows = load_jsonl_rows(path)
+    if file_size_bytes(path) > 5 * 1024 * 1024:
+        rows = load_jsonl_tail_rows(path, limit=20_000)
+    else:
+        rows = load_jsonl_rows(path)
     filtered = []
     for index, row in enumerate(rows):
         if str(row.get("address") or "") != address:

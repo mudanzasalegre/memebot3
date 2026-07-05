@@ -38,6 +38,78 @@ def _first(row: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _cfg_value(cfg: Any, key: str, default: Any) -> Any:
+    if isinstance(cfg, dict):
+        return cfg.get(key, default)
+    return getattr(cfg, key, default)
+
+
+def _cfg_float(cfg: Any, key: str, default: float) -> float:
+    return fnum(_cfg_value(cfg, key, default), default)
+
+
+def _cfg_int(cfg: Any, key: str, default: int) -> int:
+    value = _cfg_value(cfg, key, default)
+    if value in (None, ""):
+        return default
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _cfg_bool(cfg: Any, key: str, default: bool) -> bool:
+    return boolish(_cfg_value(cfg, key, default), default)
+
+
+def _cap_reached(count: int, cap: int) -> bool:
+    return cap > 0 and count >= cap
+
+
+def _real_liquidity_breakout_trigger(row: dict[str, Any], *, cfg: Any = CFG) -> str | None:
+    if not _cfg_bool(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_BREAKOUT_ENABLED", True):
+        return None
+    route_ok = boolish(_first(row, "has_jupiter_route", "route_ok", "route_available"), False)
+    if not route_ok:
+        return None
+    if boolish(_first(row, "liquidity_is_proxy", "liquidity_usd_is_proxy", "buy_liquidity_is_proxy"), False):
+        return None
+
+    liq = fnum(_first(row, "liquidity_usd", "buy_liquidity_usd"), 0.0)
+    txns = fnum(_first(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m"), 0.0)
+    volume = fnum(_first(row, "volume_24h_usd", "volume_usd_24h", "buy_volume_24h_usd"), 0.0)
+    mcap = fnum(_first(row, "market_cap_usd", "buy_market_cap_usd", "mcap"), 0.0)
+    age = fnum(_first(row, "age_minutes", "age_min", "token_age_min", "queue_age_minutes"), 999.0)
+    impact = fnum(_first(row, "price_impact_pct", "buy_price_impact_pct", "jupiter_price_impact_pct"), 0.0)
+    price5m = fnum(_first(row, "price_pct_5m", "buy_price_pct_5m", "price5m"), 0.0)
+    rank = fnum(_first(row, "rank_score", "research_rank_score", "research_rank_canary_rank_score"), 0.0)
+    score_total = fnum(_first(row, "score_total", "total_score"), 0.0)
+
+    min_rank = _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_RANK_SCORE", 50.0)
+    min_score = _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_SCORE_TOTAL", 35.0)
+    if rank < min_rank and score_total < min_score:
+        return None
+    if liq < _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_USD", 10_000.0):
+        return None
+    if txns < _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_TXNS_5M", 300.0):
+        return None
+    if volume < _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_VOLUME_24H", 15_000.0):
+        return None
+    if mcap < _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_MCAP_USD", 4_000.0):
+        return None
+    if mcap > _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MAX_MCAP_USD", 120_000.0):
+        return None
+    if age > _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MAX_AGE_MIN", 45.0):
+        return None
+    if impact > _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MAX_PRICE_IMPACT_PCT", 12.0):
+        return None
+    if price5m < _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_PRICE5M", -30.0):
+        return None
+    if price5m > _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MAX_PRICE5M", 180.0):
+        return None
+    return "real_liquidity_breakout"
+
+
 def _parse_time(value: Any) -> dt.datetime | None:
     if isinstance(value, dt.datetime):
         out = value
@@ -65,20 +137,25 @@ def _age_since_seen_min(row: dict[str, Any]) -> float:
     return max(0.0, (now - first).total_seconds() / 60.0)
 
 
-def _trigger(row: dict[str, Any]) -> str | None:
+def _trigger(row: dict[str, Any], *, cfg: Any = CFG) -> str | None:
     shadow_pnl = fnum(_first(row, "shadow_pnl_pct", "pnl_pct", "target_total_pnl_pct"), 0.0)
     age_min = _age_since_seen_min(row)
     partial = fnum(_first(row, "candidate_partial_pnl_pct", "partial_pnl_pct"), 0.0)
     peak = fnum(_first(row, "observed_peak_after_seen", "max_pnl_pct_seen", "shadow_max_pnl_pct_seen", "peak_pnl_pct"), 0.0)
     age_at_seen = fnum(_first(row, "age_at_seen", "age_minutes", "age_min", "token_age_min"), 999.0)
-    if shadow_pnl >= 25.0 and age_min <= 3.0:
-        return "shadow_pnl_25_within_3m"
-    if shadow_pnl >= 50.0 and age_min <= 6.0:
-        return "shadow_pnl_50_within_6m"
+    trigger_3m = _cfg_float(cfg, "SHADOW_FOLLOWUP_TRIGGER_PNL_3M", 25.0)
+    trigger_6m = _cfg_float(cfg, "SHADOW_FOLLOWUP_TRIGGER_PNL_6M", 50.0)
+    if shadow_pnl >= trigger_3m and age_min <= 3.0:
+        return f"shadow_pnl_{trigger_3m:g}_within_3m"
+    if shadow_pnl >= trigger_6m and age_min <= 6.0:
+        return f"shadow_pnl_{trigger_6m:g}_within_6m"
     if partial >= 50.0:
         return "candidate_partial_50"
     if peak >= 50.0 and age_at_seen <= 10.0:
         return "observed_peak_after_seen_50"
+    breakout = _real_liquidity_breakout_trigger(row, cfg=cfg)
+    if breakout is not None:
+        return breakout
     return None
 
 
@@ -91,24 +168,25 @@ def evaluate_shadow_followup_micro(
     live: bool = False,
     cfg: Any = CFG,
 ) -> ShadowFollowupMicroDecision:
-    amount = min(fnum(getattr(cfg, "SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL", 0.003), 0.003), 0.003)
+    amount = max(0.0, _cfg_float(cfg, "SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL", 0.003))
 
     def out(allowed: bool, reason: str, failures: list[str] | tuple[str, ...], *, route_proxy: bool = False) -> ShadowFollowupMicroDecision:
         return ShadowFollowupMicroDecision(bool(allowed), reason, tuple(failures), amount, route_proxy=route_proxy)
 
-    if not bool(getattr(cfg, "SHADOW_FOLLOWUP_MICRO_ENABLED", True)):
+    if not _cfg_bool(cfg, "SHADOW_FOLLOWUP_MICRO_ENABLED", True):
         return out(False, "shadow_followup_disabled", ["disabled"])
-    if live or not dry_run or not bool(getattr(cfg, "SHADOW_FOLLOWUP_MICRO_PAPER_ENABLED", True)):
-        return out(False, "shadow_followup_paper_only", ["paper_only"])
-    if bool(getattr(cfg, "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED", False)):
-        return out(False, "shadow_followup_live_flag_blocked", ["live_flag_enabled"])
-    if open_count >= int(getattr(cfg, "SHADOW_FOLLOWUP_MICRO_MAX_OPEN", 1) or 1):
+    if live or not dry_run:
+        if not _cfg_bool(cfg, "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED", False):
+            return out(False, "shadow_followup_live_disabled", ["live_disabled"])
+    elif not _cfg_bool(cfg, "SHADOW_FOLLOWUP_MICRO_PAPER_ENABLED", True):
+        return out(False, "shadow_followup_paper_disabled", ["paper_disabled"])
+    if _cap_reached(open_count, _cfg_int(cfg, "SHADOW_FOLLOWUP_MICRO_MAX_OPEN", 0)):
         return out(False, "shadow_followup_open_cap", ["open_cap"])
-    if daily_buys >= int(getattr(cfg, "SHADOW_FOLLOWUP_MICRO_MAX_DAILY_BUYS", 5) or 5):
+    if _cap_reached(daily_buys, _cfg_int(cfg, "SHADOW_FOLLOWUP_MICRO_MAX_DAILY_BUYS", 0)):
         return out(False, "shadow_followup_daily_cap", ["daily_cap"])
 
     failures: list[str] = []
-    trigger = _trigger(row)
+    trigger = _trigger(row, cfg=cfg)
     if trigger is None:
         failures.append("no_followup_trigger")
     reason_text = " ".join(str(_first(row, key) or "") for key in ("reason", "green_sniper_reason", "reject_reason")).lower()
@@ -122,7 +200,8 @@ def evaluate_shadow_followup_micro(
         failures.append("mcap_gt_150k")
     cluster_bad = boolish(_first(row, "cluster_bad", "helius_cluster_bad"), False) or "cluster_bad" in reason_text
     mode = str(_first(row, "mode", "shadow_followup_mode", "gate_profile") or "").strip().lower()
-    if cluster_bad and not (amount <= 0.001 and mode == "moonshot"):
+    cluster_escape = trigger == "real_liquidity_breakout"
+    if cluster_bad and not (cluster_escape or (amount <= 0.001 and mode == "moonshot")):
         failures.append("cluster_bad")
     route_ok = boolish(_first(row, "has_jupiter_route", "route_ok", "route_available"), False)
     route_proxy = not route_ok
@@ -134,6 +213,8 @@ def evaluate_shadow_followup_micro(
 def apply_shadow_followup_micro_context(row: dict[str, Any], decision: ShadowFollowupMicroDecision) -> dict[str, Any]:
     row["entry_lane"] = decision.lane
     row["gate_profile"] = "shadow_followup_micro"
+    row["sniper_gate_profile"] = "shadow_followup_micro"
+    row["live_profit_gate_profile"] = "shadow_followup_micro"
     row["profit_lane_tier"] = decision.lane
     row["lane_policy_category"] = POLICY_SHADOW_FOLLOWUP_MICRO
     row["green_sniper_reason"] = decision.reason
@@ -142,6 +223,8 @@ def apply_shadow_followup_micro_context(row: dict[str, Any], decision: ShadowFol
     row["shadow_followup_micro_route_proxy"] = int(bool(decision.route_proxy))
     row["route_proxy"] = int(bool(decision.route_proxy))
     row["runner_exit_profile"] = "shadow_followup_micro"
+    row["live_profit_gate_failed_count"] = 0
+    row["live_profit_gate_failures"] = ""
     return row
 
 
@@ -152,10 +235,11 @@ def build_shadow_followup_micro_report(root: Path | None = None) -> dict[str, An
         row
         for row in rows
         if "shadow" in " ".join(str(_first(row, key) or "") for key in ("sample_type", "reason", "action", "shadow_kind")).lower()
-        or _trigger(row) is not None
+        or _trigger(row, cfg=CFG) is not None
     ]
     decisions = [evaluate_shadow_followup_micro(row) for row in shadow_rows]
     allowed = [decision for decision in decisions if decision.allowed]
+    real_liquidity_breakouts = sum(1 for decision in allowed if "real_liquidity_breakout" in decision.reason)
     blocked = collections.Counter(decision.reason for decision in decisions if not decision.allowed)
     return {
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -163,18 +247,32 @@ def build_shadow_followup_micro_report(root: Path | None = None) -> dict[str, An
             "enabled": bool(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_ENABLED", True)),
             "paper_enabled": bool(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_PAPER_ENABLED", True)),
             "live_enabled": bool(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED", False)),
-            "amount_sol": min(fnum(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL", 0.003), 0.003), 0.003),
-            "max_open": int(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_MAX_OPEN", 1) or 1),
-            "max_daily_buys": int(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_MAX_DAILY_BUYS", 5) or 5),
+            "amount_sol": max(0.0, _cfg_float(CFG, "SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL", 0.003)),
+            "trigger_pnl_3m": _cfg_float(CFG, "SHADOW_FOLLOWUP_TRIGGER_PNL_3M", 25.0),
+            "trigger_pnl_6m": _cfg_float(CFG, "SHADOW_FOLLOWUP_TRIGGER_PNL_6M", 50.0),
+            "max_open": _cfg_int(CFG, "SHADOW_FOLLOWUP_MICRO_MAX_OPEN", 0),
+            "max_daily_buys": _cfg_int(CFG, "SHADOW_FOLLOWUP_MICRO_MAX_DAILY_BUYS", 0),
+            "real_liquidity_breakout_enabled": _cfg_bool(
+                CFG,
+                "SHADOW_FOLLOWUP_REAL_LIQUIDITY_BREAKOUT_ENABLED",
+                True,
+            ),
+            "real_liquidity_min_usd": _cfg_float(CFG, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_USD", 10_000.0),
+            "real_liquidity_min_txns_5m": _cfg_float(
+                CFG,
+                "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MIN_TXNS_5M",
+                300.0,
+            ),
         },
         "candidates_seen": len(shadow_rows),
         "micro_triggers": len(allowed),
+        "real_liquidity_breakouts": real_liquidity_breakouts,
         "route_proxy": sum(1 for decision in allowed if decision.route_proxy),
         "blocked_by_reason": dict(blocked.most_common()),
         "samples": [
             {
                 "address": address_of(row),
-                "trigger": _trigger(row),
+                "trigger": _trigger(row, cfg=CFG),
                 "decision": decision.reason,
                 "allowed": decision.allowed,
                 "route_proxy": decision.route_proxy,
