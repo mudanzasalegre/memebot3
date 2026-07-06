@@ -31,6 +31,15 @@ def _cfg() -> object:
         BIRD_TP4_PCT=300.0,
         BIRD_TP4_FRACTION=0.15,
         BIRD_MOONBAG_FRACTION=0.15,
+        MOONSHOT_MICRO_LOTTERY_TP1_PCT=100.0,
+        MOONSHOT_MICRO_LOTTERY_TP1_FRACTION=0.20,
+        MOONSHOT_MICRO_LOTTERY_TP2_PCT=300.0,
+        MOONSHOT_MICRO_LOTTERY_TP2_FRACTION=0.20,
+        MOONSHOT_MICRO_LOTTERY_TP3_PCT=700.0,
+        MOONSHOT_MICRO_LOTTERY_TP3_FRACTION=0.20,
+        MOONSHOT_MICRO_LOTTERY_TP4_PCT=1500.0,
+        MOONSHOT_MICRO_LOTTERY_TP4_FRACTION=0.15,
+        MOONSHOT_MICRO_LOTTERY_MOONBAG_FRACTION=0.25,
         RUNNER_GIVEBACK_EMERGENCY_ENABLED=True,
         RUNNER_GIVEBACK_EMERGENCY_PAPER_ENABLED=True,
         RUNNER_GIVEBACK_EMERGENCY_LIVE_ENABLED=False,
@@ -161,9 +170,11 @@ def test_moonshot_lottery_uses_own_ladder_not_bird_tp1() -> None:
     try:
         subject = _subject(entry_lane="pump_early_moonshot_micro_lottery", gate_profile="moonshot_micro_lottery")
         assert exit_policy.should_take_partial(subject, 40.0) is False
-        assert exit_policy.should_take_partial(subject, 50.0) is True
-        assert exit_policy.partial_sell_fraction(subject, 50.0) == pytest.approx(0.40)
-        assert exit_policy.partial_sell_fraction(subject, 300.0) == pytest.approx(0.85)
-        assert exit_policy.partial_sell_fraction(subject, 700.0) == pytest.approx(0.85)
+        assert exit_policy.should_take_partial(subject, 50.0) is False
+        assert exit_policy.should_take_partial(subject, 100.0) is True
+        assert exit_policy.partial_sell_fraction(subject, 100.0) == pytest.approx(0.20)
+        assert exit_policy.partial_sell_fraction(subject, 300.0) == pytest.approx(0.40)
+        assert exit_policy.partial_sell_fraction(subject, 700.0) == pytest.approx(0.60)
+        assert exit_policy.partial_sell_fraction(subject, 1500.0) == pytest.approx(0.75)
     finally:
         exit_policy.CFG = original_cfg

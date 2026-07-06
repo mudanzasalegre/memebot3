@@ -135,6 +135,10 @@ def start_managed_bot_process(
     child_env = os.environ.copy()
     if env_overrides:
         child_env.update({str(key): str(value) for key, value in env_overrides.items()})
+    capital_caps = {
+        "paper_max_invested_sol": (env_overrides or {}).get("PAPER_MAX_INVESTED_SOL"),
+        "live_max_invested_sol": (env_overrides or {}).get("LIVE_MAX_INVESTED_SOL"),
+    }
 
     try:
         process = subprocess.Popen(
@@ -162,6 +166,7 @@ def start_managed_bot_process(
             "python_path": str(python_path),
             "command": ["-m", "run_bot", *(["--dry-run"] if dry_run else []), *(["--log"] if file_log else [])],
             "env_overrides": sorted((env_overrides or {}).keys()),
+            "capital_caps": {key: value for key, value in capital_caps.items() if value is not None},
             "config_profile_path": str((env_overrides or {}).get("CONFIG_PROFILE_PATH") or ""),
             "console_log_path": str(console_log_path),
         },

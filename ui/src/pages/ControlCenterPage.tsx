@@ -26,6 +26,7 @@ import {
   type ControlStateData,
   type LivePromotionPreflightData,
   type SourceStatus,
+  type StackStopRequest,
 } from "../lib/api";
 import { formatCount, formatRelative, formatTimestamp, humanizeKey } from "../lib/format";
 
@@ -266,11 +267,15 @@ export function ControlCenterPage() {
   const [processDryRun, setProcessDryRun] = useState(true);
   const [processFileLog, setProcessFileLog] = useState(true);
   const [processForceStop, setProcessForceStop] = useState(true);
+  const [paperMaxInvestedSol, setPaperMaxInvestedSol] = useState(3);
+  const [liveMaxInvestedSol, setLiveMaxInvestedSol] = useState(1);
+  const [confirmStackStop, setConfirmStackStop] = useState(false);
   const [confirmLiveStart, setConfirmLiveStart] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitFeedback, setSubmitFeedback] = useState<{ tone: "success" | "danger"; message: string } | null>(null);
   const [isProcessSubmitting, setIsProcessSubmitting] = useState(false);
+  const [isStackStopSubmitting, setIsStackStopSubmitting] = useState(false);
   const [processFeedback, setProcessFeedback] = useState<{ tone: "success" | "danger"; message: string } | null>(null);
 
   const requestedCommand = searchParams.get("command");
@@ -325,6 +330,7 @@ export function ControlCenterPage() {
   const canQueueSelectedCommand = hasPermission(commandPermission(selectedCommand));
   const canStartProcess = hasPermission("control.process.start");
   const canStopProcess = hasPermission("control.process.stop");
+  const canStopStack = hasPermission("control.stack.stop");
 
   function selectCommand(nextCommand: ControlCommandType) {
     const nextParams = new URLSearchParams(searchParams);
@@ -433,6 +439,9 @@ export function ControlCenterPage() {
     setProcessDryRun(typeof filters.processDryRun === "boolean" ? filters.processDryRun : true);
     setProcessFileLog(typeof filters.processFileLog === "boolean" ? filters.processFileLog : true);
     setProcessForceStop(typeof filters.processForceStop === "boolean" ? filters.processForceStop : true);
+    setPaperMaxInvestedSol(typeof filters.paperMaxInvestedSol === "number" ? Math.max(0, filters.paperMaxInvestedSol) : 3);
+    setLiveMaxInvestedSol(typeof filters.liveMaxInvestedSol === "number" ? Math.max(0, filters.liveMaxInvestedSol) : 1);
+    setConfirmStackStop(false);
     setConfirmLiveStart(false);
   }
 
@@ -514,6 +523,8 @@ export function ControlCenterPage() {
           dry_run: processDryRun,
           file_log: processFileLog,
           confirm_live: !processDryRun && confirmLiveStart,
+          paper_max_invested_sol: processDryRun ? Math.max(0, Number(paperMaxInvestedSol || 0)) : null,
+          live_max_invested_sol: processDryRun ? null : Math.max(0, Number(liveMaxInvestedSol || 0)),
           requested_from: "ui",
         });
         setProcessFeedback({
@@ -539,6 +550,43 @@ export function ControlCenterPage() {
       });
     } finally {
       setIsProcessSubmitting(false);
+    }
+  }
+
+  async function submitStackStop() {
+    if (!currentUser) {
+      setProcessFeedback({ tone: "danger", message: "Authenticated user is required." });
+      return;
+    }
+    if (!canStopStack) {
+      setProcessFeedback({ tone: "danger", message: "Your current role cannot stop the full stack." });
+      return;
+    }
+    if (!confirmStackStop) {
+      setProcessFeedback({ tone: "danger", message: "Full stack stop requires explicit confirmation." });
+      return;
+    }
+
+    setIsStackStopSubmitting(true);
+    setProcessFeedback(null);
+    try {
+      await postEnvelope<Record<string, unknown>, StackStopRequest>("/api/v1/control/stack/stop", {
+        bot_id: "main",
+        force: processForceStop,
+        delay_seconds: 2,
+      });
+      setProcessFeedback({
+        tone: "success",
+        message: "Full stack stop scheduled. The UI/API may disconnect after this response.",
+      });
+    } catch (error) {
+      setProcessFeedback({
+        tone: "danger",
+        message: error instanceof Error ? error.message : "Unknown stack stop failure",
+      });
+    } finally {
+      setIsStackStopSubmitting(false);
+      setConfirmStackStop(false);
     }
   }
 
@@ -842,16 +890,57 @@ export function ControlCenterPage() {
             <div className="drawer-note">
               <strong>Launch policy</strong>
               <p>
-                `start_stack.ps1` now leaves the bot stopped by default. Start and stop from here only manages the UI-owned
-                process; a bot launched manually from console remains external.
+                Start bot manages the UI-owned process. Stop full stack terminates repo stack processes, including manual
+                launches from `start_stack.ps1`.
               </p>
             </div>
 
-            <div className="checkbox-grid">
-              <label className="checkbox-chip">
-                <input checked={processDryRun} onChange={(event) => setProcessDryRun(event.target.checked)} type="checkbox" />
-                <span>Start in dry-run mode</span>
+            <div className="filter-field">
+              <span>Launch mode</span>
+              <div className="choice-row">
+                <button
+                  className={["choice-chip", processDryRun ? "choice-chip--active" : ""].filter(Boolean).join(" ")}
+                  onClick={() => setProcessDryRun(true)}
+                  type="button"
+                >
+                  Paper
+                </button>
+                <button
+                  className={["choice-chip", !processDryRun ? "choice-chip--active" : ""].filter(Boolean).join(" ")}
+                  onClick={() => setProcessDryRun(false)}
+                  type="button"
+                >
+                  Live
+                </button>
+              </div>
+            </div>
+
+            <div className="filter-row">
+              <label className="filter-field">
+                <span>Paper max invested SOL</span>
+                <input
+                  className="ui-field"
+                  min={0}
+                  onChange={(event) => setPaperMaxInvestedSol(Math.max(0, Number(event.target.value || "0")))}
+                  step={0.1}
+                  type="number"
+                  value={paperMaxInvestedSol}
+                />
               </label>
+              <label className="filter-field">
+                <span>Live max invested SOL</span>
+                <input
+                  className="ui-field"
+                  min={0}
+                  onChange={(event) => setLiveMaxInvestedSol(Math.max(0, Number(event.target.value || "0")))}
+                  step={0.1}
+                  type="number"
+                  value={liveMaxInvestedSol}
+                />
+              </label>
+            </div>
+
+            <div className="checkbox-grid">
               <label className="checkbox-chip">
                 <input checked={processFileLog} onChange={(event) => setProcessFileLog(event.target.checked)} type="checkbox" />
                 <span>Enable file logging</span>
@@ -900,7 +989,7 @@ export function ControlCenterPage() {
               </div>
             ) : null}
 
-            {!canStartProcess || !canStopProcess ? (
+            {!canStartProcess || !canStopProcess || !canStopStack ? (
               <Banner
                 detail="Only roles with explicit process permissions can launch or stop the bot from the UI."
                 title="Role restriction"
@@ -910,11 +999,16 @@ export function ControlCenterPage() {
 
             {processState?.external ? (
               <Banner
-                detail="The current bot heartbeat comes from a manual console launch. Stop it from that console before switching to UI-managed orchestration."
+                detail="The current bot heartbeat comes from a manual console launch. Use Stop full stack to terminate repo stack processes before switching to UI-managed orchestration."
                 title="External bot detected"
                 tone="info"
               />
             ) : null}
+
+            <label className="checkbox-chip">
+              <input checked={confirmStackStop} onChange={(event) => setConfirmStackStop(event.target.checked)} type="checkbox" />
+              <span>I confirm Stop full stack should terminate API, UI, bot, AutoResearch, and training processes.</span>
+            </label>
 
             <div className="page-hero__actions-inline">
               <button
@@ -937,6 +1031,14 @@ export function ControlCenterPage() {
                 type="button"
               >
                 {isProcessSubmitting && processState?.can_stop ? "Stopping..." : "Stop bot"}
+              </button>
+              <button
+                className="ui-button ui-button--ghost"
+                disabled={isStackStopSubmitting || !canStopStack || !confirmStackStop}
+                onClick={() => void submitStackStop()}
+                type="button"
+              >
+                {isStackStopSubmitting ? "Stopping stack..." : "Stop full stack"}
               </button>
               {processState ? (
                 <button className="ui-button ui-button--ghost" onClick={() => openProcessDrawer(processState)} type="button">
@@ -1217,6 +1319,8 @@ export function ControlCenterPage() {
                 processDryRun,
                 processFileLog,
                 processForceStop,
+                paperMaxInvestedSol,
+                liveMaxInvestedSol,
                 confirmLiveStart,
               }}
               onApply={applySavedView}

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status as http_sta
 from api.auth import UiIdentity, require_authenticated, require_control_command_permission, require_permission
 from api.deps import get_settings
 from api.schemas.common import Envelope
-from api.schemas.control import BotProcessStartRequest, BotProcessStopRequest, ControlCommandCreateRequest
+from api.schemas.control import BotProcessStartRequest, BotProcessStopRequest, ControlCommandCreateRequest, StackStopRequest
 from api.services.control import (
     create_control_command_envelope,
     get_control_commands_envelope,
@@ -15,7 +15,12 @@ from api.services.live_promotion import build_live_promotion_preflight
 from api.services.common import build_envelope
 from api.services.runtime import DEFAULT_BOT_ID, get_runtime_snapshot, get_runtime_source_status
 from api.services.sources import json_status
-from api.services.bot_process import get_bot_process_envelope, start_bot_process_envelope, stop_bot_process_envelope
+from api.services.bot_process import (
+    get_bot_process_envelope,
+    request_stack_stop_envelope,
+    start_bot_process_envelope,
+    stop_bot_process_envelope,
+)
 from api.settings import APISettings
 
 
@@ -136,6 +141,8 @@ def start_control_process(
             dry_run=payload.dry_run,
             file_log=payload.file_log,
             confirm_live=payload.confirm_live,
+            paper_max_invested_sol=payload.paper_max_invested_sol,
+            live_max_invested_sol=payload.live_max_invested_sol,
         )
     except RuntimeError as exc:
         raise _process_http_exception(exc) from exc
@@ -158,6 +165,29 @@ def stop_control_process(
             requested_by=identity.username,
             bot_id=payload.bot_id,
             force=payload.force,
+        )
+    except RuntimeError as exc:
+        raise _process_http_exception(exc) from exc
+
+
+@router.post(
+    "/control/stack/stop",
+    response_model=Envelope,
+    status_code=http_status.HTTP_202_ACCEPTED,
+)
+def stop_control_stack(
+    payload: StackStopRequest,
+    identity: UiIdentity = Depends(require_authenticated),
+    settings: APISettings = Depends(get_settings),
+) -> Envelope:
+    try:
+        require_permission(identity, "control.stack.stop")
+        return request_stack_stop_envelope(
+            settings,
+            requested_by=identity.username,
+            bot_id=payload.bot_id,
+            force=payload.force,
+            delay_seconds=payload.delay_seconds,
         )
     except RuntimeError as exc:
         raise _process_http_exception(exc) from exc

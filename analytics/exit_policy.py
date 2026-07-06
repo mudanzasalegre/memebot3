@@ -714,6 +714,31 @@ def _configured_runner_steps(
     )
 
 
+_MOONSHOT_MICRO_OPTIMIZED_STEPS = ((100.0, 0.20), (300.0, 0.20), (700.0, 0.20), (1500.0, 0.15))
+_MOONSHOT_MICRO_LEGACY_STEPS = ((50.0, 0.40), (100.0, 0.25), (300.0, 0.20))
+
+
+def _runner_step_close(step: bird_runner_exit.BirdRunnerStep, target: tuple[float, float]) -> bool:
+    return abs(float(step.trigger_pct) - float(target[0])) < 1e-9 and abs(float(step.fraction) - float(target[1])) < 1e-9
+
+
+def _moonshot_micro_runner_steps() -> tuple[bird_runner_exit.BirdRunnerStep, ...]:
+    steps = _configured_runner_steps("MOONSHOT_MICRO_LOTTERY", _MOONSHOT_MICRO_OPTIMIZED_STEPS)
+    if len(steps) >= len(_MOONSHOT_MICRO_LEGACY_STEPS) and all(
+        _runner_step_close(step, target)
+        for step, target in zip(steps[: len(_MOONSHOT_MICRO_LEGACY_STEPS)], _MOONSHOT_MICRO_LEGACY_STEPS)
+    ):
+        return tuple(bird_runner_exit.BirdRunnerStep(trigger, fraction) for trigger, fraction in _MOONSHOT_MICRO_OPTIMIZED_STEPS)
+    return steps
+
+
+def _moonshot_micro_moonbag_fraction() -> float:
+    moonbag = _to_float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MOONBAG_FRACTION", 0.25), 0.25)
+    if abs(float(moonbag) - 0.15) < 1e-9:
+        return 0.25
+    return moonbag
+
+
 def _merge_global_bird_tp1(
     subject: Any,
     steps: tuple[bird_runner_exit.BirdRunnerStep, ...],
@@ -749,11 +774,8 @@ def _runner_ladder_overrides(
 ) -> tuple[tuple[bird_runner_exit.BirdRunnerStep, ...] | None, float | None]:
     if _is_moonshot_micro_subject(subject):
         return (
-            _configured_runner_steps(
-                "MOONSHOT_MICRO_LOTTERY",
-                ((50.0, 0.40), (100.0, 0.25), (300.0, 0.20), (0.0, 0.0)),
-            ),
-            _to_float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_MOONBAG_FRACTION", 0.15), 0.15),
+            _moonshot_micro_runner_steps(),
+            _moonshot_micro_moonbag_fraction(),
         )
 
     if _is_birth_probe_micro_subject(subject):

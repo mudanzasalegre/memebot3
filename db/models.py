@@ -140,6 +140,7 @@ class Position(Base):
     size_bucket: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     size_multiplier: Mapped[float] = mapped_column(Float, default=1.0)
     buy_amount_sol: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    dry_run: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     entry_notional_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     entry_ai_proba: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     entry_score_total: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

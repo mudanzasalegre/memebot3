@@ -5970,6 +5970,46 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 )
                 _requeue_with_stats(addr, reason="paper_max_invested_sol", backoff=60, token=token)
                 return
+    else:
+        max_live_invested = max(0.0, _to_float(getattr(CFG, "LIVE_MAX_INVESTED_SOL", 0.0), 0.0) or 0.0)
+        if max_live_invested > 0.0:
+            live_open_invested = await _live_open_invested_sol(ses)
+            live_available = max_live_invested - live_open_invested
+            token["live_open_invested_sol"] = float(live_open_invested)
+            token["live_max_invested_sol"] = float(max_live_invested)
+            token["live_available_invested_sol"] = float(max(0.0, live_available))
+            if live_available + 1e-9 < effective_min_buy_sol:
+                log.info(
+                    "BUY live aplazado: capital %.3f/%.3f SOL, minimo %.3f SOL",
+                    live_open_invested,
+                    max_live_invested,
+                    effective_min_buy_sol,
+                )
+                _pending_ai_vectors.pop(addr, None)
+                _research_decision(
+                    token,
+                    action="wait",
+                    reason="live_max_invested_sol",
+                    stage="execution_guard",
+                    proba=proba,
+                    threshold=ai_threshold_eff,
+                    rank_info=rank_info,
+                    dedup_ttl_s=60,
+                )
+                _requeue_with_stats(addr, reason="live_max_invested_sol", backoff=60, token=token)
+                return
+            if live_available + 1e-9 < amount_sol:
+                original_amount_sol = float(amount_sol)
+                amount_sol = max(0.0, float(live_available))
+                token["live_cap_original_amount_sol"] = original_amount_sol
+                token["live_cap_adjusted_amount_sol"] = float(amount_sol)
+                log.info(
+                    "BUY live ajustado por capital: %.3f -> %.3f SOL (capital %.3f/%.3f SOL)",
+                    original_amount_sol,
+                    amount_sol,
+                    live_open_invested,
+                    max_live_invested,
+                )
 
     try:
         token.setdefault("discovered_via", "dex")
@@ -6319,6 +6359,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         size_bucket=size_decision.bucket,
         size_multiplier=float(size_decision.multiplier),
         buy_amount_sol=float(amount_sol),
+        dry_run=bool(DRY_RUN),
         entry_notional_usd=float(buy_resp.get("entry_notional_usd") or 0.0),
         entry_ai_proba=float(proba),
         entry_score_total=_metric_int(token, "score_total"),
@@ -6640,6 +6681,17 @@ async def _paper_exploration_quota_state(ses: SessionLocal) -> tuple[float, int,
 async def _paper_open_invested_sol(ses: SessionLocal) -> float:
     stmt = select(func.coalesce(func.sum(Position.buy_amount_sol), 0.0)).select_from(Position).where(
         Position.closed.is_not(True),
+        Position.dry_run.is_(True),
+        Position.buy_amount_sol.is_not(None),
+    )
+    return max(0.0, float((await ses.execute(stmt)).scalar() or 0.0))
+
+
+async def _live_open_invested_sol(ses: SessionLocal) -> float:
+    stmt = select(func.coalesce(func.sum(Position.buy_amount_sol), 0.0)).select_from(Position).where(
+        Position.closed.is_not(True),
+        Position.dry_run.is_(False),
+        Position.buy_amount_sol.is_not(None),
     )
     return max(0.0, float((await ses.execute(stmt)).scalar() or 0.0))
 

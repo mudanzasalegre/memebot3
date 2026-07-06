@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
+import subprocess
 from typing import Any
 
 from api.schemas.common import Envelope, SourceStatus
@@ -45,6 +47,17 @@ def _parse_iso(value: Any) -> dt.datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return parsed.astimezone(dt.timezone.utc)
+
+
+def _sol_override(value: float | None) -> str | None:
+    if value is None:
+        return None
+    normalized = max(0.0, float(value))
+    return f"{normalized:.9f}".rstrip("0").rstrip(".") or "0"
+
+
+def _ps_quote(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
 
 
 def _managed_state_or_none(settings: APISettings) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
@@ -120,6 +133,7 @@ def get_bot_process_snapshot(
         "dry_run": (managed_state or {}).get("dry_run", (runtime_snapshot or {}).get("dry_run")),
         "file_log": (managed_state or {}).get("file_log"),
         "command": (managed_state or {}).get("command") or [],
+        "capital_caps": (managed_state or {}).get("capital_caps") or {},
         "startup_grace_s": BOT_START_GRACE_SECONDS,
     }
 
@@ -156,6 +170,8 @@ def start_bot_process_envelope(
     dry_run: bool = True,
     file_log: bool = True,
     confirm_live: bool = False,
+    paper_max_invested_sol: float | None = None,
+    live_max_invested_sol: float | None = None,
 ) -> Envelope:
     current_payload, _ = get_bot_process_snapshot(settings, bot_id=bot_id)
     if current_payload["status"] in {"starting", "running_managed"}:
@@ -163,7 +179,16 @@ def start_bot_process_envelope(
     if current_payload["status"] == "running_external":
         raise RuntimeError("Bot is already running from an external console; stop it there before starting from the UI")
 
-    env_overrides: dict[str, str] | None = None
+    env_overrides: dict[str, str] = {}
+    if dry_run:
+        paper_cap = _sol_override(paper_max_invested_sol)
+        if paper_cap is not None:
+            env_overrides["PAPER_MAX_INVESTED_SOL"] = paper_cap
+    else:
+        live_cap = _sol_override(live_max_invested_sol)
+        if live_cap is not None:
+            env_overrides["LIVE_MAX_INVESTED_SOL"] = live_cap
+
     live_preflight: dict[str, Any] | None = None
     if not dry_run:
         if not confirm_live:
@@ -177,7 +202,7 @@ def start_bot_process_envelope(
             ]
             raise RuntimeError(f"live preflight blocked: {','.join(blocked) or 'unknown'}")
         profile_path = write_live_start_profile(settings, live_preflight)
-        env_overrides = {"CONFIG_PROFILE_PATH": str(profile_path)}
+        env_overrides["CONFIG_PROFILE_PATH"] = str(profile_path)
 
     start_managed_bot_process(
         settings.project_root,
@@ -185,7 +210,7 @@ def start_bot_process_envelope(
         requested_from=requested_from,
         dry_run=bool(dry_run),
         file_log=bool(file_log),
-        env_overrides=env_overrides,
+        env_overrides=env_overrides or None,
     )
     payload, source_status = get_bot_process_snapshot(settings, bot_id=bot_id)
     if live_preflight is not None:
@@ -210,6 +235,79 @@ def stop_bot_process_envelope(
     payload, source_status = get_bot_process_snapshot(settings, bot_id=bot_id)
     payload["last_stopped_by"] = requested_by
     return build_envelope(payload, source_status=[source_status], degraded=False, empty=payload["status"] == "stopped", stale=False)
+
+
+def request_stack_stop_envelope(
+    settings: APISettings,
+    *,
+    requested_by: str,
+    bot_id: str = DEFAULT_BOT_ID,
+    force: bool = True,
+    delay_seconds: int = 2,
+) -> Envelope:
+    script_path = (settings.project_root / "scripts" / "stop_stack.ps1").resolve()
+    if not script_path.exists():
+        raise RuntimeError(f"stop_stack script is missing: {script_path}")
+
+    delay = max(0, min(30, int(delay_seconds)))
+    if os.name == "nt":
+        stop_args = [
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script_path),
+            "-DelaySeconds",
+            str(delay),
+            "-RequestedBy",
+            str(requested_by or "ui"),
+        ]
+        if force:
+            stop_args.append("-Force")
+        command = (
+            "Start-Process -FilePath powershell.exe -WindowStyle Hidden -ArgumentList @("
+            + ",".join(_ps_quote(arg) for arg in stop_args)
+            + ")"
+        )
+        subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+            cwd=settings.project_root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+    else:
+        args = ["pwsh", "-NoProfile", "-File", str(script_path), "-DelaySeconds", str(delay), "-RequestedBy", str(requested_by or "ui")]
+        if force:
+            args.append("-Force")
+        subprocess.Popen(
+            args,
+            cwd=settings.project_root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+
+    payload = {
+        "bot_id": bot_id,
+        "requested": True,
+        "requested_by": requested_by,
+        "force": bool(force),
+        "delay_seconds": delay,
+        "script_path": str(script_path),
+        "detail": "Full stack stop has been scheduled; the API/UI process may disappear after this response.",
+    }
+    source_status = make_source_status(
+        source_key="runtime.stack_stop",
+        kind="process",
+        status="ok",
+        updated_at=utc_now().isoformat(),
+        detail=payload["detail"],
+        path=script_path,
+    )
+    return build_envelope(payload, source_status=[source_status], degraded=False, empty=False, stale=False)
 
 
 def runtime_state_is_expected_to_be_absent(process_payload: dict[str, Any]) -> bool:

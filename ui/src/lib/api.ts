@@ -1183,6 +1183,7 @@ export interface BotProcessData {
   dry_run: boolean | null;
   file_log: boolean | null;
   command: string[];
+  capital_caps?: Record<string, string | number | null>;
   live_preflight?: LivePromotionPreflightData | null;
   startup_grace_s: number | null;
   last_stopped_by?: string | null;
@@ -1256,12 +1257,20 @@ export interface BotProcessStartRequest {
   dry_run: boolean;
   file_log: boolean;
   confirm_live?: boolean;
+  paper_max_invested_sol?: number | null;
+  live_max_invested_sol?: number | null;
   requested_from?: string | null;
 }
 
 export interface BotProcessStopRequest {
   bot_id: string;
   force: boolean;
+}
+
+export interface StackStopRequest {
+  bot_id: string;
+  force: boolean;
+  delay_seconds: number;
 }
 
 export interface SavedViewItem {

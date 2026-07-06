@@ -19,9 +19,17 @@ class BotProcessStartRequest(BaseModel):
     dry_run: bool = True
     file_log: bool = True
     confirm_live: bool = False
+    paper_max_invested_sol: float | None = Field(default=None, ge=0)
+    live_max_invested_sol: float | None = Field(default=None, ge=0)
     requested_from: str | None = "ui"
 
 
 class BotProcessStopRequest(BaseModel):
     bot_id: str = "main"
     force: bool = True
+
+
+class StackStopRequest(BaseModel):
+    bot_id: str = "main"
+    force: bool = True
+    delay_seconds: int = Field(default=2, ge=0, le=30)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import dataclasses
 import importlib.util
 import sys
 from pathlib import Path
@@ -121,6 +122,50 @@ def test_green_sniper_does_not_full_take_profit_before_partial() -> None:
     reason = exit_policy.should_exit(subject, price_now=1.20, now=now, pnl_pct=20.0)
 
     assert reason is None
+
+
+def test_moonshot_micro_runner_ladder_keeps_larger_moonbag() -> None:
+    steps, moonbag = exit_policy._runner_ladder_overrides(
+        {"entry_lane": "pump_early_moonshot_micro_lottery"},
+    )
+
+    assert [(step.trigger_pct, step.fraction) for step in steps] == [
+        (100.0, 0.20),
+        (300.0, 0.20),
+        (700.0, 0.20),
+        (1500.0, 0.15),
+    ]
+    assert moonbag == 0.25
+
+
+def test_legacy_moonshot_micro_ladder_is_normalized() -> None:
+    original_cfg = exit_policy.CFG
+    exit_policy.CFG = dataclasses.replace(
+        original_cfg,
+        MOONSHOT_MICRO_LOTTERY_TP1_PCT=50.0,
+        MOONSHOT_MICRO_LOTTERY_TP1_FRACTION=0.40,
+        MOONSHOT_MICRO_LOTTERY_TP2_PCT=100.0,
+        MOONSHOT_MICRO_LOTTERY_TP2_FRACTION=0.25,
+        MOONSHOT_MICRO_LOTTERY_TP3_PCT=300.0,
+        MOONSHOT_MICRO_LOTTERY_TP3_FRACTION=0.20,
+        MOONSHOT_MICRO_LOTTERY_TP4_PCT=0.0,
+        MOONSHOT_MICRO_LOTTERY_TP4_FRACTION=0.0,
+        MOONSHOT_MICRO_LOTTERY_MOONBAG_FRACTION=0.15,
+    )
+    try:
+        steps, moonbag = exit_policy._runner_ladder_overrides(
+            {"entry_lane": "pump_early_moonshot_micro_lottery"},
+        )
+    finally:
+        exit_policy.CFG = original_cfg
+
+    assert [(step.trigger_pct, step.fraction) for step in steps] == [
+        (100.0, 0.20),
+        (300.0, 0.20),
+        (700.0, 0.20),
+        (1500.0, 0.15),
+    ]
+    assert moonbag == 0.25
 
 
 def test_green_sniper_adverse_tick_uses_fast_window() -> None:

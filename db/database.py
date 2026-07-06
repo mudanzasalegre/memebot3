@@ -104,6 +104,7 @@ async def _ensure_position_columns() -> None:
         ("size_bucket", "VARCHAR(16)"),
         ("size_multiplier", "REAL NOT NULL DEFAULT 1.0"),
         ("buy_amount_sol", "REAL"),
+        ("dry_run", "INTEGER NOT NULL DEFAULT 1"),
         ("entry_notional_usd", "REAL"),
         ("entry_ai_proba", "REAL"),
         ("entry_score_total", "INTEGER"),

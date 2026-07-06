@@ -36,6 +36,7 @@ OPERATOR_PERMISSIONS = VIEWER_PERMISSIONS | {
 ADMIN_PERMISSIONS = OPERATOR_PERMISSIONS | {
     "control.process.start",
     "control.process.stop",
+    "control.stack.stop",
     "control.command.set_log_level",
     "saved_views.read_all",
     "saved_views.delete_any",

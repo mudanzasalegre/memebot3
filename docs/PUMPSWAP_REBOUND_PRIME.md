@@ -6,13 +6,14 @@
 
 ## Top Failures
 
-- `txns5m<500`: 7692
-- `dex!=pumpswap`: 7642
-- `liq<10000`: 7585
-- `proxy_liquidity`: 7176
-- `mcap<10000`: 7172
-- `route_required`: 4778
-- `price5m_missing`: 3924
-- `price5m>-25`: 2874
-- `impact>12`: 535
-- `mcap>50000`: 140
+- `txns5m<500`: 19046
+- `dex!=pumpswap`: 18867
+- `liq<10000`: 18725
+- `mcap<10000`: 18008
+- `proxy_liquidity`: 17873
+- `route_required`: 11525
+- `price5m_missing`: 9639
+- `price5m>-25`: 7120
+- `impact>12`: 1229
+- `mcap>50000`: 476
+- `shadow_rebound_watch`: 19
