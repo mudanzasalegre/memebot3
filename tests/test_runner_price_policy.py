@@ -83,13 +83,21 @@ def test_live_snapshot_cannot_enable_paper_policy():
     assert json.loads(runner_price_policy.freeze_policy(_cfg(), dry_run=False))["enabled"] is False
 
 
-def test_runner_holding_extension_is_bounded_and_does_not_ignore_liquidity_crush():
+@pytest.mark.parametrize("liquidity", [0, 1])
+def test_runner_holding_extension_is_bounded_and_does_not_ignore_liquidity_crush(liquidity):
     now = dt.datetime.now(dt.timezone.utc)
     subject = _subject(5000, opened_at=now - dt.timedelta(hours=8), buy_liquidity_usd=10000)
     assert exit_policy.should_exit(dict(subject), 50.0, now, pnl_pct=4900) is None
-    assert exit_policy.should_exit(dict(subject), 50.0, now, pnl_pct=4900, liq_now=1) == "LIQUIDITY_CRUSH"
+    assert exit_policy.should_exit(dict(subject), 50.0, now, pnl_pct=4900, liq_now=liquidity) == "LIQUIDITY_CRUSH"
     subject["opened_at"] = now - dt.timedelta(hours=24)
     assert exit_policy.should_exit(subject, 50.0, now, pnl_pct=4900) == "TIMEOUT_RUNNER"
+
+
+@pytest.mark.parametrize("liquidity", [None, True, -1, float("nan"), float("inf")])
+def test_extreme_runner_does_not_invent_liquidity_collapse_from_unknown_values(liquidity):
+    now = dt.datetime.now(dt.timezone.utc)
+    subject = _subject(5000, opened_at=now - dt.timedelta(hours=8), buy_liquidity_usd=10000)
+    assert exit_policy.should_exit(subject, 50.0, now, pnl_pct=4900, liq_now=liquidity) is None
 
 
 def test_missing_price_does_not_extend_runner_timeout():

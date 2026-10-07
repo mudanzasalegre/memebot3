@@ -249,6 +249,7 @@ from ml.retrain import retrain_if_better  # noqa: E402
 # ───────── Utils (queue, precio, etc.) ───────────────────────────────────────
 from utils.descubridor_pares import fetch_candidate_pairs  # noqa: E402
 from utils import lista_pares, price_service  # precio con fallbacks  # noqa: E402
+from utils.market_observation import fresh_market_value, liquidity_crushed, stamp_market_observation  # noqa: E402
 from utils.lista_pares import (  # noqa: E402
     agregar_si_nuevo,
     eliminar_par,
@@ -6689,10 +6690,10 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     # 12) — “Exigir Jupiter” para comprar (solo precio) —
     if require_jup_for_buy:
         try:
-            jtok = await price_service.get_price(addr, price_only=True)  # usa flag interno
+            jtok = await price_service.get_jupiter_price_snapshot(addr)
         except Exception:
             jtok = None
-        if not jtok or jtok.get("price_usd") in (None, 0):
+        if fresh_market_value(jtok, "price_usd", source="jupiter") is None:
             log.info("⏳ BUY aplazado (sin precio Jupiter) %s", addr[:6])
             _pending_ai_vectors.pop(addr, None)
             _research_decision(
@@ -7917,9 +7918,9 @@ def _finalize_position_runner_metrics(pos: Position) -> None:
 
 
 # ───── precarga de precios en batch para posiciones abiertas ────────────────
-async def _prefetch_batch_prices(addrs: List[str]) -> Dict[str, float]:
+async def _prefetch_batch_prices(addrs: List[str]) -> Dict[str, dict]:
     """
-    Devuelve un dict address->price_usd usando Jupiter Price v3 (Lite).
+    Devuelve snapshots con el recibo original por mint, no floats sin edad.
     Si USE_JUPITER_PRICE=False, devuelve {}.
     """
     if not USE_JUPITER_PRICE or not addrs:
@@ -7934,10 +7935,21 @@ async def _prefetch_batch_prices(addrs: List[str]) -> Dict[str, float]:
                 log.warning("Monitor: ID no parece mint SPL → %r", m)
         # Exit protection must not interpret a 120-second entry-cache hit as
         # a new market observation. Existing provider throttling still applies.
-        prices = await jupiter_price.get_many_usd_prices(addrs, force_refresh=True)
-        prices = {mint: float(price) for mint, price in prices.items()
-                  if mint in addrs and isinstance(price, (int, float)) and not isinstance(price, bool)
-                  and math.isfinite(price) and price > 0}
+        quotes = await jupiter_price.get_many_prices(addrs, force_refresh=True)
+        prices = {}
+        for mint, info in quotes.items():
+            price = getattr(info, "price_usd", None)
+            received = getattr(info, "received_at", None)
+            if (mint not in addrs or getattr(info, "status", None) != "OK" or received is None
+                    or not isinstance(price, (int, float)) or isinstance(price, bool)
+                    or not math.isfinite(price) or price <= 0):
+                continue
+            tick = stamp_market_observation(
+                {"address": mint, "price_usd": float(price), "price_source": "jupiter"},
+                "jupiter", received_at=received,
+            )
+            if fresh_market_value(tick, "price_usd", source="jupiter") is not None:
+                prices[mint] = tick
         log.debug("Jupiter batch: %d/%d precios disponibles", len(prices), len(addrs))
         return prices
     except Exception as exc:
@@ -8151,7 +8163,7 @@ async def _check_positions(ses: SessionLocal) -> None:
         for p in positions
         if (getattr(p, "token_mint", None) or p.address)
     ]
-    batch_prices: Dict[str, float] = await _prefetch_batch_prices(addr_list)
+    batch_prices: Dict[str, dict] = await _prefetch_batch_prices(addr_list)
 
     # Métricas por ciclo
     total = len(positions)
@@ -8184,6 +8196,8 @@ async def _check_positions(ses: SessionLocal) -> None:
         price_src = None
         price: Optional[float] = None
         liq_now: Optional[float] = None
+        price_tick: dict | None = None
+        liquidity_tick: dict | None = None
         prefer_dex = _buy_was_non_jup(pos)
 
         # FORZAR Jupiter-first si el flag está activo
@@ -8194,113 +8208,116 @@ async def _check_positions(ses: SessionLocal) -> None:
             # 1) Dex/GT (SOLO PRECIO, puede traer liq si está disponible)
             tok_full = None
             try:
-                tok_full = await price_service.get_price(mint_key, use_gt=True, price_only=True)
+                tok_full = await price_service.get_price(mint_key, use_gt=True, price_only=True, force_refresh=True)
             except Exception:
                 tok_full = None
-            if tok_full and tok_full.get("price_usd"):
-                price = float(tok_full["price_usd"])
-                liq_now = tok_full.get("liquidity_usd")
-                price_src = "dex_full"
+            if (observed_price := fresh_market_value(tok_full, "price_usd")) is not None:
+                price = observed_price
+                price_tick = liquidity_tick = tok_full
+                liq_now = fresh_market_value(tok_full, "liquidity_usd")
+                price_src = tok_full.get("price_source") or "unknown"
                 dex_full_resolved += 1
 
             # 2) Jupiter batch → single → critical
             if price is None:
-                p_b = batch_prices.get(mint_key)
+                p_b = fresh_market_value(batch_prices.get(mint_key), "price_usd", source="jupiter")
                 if p_b is not None:
                     price = p_b
+                    price_tick = batch_prices[mint_key]
                     price_src = "jup_batch"
                     batch_resolved += 1
 
             if price is None:
                 try:
-                    p_s = await price_service.get_price_usd(mint_key)
+                    price_tick = await price_service.get_price(mint_key, price_only=True, use_gt=True, force_refresh=True)
+                    p_s = fresh_market_value(price_tick, "price_usd")
                 except Exception:
                     p_s = None
                 if p_s is not None:
                     price = p_s
-                    price_src = "jup_single"
+                    price_src = price_tick.get("price_source") or "unknown"
                     fallback_resolved += 1
 
             if price is None and crit_used < _CRIT_MAX and _near_exit_zone(pos, now):
                 try:
-                    p_c = await price_service.get_price_usd(mint_key, critical=True)
-                except TypeError:
-                    try:
-                        p_c = await price_service.get_price_usd(mint_key)
-                    except Exception:
-                        p_c = None
+                    price_tick = await price_service.get_price(mint_key, price_only=True, use_gt=True, critical=True)
+                    p_c = fresh_market_value(price_tick, "price_usd")
                 except Exception:
                     p_c = None
                 if p_c is not None:
                     price = p_c
-                    price_src = "jup_critical"
+                    price_src = price_tick.get("price_source") or "unknown"
                     critical_resolved += 1
                 crit_used += 1
 
         else:
             # Camino preferente: Jupiter → Dex/GT
-            price = batch_prices.get(mint_key)
+            price = fresh_market_value(batch_prices.get(mint_key), "price_usd", source="jupiter")
             if price is not None:
+                price_tick = batch_prices[mint_key]
                 price_src = "jup_batch"
                 batch_resolved += 1
             else:
                 try:
-                    price = await price_service.get_price_usd(mint_key)
+                    price_tick = await price_service.get_price(mint_key, price_only=True, use_gt=True, force_refresh=True)
+                    price = fresh_market_value(price_tick, "price_usd")
                 except Exception:
                     price = None
                 if price is not None:
-                    price_src = "jup_single"
+                    price_src = price_tick.get("price_source") or "unknown"
                     fallback_resolved += 1
 
             if price is None and crit_used < _CRIT_MAX and _near_exit_zone(pos, now):
                 try:
-                    price = await price_service.get_price_usd(mint_key, critical=True)
-                except TypeError:
-                    try:
-                        price = await price_service.get_price_usd(mint_key)
-                    except Exception:
-                        price = None
+                    price_tick = await price_service.get_price(mint_key, price_only=True, use_gt=True, critical=True)
+                    price = fresh_market_value(price_tick, "price_usd")
                 except Exception:
                     price = None
                 if price is not None:
-                    price_src = "jup_critical"
+                    price_src = price_tick.get("price_source") or "unknown"
                     critical_resolved += 1
                 crit_used += 1
 
             if price is None:
                 tok_full = None
                 try:
-                    tok_full = await price_service.get_price(mint_key, use_gt=True, price_only=True)
+                    tok_full = await price_service.get_price(mint_key, use_gt=True, price_only=True, force_refresh=True)
                 except Exception:
                     tok_full = None
-                if tok_full and tok_full.get("price_usd"):
-                    price = float(tok_full["price_usd"])
-                    liq_now = tok_full.get("liquidity_usd")
-                    price_src = "dex_full"
+                if (observed_price := fresh_market_value(tok_full, "price_usd")) is not None:
+                    price = observed_price
+                    price_tick = liquidity_tick = tok_full
+                    liq_now = fresh_market_value(tok_full, "liquidity_usd")
+                    price_src = tok_full.get("price_source") or "unknown"
                     dex_full_resolved += 1
 
-        # Métricas de cobertura de precio (consulta)
+        # ── Liquidity CRUSH proactivo (si no tenemos liq_now, intenta 1 tick “full”) ──
+        if getattr(pos, "buy_liquidity_usd", None) and (liq_now is None):
+            try:
+                # No extra Jupiter price/impact request for this liquidity-only probe.
+                tok_full_liq = await price_service.get_price(
+                    mint_key, use_gt=True, liquidity_only=True, force_refresh=True,
+                )
+            except Exception:
+                tok_full_liq = None
+            if tok_full_liq:
+                liquidity_tick = tok_full_liq
+                liq_now = fresh_market_value(tok_full_liq, "liquidity_usd")
+
+        # Per-position and post-await age checks: an early batch price may have
+        # expired while preceding positions or a slow liquidity probe ran.
+        price = fresh_market_value(price_tick, "price_usd")
+        liq_now = fresh_market_value(liquidity_tick, "liquidity_usd")
         if price is None:
+            price_src = None
             positions_without_price += 1
             no_price += 1
             consult_source_counts["none"] += 1
         else:
             positions_with_price += 1
-            consult_source_counts[price_src] = consult_source_counts.get(price_src, 0) + 1  # type: ignore
-
+            consult_source_counts[price_src] = consult_source_counts.get(price_src, 0) + 1
         strategy_runtime.record_monitor_coverage(pos_regime, price is not None)
-
-        # ── Liquidity CRUSH proactivo (si no tenemos liq_now, intenta 1 tick “full”) ──
-        if getattr(pos, "buy_liquidity_usd", None) and (liq_now is None):
-            try:
-                tok_full_liq = await price_service.get_price(mint_key, use_gt=True)  # full: puede traer liquidez
-            except Exception:
-                tok_full_liq = None
-            if tok_full_liq:
-                try:
-                    liq_now = float(tok_full_liq.get("liquidity_usd") or 0.0)
-                except Exception:
-                    liq_now = None
+        now = utc_now()
 
         # ── Actualizar pnl_pct + peak (si hay precio) ───────────────────
         pnl_pct: Optional[float] = None
@@ -8350,12 +8367,10 @@ async def _check_positions(ses: SessionLocal) -> None:
                     pass
 
         # ── Liquidity crush inmediato (manteniendo tu comportamiento) ────
+        liq_now = fresh_market_value(liquidity_tick, "liquidity_usd")
         if (
-            getattr(pos, "buy_liquidity_usd", None)
-            and liq_now
+            liquidity_crushed(getattr(pos, "buy_liquidity_usd", None), liq_now, pos_exit_policy.liq_crush_fraction)
             and not (bool(getattr(pos, "partial_taken", False)) and price is not None)
-            and float(pos_exit_policy.liq_crush_fraction) > 0
-            and float(liq_now) <= float(pos.buy_liquidity_usd) * float(pos_exit_policy.liq_crush_fraction)
         ):
             sell_resp = await _sell_position_guarded(
                 pos,
@@ -8686,6 +8701,13 @@ async def _check_positions(ses: SessionLocal) -> None:
             except Exception:
                 log.debug("missed partial tick-gap audit failed for %s", pos.address[:6], exc_info=True)
 
+        # Partial fills and persistence may have awaited since this tick was read.
+        price = fresh_market_value(price_tick, "price_usd")
+        liq_now = fresh_market_value(liquidity_tick, "liquidity_usd")
+        if price is None:
+            price_src = None
+            pnl_pct = None
+        now = utc_now()
         exit_reason = await _should_exit(pos, price, now, liq_now=liq_now, pnl_pct=pnl_pct)
         if exit_reason is None:
             continue
@@ -8869,19 +8891,10 @@ async def _check_positions(ses: SessionLocal) -> None:
         pct_without = 100.0 - pct_with if total else 0.0
 
         log.info(
-            "📊 Monitor: con precio %.1f%% (sin %.1f%%) | consult srcs: batch=%d single=%d crit=%d dex=%d none=%d | cierres: batch=%d single=%d crit=%d dex=%d fb=%d none=%d | ventas=%d",
+            "📊 Monitor: con precio %.1f%% (sin %.1f%%) | consult srcs=%s | cierres srcs=%s | ventas=%d",
             pct_with, pct_without,
-            consult_source_counts.get("jup_batch", 0),
-            consult_source_counts.get("jup_single", 0),
-            consult_source_counts.get("jup_critical", 0),
-            consult_source_counts.get("dex_full", 0),
-            consult_source_counts.get("none", 0),
-            close_source_counts.get("jup_batch", 0),
-            close_source_counts.get("jup_single", 0),
-            close_source_counts.get("jup_critical", 0),
-            close_source_counts.get("dex_full", 0),
-            close_source_counts.get("fallback_buy", 0),
-            close_source_counts.get("none", 0),
+            json.dumps(consult_source_counts, sort_keys=True),
+            json.dumps(close_source_counts, sort_keys=True),
             sells_done,
         )
 

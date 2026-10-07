@@ -38,6 +38,7 @@ import asyncio
 import datetime as dt
 import logging
 import math
+from copy import deepcopy
 from typing import Dict, Optional, List, Any
 
 import aiohttp
@@ -45,8 +46,9 @@ import numpy as np
 
 from config import DEX_API_BASE
 from utils.data_utils import sanitize_token_data
-from utils.simple_cache import cache_get, cache_set
+from utils.simple_cache import cache_get, cache_set, cache_delete
 from utils.time import parse_iso_utc  # ← usar helper seguro para ISO
+from utils.market_observation import MARKET_FIELDS, stamp_market_observation
 
 log = logging.getLogger("dexscreener")
 
@@ -97,7 +99,7 @@ async def _fetch_json(url: str, sess: aiohttp.ClientSession, *, params: dict | N
 # ───────────────────────── helpers parsing ───────────────────────
 def _safe_float(val) -> float | None:
     try:
-        if val is None:
+        if val is None or isinstance(val, bool):
             return None
         # strings tipo "1,234.56" → quitar separadores si vinieran
         if isinstance(val, str):
@@ -223,6 +225,13 @@ def _pick_best_pair(pairs: List[dict]) -> Optional[dict]:
     spairs.sort(key=lambda p: (liq_usd(p), vol_24h(p)), reverse=True)
     return spairs[0]
 
+def _matching_pairs(pairs: list, address: str) -> list[dict]:
+    return [p for p in pairs if isinstance(p, dict)
+            and (p.get("chainId") or p.get("chain")) in (None, "solana")
+            and ((p.get("baseToken") if isinstance(p.get("baseToken"), dict) else {}).get("address") == address
+                 or p.get("tokenAddress") == address or p.get("pairAddress") == address)]
+
+
 def _add_legacy_aliases(tok: dict) -> dict:
     """
     Inyecta:
@@ -231,7 +240,7 @@ def _add_legacy_aliases(tok: dict) -> dict:
       - fdv          ← market_cap_usd
     para compatibilidad con lectores antiguos.
     """
-    out = dict(tok)
+    out = deepcopy(tok)
     liq_usd = out.get("liquidity_usd", np.nan)
     if "liquidity" not in out or not isinstance(out.get("liquidity"), dict):
         out["liquidity"] = {}
@@ -307,13 +316,14 @@ def _norm_from_pair(raw_pair: dict) -> dict:
 
     # txns últimos 5m
     txns_m5 = (raw_pair.get("txns") or {}).get("m5") or {}
-    buys_5m  = _safe_float(txns_m5.get("buys")) or 0.0
-    sells_5m = _safe_float(txns_m5.get("sells")) or 0.0
-    total_5m = (buys_5m or 0.0) + (sells_5m or 0.0)
+    buys_5m = _safe_float(txns_m5.get("buys"))
+    sells_5m = _safe_float(txns_m5.get("sells"))
+    total_5m = buys_5m + sells_5m if buys_5m is not None and sells_5m is not None else None
     price_change = raw_pair.get("priceChange") or {}
     volume_change = raw_pair.get("volumeChange") or {}
 
     tok = {
+        **raw_pair,  # Normalized identity and numbers must win over raw aliases.
         "address":        (str(mint).strip() if mint else None),  # ← MINT SPL ¡clave!
         "pair_address":   pair_address,
         "symbol":         (base.get("symbol") or raw_pair.get("symbol")),
@@ -324,15 +334,14 @@ def _norm_from_pair(raw_pair: dict) -> dict:
         "volume_24h_usd": vol_usd   if vol_usd   is not None else np.nan,
         "market_cap_usd": mcap_usd  if mcap_usd  is not None else np.nan,
         # señales rápidas
-        "txns_last_5m":        total_5m or 0.0,
-        "txns_last_5m_buys":   buys_5m or 0.0,
-        "txns_last_5m_sells":  sells_5m or 0.0,
+        "txns_last_5m":        total_5m,
+        "txns_last_5m_buys":   buys_5m,
+        "txns_last_5m_sells":  sells_5m,
         "price_pct_1m": _safe_float(price_change.get("m1")),
         "price_pct_5m": _safe_float(price_change.get("m5")),
         "volume_pct_5m": _safe_float(volume_change.get("m5")),
         "holders": _safe_float(raw_pair.get("holders")),
         # Pasar algunos campos originales por compat/debug
-        **raw_pair,
     }
 
     # ↪ Normalizar dexId y dejarlo **siempre** en `tok["dexId"]`
@@ -346,16 +355,20 @@ def _norm_from_pair(raw_pair: dict) -> dict:
     tok["liquidity_usd_is_proxy"] = False if direct_liq else (True if liq_usd is not None else None)
     tok["liquidity_is_proxy"] = tok["liquidity_usd_is_proxy"]
 
+    normalized = {key: deepcopy(tok.get(key)) for key in MARKET_FIELDS}
     tok = sanitize_token_data(tok)
+    tok.update(normalized)  # Raw alias coercion must not overwrite canonical observations.
     tok = _add_legacy_aliases(tok)
     return tok
 
 # ───────────────────────── API pública ────────────────────────────
-async def get_pair(address: str) -> Optional[Dict[str, Any]]:
+async def get_pair(address: str, *, force_refresh: bool = False) -> Optional[Dict[str, Any]]:
     ck = f"dex:{address}"
-    hit = cache_get(ck)
+    if force_refresh:
+        cache_delete(ck)
+    hit = None if force_refresh else cache_get(ck)
     if hit is not None:
-        return None if hit is _SENTINEL_NIL else hit
+        return None if hit is _SENTINEL_NIL else deepcopy(hit)
 
     async with aiohttp.ClientSession() as s:
         # ① tokens (mint → lista de pares)
@@ -364,12 +377,12 @@ async def get_pair(address: str) -> Optional[Dict[str, Any]]:
         if raw_tok:
             log.debug("[DEX] %s tokens→ %s", address[:6], list(raw_tok.keys())[:3])
         if isinstance(raw_tok, dict) and raw_tok.get("pairs"):
-            pair = _pick_best_pair(raw_tok["pairs"])
+            pair = _pick_best_pair(_matching_pairs(raw_tok["pairs"], address))
             if pair:
-                res = _norm_from_pair(pair)
+                res = stamp_market_observation(_norm_from_pair(pair), "dexscreener")
                 if res.get("address"):
                     log.debug("[DEX] %s ✅ tokens-hit (mint)", address[:6])
-                    cache_set(ck, res, ttl=_CACHE_TTL_OK)
+                    cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
                     _fail_count.pop(address, None)
                     return res
 
@@ -379,20 +392,20 @@ async def get_pair(address: str) -> Optional[Dict[str, Any]]:
         if raw_pair:
             log.debug("[DEX] %s pairs→ %s", address[:6], list(raw_pair.keys())[:3])
         if isinstance(raw_pair, dict):
-            if raw_pair.get("pair"):
-                res = _norm_from_pair(raw_pair["pair"])
+            if raw_pair.get("pair") and _matching_pairs([raw_pair["pair"]], address):
+                res = stamp_market_observation(_norm_from_pair(raw_pair["pair"]), "dexscreener")
                 if res.get("address"):
                     log.debug("[DEX] %s ✅ pair-hit (direct)", address[:6])
-                    cache_set(ck, res, ttl=_CACHE_TTL_OK)
+                    cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
                     _fail_count.pop(address, None)
                     return res
             if raw_pair.get("pairs"):
-                pair = _pick_best_pair(raw_pair["pairs"])
+                pair = _pick_best_pair(_matching_pairs(raw_pair["pairs"], address))
                 if pair:
-                    res = _norm_from_pair(pair)
+                    res = stamp_market_observation(_norm_from_pair(pair), "dexscreener")
                     if res.get("address"):
                         log.debug("[DEX] %s ✅ pair-hit (list)", address[:6])
-                        cache_set(ck, res, ttl=_CACHE_TTL_OK)
+                        cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
                         _fail_count.pop(address, None)
                         return res
 
@@ -402,12 +415,14 @@ async def get_pair(address: str) -> Optional[Dict[str, Any]]:
         if raw_search:
             log.debug("[DEX] %s search→ %s", address[:6], list(raw_search.keys())[:3])
         if isinstance(raw_search, dict) and raw_search.get("pairs"):
-            pair = _pick_best_pair(raw_search["pairs"])
+            # Search may return similarly named tokens; never pick an unrelated mint.
+            matches = _matching_pairs(raw_search["pairs"], address)
+            pair = _pick_best_pair(matches)
             if pair:
-                res = _norm_from_pair(pair)
+                res = stamp_market_observation(_norm_from_pair(pair), "dexscreener")
                 if res.get("address"):
                     log.debug("[DEX] %s ✅ search-hit", address[:6])
-                    cache_set(ck, res, ttl=_CACHE_TTL_OK)
+                    cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
                     _fail_count.pop(address, None)
                     return res
 

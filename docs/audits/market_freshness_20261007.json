@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "stage": "Provider receipt freshness, fallback provenance and primary position monitoring",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "working_checkout": "D:/Dev/Python/memebot3",
+  "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
+  "findings": [
+    "The general price cache could return a positive or partial hit even in critical mode, and a cache miss could still receive Jupiter/DexScreener/Birdeye/GeckoTerminal data cached for 60-120 seconds",
+    "Whole-snapshot merging had no original per-field receipt provenance and treated legitimate zero liquidity, activity or momentum as missing; a new price could be combined with older secondary inputs without exposing their separate ages",
+    "DexScreener search could choose an unrelated token, raw aliases could overwrite normalized fields, and missing five-minute transactions could be manufactured as zero",
+    "Birdeye and GeckoTerminal provider update timestamps could be mislabeled as token creation timestamps",
+    "The final require-Jupiter-price entry guard called a fallback-enabled service and could accept a non-Jupiter price as Jupiter evidence",
+    "Monitor fallback paths reused cached prices and silently downgraded to an ordinary cached call on TypeError. Batch preload discarded original receipt times, so earlier prices could expire before later positions were serviced",
+    "Primary monitoring and the post-partial extreme-runner exit policy ignored a measured liquidity value of zero. Missing liquidity was also coerced to zero in one probe",
+    "Monitor source labels described the request branch rather than the actual fallback provider"
+  ],
+  "implementation": {
+    "receipt_contract": "provider_http_receipt_v1 binds each canonical market value to its original client HTTP receipt time, source and requested snapshot identity. Fresh reads reject absent proof, changed values/identity, nonfinite values, booleans, stale receipts over 30 seconds and timestamps more than two seconds ahead. This does not establish the provider's market as-of time or on-chain truth",
+    "fresh_queries": "force_refresh bypasses and invalidates positive, negative and partial caches through the general service and all four provider adapters. Critical queries use the same fresh mode. Provider throttles, rate limiters, Gecko global cooldown and hard timeout remain in force; exploratory normal queries retain their cache APIs",
+    "detached_cache": "Provider and general-service cache writes/reads retain detached nested values and original receipts. Cached reads never restamp the market reception time; Jupiter constant stable shortcuts have no HTTP receipt proof. A failed fresh Jupiter or critical general query cannot resurrect its old OK cache",
+    "merge_and_normalization": "Selected field values move together with their own receipts. Real zero liquidity/activity/momentum and signed momentum remain observations rather than fillable holes. Numeric normalization rejects nonfinite and boolean values, normalized canonical observations win over raw aliases, and missing DexScreener transaction counts stay unknown",
+    "identity_and_age": "DexScreener lookup/search candidates must match the requested base mint or pair and Solana chain when supplied; the general service rejects a returned canonical mint different from the requested mint. Token creation no longer falls back to provider update timestamps",
+    "derived_prices": "Legacy native-times-SOL conversion is explicitly labeled sol_estimate and has no fresh USD receipt proof. Fresh sensitive queries do not use an unknown/cached SOL conversion as a fresh market price",
+    "entry_guard": "The existing final require-Jupiter-price guard now calls a fresh Jupiter-only snapshot and checks its original receipt/source. A fallback quote cannot satisfy this specific guard. This is not yet a freshness guarantee for every earlier scanner/core-entry feature",
+    "monitor": "Primary batch preload preserves original per-mint receipt snapshots. Each position and post-await decision rechecks freshness; expired batch values fall back to fresh provider observations. All seven fallback/critical/liquidity calls are fresh, no TypeError cached downgrade remains, and logs/hints retain the real provider origin",
+    "liquidity_crush": "Liquidity-only probes avoid an extra Jupiter price/impact query and do not require a price to return measured liquidity. Unknown, invalid or stale liquidity remains None. Measured zero is processed by both immediate monitoring and post-partial runner policy under their existing policy/window conditions",
+    "preserved_upside": "No new fixed take-profit percentage ceiling, capped peak target or capped runner/continuation ranking was introduced. Existing extreme-runner tests cover peaks through +100000 percent while preserving bounded duration and drawdown/liquidity protection. These are synthetic policy checks, not captured financial returns"
+  },
+  "verification": {
+    "status": "SOFTWARE_VALIDATED_OFF_NO_PROFITABILITY_CLAIM",
+    "new_cases": 69,
+    "focused_final": "128 passed in 5.49s",
+    "initial_full_working": "1544 passed in 224.04s before final batch-aging/source and post-partial-zero hardening",
+    "initial_full_publishing": "1544 passed in 218.60s before final batch-aging/source and post-partial-zero hardening, without personal .env or local .venv",
+    "final_full_working": "1553 passed in 208.93s",
+    "final_full_publishing": "1553 passed in 206.83s without personal .env or local .venv, using the existing working-checkout Python runtime",
+    "preflight_both": {"ok": true, "compile_errors": 0, "configuration_import_returncode": 0, "paper_profile_ok": true, "empty_data_report_builders": 7, "all_report_builders_ok": true},
+    "source_sync": {"initial_source_paths": 9, "updates": 7, "adds": 2, "deleted": 0, "initial_applied_plan_sha256": "ebedee229610589ac8e153c8178a802f72ed93cf1087416a2ee5760b8c74799c", "later_reviewed_paths": ["analytics/exit_policy.py", "run_bot.py", "tests/test_market_observation_freshness.py", "tests/test_main_loop_position_monitor.py", "tests/test_runner_price_policy.py"], "later_copy_scope": "Mechanical copy with absolute containment checks; publishing changes were exclusively this stage", "personal_env_data_logs_models_excluded": true},
+    "scope": "Synthetic HTTP replies, production provider/service normalization/cache/cooldown contracts, original field receipts, exact/stale/changed identities and values, zero/missing data, failed refresh, original AST-extracted batch/monitor branches, source wiring and extreme-runner exit policy. No runtime provider request, new bot run, financial fill, model training, active policy write or live certification"
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "runtime_model_training_started": false,
+    "interim_shutdown_verified_at_utc": "2026-10-07T21:27:45.9087367Z",
+    "interim_bot_processes_both_checkouts": 0,
+    "interim_root_and_data_locks_both_checkouts": false,
+    "shutdown_verified_at_utc": "2026-10-07T21:36:54.5959858Z",
+    "artifact_snapshot_verified_at_utc": "2026-10-07T21:36:20.0283150Z",
+    "remaining_bot_processes_both_checkouts": 0,
+    "root_and_data_bot_locks_both_checkouts": false,
+    "financial_and_runner_json_cells_both_checkouts": 0,
+    "active_policy_json_both_checkouts": 0,
+    "runtime_model_artifacts_changed_since_210900_utc": 0,
+    "runtime_feature_files_changed_since_210900_utc": 0,
+    "personal_env_preserved_in_working_and_absent_from_publishing": true,
+    "sqlite_state": {"bot_id": "main", "process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"},
+    "stop_stack": {"completed_at_utc": "2026-10-07T21:36:40Z", "requested_by": "user", "killed": 0, "remaining": 0, "runtime_finalizer": "ok"}
+  },
+  "remaining_full_goal_requirements": [
+    "Complete cached scanner/core-entry consumption and full original T0 feature freshness across all entry lanes; this final Jupiter price guard does not refresh previously computed signals",
+    "Complete feed follow-up, capital/admission scheduling and full-strategy forward-source integrity and remaining research/export failure paths",
+    "Verify provider market-asof availability, production response contracts and usable executable depth separately; client receipt freshness alone does not establish these facts or rare-runner profitability",
+    "Independently establish live wallet, chain finality, fill quantity and reconciliation before separately authorized live execution",
+    "Obtain separately authorized fresh full-strategy costed closed evidence, including runner capture and drawdown, before any profitability or automatic financial-policy acceptance claim",
+    "Keep changes synchronized and published, and runtime services OFF"
+  ],
+  "completion_rule": "This software block does not complete the full architectural/financial goal. Maximum benefits, future profits, zero errors and real extreme-runner capture cannot be guaranteed from synthetic tests."
+}

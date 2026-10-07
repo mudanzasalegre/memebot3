@@ -10,6 +10,7 @@ from typing import Any
 from analytics import bird_runner_exit, runner_ladder, runner_price_policy
 from config.config import CFG, PROJECT_ROOT
 from trade_pnl import total_pnl_pct_from_record
+from utils.market_observation import market_number
 
 
 _RUNTIME_DRY_RUN_OVERRIDE: bool | None = None
@@ -1590,7 +1591,8 @@ def should_exit(
     entry_liq = _to_float(_get(subject, "buy_liquidity_usd"), 0.0)
     if entry_liq <= 0:
         entry_liq = _to_float(_get(subject, "liq_at_buy_usd"), 0.0)
-    if entry_liq > 0 and liq_now and liq_now > 0 and policy.liq_crush_window_min >= 0:
+    liq_now = market_number(liq_now, "liquidity_usd")
+    if entry_liq > 0 and liq_now is not None and policy.liq_crush_window_min >= 0:
         window_ok = (policy.liq_crush_window_min <= 0 or age_min <= float(policy.liq_crush_window_min)
                      or _active_runner_price_policy(subject, peak=peak) is not None)
         if window_ok:

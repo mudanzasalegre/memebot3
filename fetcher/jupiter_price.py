@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import time
+import math
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -26,6 +27,7 @@ except Exception:
 import aiohttp
 from urllib.parse import quote
 from utils.solana_addr import normalize_mint  # preserva mints válidos y sanea sufijos inválidos
+from utils.market_observation import market_number
 
 try:
     from analytics.api_budget import (
@@ -101,6 +103,7 @@ class PriceInfo:
     routes_count: int        # Sin quote real: 1 si OK, 0 si NIL/ERR
     confidence: str = "none"
     provider_degraded: bool = False
+    received_at: Optional[float] = None  # Original client HTTP receipt, never cache-read time.
 
     @property
     def ok(self) -> bool:
@@ -118,6 +121,7 @@ _last_request_t = 0.0  # monotonic()
 
 # Caché de aciertos: mint -> (price, expiry_monotonic)
 _ok_cache: Dict[str, tuple[float, float]] = {}
+_ok_received_at: Dict[str, float] = {}
 
 # Caché de negativos: mint -> expiry_monotonic
 _nil_cache: Dict[str, float] = {}
@@ -202,6 +206,7 @@ def _cache_get_ok(mint: str) -> Optional[float]:
         return price
     # Expirado
     _ok_cache.pop(mint, None)
+    _ok_received_at.pop(mint, None)
     return None
 
 
@@ -218,8 +223,12 @@ def _cache_get_nil(mint: str) -> bool:
     return False
 
 
-def _cache_set_ok(mint: str, price: float):
+def _cache_set_ok(mint: str, price: float, *, received_at: Optional[float] = None):
     _ok_cache[mint] = (price, _now() + JUPITER_TTL_OK)
+    if received_at is not None:
+        _ok_received_at[mint] = received_at
+    else:
+        _ok_received_at.pop(mint, None)  # Constant shortcuts are not market observations.
     # Resetear estado NIL/backoff
     _nil_cache.pop(mint, None)
     _nil_backoff.pop(mint, None)
@@ -228,6 +237,8 @@ def _cache_set_ok(mint: str, price: float):
 
 
 def _cache_set_nil(mint: str):
+    _ok_cache.pop(mint, None)
+    _ok_received_at.pop(mint, None)
     ttl = _nil_backoff.get(mint, JUPITER_TTL_NIL_SHORT)
     _nil_cache[mint] = _now() + ttl
     # Backoff exponencial acotado
@@ -242,6 +253,7 @@ def _cache_set_nil(mint: str):
 def clear_caches():
     """Borra todas las cachés (útil en tests o cambios de entorno)."""
     _ok_cache.clear()
+    _ok_received_at.clear()
     _nil_cache.clear()
     _nil_backoff.clear()
     if _reset_provider_circuits is not None:
@@ -263,7 +275,8 @@ def _jupiter_degraded() -> bool:
         return False
 
 
-def _pi(status: Status, price_usd: Optional[float], has_route: bool, routes_count: int) -> PriceInfo:
+def _pi(status: Status, price_usd: Optional[float], has_route: bool, routes_count: int,
+        *, received_at: Optional[float] = None) -> PriceInfo:
     return PriceInfo(
         status=status,
         price_usd=price_usd,
@@ -271,6 +284,7 @@ def _pi(status: Status, price_usd: Optional[float], has_route: bool, routes_coun
         routes_count=routes_count,
         confidence="high" if status == "OK" and price_usd is not None else "none",
         provider_degraded=_jupiter_degraded(),
+        received_at=received_at,
     )
 
 
@@ -459,7 +473,7 @@ async def _fetch_batch_with_status(mints: List[str]) -> Dict[str, Tuple[Status, 
                     parsed = float(val)
                 except Exception:
                     parsed = None
-            if parsed is not None:
+            if parsed is not None and not isinstance(val, bool) and math.isfinite(parsed) and parsed > 0:
                 out[m] = ("OK", parsed)
                 found += 1
     except Exception as e:
@@ -540,9 +554,13 @@ async def get_many_prices(mints: List[str], *, force_refresh: bool = False) -> D
     cache_hits_nil = 0
 
     for m in mints:
+        if force_refresh:
+            _ok_cache.pop(m, None)
+            _ok_received_at.pop(m, None)
+            _nil_cache.pop(m, None)
         hit = None if force_refresh else _cache_get_ok(m)
         if hit is not None:
-            result[m] = _pi("OK", hit, True, 1)
+            result[m] = _pi("OK", hit, True, 1, received_at=_ok_received_at.get(m))
             cache_hits_ok += 1
             continue
         if not force_refresh and _cache_get_nil(m):
@@ -565,10 +583,14 @@ async def get_many_prices(mints: List[str], *, force_refresh: bool = False) -> D
         if not chunk:
             continue
         fetched = await _fetch_batch_with_status(chunk)
+        received_at = time.time()
         for mint, (st, price) in fetched.items():
+            if mint not in chunk:
+                continue
+            price = market_number(price, "price_usd")
             if st == "OK" and price is not None:
-                _cache_set_ok(mint, price)
-                result[mint] = _pi("OK", price, True, 1)
+                _cache_set_ok(mint, price, received_at=received_at)
+                result[mint] = _pi("OK", price, True, 1, received_at=received_at)
                 fetched_ok += 1
             elif st == "NIL":
                 _cache_set_nil(mint)
@@ -593,7 +615,7 @@ async def get_many_prices(mints: List[str], *, force_refresh: bool = False) -> D
 
 
 # ───────────────────────────── API enriquecida (unitario) ──────────────────────
-async def get_price(mint: str) -> PriceInfo:
+async def get_price(mint: str, *, force_refresh: bool = False) -> PriceInfo:
     """
     Devuelve PriceInfo(status, price_usd, has_route, routes_count) para un mint.
     Reglas:
@@ -613,7 +635,7 @@ async def get_price(mint: str) -> PriceInfo:
 
     # Atajo estables
     fp = _KNOWN_STABLES.get(nm)
-    if fp is not None:
+    if fp is not None and not force_refresh:
         _cache_set_ok(nm, float(fp))
         return _pi("OK", float(fp), True, 1)
 
@@ -622,10 +644,10 @@ async def get_price(mint: str) -> PriceInfo:
         return _pi("NIL", None, False, 0)
 
     # 1) caché
-    hit = _cache_get_ok(nm)
+    hit = None if force_refresh else _cache_get_ok(nm)
     if hit is not None:
-        return _pi("OK", hit, True, 1)
-    if _cache_get_nil(nm):
+        return _pi("OK", hit, True, 1, received_at=_ok_received_at.get(nm))
+    if not force_refresh and _cache_get_nil(nm):
         return _pi("NIL", None, False, 0)
 
     # 2) fetch (vía batch enriquecido)
@@ -635,7 +657,7 @@ async def get_price(mint: str) -> PriceInfo:
         else:
             logger.debug("[jupiter_price] miss unitario → solicitando %s vía batch", _fmt_id(nm))
 
-    fetched = await get_many_prices([nm])
+    fetched = await get_many_prices([nm], force_refresh=True) if force_refresh else await get_many_prices([nm])
     return fetched.get(nm, _pi("ERR", None, False, 0))
 
 
@@ -665,12 +687,12 @@ async def get_many_usd_prices(mints: List[str], *, force_refresh: bool = False) 
     return {m: pi.price_usd for m, pi in enriched.items() if pi.status == "OK" and pi.price_usd is not None}
 
 
-async def get_usd_price(mint: str) -> Optional[float]:
+async def get_usd_price(mint: str, *, force_refresh: bool = False) -> Optional[float]:
     """
     **Compat**: mantiene la firma original.
     Devuelve price_usd si status=="OK", si no None.
     """
-    pi = await get_price(mint)
+    pi = await get_price(mint, force_refresh=True) if force_refresh else await get_price(mint)
     return pi.price_usd if pi.status == "OK" else None
 
 

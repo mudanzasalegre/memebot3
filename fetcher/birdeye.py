@@ -32,14 +32,17 @@ import asyncio
 import logging
 import os
 import time
+import math
+from copy import deepcopy
 from typing import Any, Dict, Optional
 
 import numpy as np
 
-from utils.simple_cache import cache_get, cache_set
+from utils.simple_cache import cache_get, cache_set, cache_delete
 from utils.solana_addr import normalize_mint
 from utils.time import parse_iso_utc
 from utils.data_utils import sanitize_token_data
+from utils.market_observation import MARKET_FIELDS, stamp_market_observation
 
 # ───────────────────────── Config / constantes ──────────────────────────
 _API_KEY:   Optional[str] = os.getenv("BIRDEYE_API_KEY")
@@ -94,13 +97,18 @@ def _reset_fail(key: str) -> None:
 
 def _safe_float(v: Any) -> float | None:
     try:
-        if v is None:
+        if v is None or isinstance(v, bool):
             return None
         if isinstance(v, str):
             v = v.replace(",", "")
-        return float(v)
+        number = float(v)
+        return number if math.isfinite(number) else None
     except Exception:
         return None
+
+
+def _first_number(*values: Any) -> float | None:
+    return next((number for value in values if (number := _safe_float(value)) is not None), None)
 
 
 def _epoch_to_dt(epoch: Any) -> Optional["datetime"]:
@@ -123,7 +131,7 @@ def _add_legacy_aliases(tok: dict) -> dict:
       - volume24h    ← volume_24h_usd
       - fdv          ← market_cap_usd
     """
-    out = dict(tok)
+    out = deepcopy(tok)
     liq_usd = out.get("liquidity_usd", np.nan)
     out.setdefault("liquidity", {})
     if not isinstance(out["liquidity"], dict):
@@ -135,7 +143,7 @@ def _add_legacy_aliases(tok: dict) -> dict:
 
 
 # ───────────────────────── HTTP ───────────────────────────────────────────
-async def _fetch(endpoint: str, cache_key: str) -> Dict[str, Any] | None:
+async def _fetch(endpoint: str, cache_key: str, *, force_refresh: bool = False) -> Dict[str, Any] | None:
     """
     GET <BASE_URL><endpoint> con cabecera Authorization.
 
@@ -146,10 +154,12 @@ async def _fetch(endpoint: str, cache_key: str) -> Dict[str, Any] | None:
         log.debug("[birdeye] desactivado – no hay API key")
         return None
 
+    if force_refresh:
+        cache_delete(cache_key)
     # cache hit
-    hit = cache_get(cache_key)
+    hit = None if force_refresh else cache_get(cache_key)
     if hit is not None:
-        return None if hit is _SENTINEL_NIL else hit
+        return None if hit is _SENTINEL_NIL else deepcopy(hit)
 
     await _throttle()
 
@@ -163,8 +173,13 @@ async def _fetch(endpoint: str, cache_key: str) -> Dict[str, Any] | None:
                 if resp.status == 200:
                     payload = await resp.json()
                     data = payload.get("data") or {}
+                    if not isinstance(data, dict) or not data:
+                        _register_fail(cache_key)
+                        return None
+                    data = deepcopy(data)
+                    data["_market_received_at"] = time.time()
                     _reset_fail(cache_key)
-                    cache_set(cache_key, data, ttl=60)  # TTL corto para datos OK
+                    cache_set(cache_key, deepcopy(data), ttl=60)  # TTL corto para datos OK
                     return data
                 log.debug("[birdeye] %s → HTTP %s", endpoint, resp.status)
     except Exception as exc:
@@ -181,38 +196,20 @@ def _normalize_token_payload(addr: str, raw: Dict[str, Any]) -> Dict[str, Any]:
     Conserva además los campos originales en el mismo dict.
     """
     # Campos típicos (varían según versión de la API pública)
-    price_usd = (
-        _safe_float(raw.get("priceUsd"))
-        or _safe_float(raw.get("price"))
-        or _safe_float((raw.get("priceInfo") or {}).get("priceUsd"))
-    )
-    liq_usd = (
-        _safe_float(raw.get("liquidityUsd"))
-        or _safe_float((raw.get("liquidity") or {}).get("usd"))
-        or _safe_float(raw.get("tvlUsd"))  # a veces lo llaman TVL
-    )
-    vol_24h = (
-        _safe_float(raw.get("volume24hUsd"))
-        or _safe_float(raw.get("v24hUsd"))
-        or _safe_float((raw.get("volume") or {}).get("h24"))
-        or _safe_float((raw.get("volume") or {}).get("usd"))
-    )
-    mcap_usd = (
-        _safe_float(raw.get("fdv"))
-        or _safe_float(raw.get("fdvUsd"))
-        or _safe_float(raw.get("marketCap"))
-        or _safe_float(raw.get("marketCapUsd"))
-    )
+    price_usd = _first_number(raw.get("priceUsd"), raw.get("price"), (raw.get("priceInfo") or {}).get("priceUsd"))
+    liq_usd = _first_number(raw.get("liquidityUsd"), (raw.get("liquidity") or {}).get("usd"), raw.get("tvlUsd"))
+    vol_24h = _first_number(raw.get("volume24hUsd"), raw.get("v24hUsd"), (raw.get("volume") or {}).get("h24"), (raw.get("volume") or {}).get("usd"))
+    mcap_usd = _first_number(raw.get("fdv"), raw.get("fdvUsd"), raw.get("marketCap"), raw.get("marketCapUsd"))
 
-    # Fecha de referencia (preferimos created; si no hay, última actualización)
+    # Creation and provider update timestamps have different meanings.
     created_at = (
         parse_iso_utc(raw.get("createdAt"))
         or parse_iso_utc(raw.get("createTime"))
         or _epoch_to_dt(raw.get("createUnixTime"))
-        or _epoch_to_dt(raw.get("updateUnixTime"))
     )
 
     out = {
+        **raw,
         "address":        addr,
         "pair_address":   None,
         "symbol":         raw.get("symbol") or raw.get("baseSymbol") or raw.get("name"),
@@ -222,11 +219,15 @@ def _normalize_token_payload(addr: str, raw: Dict[str, Any]) -> Dict[str, Any]:
         "volume_24h_usd": vol_24h   if vol_24h   is not None else np.nan,
         "market_cap_usd": mcap_usd  if mcap_usd  is not None else np.nan,
         # copia de algunos originales más frecuentes para depurar
-        **raw,
     }
+    normalized = {key: deepcopy(out.get(key)) for key in MARKET_FIELDS}
     out = sanitize_token_data(out)
+    out.update(normalized)
     out = _add_legacy_aliases(out)
-    return out
+    received = raw.get("_market_received_at")
+    out.pop("_market_received_at", None)
+    out.pop("market_observation", None)
+    return stamp_market_observation(out, "birdeye", received_at=received) if received is not None else out
 
 
 def _normalize_pool_payload(addr: str, raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -234,33 +235,18 @@ def _normalize_pool_payload(addr: str, raw: Dict[str, Any]) -> Dict[str, Any]:
     Aplana y normaliza la respuesta de /pool/{addr}. En pools,
     TVL suele equivaler a liquidez útil para nuestros filtros.
     """
-    price_usd = (
-        _safe_float(raw.get("priceUsd"))
-        or _safe_float(raw.get("price"))
-    )
-    liq_usd = (
-        _safe_float(raw.get("tvlUsd"))
-        or _safe_float((raw.get("liquidity") or {}).get("usd"))
-        or _safe_float(raw.get("liquidityUsd"))
-    )
-    vol_24h = (
-        _safe_float(raw.get("volume24hUsd"))
-        or _safe_float((raw.get("volume") or {}).get("h24"))
-        or _safe_float((raw.get("volume") or {}).get("usd"))
-    )
-    mcap_usd = (
-        _safe_float(raw.get("fdv"))
-        or _safe_float(raw.get("marketCap"))
-        or _safe_float(raw.get("fdvUsd"))
-    )
+    price_usd = _first_number(raw.get("priceUsd"), raw.get("price"))
+    liq_usd = _first_number(raw.get("tvlUsd"), (raw.get("liquidity") or {}).get("usd"), raw.get("liquidityUsd"))
+    vol_24h = _first_number(raw.get("volume24hUsd"), (raw.get("volume") or {}).get("h24"), (raw.get("volume") or {}).get("usd"))
+    mcap_usd = _first_number(raw.get("fdv"), raw.get("marketCap"), raw.get("fdvUsd"))
 
     created_at = (
         parse_iso_utc(raw.get("createdAt"))
         or _epoch_to_dt(raw.get("createUnixTime"))
-        or _epoch_to_dt(raw.get("updateUnixTime"))
     )
 
     out = {
+        **raw,
         "address":        raw.get("baseMint") or raw.get("baseToken") or addr,
         "pair_address":   addr,
         "symbol":         raw.get("symbol") or raw.get("poolSymbol") or raw.get("name"),
@@ -269,15 +255,19 @@ def _normalize_pool_payload(addr: str, raw: Dict[str, Any]) -> Dict[str, Any]:
         "liquidity_usd":  liq_usd   if liq_usd   is not None else np.nan,
         "volume_24h_usd": vol_24h   if vol_24h   is not None else np.nan,
         "market_cap_usd": mcap_usd  if mcap_usd  is not None else np.nan,
-        **raw,
     }
+    normalized = {key: deepcopy(out.get(key)) for key in MARKET_FIELDS}
     out = sanitize_token_data(out)
+    out.update(normalized)
     out = _add_legacy_aliases(out)
-    return out
+    received = raw.get("_market_received_at")
+    out.pop("_market_received_at", None)
+    out.pop("market_observation", None)
+    return stamp_market_observation(out, "birdeye", received_at=received) if received is not None else out
 
 
 # ───────────────────────── API pública ────────────────────────────────────
-async def get_token_info(address: str) -> Dict[str, Any] | None:
+async def get_token_info(address: str, *, force_refresh: bool = False) -> Dict[str, Any] | None:
     """
     ``/token/{address}``   – precio, liquidez, mcap, volumen 24h…
 
@@ -290,7 +280,8 @@ async def get_token_info(address: str) -> Dict[str, Any] | None:
         return None
 
     key = f"be:token:{addr}"
-    data = await _fetch(_TOKEN_EP.format(addr=addr), key)
+    data = (await _fetch(_TOKEN_EP.format(addr=addr), key, force_refresh=True) if force_refresh
+            else await _fetch(_TOKEN_EP.format(addr=addr), key))
     if not data:
         return None
 
@@ -306,7 +297,7 @@ async def get_token_info(address: str) -> Dict[str, Any] | None:
     return out
 
 
-async def get_pool_info(address: str) -> Dict[str, Any] | None:
+async def get_pool_info(address: str, *, force_refresh: bool = False) -> Dict[str, Any] | None:
     """
     ``/pool/{address}``    – stats de pool (TVL, volumen, fees, APR…)
 
@@ -320,7 +311,8 @@ async def get_pool_info(address: str) -> Dict[str, Any] | None:
         return None
 
     key = f"be:pool:{addr}"
-    data = await _fetch(_POOL_EP.format(addr=addr), key)
+    data = (await _fetch(_POOL_EP.format(addr=addr), key, force_refresh=True) if force_refresh
+            else await _fetch(_POOL_EP.format(addr=addr), key))
     if not data:
         return None
 

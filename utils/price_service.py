@@ -24,10 +24,15 @@ import asyncio
 import math
 import os
 import logging
+from copy import deepcopy
 from typing import Any, Dict, Optional, Tuple
 
-from utils.simple_cache import cache_get, cache_set
-from utils.fallback import fill_missing_fields
+from utils.simple_cache import cache_get, cache_set, cache_delete
+from utils.market_observation import (
+    MARKET_FIELDS, OBSERVATION_VERSION,
+    market_number, fresh_market_value, retain_fresh_market_fields,
+    stamp_market_observation,
+)
 from utils.sol_price import get_sol_usd
 from utils.solana_addr import normalize_mint
 
@@ -47,8 +52,10 @@ except Exception:  # pragma: no cover
 # Jupiter Price (Lite)
 try:
     from fetcher.jupiter_price import get_usd_price as _jup_get_usd_price  # type: ignore
+    from fetcher.jupiter_price import get_price as _jup_get_price_info
 except Exception:  # pragma: no cover
     _jup_get_usd_price = None
+    _jup_get_price_info = None
 
 # Jupiter Router (opcional) — para exponer price_impact/slippage
 try:
@@ -135,13 +142,17 @@ except Exception:
 
 _REQUIRED_FOR_FULL  : Tuple[str, ...] = ("price_usd", "liquidity_usd")  # validación completa
 _REQUIRED_FOR_PRICE : Tuple[str, ...] = ("price_usd",)                  # solo precio (cierres)
+_REQUIRED_FOR_LIQUIDITY: Tuple[str, ...] = ("liquidity_usd",)
 
 
 # ─────────────────────────────────── utils ────────────────────────────────────
 def _f(x):
     """Convierte a float o devuelve None si no es convertible."""
     try:
-        return float(x)
+        if isinstance(x, bool):
+            return None
+        number = float(x)
+        return number if math.isfinite(number) else None
     except Exception:
         return None
 
@@ -155,10 +166,10 @@ def _coerce_tick_numbers(tick: dict | None) -> dict:
     if not isinstance(tick, dict):
         return {}
 
-    t = dict(tick)
+    t = deepcopy(tick)
 
     # Precio USD (varía entre adapters)
-    t["price_usd"] = _f(t.get("price_usd") or t.get("priceUsd"))
+    t["price_usd"] = _f(t.get("price_usd") if "price_usd" in t else t.get("priceUsd"))
 
     # Liquidez USD
     liq = t.get("liquidity_usd")
@@ -173,7 +184,7 @@ def _coerce_tick_numbers(tick: dict | None) -> dict:
     t["volume_24h_usd"] = _f(vol)
 
     # Market cap / FDV
-    t["market_cap_usd"] = _f(t.get("market_cap_usd") or t.get("fdv") or t.get("mcap"))
+    t["market_cap_usd"] = _f(t.get("market_cap_usd") if "market_cap_usd" in t else t.get("fdv", t.get("mcap")))
 
     for key in (
         "txns_last_5m",
@@ -208,16 +219,20 @@ def _is_missing(val: Any) -> bool:
     """True si val es None, NaN o 0."""
     if val is None:
         return True
-    if isinstance(val, float) and math.isnan(val):
+    if isinstance(val, bool):
         return True
-    return val == 0
+    try:
+        number = float(val)
+        return not math.isfinite(number) or number <= 0
+    except (TypeError, ValueError, OverflowError):
+        return True
 
 
 def _needs_fields(tok: Dict[str, Any] | None, fields: Tuple[str, ...]) -> bool:
     """True si faltan *cualesquiera* de los campos pedidos."""
     if not tok:
         return True
-    return any(_is_missing(tok.get(k)) for k in fields)
+    return any(market_number(tok.get(k), k) is None for k in fields)
 
 
 def _has_any_signal(tok: Dict[str, Any] | None) -> bool:
@@ -234,7 +249,7 @@ def _has_any_signal(tok: Dict[str, Any] | None) -> bool:
         "price_pct_5m",
         "volume_pct_5m",
     ):
-        if not _is_missing(tok.get(key)):
+        if market_number(tok.get(key), key) is not None:
             return True
     return False
 
@@ -355,11 +370,15 @@ async def _price_native_to_usd(tok: Dict[str, Any] | None) -> Dict[str, Any] | N
         return tok
 
     sol_usd = await get_sol_usd()
-    if sol_usd:
+    if not _is_missing(sol_usd):
         try:
             pn = float(price_native)
             su = float(sol_usd)
             tok["price_usd"] = pn * su
+            tok["price_source"] = "sol_estimate"
+            # No receipt proof for this derived price: the SOL leg may be cached.
+            if isinstance(tok.get("market_observation"), dict):
+                tok["market_observation"].get("fields", {}).pop("price_usd", None)
             logger.debug(
                 "[price_service] price_native %.6g × SOL_USD %.3f → price_usd %.6g",
                 pn, su, tok["price_usd"],
@@ -376,10 +395,11 @@ def _normalize_after_merge(tok: Dict[str, Any] | None) -> Dict[str, Any] | None:
     return _coerce_tick_numbers(tok)
 
 
-async def _query_gecko_terminal(address: str) -> Optional[Dict[str, Any]]:
+async def _query_gecko_terminal(address: str, *, force_refresh: bool = False) -> Optional[Dict[str, Any]]:
     try:
         return await asyncio.wait_for(
-            get_gt_data_async(_CHAIN, address, timeout=_GT_TIMEOUT_S),
+            (get_gt_data_async(_CHAIN, address, timeout=_GT_TIMEOUT_S, force_refresh=True)
+             if force_refresh else get_gt_data_async(_CHAIN, address, timeout=_GT_TIMEOUT_S)),
             timeout=_GT_HARD_TIMEOUT_S,
         )
     except (TimeoutError, asyncio.TimeoutError):
@@ -418,7 +438,74 @@ async def _attach_jupiter_impact(tok: Dict[str, Any] | None, address: str) -> Di
 
 
 # ───────────────────── pipeline de fuentes (sin caché) ───────────────────────
-async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str, ...]) -> Optional[Dict[str, Any]]:
+def _provider_tick(payload: dict | None, address: str, *, fresh: bool) -> dict | None:
+    if not isinstance(payload, dict) or payload.get("address") != address:
+        return None
+    tick = _coerce_tick_numbers(payload)
+    return retain_fresh_market_fields(tick) if fresh else tick
+
+
+def _merge_market_fields(primary: dict | None, secondary: dict, source: str) -> dict:
+    """Merge chosen values and their original receipt together, preserving real zero."""
+    out = deepcopy(primary if primary else secondary)
+    if not primary and market_number(out.get("price_usd"), "price_usd") is not None:
+        out["price_source"] = source
+    out.setdefault("address", secondary.get("address"))
+    proof = out.get("market_observation")
+    if not isinstance(proof, dict) or not isinstance(proof.get("fields"), dict):
+        proof = {
+            "version": OBSERVATION_VERSION, "address": out.get("address"),
+            "basis": "http_response_received_not_provider_market_asof", "fields": {},
+        }
+        out["market_observation"] = proof
+    incoming = secondary.get("market_observation", {})
+    incoming_fields = incoming.get("fields", {}) if isinstance(incoming, dict) else {}
+    for field in _MERGE_FIELDS + ["price_native", "liquidity_usd_is_proxy", "liquidity_is_proxy"]:
+        missing = (market_number(out.get(field), field) is None if field in MARKET_FIELDS
+                   else out.get(field) is None or out.get(field) == "")
+        if not missing:
+            continue
+        value = secondary.get(field)
+        if field in MARKET_FIELDS and market_number(value, field) is None:
+            continue
+        if value is None:
+            continue
+        out[field] = deepcopy(value)
+        if field in MARKET_FIELDS:
+            proof["fields"].pop(field, None)
+            record = incoming_fields.get(field) if isinstance(incoming_fields, dict) else None
+            if isinstance(record, dict) and incoming.get("address") == out.get("address"):
+                proof["fields"][field] = deepcopy(record)
+        if field == "price_usd":
+            out["price_source"] = source
+    return out
+
+
+async def get_jupiter_price_snapshot(address: str) -> dict | None:
+    """Fresh Jupiter-only price; a fallback is not evidence of a Jupiter price."""
+    address = normalize_mint(address)
+    if not address or not _USE_JUPITER_PRICE or _jup_get_price_info is None:
+        return None
+    try:
+        info = await _jup_get_price_info(address, force_refresh=True)
+        price = market_number(getattr(info, "price_usd", None), "price_usd")
+        received = getattr(info, "received_at", None)
+        if getattr(info, "status", None) != "OK" or price is None or received is None:
+            return None
+        tick = stamp_market_observation(
+            {"address": address, "price_usd": price, "price_source": "jupiter"},
+            "jupiter", received_at=received,
+        )
+        if fresh_market_value(tick, "price_usd", source="jupiter") is None:
+            return None
+        return _stamp_price_confidence(tick, address=address, fields_needed=_REQUIRED_FOR_PRICE)
+    except Exception as exc:
+        logger.debug("[price_service] fresh Jupiter price unavailable: %s", type(exc).__name__)
+        return None
+
+
+async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str, ...],
+                         force_refresh: bool = False) -> Optional[Dict[str, Any]]:
     """
     Ejecuta la cadena de fuentes y devuelve `tok` con los campos pedidos
     en 'fields_needed' completados en la medida de lo posible. No cachea.
@@ -433,15 +520,17 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
     tok: Dict[str, Any] | None = None
 
     # ① Jupiter price como primaria (si está habilitado)
-    if _USE_JUPITER_PRICE and _jup_get_usd_price is not None:
+    if "price_usd" in fields_needed and _USE_JUPITER_PRICE and _jup_get_usd_price is not None:
         try:
-            jup_price = await _jup_get_usd_price(address)
+            fresh_jup = await get_jupiter_price_snapshot(address) if force_refresh else None
+            jup_price = fresh_jup.get("price_usd") if fresh_jup else (
+                None if force_refresh else await _jup_get_usd_price(address))
         except Exception as exc:
             logger.debug("[price_service] Jupiter price error: %s", exc)
             jup_price = None
 
         if jup_price and not _is_missing(jup_price):
-            tok = {"price_usd": float(jup_price), "price_source": "jupiter"}
+            tok = fresh_jup if force_refresh else {"address": address, "price_usd": float(jup_price), "price_source": "jupiter"}
             # Intentar impacto (no bloqueante)
             tok = await _attach_jupiter_impact(tok, address)
             tok = _coerce_tick_numbers(tok)
@@ -453,35 +542,32 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
     if _USE_BIRDEYE:
         be: Dict[str, Any] | None = None
         try:
-            be = await birdeye.get_token_info(address)
-            be = _coerce_tick_numbers(be)
+            be = (await birdeye.get_token_info(address, force_refresh=True) if force_refresh
+                  else await birdeye.get_token_info(address))
+            be = _provider_tick(be, address, fresh=force_refresh)
         except Exception as exc:
             logger.debug("[price_service] Birdeye error: %s", exc)
             be = None
 
         if be:
             logger.debug("[price_service] Merge ← Birdeye para %s…", address[:6])
-            merged = fill_missing_fields(tok or {}, be, _MERGE_FIELDS, treat_zero_as_missing=True)
+            merged = _merge_market_fields(tok, be, "birdeye")
             tok = _normalize_after_merge(merged)
             if tok and not _needs_fields(tok, fields_needed):
                 return _strip_non_t0_keys(tok)
 
     # ③ DexScreener como snapshot base/metadata
     try:
-        ds = await dexscreener.get_pair(address)
-        ds = _coerce_tick_numbers(ds)
+        ds = (await dexscreener.get_pair(address, force_refresh=True) if force_refresh
+              else await dexscreener.get_pair(address))
+        ds = _provider_tick(ds, address, fresh=force_refresh)
     except Exception as exc:
         logger.debug("[price_service] DexScreener error: %s", exc)
         ds = None
 
     if ds:
         logger.debug("[price_service] Merge ← DexScreener (último) para %s…", address[:6])
-        if tok:
-            # Ya hay base: solo rellenamos los huecos pedidos
-            merged = fill_missing_fields(tok, ds, _MERGE_FIELDS, treat_zero_as_missing=True)
-        else:
-            # DexScreener es la primera fuente válida → usa TODO su payload como base
-            merged = dict(ds)
+        merged = _merge_market_fields(tok, ds, "dexscreener")
 
         tok = _normalize_after_merge(merged)
         if tok and not _needs_fields(tok, fields_needed):
@@ -489,13 +575,14 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
 
     # ④ GeckoTerminal (opcional, para completar sin perder metadata previa)
     gt_skip_key = f"price:gt_skip:{address}"
-    if use_gt and USE_GECKO_TERMINAL and cache_get(gt_skip_key) is None:
-        gt = await _query_gecko_terminal(address)
-        gt = _coerce_tick_numbers(gt)
+    if use_gt and USE_GECKO_TERMINAL and (force_refresh or cache_get(gt_skip_key) is None):
+        gt = (await _query_gecko_terminal(address, force_refresh=True) if force_refresh
+              else await _query_gecko_terminal(address))
+        gt = _provider_tick(gt, address, fresh=force_refresh)
 
         if gt:
             logger.debug("[price_service] Merge ← GeckoTerminal para %s…", address[:6])
-            merged = fill_missing_fields(tok or {}, gt, _MERGE_FIELDS, treat_zero_as_missing=True)
+            merged = _merge_market_fields(tok, gt, "geckoterminal")
             tok = _normalize_after_merge(merged)
             if tok and not _needs_fields(tok, fields_needed):
                 return _strip_non_t0_keys(tok)
@@ -509,20 +596,21 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
         pair_address = _extract_pair_address(tok)
         if pair_address:
             try:
-                be_pool = await birdeye.get_pool_info(pair_address)
-                be_pool = _coerce_tick_numbers(be_pool)
+                be_pool = (await birdeye.get_pool_info(pair_address, force_refresh=True) if force_refresh
+                           else await birdeye.get_pool_info(pair_address))
+                be_pool = _provider_tick(be_pool, address, fresh=force_refresh)
             except Exception as exc:
                 logger.debug("[price_service] Birdeye pool error: %s", exc)
                 be_pool = None
 
             if be_pool:
                 logger.debug("[price_service] Merge â† Birdeye pool para %sâ€¦", pair_address[:6])
-                merged = fill_missing_fields(tok or {}, be_pool, _MERGE_FIELDS, treat_zero_as_missing=True)
+                merged = _merge_market_fields(tok, be_pool, "birdeye")
                 tok = _normalize_after_merge(merged)
                 if tok and not _needs_fields(tok, fields_needed):
                     return _strip_non_t0_keys(tok)
 
-    tok = _normalize_after_merge(await _price_native_to_usd(tok))
+    tok = _normalize_after_merge(tok if force_refresh else await _price_native_to_usd(tok))
     if tok and not _needs_fields(tok, fields_needed):
         logger.debug("[price_service] Fallback → native×SOL para %s…", address[:6])
         return _strip_non_t0_keys(tok)
@@ -542,6 +630,8 @@ async def get_price(
     critical: bool = False,
     price_only: bool = False,
     allow_partial: bool = False,
+    force_refresh: bool = False,
+    liquidity_only: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """
     Devuelve un dict con métricas de precio/liquidez o ``None``.
@@ -552,14 +642,22 @@ async def get_price(
     use_gt : bool
         Permite llamar a GeckoTerminal como tercer fallback.
     critical : bool
-        Si True, ignora cache negativa y no la escribe (modo cierre).
+        Si True, consulta fresca ignorando las cachés positivas y negativas.
     price_only : bool
         Si True, exige SOLO `price_usd` (cierres/compras rápidas).
         Si False, exige `price_usd` + `liquidity_usd` (validaciones).
     allow_partial : bool
         Si True, puede devolver snapshots parciales cacheados para no volver a
         golpear todas las fuentes cuando faltan campos no críticos.
+    force_refresh : bool
+        Ignora todas las capas de caché y exige recibos HTTP por campo de hasta
+        30 segundos. No desactiva throttling ni cooldowns de los proveedores.
+    liquidity_only : bool
+        Exige sólo liquidez observada (cero es válido), sin consultar Jupiter.
     """
+    if price_only and liquidity_only:
+        raise ValueError("price_only and liquidity_only are mutually exclusive")
+    force_refresh = bool(force_refresh or critical)
     norm_address = normalize_mint(address)
     if not norm_address or not _is_solana_address(norm_address):
         # cache negativo corto para no martillear (salvo en crítico)
@@ -569,12 +667,16 @@ async def get_price(
         return None
     address = norm_address
 
-    fields_needed = _REQUIRED_FOR_PRICE if price_only else _REQUIRED_FOR_FULL
-    ck = f"price:{address}:{int(use_gt)}:{int(price_only)}"
+    fields_needed = (_REQUIRED_FOR_LIQUIDITY if liquidity_only else
+                     _REQUIRED_FOR_PRICE if price_only else _REQUIRED_FOR_FULL)
+    ck = f"price:{address}:{int(use_gt)}:{2 if liquidity_only else int(price_only)}"
     partial_ck = f"{ck}:partial"
+    if force_refresh:
+        cache_delete(ck)
+        cache_delete(partial_ck)
 
     # ③(a) — Cache hit: refuerza tipos y garantiza `address`
-    hit = cache_get(ck)
+    hit = None if force_refresh else cache_get(ck)
     if hit is not None:
         if hit is False:
             if allow_partial:
@@ -600,7 +702,7 @@ async def get_price(
             hit = _stamp_price_confidence(hit, address=address, fields_needed=fields_needed)
             hit = _strip_non_t0_keys(hit)  # saneo anti claves futuras
             return hit
-    elif allow_partial:
+    elif allow_partial and not force_refresh:
         partial_hit = cache_get(partial_ck)
         if partial_hit is not None:
             partial_hit = _coerce_tick_numbers(partial_hit)
@@ -614,7 +716,10 @@ async def get_price(
             return _strip_non_t0_keys(partial_hit)
 
     # Primer intento de la cadena (Jupiter primero)
-    tok = await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed)
+    tok = (await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed, force_refresh=True)
+           if force_refresh else await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed))
+    if force_refresh:
+        tok = retain_fresh_market_fields(tok)
 
     # ② — Garantiza `address` antes de cachear/devolver
     if tok:
@@ -624,7 +729,7 @@ async def get_price(
     tok = _strip_non_t0_keys(tok)  # saneo
 
     if tok and not _needs_fields(tok, fields_needed):
-        cache_set(ck, tok, ttl=_TTL_OK)
+        cache_set(ck, deepcopy(tok), ttl=_TTL_OK)
         return tok
 
     # Reintento corto (fallos transitorios)
@@ -635,26 +740,31 @@ async def get_price(
         except Exception:
             pass
 
-        tok_retry = await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed)
+        tok_retry = (await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed, force_refresh=True)
+                     if force_refresh else await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed))
+        if force_refresh:
+            tok_retry = retain_fresh_market_fields(tok_retry)
         if tok_retry:
             tok_retry.setdefault("address", address)
         tok_retry = _stamp_price_confidence(tok_retry, address=address, fields_needed=fields_needed)
         tok_retry = _strip_non_t0_keys(tok_retry)
 
         if tok_retry and not _needs_fields(tok_retry, fields_needed):
-            cache_set(ck, tok_retry, ttl=_TTL_OK)
+            cache_set(ck, deepcopy(tok_retry), ttl=_TTL_OK)
             return tok_retry
 
         tok = tok_retry or tok
 
     # Último chequeo post-reintento
+    if force_refresh:
+        tok = retain_fresh_market_fields(tok)
     if tok:
         tok.setdefault("address", address)
     tok = _stamp_price_confidence(tok, address=address, fields_needed=fields_needed)
     tok = _strip_non_t0_keys(tok)
 
     if tok and not _needs_fields(tok, fields_needed):
-        cache_set(ck, tok, ttl=_TTL_OK)
+        cache_set(ck, deepcopy(tok), ttl=_TTL_OK)
         return tok
 
     if allow_partial and _has_any_signal(tok):
@@ -664,7 +774,7 @@ async def get_price(
             fields_needed=fields_needed,
             reason="partial_snapshot",
         )
-        cache_set(partial_ck, tok, ttl=_TTL_PARTIAL)
+        cache_set(partial_ck, deepcopy(tok), ttl=_TTL_PARTIAL)
         return tok
 
     # Sin datos válidos → sólo cache negativa si NO es crítico
@@ -684,13 +794,14 @@ async def get_price(
 
 
 # ─────────────────── Helper simplificado ──────────────────────
-async def get_price_usd(address: str, *, use_gt: bool = True, critical: bool = False) -> float | None:
+async def get_price_usd(address: str, *, use_gt: bool = True, critical: bool = False,
+                        force_refresh: bool = False) -> float | None:
     """
     Devuelve sólo ``price_usd`` (float) o ``None``.
     En cierres/compras rápidas no exigimos liquidez (price_only=True).
-    En crítico ignoramos caché negativa y no la escribimos.
+    En crítico se exige recepción fresca y no se escribe caché negativa.
     """
-    tok = await get_price(address, use_gt=use_gt, critical=critical, price_only=True)
+    tok = await get_price(address, use_gt=use_gt, critical=critical, price_only=True, force_refresh=force_refresh)
     return float(tok["price_usd"]) if tok and not _is_missing(tok.get("price_usd")) else None
 
 
@@ -698,5 +809,6 @@ __all__ = [
     "build_no_price_snapshot",
     "get_price",
     "get_price_usd",
+    "get_jupiter_price_snapshot",
     "price_confidence_from_source",
 ]

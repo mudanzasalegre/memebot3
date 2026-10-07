@@ -182,26 +182,34 @@ async def test_real_prefetch_bypasses_ok_and_nil_caches_without_network():
     calls = []
     async def get_many(addresses, **kwargs):
         calls.append((addresses, kwargs))
-        return {addresses[0]: 2}
+        return {addresses[0]: SimpleNamespace(status="OK", price_usd=2, received_at=dt.datetime.now(dt.timezone.utc).timestamp())}
+    from utils.market_observation import fresh_market_value, stamp_market_observation
     namespace = {"List": list, "Dict": dict, "USE_JUPITER_PRICE": True, "math": math,
-        "jupiter_price": SimpleNamespace(get_many_usd_prices=get_many),
+        "jupiter_price": SimpleNamespace(get_many_prices=get_many),
+        "fresh_market_value": fresh_market_value, "stamp_market_observation": stamp_market_observation,
         "log": SimpleNamespace(warning=lambda *args: None, debug=lambda *args: None)}
     exec(compile(ast.Module(body=[_function("_prefetch_batch_prices")], type_ignores=[]), "run_bot.py", "exec"), namespace)
     mint = "A" * 32
-    assert await namespace["_prefetch_batch_prices"]([mint]) == {mint: 2}
+    prices = await namespace["_prefetch_batch_prices"]([mint])
+    assert fresh_market_value(prices[mint], "price_usd", source="jupiter") == 2
     assert calls == [([mint], {"force_refresh": True})]
 
 
 @pytest.mark.asyncio
 async def test_prefetch_rejects_nonfinite_zero_boolean_and_out_of_request_prices():
     async def get_many(addresses, **kwargs):
-        return {"A" * 32: float("nan"), "B" * 32: float("inf"), "C" * 32: 0,
-                "D" * 32: True, "E" * 32: -1, "F" * 32: 3, "G" * 32: 8}
+        return {mint: SimpleNamespace(status="OK", price_usd=price, received_at=dt.datetime.now(dt.timezone.utc).timestamp())
+                for mint, price in {"A" * 32: float("nan"), "B" * 32: float("inf"), "C" * 32: 0,
+                "D" * 32: True, "E" * 32: -1, "F" * 32: 3, "G" * 32: 8}.items()}
+    from utils.market_observation import fresh_market_value, stamp_market_observation
     namespace = {"List": list, "Dict": dict, "USE_JUPITER_PRICE": True, "math": math,
-        "jupiter_price": SimpleNamespace(get_many_usd_prices=get_many),
+        "jupiter_price": SimpleNamespace(get_many_prices=get_many),
+        "fresh_market_value": fresh_market_value, "stamp_market_observation": stamp_market_observation,
         "log": SimpleNamespace(warning=lambda *args: None, debug=lambda *args: None)}
     exec(compile(ast.Module(body=[_function("_prefetch_batch_prices")], type_ignores=[]), "run_bot.py", "exec"), namespace)
-    assert await namespace["_prefetch_batch_prices"]([letter * 32 for letter in "ABCDEF"]) == {"F" * 32: 3}
+    prices = await namespace["_prefetch_batch_prices"]([letter * 32 for letter in "ABCDEF"])
+    assert set(prices) == {"F" * 32}
+    assert fresh_market_value(prices["F" * 32], "price_usd", source="jupiter") == 3
 
 
 @pytest.mark.asyncio

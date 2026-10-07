@@ -27,6 +27,9 @@ Mejoras 2025-08-24
 
 from __future__ import annotations
 
+from copy import deepcopy
+from utils.market_observation import MARKET_FIELDS, stamp_market_observation
+
 import asyncio
 import logging
 import math
@@ -40,7 +43,7 @@ import numpy as np
 
 from config.config import GECKO_API_URL
 from utils.rate_limiter import GECKO_LIMITER
-from utils.simple_cache import cache_get, cache_set
+from utils.simple_cache import cache_get, cache_set, cache_delete
 from utils.solana_addr import normalize_mint
 from utils.time import parse_iso_utc
 from utils.data_utils import sanitize_token_data
@@ -136,8 +139,10 @@ def _to_float(val: Any) -> Optional[float]:
             return None
         if isinstance(val, str):
             val = val.replace(",", "")
+        if isinstance(val, bool):
+            return None
         x = float(val)
-        return None if (isinstance(x, float) and math.isnan(x)) else x
+        return x if math.isfinite(x) else None
     except (TypeError, ValueError):
         return None
 
@@ -159,12 +164,12 @@ def _pick_created_at(attrs: dict):
     Intenta elegir un timestamp razonable del payload de GT.
     """
     # Orden de preferencia (strings ISO)
-    for k in ("created_at", "pool_created_at", "pair_created_at", "listed_at", "launched_at", "launch_date", "updated_at", "last_refreshed_at"):
+    for k in ("created_at", "pool_created_at", "pair_created_at", "listed_at", "launched_at", "launch_date"):
         dt = parse_iso_utc(attrs.get(k))
         if dt:
             return dt
     # Epochs comunes
-    for k in ("created_at_timestamp", "pool_created_at_timestamp", "pair_created_at_timestamp", "updated_at_timestamp"):
+    for k in ("created_at_timestamp", "pool_created_at_timestamp", "pair_created_at_timestamp"):
         dt = _epoch_to_dt(attrs.get(k))
         if dt:
             return dt
@@ -179,7 +184,7 @@ def _add_legacy_aliases(d: dict) -> dict:
       - fdv          ← market_cap_usd
     para compatibilidad con lectores antiguos.
     """
-    tok = dict(d)  # copia superficial
+    tok = deepcopy(d)
     # Asegura 'liquidity' como dict
     if not isinstance(tok.get("liquidity"), dict):
         tok["liquidity"] = {}
@@ -205,11 +210,8 @@ def _normalize_attributes(addr: str, attrs: dict) -> Dict[str, Any]:
         or attrs.get("price_in_usd")
     )
 
-    liquidity = (
-        attrs.get("reserve_in_usd")
-        or attrs.get("total_reserve_in_usd")
-        or attrs.get("liquidity_in_usd")
-    )
+    liquidity = next((attrs[k] for k in ("reserve_in_usd", "total_reserve_in_usd", "liquidity_in_usd")
+                      if attrs.get(k) is not None), None)
 
     mcap = attrs.get("market_cap_usd") or attrs.get("fdv_usd")
 
@@ -248,7 +250,9 @@ def _normalize_attributes(addr: str, attrs: dict) -> Dict[str, Any]:
         "market_cap_usd": _mcap_f  if _mcap_f  is not None else np.nan,
     }
 
+    normalized = {key: deepcopy(tok_raw_first.get(key)) for key in MARKET_FIELDS}
     tok = sanitize_token_data(tok_raw_first)
+    tok.update(normalized)
     tok = _add_legacy_aliases(tok)
     return tok
 
@@ -259,6 +263,8 @@ def get_token_data(
     address: str,
     session: Optional[requests.Session] = None,
     timeout: int = 5,
+    *,
+    force_refresh: bool = False,
 ) -> Optional[dict]:
     if not USE_GECKO_TERMINAL:
         return None
@@ -273,10 +279,12 @@ def get_token_data(
             return None
 
     ck = f"gt:{network}:{addr}"
+    if force_refresh:
+        cache_delete(ck)
     _wait_for_global_cooldown_sync()
-    hit = cache_get(ck)
+    hit = None if force_refresh else cache_get(ck)
     if hit is not None:
-        return None if hit is _SENTINEL_NIL else hit
+        return None if hit is _SENTINEL_NIL else deepcopy(hit)
 
     _throttle_internal()
     _acquire_sync()
@@ -302,7 +310,7 @@ def get_token_data(
         return None
 
     _reset_fail(ck)
-    tok = _normalize_attributes(addr, attrs)
+    tok = stamp_market_observation(_normalize_attributes(addr, attrs), "geckoterminal")
     try:
         # Casteo defensivo como en la versión async
         _p = tok.get("price_usd")
@@ -317,7 +325,7 @@ def get_token_data(
         )
     except Exception:
         pass
-    cache_set(ck, tok, ttl=60)  # TTL corto para datos OK
+    cache_set(ck, deepcopy(tok), ttl=60)  # TTL corto para datos OK
     return tok
 
 
@@ -327,6 +335,8 @@ async def get_token_data_async(
     address: str,
     session: Optional["aiohttp.ClientSession"] = None,
     timeout: int = 5,
+    *,
+    force_refresh: bool = False,
 ) -> Optional[dict]:
     if not USE_GECKO_TERMINAL:
         return None
@@ -341,9 +351,11 @@ async def get_token_data_async(
             return None
 
     ck = f"gt:{network}:{addr}"
-    hit = cache_get(ck)
+    if force_refresh:
+        cache_delete(ck)
+    hit = None if force_refresh else cache_get(ck)
     if hit is not None:
-        return None if hit is _SENTINEL_NIL else hit
+        return None if hit is _SENTINEL_NIL else deepcopy(hit)
 
     await _wait_for_global_cooldown_async()
 
@@ -370,7 +382,9 @@ async def get_token_data_async(
                         _register_fail(ck)
                         return None
                     r.raise_for_status()
-                    return cast(dict, await r.json())
+                    payload = cast(dict, await r.json())
+                    payload["_market_received_at"] = time.time()
+                    return payload
             except Exception as exc:  # aiohttp.ClientError y otros
                 logger.warning("[GT] Error red %s", exc)
                 _register_fail(ck)
@@ -394,7 +408,8 @@ async def get_token_data_async(
         return None
 
     _reset_fail(ck)
-    tok = _normalize_attributes(addr, attrs)
+    tok = stamp_market_observation(_normalize_attributes(addr, attrs), "geckoterminal",
+                                   received_at=j["_market_received_at"])
     try:
         logger.debug(
             "[GT] %s | price %.6g liq %.0f vol24h %.0f",
@@ -405,7 +420,7 @@ async def get_token_data_async(
         )
     except Exception:
         pass
-    cache_set(ck, tok, ttl=60)
+    cache_set(ck, deepcopy(tok), ttl=60)
     return tok
 
 

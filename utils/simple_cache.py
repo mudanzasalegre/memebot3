@@ -36,6 +36,11 @@ def cache_set(key: str, value: Any, ttl: int = 60) -> None:
     _CACHE[key] = (time.time() + ttl, value)
 
 
+def cache_delete(key: str) -> None:
+    """Invalidate one entry without creating a negative result."""
+    _CACHE.pop(key, None)
+
+
 async def cache_get_or_set(key: str, coro, ttl: int = 60):
     """
     Variante async: si no existe, evalúa la coroutine `coro()` y guarda.
