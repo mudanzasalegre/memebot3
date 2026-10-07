@@ -42,10 +42,10 @@ def isolated(monkeypatch):
     api_budget.reset_provider_circuits()
 
 
-def capture(root, cfg, row=None, now=T0, start=T0):
+def capture(root, cfg, row=None, now=T0, start=T0, gate="rank_canary"):
     with bank.capture_scope(cfg, root=root, run_context={"run_id": "SYNTHETIC_COLLECTOR_FIXTURE",
             "started_at": start.isoformat(), "test_event": False}, allow_test_capture=True, submit_tasks=False):
-        return bank.capture_gate("rank_canary", row or token(), cfg, now=now)
+        return bank.capture_gate(gate, row or token(), cfg, now=now)
 
 
 def quote(quantity=100000000, output=1000, **changes):
@@ -159,10 +159,13 @@ def test_corrupt_auxiliary_hooks_do_not_abort_primary_work(tmp_path):
     assert bank.observe_market(token()["address"], 1., root=tmp_path, cfg=config()) == 0
 
 
-def complete(root, cfg, *, start=T0, losing=False):
+def complete(root, cfg, *, start=T0, losing=False, gate="rank_canary", features_func=None):
     for i in range(50):
         decision = start + dt.timedelta(seconds=900 * i)
-        identity = capture(root, cfg, token(i + 1, rank_score=62 if i < 30 else 72), now=decision, start=start)
+        row = token(i + 1, rank_score=62 if i < 30 else 72)
+        if features_func is not None:
+            row.update(features_func(i))
+        identity = capture(root, cfg, row, now=decision, start=start, gate=gate)
         assert identity and fill(root, cfg, identity, now=decision + dt.timedelta(seconds=1))
         record = case(root, identity)
         # Synthetic complete cadence, not a production observation claim.
@@ -191,7 +194,7 @@ def test_original_collector_records_select_and_checked_negative_cohort_rolls_bac
     identity2, now2 = complete(tmp_path, cfg, start=T0 + dt.timedelta(days=3), losing=True)
     result2 = bank.evaluate_plan(tmp_path, cfg, identity2, now=now2)
     assert result2["status"] == "rolled_back_to_configured"
-    assert not (base / "active_policy.json").exists()
+    assert not evaluator.selection_path(tmp_path, "rank_canary").exists()
     assert list((base / "rollbacks").glob("*.json"))
 
 
@@ -351,7 +354,7 @@ def champion_fixture(root):
     identity, now = complete(root, cfg)
     assert bank.evaluate_plan(root, cfg, identity, now=now)["accepted"]
     base = bank.directory(root)
-    manifest = store.read(base / "active_policy.json")
+    manifest = store.read(evaluator.selection_path(root, "rank_canary"))
     (base / "open_plan.json").unlink()  # Synthetic transition, no runtime restart.
     return cfg, manifest
 
@@ -361,7 +364,7 @@ def successor_fixture(root, cfg, *, normal_output=30000000, priority_output=2000
     base = bank.directory(root)
     # Neighbor 2 resets only the paper-normal threshold, retaining the relaxed
     # parent threshold. It can buy priority opportunities while skipping normal ones.
-    store.write(base / "proposal_cursor.json", {"index": 2})
+    store.write(base / "proposal_cursor.json", {"index": 0, "component_indices": {"rank_canary": 2}})
     for i in range(50):
         decision = start + dt.timedelta(seconds=900 * i)
         row = token(i + 101, rank_score=62 if i < 40 else 72,
@@ -386,7 +389,7 @@ def successor_fixture(root, cfg, *, normal_output=30000000, priority_output=2000
 def test_incumbent_only_buy_still_gets_cash_when_both_other_arms_skip(tmp_path):
     cfg, manifest = champion_fixture(tmp_path)
     base = bank.directory(tmp_path)
-    store.write(base / "proposal_cursor.json", {"index": 2})
+    store.write(base / "proposal_cursor.json", {"index": 0, "component_indices": {"rank_canary": 2}})
     start = T0 + dt.timedelta(days=2)
     identity = capture(tmp_path, cfg, token(101), now=start, start=start)
     record = case(tmp_path, identity)
@@ -403,7 +406,7 @@ def test_fresh_successor_beats_both_configured_and_incumbent_and_is_consumed(tmp
     result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
     assert result["accepted"] and result["action"] == "successor"
     base = bank.directory(tmp_path)
-    active = store.read(base / "active_policy.json")
+    active = store.read(evaluator.selection_path(tmp_path, "rank_canary"))
     assert active["parameters"] == {"RESEARCH_RANK_CANARY_MIN_SCORE": 60}
     assert active["revision"] != original["revision"]
     assert store.read(base / "history" / f"{original['revision']}.json") == original
@@ -421,10 +424,127 @@ def test_positive_against_configured_but_worse_than_incumbent_cannot_replace(tmp
     result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
     assert not result["accepted"]
     base = bank.directory(tmp_path)
-    assert store.read(base / "active_policy.json") == original
+    assert store.read(evaluator.selection_path(tmp_path, "rank_canary")) == original
     report = store.read(base / "evaluations" / result["evaluation"])["evaluation"]
     assert report["paired_lower_mean_sol"] > 0
     assert report["challenger_vs_incumbent_lower_mean_sol"] < 0
+
+
+def test_rank_incumbent_does_not_monopolize_sniper_collection_or_selection(tmp_path):
+    cfg = config(SNIPER_RESEARCH_MOMENTUM_MIN_PRICE5M=100,
+        SNIPER_RESEARCH_MOMENTUM_MAX_PRICE5M=150, SNIPER_RESEARCH_MOMENTUM_MIN_TXNS_5M=500,
+        SNIPER_RESEARCH_MOMENTUM_MIN_LIQUIDITY_USD=15000, SNIPER_RESEARCH_MOMENTUM_MAX_MCAP_USD=70000)
+    rank_plan, now = complete(tmp_path, cfg)
+    assert bank.evaluate_plan(tmp_path, cfg, rank_plan, now=now)["accepted"]
+    base = bank.directory(tmp_path)
+    rank_path = evaluator.selection_path(tmp_path, "rank_canary")
+    rank = store.read(rank_path)
+    (base / "open_plan.json").unlink()
+    store.write(base / "proposal_cursor.json", {"index": 1, "component_indices": {"rank_canary": 1}})
+    sniper_plan, now = complete(tmp_path, cfg, start=T0 + dt.timedelta(days=2), gate="sniper_subprofile",
+        features_func=lambda i: {"price_pct_5m": 200 if i < 30 else 120,
+                                "trend": "up", "helius_top10_share_pct": 20})
+    registered = store.read(base / "plans" / f"{sniper_plan}.json")
+    assert registered["incumbent"]["manifest"] is None
+    assert registered["parameters"] == {"SNIPER_RESEARCH_MOMENTUM_MAX_PRICE5M": 250}
+    assert bank.evaluate_plan(tmp_path, cfg, sniper_plan, now=now)["accepted"]
+    assert store.read(rank_path) == rank
+    selections = evaluator.load_selections(cfg, root=tmp_path, now=now)
+    assert set(selections) == {"rank_canary", "sniper_subprofile"}
+    assert len(list((base / "plans").glob("*.json"))) == 2
+
+
+def test_absent_preferred_component_rotates_without_using_returns(tmp_path):
+    cfg = config(LATE_MOMENTUM_WATCH_BUY_ENABLED=False, LATE_MOMENTUM_WATCH_PAPER_CANARY_ENABLED=False)
+    base = bank.directory(tmp_path)
+    store.write(base / "proposal_cursor.json", {"index": 1})  # Waiting for sniper.
+    assert capture(tmp_path, cfg) is None
+    assert capture(tmp_path, cfg, now=T0 + dt.timedelta(seconds=299)) is None
+    assert capture(tmp_path, cfg, now=T0 + dt.timedelta(seconds=300)) is None  # Next moonshot is also absent.
+    identity = capture(tmp_path, cfg, now=T0 + dt.timedelta(seconds=600))
+    assert identity
+    plan = store.read(base / "plans" / f"{case(tmp_path, identity)['plan_id']}.json")
+    assert plan["proposal_schedule"] == {"version": bank.SCHEDULE, "index": 3, "component_index": 0}
+    assert len(list((base / "plans").glob("*.json"))) == 1
+    assert not case(tmp_path, identity).get("cash")  # No outcome or quote caused rotation.
+
+
+@pytest.mark.parametrize("state", [
+    {"index": 0, "component_indices": {"rank_canary": True}},
+    {"index": 0, "component_indices": {"unknown": 0}},
+    {"index": 0, "component_indices": {"moonshot": -1}},
+    {"index": 0, "waiting_since_at": "2026-10-01T00:00:00"},
+    {"index": 0, "version": "unknown"},
+])
+def test_invalid_component_schedule_is_preserved(tmp_path, state):
+    path = bank.directory(tmp_path) / "proposal_cursor.json"
+    store.write(path, state)
+    assert capture(tmp_path, config()) is None
+    assert store.read(path) == state
+
+
+def test_schedule_cannot_advance_twice_after_pointer_cleanup_interruption(tmp_path):
+    cfg = config()
+    identity, now = complete(tmp_path, cfg)
+    base = bank.directory(tmp_path)
+    # Simulate a crash after atomic cursor advance, before completed/pointer cleanup.
+    store.write(base / "proposal_cursor.json", {"version": bank.SCHEDULE, "index": 1,
+        "component_indices": {"rank_canary": 1}, "waiting_since_at": now.isoformat()})
+    async def no_prices(tokens):
+        assert not tokens
+        return {}
+    result = asyncio.run(bank.tick(root=tmp_path, cfg=cfg, now=now, prices_func=no_prices))
+    assert result["status"] == "observed"
+    state = store.read(base / "proposal_cursor.json")
+    assert state["index"] == 1 and state["component_indices"]["rank_canary"] == 1
+    assert not (base / "open_plan.json").exists()
+    assert store.read(base / "completed" / f"{identity}.json")
+
+
+def test_green_route_registers_bounded_late_opportunity_before_baseline_dispatch(tmp_path, monkeypatch):
+    from analytics import green_sniper_gate, late_momentum_watch
+    cfg = config(LATE_MOMENTUM_WATCH_MIN_PRICE5M=300, LATE_MOMENTUM_WATCH_BUY_ENABLED=True,
+                 LATE_MOMENTUM_WATCH_PAPER_CANARY_ENABLED=True)
+    monkeypatch.setattr(green_sniper_gate, "CFG", cfg)
+    monkeypatch.setattr(late_momentum_watch, "CFG", cfg)
+    base = bank.directory(tmp_path)
+    store.write(base / "proposal_cursor.json", {"index": 2, "component_indices": {"late_momentum": 1}})
+    row = token(price_pct_5m=280, rank_score=75, market_cap_usd=20000, age_minutes=2,
+                price_impact_pct=2, price_usd=1)
+    # Use the test clock explicitly; production callbacks use current UTC.
+    original = bank.capture_gate
+    monkeypatch.setattr(bank, "capture_gate", lambda gate, row, cfg: original(gate, row, cfg, now=T0))
+    with bank.capture_scope(cfg, root=tmp_path, run_context={"run_id": "SYNTHETIC_ROUTING_ENVELOPE",
+            "started_at": T0.isoformat()}, allow_test_capture=True, submit_tasks=False):
+        actual = green_sniper_gate.evaluate_green_sniper(dict(row), dry_run=True, live=False)
+    assert actual.gate_profile != "late_momentum_watch"
+    pointer = store.read(base / "open_plan.json")
+    events = store.read(base / "journals" / f"{pointer['plan_id']}.json")["events"]
+    assert len(events) == 1
+    registered = case(tmp_path, events[0]["case_id"])
+    assert not registered["baseline_buy"] and registered["challenger_buy"]
+    assert not registered["cash"] and not registered["outcomes_complete"]
+
+
+def test_late_router_duplicate_callback_does_not_reserve_two_cases_or_quotes(tmp_path, monkeypatch):
+    from analytics import green_sniper_gate, late_momentum_watch
+    cfg = config(LATE_MOMENTUM_WATCH_MIN_PRICE5M=300, LATE_MOMENTUM_WATCH_BUY_ENABLED=True,
+                 LATE_MOMENTUM_WATCH_PAPER_CANARY_ENABLED=True)
+    monkeypatch.setattr(green_sniper_gate, "CFG", cfg)
+    monkeypatch.setattr(late_momentum_watch, "CFG", cfg)
+    base = bank.directory(tmp_path)
+    store.write(base / "proposal_cursor.json", {"index": 2})
+    original = bank.capture_gate
+    monkeypatch.setattr(bank, "capture_gate", lambda gate, row, cfg: original(gate, row, cfg, now=T0))
+    row = token(price_pct_5m=350, rank_score=75, market_cap_usd=20000, age_minutes=2, price_impact_pct=2)
+    with bank.capture_scope(cfg, root=tmp_path, run_context={"run_id": "SYNTHETIC_ROUTING_DUPLICATE",
+            "started_at": T0.isoformat()}, allow_test_capture=True, submit_tasks=False):
+        actual = green_sniper_gate.evaluate_green_sniper(dict(row), dry_run=True, live=False)
+    assert actual.gate_profile == "late_momentum_watch" and actual.action == "buy"
+    pointer = store.read(base / "open_plan.json")
+    events = store.read(base / "journals" / f"{pointer['plan_id']}.json")["events"]
+    assert len(events) == 1 and len(list((base / "active").glob("*.json"))) == 1
+    assert store.read(tmp_path / "data/research/paired_forward_budget.json")["request_id"] == events[0]["case_id"]
 
 
 def test_changed_incumbent_during_enrollment_prevents_stale_replacement(tmp_path):
@@ -432,10 +552,10 @@ def test_changed_incumbent_during_enrollment_prevents_stale_replacement(tmp_path
     identity, now = successor_fixture(tmp_path, cfg)
     changed = {**original, "expires_at": (store.time(original["expires_at"]) - dt.timedelta(hours=1)).isoformat()}
     base = bank.directory(tmp_path)
-    store.write(base / "active_policy.json", changed)
+    store.write(evaluator.selection_path(tmp_path, "rank_canary"), changed)
     result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
     assert result["status"] == "retained_changed_incumbent"
-    assert store.read(base / "active_policy.json") == changed
+    assert store.read(evaluator.selection_path(tmp_path, "rank_canary")) == changed
 
 
 def test_auto_apply_off_prevents_even_evidence_backed_rollback(tmp_path):
@@ -445,7 +565,7 @@ def test_auto_apply_off_prevents_even_evidence_backed_rollback(tmp_path):
     result = bank.evaluate_plan(tmp_path, disabled, identity, now=now)
     assert result["status"] == "evaluated_auto_apply_disabled"
     base = bank.directory(tmp_path)
-    assert store.read(base / "active_policy.json") == original
+    assert store.read(evaluator.selection_path(tmp_path, "rank_canary")) == original
     assert store.read(base / "evaluations" / result["evaluation"])["evaluation"]["rollback_to_configured"]
     assert not list((base / "rollbacks").glob("*.json"))
 
@@ -483,7 +603,7 @@ def test_same_profile_is_revalidated_with_fresh_cohort_and_preserved_history(tmp
     identity, now = complete(tmp_path, cfg, start=T0 + dt.timedelta(days=2))
     result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
     assert result["accepted"] and result["action"] == "revalidation"
-    active = store.read(bank.directory(tmp_path) / "active_policy.json")
+    active = store.read(evaluator.selection_path(tmp_path, "rank_canary"))
     assert active["parameters"] == original["parameters"] and active["revision"] != original["revision"]
     assert evaluator.load_selection(cfg, root=tmp_path, now=now)
 
@@ -504,7 +624,7 @@ def test_replaying_an_already_selected_cohort_cannot_refresh_expiry(tmp_path):
     identity, now = complete(tmp_path, cfg)
     assert bank.evaluate_plan(tmp_path, cfg, identity, now=now)["accepted"]
     base = bank.directory(tmp_path)
-    original = store.read(base / "active_policy.json")
+    original = store.read(evaluator.selection_path(tmp_path, "rank_canary"))
     replay = bank.evaluate_plan(tmp_path, cfg, identity, now=now + dt.timedelta(hours=1))
     assert replay["status"] == "retained_changed_incumbent"
-    assert store.read(base / "active_policy.json") == original
+    assert store.read(evaluator.selection_path(tmp_path, "rank_canary")) == original

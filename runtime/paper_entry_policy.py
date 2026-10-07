@@ -199,9 +199,45 @@ def snapshot() -> dict[str, Any] | None:
     binding = _CURRENT.get()
     if binding is None:
         return None
-    value = dict(binding.provenance)
-    value["parameters"] = dict(value["parameters"])
-    return value
+    def detached(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {key: detached(item) for key, item in value.items()}
+        return value
+    return detached(binding.provenance)
+
+
+@contextlib.contextmanager
+def composition_scope(cfg: Any, selections: Mapping[str, Mapping[str, Any]]) -> Iterator[None]:
+    """Combine independently checked components, not a whole-strategy certificate.
+
+    This is a binding primitive like parameter_scope; the production selector
+    must recheck every component's original evidence before calling it. Each
+    component keeps its own two-parameter envelope and immutable provenance.
+    """
+    if getattr(cfg, "DRY_RUN", False) is not True or not selections:
+        raise ValueError("nonempty paper-only admission composition required")
+    parameters, components = {}, {}
+    for gate, selection in selections.items():
+        if gate not in PREFIXES:
+            raise ValueError("unsupported admission component")
+        checked = validate_parameters(cfg, selection["parameters"], gate=gate)
+        parameters.update(checked)
+        components[gate] = MappingProxyType({
+            "revision": str(selection["revision"]),
+            "evidence_sha256": selection["evidence_sha256"],
+            "configured_hash": configured_hash(cfg, gate),
+            "parameters": MappingProxyType(checked),
+        })
+    provenance = MappingProxyType({
+        "version": "paper_entry_composition_v1", "role": "paper_entry_components_only",
+        "components": MappingProxyType(components), "parameters": MappingProxyType(parameters),
+        "full_strategy_profitability_established": False,
+    })
+    token = _CURRENT.set(_Binding(cfg, _EntryConfig(cfg, parameters), provenance))
+    try:
+        yield
+    finally:
+        _CURRENT.reset(token)
 
 
 @contextlib.contextmanager

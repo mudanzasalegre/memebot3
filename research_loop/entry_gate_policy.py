@@ -9,6 +9,7 @@ Missing counterfactual outcomes keep selection disabled.
 from __future__ import annotations
 
 import contextlib
+import copy
 import datetime as dt
 import json
 import math
@@ -368,7 +369,37 @@ def _replay_manifest(cfg: Any, directory: Path, manifest: dict[str, Any], bundle
     return verified
 
 
-def load_selection(cfg: Any, *, root: Path | str, now: dt.datetime | None = None) -> dict[str, Any] | None:
+def selection_path(root: Path | str, gate: str, *, for_write: bool = False) -> Path:
+    """Known component namespace, with read-only compatibility for old manifests.
+
+    An existing namespace with no active manifest means configured fallback:
+    retirement must never resurrect an older legacy manifest.
+    """
+    if gate not in policy.PREFIXES:
+        raise ValueError("unsupported entry component")
+    project = Path(root).resolve()
+    directory = (project / "data" / "research" / "entry_gate_forward").resolve()
+    namespace = directory / "policies" / gate
+    if not directory.is_relative_to(project) or not namespace.resolve().is_relative_to(directory):
+        raise ValueError("entry component path escapes project")
+    path = namespace / "active_policy.json"
+    if not path.resolve().is_relative_to(directory):
+        raise ValueError("entry manifest path escapes project")
+    if for_write or namespace.exists():
+        return path
+    legacy = directory / "active_policy.json"
+    try:
+        manifest = _read(legacy, inside=directory)
+        keys = manifest["parameters"]
+        if keys and all(policy.THRESHOLDS[key].gate == gate for key in keys):
+            return legacy
+    except (OSError, KeyError, TypeError, ValueError):
+        pass
+    return path
+
+
+def load_selection(cfg: Any, *, root: Path | str, now: dt.datetime | None = None,
+                   gate: str | None = None) -> dict[str, Any] | None:
     """Recheck the original closed cohort; generic profile exports cannot apply."""
     try:
         stamp = now or dt.datetime.now(dt.timezone.utc)
@@ -379,12 +410,20 @@ def load_selection(cfg: Any, *, root: Path | str, now: dt.datetime | None = None
         directory = (project / "data" / "research" / "entry_gate_forward").resolve()
         if not directory.is_relative_to(project):
             return None
-        manifest = _read(directory / "active_policy.json", inside=directory)
+        # The no-gate API is legacy/single-selection compatibility. Production
+        # composition always requests explicit independent components.
+        if gate is None:
+            available = load_selections(cfg, root=root, now=stamp)
+            return next(iter(available.values())) if len(available) == 1 else None
+        path = selection_path(project, gate)
+        manifest = _read(path, inside=directory)
         selected_at, expires = _manifest_times(manifest)
         if not selected_at <= stamp < expires:
             return None
         bundle, paths = _evidence_sources(directory, manifest)
         plan = bundle["plan"]
+        if plan["gate"] != gate:
+            return None
         anchor = (plan.get("incumbent") or {}).get("manifest")
         anchor_bundle, anchor_paths = None, []
         if anchor is not None:
@@ -395,10 +434,11 @@ def load_selection(cfg: Any, *, root: Path | str, now: dt.datetime | None = None
             anchor_bundle, anchor_paths = _evidence_sources(directory, anchor)
         signature = policy.digest([manifest, bundle, policy.configured_hash(cfg, plan["gate"]),
             anchor, anchor_bundle, [(str(path), mtime, size) for path, mtime, size in paths + anchor_paths]])
-        cached = _VERIFIED_CACHE.get(str(directory))
+        cache_key = str(path)
+        cached = _VERIFIED_CACHE.get(cache_key)
         # Even unchanged metadata gets a full source recheck within five seconds.
         if cached and cached[0] == signature and 0 <= (stamp - _time(cached[1]["verified_at"])).total_seconds() < 5:
-            return {k: v for k, v in cached[1].items() if k != "verified_at"}
+            return copy.deepcopy({k: v for k, v in cached[1].items() if k != "verified_at"})
         if anchor is not None:
             _replay_manifest(cfg, directory, anchor, anchor_bundle, anchor_paths)
         # Every candidate is independently checked against configured settings
@@ -410,18 +450,30 @@ def load_selection(cfg: Any, *, root: Path | str, now: dt.datetime | None = None
                      "evidence_sha256": manifest["evidence_sha256"]}
         if len(_VERIFIED_CACHE) >= 16:
             _VERIFIED_CACHE.pop(next(iter(_VERIFIED_CACHE)))
-        _VERIFIED_CACHE[str(directory)] = (signature, {**selection, "verified_at": stamp.isoformat()})
+        _VERIFIED_CACHE[cache_key] = (signature, {**copy.deepcopy(selection), "verified_at": stamp.isoformat()})
         return selection
     except (OSError, KeyError, TypeError, ValueError, OverflowError, AttributeError):
         return None
 
 
+def load_selections(cfg: Any, *, root: Path | str,
+                    now: dt.datetime | None = None) -> dict[str, dict[str, Any]]:
+    """A corrupt/expired component falls back without disabling valid peers."""
+    stamp = now or dt.datetime.now(dt.timezone.utc)
+    return {gate: selection for gate in policy.PREFIXES
+            if (selection := load_selection(cfg, root=root, now=stamp, gate=gate)) is not None}
+
+
 @contextlib.contextmanager
 def selected_scope(cfg: Any, *, root: Path | str):
-    selection = load_selection(cfg, root=root)
-    if selection is None:
+    selections = load_selections(cfg, root=root)
+    if not selections:
         with policy.baseline_scope():
             yield
+    elif len(selections) == 1:
+        # Preserve the old single-component telemetry schema.
+        with policy.parameter_scope(cfg, **next(iter(selections.values()))):
+            yield
     else:
-        with policy.parameter_scope(cfg, **selection):
+        with policy.composition_scope(cfg, selections):
             yield

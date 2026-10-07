@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from config.config import CFG
+from runtime.paper_entry_policy import THRESHOLDS, entry_config
 from analytics.lane_policy_categories import (
     POLICY_BIRTH_PROBE_MICRO_CANARY,
     POLICY_GREEN_SNIPER_PURE,
@@ -289,7 +290,17 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
     if price5m is None:
         failures.append("missing_price_pct_5m")
     else:
-        if bool(getattr(CFG, "LATE_MOMENTUM_WATCH_ENABLED", True)) and price5m >= float(getattr(CFG, "LATE_MOMENTUM_WATCH_MIN_PRICE5M", 300.0) or 300.0):
+        late_cfg = entry_config(CFG, dry_run=dry_run, live=live)
+        if dry_run and not live and bool(getattr(CFG, "LATE_MOMENTUM_WATCH_ENABLED", True)):
+            # Register the whole bounded routing envelope before the selected
+            # threshold. Otherwise a relaxed/raised incumbent could hide the
+            # very opportunities its next counterfactual must compare.
+            rule = THRESHOLDS["LATE_MOMENTUM_WATCH_MIN_PRICE5M"]
+            configured_min = float(getattr(CFG, "LATE_MOMENTUM_WATCH_MIN_PRICE5M", 300.0) or 300.0)
+            if price5m >= max(rule.minimum, configured_min - rule.max_step):
+                from research_loop.entry_gate_forward import capture_gate
+                capture_gate("late_momentum", token, CFG)
+        if bool(getattr(late_cfg, "LATE_MOMENTUM_WATCH_ENABLED", True)) and price5m >= float(getattr(late_cfg, "LATE_MOMENTUM_WATCH_MIN_PRICE5M", 300.0) or 300.0):
             late = evaluate_late_momentum_watch(token, dry_run=dry_run, live=live)
             social = social_signal_from_token(token)
             return GreenSniperDecision(

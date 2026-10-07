@@ -26,6 +26,8 @@ from runtime import paper_entry_policy as policy
 from research_loop import entry_gate_policy as evaluator, forward_budget as storage
 
 COLLECTOR = "sampled_entry_gate_collector_v1"
+SCHEDULE = "entry_components_round_robin_v1"
+MAX_IDLE_GATE_WAIT_S = 300
 _CAPTURE: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("entry_gate_capture", default=None)
 _SUPPRESS: contextvars.ContextVar[bool] = contextvars.ContextVar("entry_gate_capture_suppressed", default=False)
 _TASKS: dict[str, asyncio.Task] = {}
@@ -129,6 +131,7 @@ def proposals(cfg: Any) -> list[tuple[str, dict[str, float]]]:
         ("sniper_subprofile", {"SNIPER_RESEARCH_MOMENTUM_MAX_PRICE5M": 100}),
         ("sniper_subprofile", {"SNIPER_RESEARCH_MOMENTUM_MIN_TXNS_5M": -200}),
         ("late_momentum", {"LATE_MOMENTUM_WATCH_MAX_PRICE5M": 250}),
+        ("late_momentum", {"LATE_MOMENTUM_WATCH_MIN_PRICE5M": -50}),
         ("moonshot", {"MOONSHOT_MICRO_LOTTERY_MIN_PRICE5M": -50}),
         ("rank_canary", {"RESEARCH_RANK_CANARY_MIN_SCORE": 5}),
         ("sniper_subprofile", {"SNIPER_RESEARCH_MOMENTUM_MIN_TXNS_5M": 200}),
@@ -154,8 +157,8 @@ def _plan_id(plan: dict[str, Any]) -> str:
 def incumbent_neighbors(cfg: Any, parameters: dict[str, float]) -> list[tuple[str, dict[str, float]]]:
     """Predeclared adjacent complete profiles, including revalidation/reset.
 
-    There is one active component selection in this transport. A different
-    component cannot replace it using outcomes from an incomparable gate.
+    A different component cannot replace it using incomparable gate outcomes;
+    each component now has its own manifest and local proposal cursor.
     """
     gate = policy.THRESHOLDS[next(iter(parameters))].gate
     candidates = [dict(parameters)]
@@ -186,6 +189,21 @@ def incumbent_neighbors(cfg: Any, parameters: dict[str, float]) -> list[tuple[st
     return result
 
 
+def _cursor(base: Path) -> dict[str, Any] | None:
+    path = base / "proposal_cursor.json"
+    value = storage.read(path)
+    if value is None:
+        return None if path.exists() else {"index": 0, "component_indices": {}}
+    index, components = value.get("index"), value.get("component_indices", {})
+    if (not isinstance(index, int) or isinstance(index, bool) or index < 0
+            or value.get("version", SCHEDULE) != SCHEDULE or not isinstance(components, dict)
+            or any(gate not in policy.PREFIXES or not isinstance(n, int) or isinstance(n, bool) or n < 0
+                   for gate, n in components.items())
+            or (value.get("waiting_since_at") is not None and storage.time(value["waiting_since_at"]) is None)):
+        return None
+    return {**value, "component_indices": dict(components)}
+
+
 def _plan(root: Path, cfg: Any, ctx: dict[str, Any], gate: str, stamp: dt.datetime) -> tuple[str, dict[str, Any]] | None:
     base = directory(root)
     pointer_path = base / "open_plan.json"
@@ -202,24 +220,47 @@ def _plan(root: Path, cfg: Any, ctx: dict[str, Any], gate: str, stamp: dt.dateti
                 or plan["configured_hash"] != policy.configured_hash(cfg, plan["gate"])):
             return None
         return (pointer["plan_id"], plan) if plan["gate"] == gate else None
-    active_path = base / "active_policy.json"
+    grouped: dict[str, list[dict[str, float]]] = {}
+    for component, values in proposals(cfg):
+        grouped.setdefault(component, []).append(values)
+    if gate not in grouped:
+        return None
+    state = _cursor(base)
+    if state is None:
+        return None
+    gates = list(grouped)
+    selected_gate = gates[state["index"] % len(gates)]
+    wait = storage.time(state.get("waiting_since_at"))
+    if wait and stamp < wait:
+        return None
+    if selected_gate != gate:
+        # A rare/absent lane may defer peers, but cannot stall the collector
+        # forever. Rotation is time/event-based, never outcome-based.
+        if wait is None:
+            storage.write(base / "proposal_cursor.json", {**state, "version": SCHEDULE,
+                "waiting_since_at": stamp.isoformat()})
+            return None
+        if (stamp - wait).total_seconds() < MAX_IDLE_GATE_WAIT_S:
+            return None
+        state = {**state, "version": SCHEDULE, "index": state["index"] + 1,
+                 "waiting_since_at": stamp.isoformat()}
+        storage.write(base / "proposal_cursor.json", state)
+        selected_gate = gates[state["index"] % len(gates)]
+        if selected_gate != gate:
+            return None
+    active_path = evaluator.selection_path(root, gate)
     active = storage.read(active_path)
     if active_path.exists() and (not active or active.get("version") != evaluator.VERSION
             or active.get("role") != evaluator.ROLE
             or re.fullmatch(r"[0-9a-f]{20}", str(active.get("revision"))) is None):
         return None
-    selected = evaluator.load_selection(cfg, root=root, now=stamp)
+    selected = evaluator.load_selection(cfg, root=root, now=stamp, gate=gate)
     incumbent = dict(selected["parameters"]) if selected else {}
-    choices = incumbent_neighbors(cfg, incumbent) if incumbent else proposals(cfg)
+    choices = incumbent_neighbors(cfg, incumbent) if incumbent else [(gate, values) for values in grouped[gate]]
     if not choices:
         return None
-    cursor_path = base / "proposal_cursor.json"
-    state = storage.read(cursor_path)
-    if cursor_path.exists() and (not state or not isinstance(state.get("index"), int)
-            or isinstance(state.get("index"), bool) or state["index"] < 0):
-        return None
-    state = state or {"index": 0}
-    index = int(state["index"]) % len(choices)
+    component_index = state["component_indices"].get(gate, 0)
+    index = component_index % len(choices)
     selected_gate, parameters = choices[index]
     if selected_gate != gate:
         return None
@@ -236,6 +277,7 @@ def _plan(root: Path, cfg: Any, ctx: dict[str, Any], gate: str, stamp: dt.dateti
             return None
         storage.write(history_path, active)  # Original checked predecessor, before future outcomes.
     plan = {"version": evaluator.VERSION, "role": evaluator.ROLE, "collector_version": COLLECTOR,
+        "proposal_schedule": {"version": SCHEDULE, "index": state["index"], "component_index": component_index},
         "comparison_version": evaluator.COMPARISON_VERSION,
         "incumbent": {"parameters": incumbent, "manifest": copy.deepcopy(active) if selected else None},
         "active_manifest_sha256_at_plan": policy.digest(active) if active else None,
@@ -527,7 +569,7 @@ def evaluate_plan(root: Path | str, cfg: Any, plan_id: str, *, now: dt.datetime)
     bundle = {"plan": completed, "evaluation": report}
     name = policy.digest(bundle) + ".json"
     storage.write(base / "evaluations" / name, bundle)
-    previous_path = base / "active_policy.json"
+    previous_path = evaluator.selection_path(root, plan["gate"])
     previous = storage.read(previous_path)
     if previous_path.exists() and (not previous or re.fullmatch(r"[0-9a-f]{20}", str(previous.get("revision"))) is None):
         return {"status": "retained_corrupt_manifest", "accepted": False}
@@ -551,7 +593,7 @@ def evaluate_plan(root: Path | str, cfg: Any, plan_id: str, *, now: dt.datetime)
                 return {"status": "retained_conflicting_history", "accepted": False, "evaluation": name}
             storage.write(history_path, previous)
         storage.write(base / "history" / f"{revision}.json", manifest)
-        storage.write(base / "active_policy.json", manifest)
+        storage.write(evaluator.selection_path(root, plan["gate"], for_write=True), manifest)
         return {"status": "selected", "action": manifest["action"], "accepted": True, "evaluation": name}
     rollback_parameters = report.get("incumbent_parameters") if plan.get("comparison_version") else plan["parameters"]
     if report.get("rollback_to_configured") and previous and previous.get("parameters") == rollback_parameters:
@@ -564,7 +606,10 @@ def evaluate_plan(root: Path | str, cfg: Any, plan_id: str, *, now: dt.datetime)
         if destination.exists() and storage.read(destination) != previous:
             return {"status": "retained_conflicting_history", "accepted": False, "evaluation": name}
         destination.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(base / "active_policy.json", destination)
+        # Keep the namespace after retirement, including legacy retirement,
+        # so an older root manifest can never become active again.
+        evaluator.selection_path(root, plan["gate"], for_write=True).parent.mkdir(parents=True, exist_ok=True)
+        os.replace(previous_path, destination)
         return {"status": "rolled_back_to_configured", "evaluation": name}
     return {"status": "evaluated", "accepted": report["accepted"], "evaluation": name}
 
@@ -659,8 +704,24 @@ async def tick(*, root: Path | str, cfg: Any = None, now: dt.datetime | None = N
         result = evaluate_plan(root, cfg, plan_id, now=stamp)
         if stamp >= storage.time(plan["cohort_ends_at"]) and not any(
                 (c := storage.read(p)) and c.get("plan_id") == plan_id for p in (base / "active").glob("*.json")):
-            state = storage.read(base / "proposal_cursor.json") or {"index": 0}
-            storage.write(base / "proposal_cursor.json", {"index": int(state["index"]) + 1})
+            state = _cursor(base)
+            if state is None:
+                return {"status": "corrupt_schedule", "quote_calls": quote_calls}
+            scheduled = plan.get("proposal_schedule")
+            local = state["component_indices"].get(plan["gate"], 0)
+            if scheduled:
+                before = (scheduled["index"], scheduled["component_index"])
+                after = (before[0] + 1, before[1] + 1)
+                current = (state["index"], local)
+                if scheduled.get("version") != SCHEDULE or current not in (before, after):
+                    return {"status": "changed_schedule", "quote_calls": quote_calls}
+                advance = current == before
+            else:
+                advance = True  # Older registered cohorts keep their original proof.
+            if advance:
+                state["component_indices"][plan["gate"]] = local + 1
+                storage.write(base / "proposal_cursor.json", {**state, "version": SCHEDULE,
+                    "index": state["index"] + 1, "waiting_since_at": stamp.isoformat()})
             storage.write(base / "completed" / f"{plan_id}.json", result)
             (base / "open_plan.json").unlink(missing_ok=True)
         return {"status": "observed", "quote_calls": quote_calls, "cases": len(cases), "selection": result}

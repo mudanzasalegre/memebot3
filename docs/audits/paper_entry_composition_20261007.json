@@ -1,0 +1,49 @@
+{
+  "status": "COMPONENT_COMPOSITION_SOFTWARE_VALIDATED_FORWARD_EVIDENCE_PENDING",
+  "full_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Independent checked paper admission components consumed as one task-local snapshot; not a fresh profitable run or whole-strategy optimization certificate",
+  "implemented": {
+    "independent_selections": "Rank canary, sniper subprofile, late momentum and moonshot have separate allowlisted policies/<component>/active_policy.json paths. Each component rechecks its own original complete paired cohort and immediate predecessor evidence. A failed or expired component falls back to configured settings without disabling valid peers. The old root manifest is read-only compatible; an existing modern namespace prevents resurrection after retirement",
+    "stable_composition": "One immutable task-local view combines only individually checked components, with at most two bounded admission parameters per component. Each component retains its own revision, configured hash and evidence identity in detached telemetry. Global CFG, position sizing, routes, security, exits, quotas and live settings are unchanged. Concurrent tasks, cancellation and manifest changes during network awaits cannot mix entry snapshots",
+    "cache_integrity": "Checked selection caches are keyed by the scoped component manifest path and never lend their mutable parameters to callers. Source signatures and the existing five-second full replay bound remain checked independently per component",
+    "proposal_schedule": "One global prospective cohort and the existing shared market/capacity/secondary quote budgets remain. Components rotate with independent local neighbor indices; a selected rank profile no longer monopolizes research. An absent preferred gate rotates after five minutes of event-observed waiting, independent of future returns. Corrupt, unknown and backwards schedule state is preserved and fails closed. Interrupted pointer cleanup cannot advance the cursor twice",
+    "actual_late_router": "The actual green-sniper dispatcher now consumes the same selected late-momentum minimum as the late filter. It registers the bounded minimum-threshold routing envelope before dispatch, so prospective alternatives can include opportunities below the current admission threshold. Duplicate router/filter hooks register and reserve only once. A bounded lower-minimum proposal complements the existing higher-maximum proposal; flags authorizing paper/live purchases are not changed",
+    "extreme_runner_contract": "No percentage upside ceiling was introduced. Earlier runner policies and synthetic extreme-tail protections remain, with exact 0.1 SOL orders and continuing liquidity, cost, route and holding-time constraints. Extreme price rises alone do not prove executable profit"
+  },
+  "verification": {
+    "initial_existing_focused_suite": "89 passed in 57.15s after component transport changes",
+    "extended_test_repairs": "A new test accidentally lent its module fixture dictionary before testing caller mutation; copied the fixture. A patch placed three existing diagnostic assertions under a new schedule test; restored them to their original comparison test. Both were isolated test-authoring errors, not production configuration changes",
+    "subsequent_focused_suite": "117 passed, one failed due to the misplaced diagnostic assertions; repaired. Five directly targeted routing, idempotent schedule and concurrency scenarios then passed",
+    "full_working_checkout": "1207 passed in 125.11s",
+    "full_publishing_checkout": "1207 passed in 130.22s without personal .env",
+    "local_preflight_both_checkouts": "PASS: zero compilation errors, configuration import, paper profile and seven empty-data report builders in each checkout",
+    "source_sync": "Eight reviewed source/evidence files synchronized, zero deletions; personal .env, data, logs, runtime weights and dependencies excluded",
+    "qualification": "Synthetic prices, raw quote quantities, costs, clocks and complete component cohorts through real gate functions, the collector, selector and the AST-extracted real guarded call. This is software validation only: no new market run, actual memecoin transaction or wallet gain",
+    "tests": ["tests/test_entry_gate_forward.py", "tests/test_paper_entry_policy.py", "tests/test_paired_forward.py", "tests/test_green_sniper_gate.py", "tests/test_late_momentum_watch.py"]
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "active_runtime_models_changed": false,
+    "runtime_model_training_started": false,
+    "runtime_cohort_created": false,
+    "active_entry_policy_created": false,
+    "shutdown_verification": "VERIFIED_OFF",
+    "shutdown_verified_at_utc": "2026-10-07T16:11:42.4640822Z",
+    "runtime_process_count_both_roots": 0,
+    "bot_locks_present_both_roots": 0,
+    "active_entry_policy_count_both_roots": 0,
+    "runtime_entry_plan_count_both_roots": 0,
+    "runtime_weights_modified_since_previous_stage": 0,
+    "database_process_state": "stopped",
+    "database_retrain_state": "idle",
+    "database_reports_refresh_state": "idle",
+    "stop_helper_result": "2026-10-07T16:10:49Z stop_stack done killed=0 remaining=0"
+  },
+  "remaining_full_goal_requirements": [
+    "Complete scanner/core admission, capital allocation, provider freshness and execution constraints across the whole actual strategy; independent component improvements are not evidence of profitable composition",
+    "Complete fresh rare-runner/risk/continuation validation and system-level failure-path acceptance",
+    "Obtain separately authorized prospective complete-strategy closed evidence with executable quantities and defensible costs before any profitability or live-activation claim"
+  ]
+}
