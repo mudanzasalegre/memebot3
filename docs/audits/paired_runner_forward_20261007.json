@@ -1,0 +1,51 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "scope": "Actual bounded paper runner-exit selection and prospective paired research; complete entry-policy AutoResearch transport remains a separate required block",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "runtime_started": false,
+  "live_policy_activated": false,
+  "implementation": {
+    "module": "research_loop/runner_forward.py",
+    "enrollment": "Only the first actual partial-fill event of an explicit non-test 0.1 SOL paper trade with current run identity, raw SPL quantity basis, entry route evidence and frozen estimated costs; no historical or supplied aggregate metrics are accepted",
+    "common_prefix": "All arms share the same entry, paid first partial, remaining units and previous fees. Subsequent partial ladders and terminal exits are independently evaluated",
+    "bounded_variants": "Incumbent price drawdown and its valid +/-5 percentage-point neighbours, within the existing 5-40 percent bounds; activation, hard holding horizon, stops, safety and sizing cannot change",
+    "observations": "Reuse current position-monitor prices and liquidity. Reuse already-observed exit quotes only when a pending virtual intent has exactly the same raw token quantity. Continue sampling unresolved virtual positions after the actual paper position closes",
+    "secondary_budget": "At least 60 seconds between secondary cycles, at most one additional raw-quantity quote call per cycle, and at most 128 active cases. Existing batched price caching/chunking is reused; no swaps or RPC signing calls are made. Underlying quote fallback may perform more than one HTTP request",
+    "accounting": "Conserve raw units, SOL proceeds, USD proceeds and every estimated fill fee. Record actual research intent/fill timestamps; do not fabricate unavailable prices or routes",
+    "concurrency": "Persist intents before awaits, reload after network waits and recheck exact intent identity so a reused primary quote cannot be overwritten or counted twice",
+    "selection": "Prerecorded daily enrollment cohort, all arms terminal and finite, at least 50 case-sensitive independent mints, at least 24 hours of observed trade window, fresh completed evidence, no capacity/observation-coverage gaps, and positive net candidate returns in both SOL and USD with positive paired token-cluster bootstrap lower deltas adjusted for testing two neighbours",
+    "evidence_integrity": "Require route counts, cash conservation, monotonic/future-safe clocks, bounded settlement horizon and consistent same-instant quotes. Manifest readers revalidate the original closed records and their checksums; cached verification is invalidated by changed manifest, evidence or source-file metadata",
+    "application": "Atomic role-limited manifest consumed by real paper buy path for NEW entry snapshots only; selected runner settings remain frozen in the portfolio, buy response and existing SQL policy field",
+    "rollback": "A later comparable cohort can select the previous incumbent as a checked rollback. Preserve selection history. Corrupt, missing, expired or incompatible evidence falls back to the configured static paper policy",
+    "live_behavior": "Live reads/ticks cannot enable, apply or query this paper experiment; no live flags or private credentials can be changed"
+  },
+  "defaults": {
+    "PAPER_RUNNER_RESEARCH_ENABLED": true,
+    "PAPER_RUNNER_RESEARCH_AUTO_APPLY": true,
+    "PAPER_RUNNER_RESEARCH_INTERVAL_S": 60
+  },
+  "tests": {
+    "focused_runner_forward": "37 passed in 10.58s",
+    "full_working_checkout": "1068 passed in 67.18s",
+    "full_publishing_checkout_without_env": "1068 passed in 62.78s",
+    "publishing_preflight": "PASS with no compile, config, profile, empty-data report or live-template errors",
+    "qualification": "Test quotes, comparison cohorts and cadence metadata are synthetic fixtures, not observed profitable trading"
+  },
+  "current_financial_evidence": "No bot run or research policy was activated by this implementation. No prospective winning policy is certified",
+  "shutdown": {
+    "stop_stack_completed_at_utc": "2026-10-07T13:04:18Z",
+    "verified_at_utc": "2026-10-07T13:05:40.1910036Z",
+    "remaining_runtime_processes_both_roots": 0,
+    "bot_locks_present_both_roots": 0,
+    "database_process_state": "stopped",
+    "database_retrain_state": "idle",
+    "database_reports_refresh_state": "idle",
+    "active_runtime_runner_policy_exists": false
+  },
+  "remaining_full_goal_requirements": [
+    "Complete generalized entry-policy/scanner champion-challenger transport and risk/continuation uncertainty validation, beyond this runner-exit component",
+    "Complete architecture/integration failure-path audit and check all first-launch control surfaces",
+    "Obtain authorized fresh prospective paper evidence before any profitability or live-promotion claim",
+    "Publish verified source changes and leave all runtime services stopped"
+  ]
+}

@@ -42,6 +42,7 @@ from utils.sol_price import amount_sol_to_usd, get_sol_usd
 from utils.runtime_context import runtime_context_payload
 from trade_pnl import apply_partial_fill, summarize_trade
 from fetcher import jupiter_price, jupiter_router
+from research_loop import runner_forward
 
 log = logging.getLogger("papertrading")
 
@@ -331,7 +332,8 @@ async def _has_jupiter_route(token_mint: str, amount_sol: float = 0.1, *, proof:
             return False, "HIGH_QUOTE_IMPACT"
         if proof is not None:
             proof.update({"out_amount": quote.out_amount, "in_amount": quote.in_amount,
-                          "impact_bps": impact, "max_impact_pct": limit})
+                          "impact_bps": impact, "max_impact_pct": limit,
+                          "route_count": (getattr(quote, "other", None) or {}).get("routePlan_len", 0)})
         return True, "QUOTE_OK"
     except Exception:
         return None, "ERR"
@@ -339,6 +341,26 @@ async def _has_jupiter_route(token_mint: str, amount_sol: float = 0.1, *, proof:
 
 # ───────────────────────── persistencia ─────────────────────────
 _DATA_PATH = pathlib.Path(PROJECT_ROOT) / "data" / "paper_portfolio.json"
+
+
+def _research_root() -> pathlib.Path:
+    # Keep isolated paper stores isolated too; never enroll test portfolios in
+    # the operator's runtime directory merely because PROJECT_ROOT is global.
+    return _DATA_PATH.parent.parent if _DATA_PATH.parent.name == "data" else _DATA_PATH.parent
+
+
+def record_market_observation(address: str, price: float, *, liq_now: float | None = None) -> None:
+    entry = _PORTFOLIO.get(address)
+    if not entry or entry.get("closed") or not _positive_finite(price):
+        return
+    buy_price = entry.get("buy_price_usd")
+    if not _positive_finite(buy_price):
+        return
+    previous = (entry.get("highest_pnl_pct"), entry.get("max_adverse_pnl_pct"))
+    exit_policy.update_exit_state(entry, pnl_pct=(float(price) / float(buy_price) - 1) * 100)
+    if previous != (entry.get("highest_pnl_pct"), entry.get("max_adverse_pnl_pct")):
+        _save()
+    runner_forward.observe_market(address, price, root=_research_root(), cfg=CFG, liq_now=liq_now)
 _DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 try:
@@ -605,6 +627,7 @@ async def buy(
         "peak_price": float(buy_price_usd),
         "amount_sol": amount_sol,
         "entry_notional_usd": float(entry_notional_usd),
+        "buy_liquidity_usd": float(liquidity_usd) if _positive_finite(liquidity_usd) else None,
         "execution_cost_model": cost_model,
         "spot_entry_price_usd": spot_price_usd,
         "estimated_fees_usd": cost_model["fee_sol_per_fill"] * entry_notional_usd / amount_sol,
@@ -633,12 +656,13 @@ async def buy(
         "discovered_via": discovered_via,
         "partial_taken": False,
         "partial_count": 0,
+        "partial_fill_events": 0,
         "highest_pnl_pct": 0.0,
         "max_pnl_pct_seen": 0.0,
         "max_adverse_pnl_pct": 0.0,
         "exit_state": "pre_partial",
         "partial_ladder_state": runner_ladder.encode_ladder_state(runner_ladder.initial_ladder_state()),
-        "runner_trailing_policy": exit_policy.runner_price_policy.freeze_policy(CFG, dry_run=True),
+        "runner_trailing_policy": runner_forward.entry_policy(CFG, root=_research_root()),
         "realized_qty": 0,
         "realized_proceeds_usd": 0.0,
         "realized_cost_usd": 0.0,
@@ -757,6 +781,10 @@ async def sell(
             return {"ok": False, "error": "EXIT_QUOTE_UNAVAILABLE", "signature": None,
                     "qty_sold": 0, "qty_left": total_qty}
         proceeds_usd = quote.out_amount / 1e9 * float(sol_usd)
+        try:
+            runner_forward.observe_quote(key, quote, float(sol_usd), root=_research_root(), cfg=CFG)
+        except Exception as exc:
+            log.warning("[runner_forward] quote reuse unavailable: %s", type(exc).__name__)
         reference_tokens = (take_qty / int(entry["entry_qty"])) * float(entry["entry_notional_usd"]) / float(entry["buy_price_usd"])
         price_now, price_src = proceeds_usd / reference_tokens, "jupiter_reverse_quote"
     # A missing exit cannot be fabricated as a break-even fill.
@@ -786,6 +814,7 @@ async def sell(
                 if buy_price_for_plan > 0 and price_now > 0
                 else 0.0
             )
+            exit_policy.update_exit_state(entry, pnl_pct=pnl_pct_for_plan)
             partial_ladder_plan = exit_policy.partial_ladder_plan(entry, pnl_pct_for_plan)
         except Exception:
             partial_ladder_plan = None
@@ -807,6 +836,7 @@ async def sell(
         entry["realized_proceeds_usd"] = float(totals.realized_proceeds_usd)
         entry["realized_cost_usd"] = float(totals.realized_cost_usd)
         entry["realized_pnl_usd"] = float(totals.realized_pnl_usd)
+        entry["partial_fill_events"] = int(entry.get("partial_fill_events", 1 if entry.get("partial_taken") else 0)) + 1
         entry["partial_taken"] = True
         partial_increment = 1
         if isinstance(partial_ladder_plan, dict):
@@ -824,6 +854,11 @@ async def sell(
         entry["exit_reason"] = exit_reason or "partial_tp"
         _update_net_costs(entry, closing=False)
         _save()
+        try:
+            runner_forward.register_partial(entry, root=_research_root(), cfg=CFG)
+        except Exception as exc:
+            # A research failure cannot turn a completed fill into a failed sell.
+            log.warning("[runner_forward] enrollment unavailable: %s", type(exc).__name__)
         log.info(
             "📝 PAPER-PARTIAL %s…  qty=%d/%d  px=%.6f USD  src=%s  sig=%s  reason=%s",
             key[:4], take_qty, total_qty, price_now, price_src, sig, entry["exit_reason"]

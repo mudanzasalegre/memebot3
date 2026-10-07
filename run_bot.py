@@ -8181,6 +8181,12 @@ async def _check_positions(ses: SessionLocal) -> None:
                 pnl_pct = None
 
         if pnl_pct is not None:
+            if DRY_RUN:
+                try:
+                    from trader import papertrading
+                    papertrading.record_market_observation(mint_key, float(price), liq_now=liq_now)
+                except Exception as exc:
+                    log.warning("Runner market observation unavailable: %s", type(exc).__name__)
             try:
                 runner_turbo_monitor.observe_position(
                     pos.address,
@@ -9593,6 +9599,13 @@ async def main_loop() -> None:
             log.error("Check positions → %s", exc)
 
         # 4.5) Shadows (modo real o estrategia shadow en paper/live)
+        if DRY_RUN and bool(getattr(CFG, "PAPER_RUNNER_RESEARCH_ENABLED", False)):
+            try:
+                from research_loop import runner_forward
+                await runner_forward.tick(root=PROJECT_ROOT, cfg=CFG)
+            except Exception as exc:
+                log.warning("Runner forward research unavailable: %s", type(exc).__name__)
+
         if _shadow_positions or (not DRY_RUN and REAL_SHADOW_SIM):
             try:
                 await _tick_shadows()

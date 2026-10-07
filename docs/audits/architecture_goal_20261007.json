@@ -38,7 +38,8 @@
     "Enforce the requested exact 0.1 SOL contract across all paper lanes, quotes and risk handling; block incompatible orders rather than silently shrinking them and remove inert size experiments from automated research",
     "Remove invented offline candidate scores, separate percent points from dollars and gross from validated net PnL, preserve current-run identity and reject incomplete or nonfinite AutoResearch hard-gate evidence",
     "Fix first-launch paper imports without private wallet credentials, structural root discovery and safe DRY_RUN defaults; remove stale exit-regime configuration caching",
-    "Verify complete regression from both the working and publishing checkouts, including a publishing checkout without a personal .env, and pass local preflight plus UI build"
+    "Verify complete regression from both the working and publishing checkouts, including a publishing checkout without a personal .env, and pass local preflight plus UI build",
+    "Implement bounded paired prospective runner-exit research using exact entry/partial/exit quote accounting; consume checked selections only on new paper entries, reuse primary market/quote observations, preserve intent identity across awaits, and support checked rollback and expiry without touching live settings"
   ],
   "evidence": [
     "docs/audits/runner_learning_20261007.json",
@@ -57,15 +58,18 @@
     "tests/test_exact_paper_trade_size.py",
     "tests/test_research_performance_integrity.py",
     "tests/test_publishing_scope.py",
-    "docs/audits/publication_shutdown_20261007.json"
+    "docs/audits/publication_shutdown_20261007.json",
+    "docs/audits/paired_runner_forward_20261007.json",
+    "research_loop/runner_forward.py",
+    "tests/test_runner_forward.py"
   ],
-  "verification": {"pre_final_changes_full_pytest": "856 passed in 31.49s", "intermediate_suite": "876 passed, 1 failed: new advisory flags absent from local .env; corrected to match .env.example", "advisory_stage_suite": "884 passed in 35.90s", "previous_exit_stage_suite": "955 passed in 89.83s", "final_working_suite": "1031 passed in 78.41s", "final_publishing_suite": "1031 passed in 71.96s without personal .env", "publishing_preflight": "PASS", "publishing_ui_build": "PASS with bundle-size warning", "focused_runner_and_forward_suite": "147 passed in 59.65s", "command": ".venv/Scripts/python.exe -m pytest -q", "verification_scope": "Automated software, empty-data report builders, isolated historical advisory training and read-only SOL/USDC quote diagnostics; not prospective profitability, memecoin fills or live certification", "previous_shutdown_verified_at_utc": "2026-10-07T11:24:50.8739391Z", "previous_remaining_bot_processes": 0, "previous_bot_lock_present": false, "previous_sqlite_process_state": "stopped", "final_shutdown": "VERIFIED_OFF_2026-10-07T12:19:34Z", "current_shutdown_evidence": "docs/audits/publication_shutdown_20261007.json"},
+  "verification": {"pre_final_changes_full_pytest": "856 passed in 31.49s", "intermediate_suite": "876 passed, 1 failed: new advisory flags absent from local .env; corrected to match .env.example", "advisory_stage_suite": "884 passed in 35.90s", "previous_exit_stage_suite": "955 passed in 89.83s", "previous_sizing_working_suite": "1031 passed in 78.41s", "final_working_suite": "1068 passed in 67.18s", "previous_sizing_publishing_suite": "1031 passed in 71.96s without personal .env", "final_publishing_suite": "1068 passed in 62.78s without personal .env", "publishing_preflight": "PASS", "publishing_ui_build": "PASS with bundle-size warning", "focused_runner_and_forward_suite": "147 passed in 59.65s", "command": ".venv/Scripts/python.exe -m pytest -q", "verification_scope": "Automated software, empty-data report builders, isolated historical advisory training and read-only SOL/USDC quote diagnostics; not prospective profitability, memecoin fills or live certification", "previous_shutdown_verified_at_utc": "2026-10-07T11:24:50.8739391Z", "previous_remaining_bot_processes": 0, "previous_bot_lock_present": false, "previous_sqlite_process_state": "stopped", "final_shutdown": "VERIFIED_OFF_2026-10-07T13:05:40Z", "current_shutdown_evidence": "docs/audits/paired_runner_forward_20261007.json"},
   "isolated_advisory_result": {"source_period": "2026-07-13 through 2026-07-15", "settled_source_rows": 2147, "comparison_rows": 536, "selected_ranking_targets": ["runner_50", "runner_100"], "active_runtime_models_changed": false, "bot_started": false, "interpretation": "Useful historical ranking discrimination only; rare higher targets remain unvalidated and no costed future profits are established"},
   "remaining_required_work": [
     "Complete the architecture and evidence audit across ingestion, opportunity ranking, scheduling, execution, monitoring, exit paths and learned policy activation",
     "Complete uncertainty, rare-runner and risk/continuation model validation on fresh evidence; calibrated event probabilities are not financial profitability evidence",
     "Complete scanner/feed follow-up and first-launch execution constraints; exact 0.1 SOL paper sizing and frozen runner exits are integrated but trading-policy activation remains separate",
-    "Complete end-to-end AutoResearch trading-policy champion/challenger paper adaptation, costed objective comparability, cohort identity, fresh closed evidence and rollback; the advisory-ranking lifecycle alone does not satisfy this requirement",
+    "Complete generalized entry-policy/scanner AutoResearch champion/challenger transport and comparable prospective evaluation beyond the implemented advisory-ranking and runner-exit lifecycles; obtain fresh full-strategy closed evidence before a profitability claim",
     "Perform proportionate integration, first-launch and failure-path validation while keeping trading disabled",
     "Keep future implementation commits synchronized and leave all runtime services stopped after each verification stage"
   ],
