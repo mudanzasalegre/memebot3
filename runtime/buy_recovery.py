@@ -151,6 +151,14 @@ class BuyRecoveryStore:
         if (base.get("address") != row["address"] or base.get("dry_run") is not row["paper"]
                 or base.get("buy_amount_sol") != row["amount_sol"]):
             raise ValueError("Buy recovery base identity mismatch")
+        if "entry_features" in row:
+            from runtime.trade_learning import validate_entry_features, _time as feature_time
+            try:
+                validate_entry_features(row["entry_features"], address=row["address"])
+                if feature_time(row["entry_features"]["captured_at"]) != feature_time(row["created_at"]):
+                    raise ValueError("Frozen feature capture differs from pre-buy journal time")
+            except (RuntimeError, TypeError, KeyError, ValueError) as exc:
+                raise ValueError("Invalid pre-buy feature proof") from exc
         if row["state"] in {"fill_received", "position_prepared", "persisted"}:
             fill = row.get("fill")
             if (not isinstance(fill, Mapping) or type(fill.get("qty_lamports")) is not int
@@ -198,7 +206,8 @@ class BuyRecoveryStore:
     def pending_addresses(self) -> set[str]:
         return {row["address"] for key, row in self._records.items() if key not in self._active}
 
-    def begin(self, position: Position, *, paper: bool, amount_sol: float) -> BuyAttempt:
+    def begin(self, position: Position, *, paper: bool, amount_sol: float,
+              feature_vector=None, positive_pnl_ratio=0.) -> BuyAttempt:
         owned = self._scope.get()
         if owned is None:
             raise BuyRecoveryError("Buy requires an owned entry scope")
@@ -207,6 +216,10 @@ class BuyRecoveryStore:
         row = {"version": VERSION, "intent_id": uuid.uuid4().hex, "state": "prepared",
                "created_at": _now(), "paper": paper, "address": position.address,
                "amount_sol": amount_sol, "base_position": position_snapshot(position)}
+        if feature_vector is not None:
+            from runtime.trade_learning import freeze_entry_features
+            row["entry_features"] = freeze_entry_features(feature_vector, address=position.address,
+                captured_at=row["created_at"], positive_pnl_ratio=positive_pnl_ratio)
         if (self.directory / (row["intent_id"] + ".json")).exists() or (
                 self.directory / "resolved" / (row["intent_id"] + ".json")).exists():
             raise BuyRecoveryError("Buy intent identity already exists")

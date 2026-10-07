@@ -6771,7 +6771,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["exit_profile"] = token.get("runner_exit_profile")
     token["config_hash"] = _config_hash()
     pos = _build_entry_position(token, size_decision, addr=addr, amount_sol=amount_sol, proba=proba)
-    attempt = _BUY_RECOVERY.begin(pos, paper=bool(DRY_RUN), amount_sol=float(amount_sol))
+    attempt = _BUY_RECOVERY.begin(pos, paper=bool(DRY_RUN), amount_sol=float(amount_sol),
+        feature_vector=_entry_vector_for_close(vec, pos), positive_pnl_ratio=float(ML_POSITIVE_PNL_RATIO))
     if DRY_RUN:
         token["_actual_paper_buy_attempted"] = 1
         _stats["actual_paper_buy_attempts"] += 1
@@ -7945,30 +7946,22 @@ async def _prefetch_batch_prices(addrs: List[str]) -> Dict[str, float]:
 
 # ────────────────────────── Persistir label al cierre ───────────────────────
 def _persist_dataset_at_close(pos: Position, price_used: Optional[float]) -> None:
-    """Usa el vector T0 en memoria para persistir el label al cerrar la posición."""
+    """Export the original cost-checked paper close, not a SQL/spot estimate."""
+    if getattr(pos, "dry_run", False) is not True or getattr(pos, "closed", False) is not True:
+        return  # Live cash/finality reconciliation has a separate unverified contract.
     try:
-        vec = _pending_ai_vectors.pop(pos.address, None)
-        if vec is None:
+        from runtime.paper_archive import entry_identity
+        from runtime.trade_learning import prepare_close, _time as feature_time
+        identity = entry_identity({"source_position_key": getattr(pos, "source_position_key", None)})
+        if identity is None:
             return
-        vec = _entry_vector_for_close(vec, pos)
-        pnl_ratio = total_pnl_ratio_from_record(
-            pos,
-            close_price_usd=price_used if price_used is not None else getattr(pos, "close_price_usd", None),
-        )
-        label = 1 if pnl_ratio >= float(ML_POSITIVE_PNL_RATIO) else 0
-        store_append(
-            vec,
-            label,
-            target_total_pnl_pct=float(pnl_ratio * 100.0),
-            sample_type="trade_close",
-            outcome_targets={
-                "max_pnl_pct_seen": getattr(pos, "max_pnl_pct_seen", None),
-                "outcome_closed_at": getattr(pos, "closed_at", None) or dt.datetime.now(dt.timezone.utc),
-            },
-        )
-        _stats["appended_at_close"] += 1
+        source = prepare_close(identity, root=PROJECT_ROOT)
+        vec = _pending_ai_vectors.get(pos.address)
+        payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec or {})
+        if payload.get("timestamp") is not None and feature_time(payload["timestamp"]) == feature_time(source["entry_features"]["vector"]["timestamp"]):
+            _pending_ai_vectors.pop(pos.address, None)
     except Exception as exc:
-        log.debug("persist_dataset_at_close %s → %s", pos.address[:6], exc)
+        log.warning("Costed close dataset remains pending %s: %s", pos.address[:6], type(exc).__name__)
 
 
 # ────────────────────────── Monitor de posiciones ───────────────────────────
@@ -9843,6 +9836,15 @@ async def _runner() -> None:
             ("control-commands", control_command_loop()),
             ("runtime-state", runtime_state_loop()),
         ]
+        if DRY_RUN:
+            from runtime.trade_learning import run_export_loop
+            def exported(result):
+                _stats["appended_at_close"] += result.get("written", 0)
+                if result["failed"]:
+                    log.warning("Costed trade learning export remains pending (%d errors)", result["failed"])
+            tasks.append(("costed-trade-export", run_export_loop(ready=positions_ready, root=PROJECT_ROOT,
+                cfg=CFG, on_result=exported,
+                on_error=lambda exc: log.warning("Costed trade export unavailable: %s", type(exc).__name__))))
         if bool(getattr(CFG, "ML_RETRAIN_IN_MAIN_LOOP", False)):
             tasks.append(("retrain", retrain_loop()))
         else:

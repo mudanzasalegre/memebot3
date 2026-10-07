@@ -54,7 +54,8 @@ log = logging.getLogger("features")
 DATA_DIR: Path = CFG.FEATURES_DIR
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-_OUTCOME_COLS = ["max_pnl_pct_seen", "outcome_closed_at"]
+_OUTCOME_COLS = ["max_pnl_pct_seen", "outcome_closed_at", "outcome_trade_id", "outcome_source_sha256",
+                 "outcome_return_basis", "outcome_gross_pnl_pct", "outcome_execution_proof"]
 _PARQUET_COLS = _FEAT_COLS + ["label", "target_total_pnl_pct", "sample_type", "ts"] + _OUTCOME_COLS
 
 # —— esquema fijo ——————————————————————————————
@@ -153,6 +154,11 @@ _COL_TYPES = OrderedDict(
         ("ts", pa.timestamp("us")),
         ("max_pnl_pct_seen", pa.float64()),
         ("outcome_closed_at", pa.timestamp("us")),
+        ("outcome_trade_id", pa.string()),
+        ("outcome_source_sha256", pa.string()),
+        ("outcome_return_basis", pa.string()),
+        ("outcome_gross_pnl_pct", pa.float64()),
+        ("outcome_execution_proof", pa.string()),
     ]
 )
 
@@ -288,6 +294,8 @@ def _atomic_write_table(table: pa.Table, path: Path) -> None:
             compression="snappy",
             use_deprecated_int96_timestamps=False,
         )
+        with tmp_path.open("r+b") as durable:
+            os.fsync(durable.fileno())
         _replace_with_retry(tmp_path, path)
     finally:
         try:
@@ -296,29 +304,47 @@ def _atomic_write_table(table: pa.Table, path: Path) -> None:
             pass
 
 # ───────────────────── low-level IO ───────────────────────────
-def _write(table: pa.Table, path: Path) -> None:
+def _write(table: pa.Table, path: Path) -> bool:
     table = _enforce_schema(table)
 
     with _exclusive_parquet_lock(path):
         if path.exists():
             existing = _enforce_schema(pq.read_table(path))
+            incoming = table.column("outcome_trade_id").to_pylist()
+            if any(incoming):
+                if table.num_rows != 1 or not incoming[0]:
+                    raise ValueError("Costed close export requires one causal row")
+                matching = [index for index, identity in enumerate(existing.column("outcome_trade_id").to_pylist())
+                            if identity == incoming[0]]
+                if matching:
+                    if len(matching) != 1:
+                        raise ValueError("Duplicate causal close rows already exist")
+                    prior, current = existing.slice(matching[0], 1).to_pylist()[0], table.to_pylist()[0]
+                    # Availability time differs on a retry; every original feature,
+                    # result and proof must remain identical after schema casting.
+                    if any(prior[key] != current[key] for key in _PARQUET_COLS if key != "ts"):
+                        raise ValueError("Conflicting causal close export")
+                    return False
             table = pa.concat_tables(
                 [existing, table],
                 promote_options="default",  # sin FutureWarning desde pyarrow 20
             )
 
         _atomic_write_table(table, path)
+        return True
 
 
 # ───────────────────── API pública ─────────────────────────────
 def append(
     vec: Mapping[str, object] | pd.Series,
-    label: int,
+    label: int | None,
     *,
     target_total_pnl_pct: float | None = None,
     sample_type: str | None = None,
     outcome_targets: Mapping[str, object] | None = None,
-) -> None:
+    strict: bool = False,
+    partition_at: dt.datetime | None = None,
+) -> bool:
     """
     Añade una fila al Parquet mensual y muestra el total cada 100 filas.
     - No rellena con 0: usa None para preservar la semántica de 'dato ausente'.
@@ -338,7 +364,7 @@ def append(
     row["dex_id"] = normalize_dex_id(row.get("dex_id"))
     row["price_source"] = normalize_price_source(row.get("price_source"))
 
-    row["label"] = int(label)
+    row["label"] = int(label) if label is not None else None
     row["target_total_pnl_pct"] = _normalize_scalar(target_total_pnl_pct)
     row["sample_type"] = normalize_sample_type(sample_type)
     row["ts"] = dt.datetime.now(dt.timezone.utc)
@@ -353,12 +379,18 @@ def append(
     pa_table = pa.Table.from_pydict({k: [v] for k, v in row.items()})
 
     try:
-        _write(pa_table, _file_for_now())
+        written = _write(pa_table, _file_for_now(partition_at))
+        if not written:
+            return False
         _ROW_COUNT += 1
         if _ROW_COUNT % 100 == 0:
             log.info("Features acumuladas: %s", _ROW_COUNT)
+        return True
     except Exception as exc:  # noqa: BLE001
         log.error("Parquet append error → %s", exc)
+        if strict:
+            raise
+        return False
 
 
 def update_pnl(address: str, pnl_pct: float) -> None:
@@ -376,6 +408,8 @@ def update_pnl(address: str, pnl_pct: float) -> None:
             if not idxs:
                 return
             last = idxs[-1]
+            if "outcome_trade_id" in table.schema.names and table.column("outcome_trade_id")[last].as_py():
+                raise ValueError("Legacy token-wide PnL update cannot overwrite a checked causal close")
 
             for col in ("pnl_pct", "target_total_pnl_pct"):
                 if col not in table.schema.names:

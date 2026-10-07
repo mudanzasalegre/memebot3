@@ -479,6 +479,7 @@ def execution_tail_namespace(tmp_path, store, paper):
     from analytics import runner_ladder
     tree = ast.parse(Path("run_bot.py").read_text(encoding="utf-8"))
     builder = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_build_entry_position")
+    feature_context = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_entry_vector_for_close")
     entry = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef) and node.name == "_evaluate_and_buy")
     begin = next(index for index, node in enumerate(entry.body) if isinstance(node, ast.Assign)
         and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name)
@@ -500,8 +501,10 @@ def execution_tail_namespace(tmp_path, store, paper):
         "_record_paper_bootstrap_event": lambda *a, **k: None, "strategy_runtime": SimpleNamespace(record_execution=lambda *a: None),
         "log_execution_event": lambda *a, **k: None, "_research_decision": lambda *a, **k: None,
         "_note_runtime_error": lambda *a: None, "_pending_ai_vectors": {}, "_remove_from_queue_if_present": lambda *a: None,
-        "log": SimpleNamespace(error=lambda *a: None), "ai_threshold_eff": .5, "rank_info": {}}
-    exec(compile(ast.fix_missing_locations(ast.Module(body=[builder, tail], type_ignores=[])), "run_bot.py", "exec"), namespace)
+        "log": SimpleNamespace(error=lambda *a: None), "ai_threshold_eff": .5, "rank_info": {},
+        "vec": {"address": MINT, "timestamp": STAMP - dt.timedelta(seconds=1), "score_total": 70},
+        "ML_POSITIVE_PNL_RATIO": .1}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[builder, feature_context, tail], type_ignores=[])), "run_bot.py", "exec"), namespace)
     return namespace
 
 

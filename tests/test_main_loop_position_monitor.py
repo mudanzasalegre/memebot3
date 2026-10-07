@@ -281,14 +281,20 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
     task = asyncio.create_task(background())
     async def stop_social(): cleaned.add("social")
     async def stop_research(): cleaned.add("research")
+    from runtime import trade_learning
+    async def export_loop(**kwargs):
+        await kwargs["ready"].wait()
+        await loop("trade_export")
+    monkeypatch.setattr(trade_learning, "run_export_loop", export_loop)
     monkeypatch.setattr(socials, "stop_background_tasks", stop_social)
     monkeypatch.setattr(research, "stop_background_tasks", stop_research)
     async def publish():
         assert namespace["_runtime_process_state"] == "stopped"
-        assert cleaned == {"recovery", "archive_recovery", "main", "monitor", "labeler", "state", "background", "social", "research"}
+        assert cleaned == {"recovery", "archive_recovery", "main", "monitor", "labeler", "state", "background", "social", "research", "trade_export"}
         published.append(True)
     namespace = {"asyncio": asyncio, "CFG": SimpleNamespace(ML_RETRAIN_IN_MAIN_LOOP=False),
-        "DRY_RUN": True, "_repair_paper_archive_evidence": archive_recovery,
+        "DRY_RUN": True, "_repair_paper_archive_evidence": archive_recovery, "PROJECT_ROOT": tmp_path,
+        "_stats": {"appended_at_close": 0},
         "async_init_db": init, "SessionLocal": RecoverySession, "_recover_close_persistence_outbox": recovery,
         "_recover_buy_persistence_outbox": buy_recovery,
         "main_loop": main, "_position_monitor_loop": monitor, "_periodic_labeler": lambda: loop("labeler"),

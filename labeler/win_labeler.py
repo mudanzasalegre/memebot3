@@ -2,26 +2,25 @@
 import asyncio
 import datetime as dt
 import logging
-from decimal import Decimal
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from utils.time import utc_now
-from trade_pnl import total_pnl_ratio_from_record
 from db.database import async_init_db, SessionLocal, DB_PATH  # usa el mismo engine
-from config.config import ML_POSITIVE_PNL_RATIO, MAX_HOLDING_H, LABEL_GRACE_H
+from config.config import MAX_HOLDING_H, LABEL_GRACE_H, PROJECT_ROOT
+from runtime.trade_learning import checked_position_outcome
 
 log = logging.getLogger("labeler")
 
 # --- parámetros de negocio ----------------------------
-WIN_THRESH = Decimal(str(ML_POSITIVE_PNL_RATIO))  # ratio positivo mínimo para outcome=win
+# Positive threshold is frozen in each checked pre-buy feature source.
 MAX_H_HOLD = dt.timedelta(hours=MAX_HOLDING_H)
 GRACE = dt.timedelta(hours=LABEL_GRACE_H)  # ej.: 2 h tras cierre
 
 
 async def label_positions() -> None:
-    """Aplica 'win' / 'fail' / 'fail_timeout' a posiciones ya cerradas o caducadas."""
+    """Label only checked terminal estimated-net paper outcomes; unknown stays unknown."""
     from db.models import Position  # import perezoso
     now = utc_now()
 
@@ -29,23 +28,31 @@ async def label_positions() -> None:
         # 1) cerradas sin outcome pasado el grace-period
         q = sa.select(Position).where(
             Position.outcome.is_(None),
+            Position.closed.is_(True),
+            Position.qty == 0,
             Position.closed_at.is_not(None),
             Position.closed_at < now - GRACE,
         )
         res = await s.execute(q)
         for pos in res.scalars():
-            pnl_ratio = Decimal(str(total_pnl_ratio_from_record(pos)))
-            pos.outcome = "win" if pnl_ratio >= WIN_THRESH else "fail"
+            try:
+                outcome = checked_position_outcome(pos, root=PROJECT_ROOT)
+            except (OSError, ValueError, TypeError, KeyError, AttributeError, RuntimeError) as exc:
+                log.warning("[labeler] Financial outcome remains unknown %s: %s", pos.address[:6], type(exc).__name__)
+                continue
+            if outcome is not None:
+                pos.outcome = outcome
 
-        # 2) abiertas demasiado tiempo → fail_timeout
+        # A holding deadline is operational state, not a realized loss.
         q_open = sa.select(Position).where(
             Position.outcome.is_(None),
             Position.closed_at.is_(None),
             Position.opened_at < now - MAX_H_HOLD,
         )
         res2 = await s.execute(q_open)
-        for pos in res2.scalars():
-            pos.outcome = "fail_timeout"
+        overdue = len(list(res2.scalars()))
+        if overdue:
+            log.warning("[labeler] %d open positions exceed the holding deadline; no realized labels assigned", overdue)
 
         await s.commit()
 

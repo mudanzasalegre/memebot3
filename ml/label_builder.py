@@ -45,6 +45,8 @@ def _text_any(frame: pd.DataFrame, *columns: str) -> pd.Series:
 
 
 def build_labels(frame: pd.DataFrame, *, capture_factor: float = 0.35) -> pd.DataFrame:
+    from ml.financial_targets import apply_checked_net_returns
+    frame = apply_checked_net_returns(frame)
     realized = _num(frame, "realized_pnl_pct", "total_pnl_pct", "pnl_pct", "target_total_pnl_pct")
     peak = _num(frame, "max_pnl_seen", "max_pnl_pct_seen", "peak_pnl_pct", "max_pnl_pct")
     seen_1m = _num(frame, "max_pnl_after_seen_1m", "continuation_peak_after_seen_1m").fillna(np.nan)
@@ -100,6 +102,8 @@ def build_labels(frame: pd.DataFrame, *, capture_factor: float = 0.35) -> pd.Dat
 
 
 def attach_labels(frame: pd.DataFrame, *, capture_factor: float = 0.35) -> pd.DataFrame:
+    from ml.financial_targets import apply_checked_net_returns
+    frame = apply_checked_net_returns(frame)
     labels = build_labels(frame, capture_factor=capture_factor)
     out = frame.copy()
     for column in labels.columns:

@@ -299,6 +299,8 @@ def _load_dataset() -> pd.DataFrame:
 
     if "label" not in df.columns:
         raise ValueError("El dataset no contiene la columna 'label'")
+    from ml.financial_targets import apply_checked_net_returns
+    df = apply_checked_net_returns(df)
     df = df.dropna(subset=["label"]).copy()
     df["label"] = pd.to_numeric(df["label"], errors="coerce")
     df = df.dropna(subset=["label"]).copy()
@@ -635,6 +637,8 @@ def _filter_outcome_training_rows(
     dex_allowlist: Any | None = None,
     allow_missing_entry_lane: bool | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
+    from ml.financial_targets import apply_checked_net_returns, declared_financial_rows
+    df = apply_checked_net_returns(df)
     sample_type = _sample_type_series(df)
     return_col = _resolve_return_col(df)
     if return_col:
@@ -651,7 +655,10 @@ def _filter_outcome_training_rows(
         allow_missing_entry_lane=allow_missing_entry_lane,
     )
     dex_mask, dex_meta = _productive_dex_mask(df, dex_allowlist=dex_allowlist)
-    eligible_mask = (allowed_mask | legacy_outcome_mask) & regime_mask & lane_mask & dex_mask
+    # Declared net contracts must have revalidated proof. Legacy/shadow rows
+    # remain historical diagnostics, not newly asserted costed profit evidence.
+    financial_mask = ~declared_financial_rows(df) | realized_mask
+    eligible_mask = (allowed_mask | legacy_outcome_mask) & regime_mask & lane_mask & dex_mask & financial_mask
 
     counts_raw = sample_type.fillna("<NA>").value_counts(dropna=False)
     sample_type_counts = {str(idx): int(count) for idx, count in counts_raw.items()}

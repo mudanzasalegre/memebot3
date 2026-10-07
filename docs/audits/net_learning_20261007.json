@@ -1,0 +1,58 @@
+{
+  "stage": "Frozen entry features, checked terminal net targets and recoverable trade learning export",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "requested_trade_size_sol": 0.1,
+  "runtime_requirement": "Both checkout runtimes remain OFF. All fills, SQL mutations, files and failure scenarios exercised in this stage are isolated synthetic tests. No runtime model training or activation, wallet submission or new bot run is authorized.",
+  "findings": [
+    "The actual close dataset writer previously popped its in-memory T0 vector before persistence and used gross SQL/spot PnL for a financial label. The generic Parquet append logged errors without propagating them, allowing an apparent successful close export despite lost training data",
+    "A process restart discarded the T0 vector and the old mint-only memory key could collide with a later entry of the same token. Retrying an ordinary append after a lost write response could duplicate a training row",
+    "The periodic SQL outcome labeler classified closed positions from gross PnL and assigned fail_timeout to still-open positions, treating a holding deadline as an observed financial loss"
+  ],
+  "implemented": {
+    "t0_capture": "The actual existing pre-buy journal now freezes a detached checksummed whitelist of entry features and the positive-label threshold before the buyer call. Missing numeric observations stay missing; arbitrary provider/private fields are excluded. Journal reads validate identity, capture time and the original feature checksum",
+    "financial_authority": "The exporter joins the checked causal entry UUID to its acknowledged pre-buy journal and original canonical paper archive or matching primary terminal portfolio snapshot. It checks the original entry quantity, buy signature, mint, run, notional, exact 0.1 SOL quote, native raw quantities, frozen estimated costs and all unique exit receipt quantities/signatures/times. Receipt-derived gross proceeds must reconcile and the estimated-net cash identities must pass. SQL spot values and observed peaks do not supply the financial return",
+    "durable_learning_source": "A checksummed immutable secondary source in data/learning/trade_closes/<entry UUID>.json retains the original T0 feature proof and terminal financial proof. Missing original features, conflicting snapshots, corrupt sources, future closes or incomplete financial evidence stay pending or unknown. Historical T0 data and fees are never reconstructed from later prices or a new same-mint entry",
+    "idempotent_export": "The original close month selects the Parquet partition. Under the existing cross-process lock, the causal outcome ID and complete schema-cast row excluding retry availability time detect exact replays, duplicate records and conflicts. Strict appends surface failures; atomic Parquet publication fsyncs the Windows-compatible writable temporary descriptor. Lost post-write responses can be retried without another training row",
+    "independent_worker": "The close hook persists only the small learning source, leaving large Parquet work to one paper-only supervised filesystem worker. It waits for startup readiness, rotates at most eight unique export attempts per call and sleeps 30 seconds between serial passes. Slow export I/O does not block the event loop or position-monitor tick. Cancellation drains the owned thread job before stopped runtime state is published",
+    "model_read_contract": "New declared financial rows carry return basis, causal outcome ID, source checksum, estimated gross diagnostic return and a serialized execution proof in outcome-only columns. The entry-model loader and family label builder revalidate the new net contract and original entry/close timestamps. Bad declared proof becomes unknown rather than falling through to an available gross column; outcome-only metadata is not an entry feature",
+    "periodic_labeler": "Only checked terminal estimated-net paper sources can assign new win/fail SQL outcomes, using the original frozen threshold. Live, legacy costless, open or unavailable-source results stay unknown. Exceeding a holding deadline no longer fabricates fail_timeout financial labels",
+    "legacy_boundary": "Legacy gross and shadow rows are retained as existing historical diagnostics, not rewritten as costed net evidence. Existing runtime model artifacts remain untouched. A complete net-only financial model acceptance/activation contract over mixed historical datasets still requires further work",
+    "preserved": "Exact 0.1 SOL sizing, immutable original entry/exit policies, no fixed percentage upside ceiling, current buy/sell safety gates, original archives and the requirement to keep services OFF"
+  },
+  "verification": {
+    "status": "SOFTWARE_VALIDATED_OFF_NO_PROFITABILITY_CLAIM",
+    "new_trade_learning_cases": 40,
+    "final_focused_suite": "120 passed in 10.50s: trade learning, actual buy recovery, independent monitor/shutdown and atomic feature store",
+    "earlier_focused_integration": "197 passed in 16.95s before the final periodic-labeler and additional original-source scenarios",
+    "full_working_checkout": "1457 passed in 164.35s",
+    "full_publishing_checkout": "1457 passed in 152.66s without personal .env or local .venv, using the existing working-checkout Python runtime",
+    "preflight_both": {"ok": true, "compile_errors": 0, "configuration_import_returncode": 0, "paper_profile_ok": true, "empty_data_report_builders": 7, "all_report_builders_ok": true},
+    "repaired_during_validation": "The first focused pass exposed Windows fsync on a read-only descriptor and newly required actual-entry AST fixture context; the descriptor is now writable and the isolated fixture executes the actual feature-context helper. An async test fixture was also explicitly declared for strict pytest-asyncio. Final full regressions include these repairs",
+    "source_sync": {"reviewed_implementation_and_test_files": 11, "updates": 8, "adds": 3, "deleted": 0, "plan_sha256": "b1bccf6763d4badbaabdc1acebf91f9c7f3518ca436efa8c816675ab74e30e82", "personal_env_data_logs_models_excluded": true},
+    "scope": "Actual paper fills, journal capture, canonical source recovery, net and positive labels, conflicting SQL/spot values, extreme observed peaks separated from net loss, two same-mint causal closes, lost responses, corrupt/missing source and Parquet cells, SQLite periodic labeling, duplicate DataFrame indexes, worker readiness/off-thread operation and shutdown drain. This is software correctness evidence, not costed prospective profitability"
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "runtime_model_training_started": false,
+    "shutdown_verified_at_utc": "2026-10-07T20:40:46.7925135Z",
+    "remaining_bot_processes_both_checkouts": 0,
+    "root_and_data_bot_locks_both_checkouts": false,
+    "real_learning_sources_buy_sell_journals_and_closed_archive_cells_created": 0,
+    "real_runner_sources_receipts_cases_and_active_policies_created": 0,
+    "runtime_model_artifacts_changed_since_200523_utc": 0,
+    "runtime_feature_files_changed_since_200523_utc": 0,
+    "sqlite_state": {"bot_id": "main", "process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"},
+    "stop_stack": {"completed_at_utc": "2026-10-07T20:40:16Z", "requested_by": "user", "killed": 0, "remaining": 0, "runtime_finalizer": "ok"}
+  },
+  "remaining_full_goal_requirements": [
+    "Complete full-strategy forward-source integrity and a checked net-only financial model acceptance/activation contract over mixed historical datasets; retaining gross legacy diagnostics is not a financial certification",
+    "Complete remaining research/export and original-feature/peak consumer error paths, including source completeness outside this new managed paper-trade export",
+    "Complete fallback provider price/liquidity freshness, still-cached scanner/core-entry consumers, feed/opportunity follow-up and full-strategy capital/admission constraints",
+    "Independently reconcile real wallet balances, signatures, actual quantities/proceeds and chain finality before any live fill or safe retry can be certified",
+    "Validate rare-runner models and the complete strategy on separately authorized fresh, complete and costed closed evidence before claiming profitability",
+    "Keep further reviewed implementation synchronized and all runtime services OFF"
+  ],
+  "evidence": ["runtime/trade_learning.py", "runtime/buy_recovery.py", "features/store.py", "ml/financial_targets.py", "ml/label_builder.py", "ml/train.py", "labeler/win_labeler.py", "run_bot.py", "tests/test_trade_learning.py", "tests/test_buy_recovery.py", "tests/test_main_loop_position_monitor.py", "tests/test_feature_store_atomic.py"]
+}
