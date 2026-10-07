@@ -6994,10 +6994,18 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 async def _evaluate_and_buy_guarded(token: dict, ses: SessionLocal, *, source: str) -> None:
     addr = str((token or {}).get("address") or "???")
     try:
-        if EVALUATE_TOKEN_TIMEOUT_S > 0:
-            await asyncio.wait_for(_evaluate_and_buy(token, ses), timeout=EVALUATE_TOKEN_TIMEOUT_S)
-        else:
-            await _evaluate_and_buy(token, ses)
+        from research_loop.entry_gate_policy import selected_scope
+        from runtime.paper_entry_policy import snapshot
+        # One immutable, verified paper snapshot for this entire async decision.
+        # No global mutation: simultaneous evaluations and the exit monitor are isolated.
+        with selected_scope(CFG, root=PROJECT_ROOT):
+            token.pop("paper_entry_policy", None)
+            if (selected := snapshot()) is not None:
+                token["paper_entry_policy"] = selected
+            if EVALUATE_TOKEN_TIMEOUT_S > 0:
+                await asyncio.wait_for(_evaluate_and_buy(token, ses), timeout=EVALUATE_TOKEN_TIMEOUT_S)
+            else:
+                await _evaluate_and_buy(token, ses)
     except asyncio.TimeoutError:
         _note_runtime_error(f"eval_timeout:{source}[{addr[:8]}]", f">{EVALUATE_TOKEN_TIMEOUT_S:.0f}s")
         log.error("Eval %s %s timeout >%.0fs", source, addr[:6], EVALUATE_TOKEN_TIMEOUT_S)
@@ -7696,6 +7704,9 @@ def _config_hash() -> str:
         "green_min_price5m": float(getattr(CFG, "GREEN_SNIPER_MIN_PRICE_PCT_5M", 20.0) or 20.0),
         "green_max_price5m": float(getattr(CFG, "GREEN_SNIPER_MAX_PRICE_PCT_5M", 280.0) or 280.0),
     }
+    from runtime.paper_entry_policy import snapshot
+    if (selected := snapshot()) is not None:
+        payload["paper_entry_policy"] = selected
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 

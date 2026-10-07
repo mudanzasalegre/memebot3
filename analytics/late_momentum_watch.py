@@ -5,6 +5,7 @@ from typing import Any
 
 from analytics.liquidity_risk import evaluate_liquidity_risk
 from config.config import CFG
+from runtime.paper_entry_policy import entry_config
 from ml.lane_taxonomy import LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH
 
 
@@ -43,10 +44,12 @@ class LateMomentumDecision:
     route_proxy: bool = False
 
 
-def evaluate_late_momentum_watch(token: dict[str, Any], *, dry_run: bool, live: bool) -> LateMomentumDecision:
-    if not bool(getattr(CFG, "LATE_MOMENTUM_WATCH_ENABLED", True)):
+def evaluate_late_momentum_watch(token: dict[str, Any], *, dry_run: bool, live: bool,
+                                 cfg: Any = None) -> LateMomentumDecision:
+    cfg = entry_config(CFG if cfg is None else cfg, dry_run=dry_run, live=live)
+    if not bool(getattr(cfg, "LATE_MOMENTUM_WATCH_ENABLED", True)):
         return LateMomentumDecision("reject", LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, "disabled", 0.0, ("disabled",))
-    if not bool(getattr(CFG, "LATE_MOMENTUM_WATCH_RESEARCH_ENABLED", True)):
+    if not bool(getattr(cfg, "LATE_MOMENTUM_WATCH_RESEARCH_ENABLED", True)):
         return LateMomentumDecision(
             "reject",
             LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
@@ -65,16 +68,16 @@ def evaluate_late_momentum_watch(token: dict[str, Any], *, dry_run: bool, live: 
     route = _bool(token.get("has_jupiter_route"))
     proxy = _bool(token.get("liquidity_is_proxy") or token.get("liquidity_usd_is_proxy"))
 
-    min_price = _float(getattr(CFG, "LATE_MOMENTUM_WATCH_MIN_PRICE5M", 300.0), 300.0)
-    max_price = _float(getattr(CFG, "LATE_MOMENTUM_WATCH_MAX_PRICE5M", 750.0), 750.0)
-    min_rank = _float(getattr(CFG, "LATE_MOMENTUM_WATCH_MIN_RANK_SCORE", 55.0), 55.0)
-    min_txns = _float(getattr(CFG, "LATE_MOMENTUM_WATCH_MIN_TXNS_5M", 300), 300.0)
-    min_liq = _float(getattr(CFG, "LATE_MOMENTUM_WATCH_MIN_LIQUIDITY_USD", 2000.0), 2000.0)
-    max_impact = _float(getattr(CFG, "LATE_MOMENTUM_WATCH_MAX_PRICE_IMPACT_PCT", 12.0), 12.0)
-    allow_rank_missing_paper = bool(getattr(CFG, "LATE_MOMENTUM_WATCH_ALLOW_RANK_MISSING_PAPER", True))
-    require_route_paper = bool(getattr(CFG, "LATE_MOMENTUM_WATCH_REQUIRE_ROUTE_PAPER", False))
-    require_route_live = bool(getattr(CFG, "LATE_MOMENTUM_WATCH_REQUIRE_ROUTE_LIVE", True))
-    tag_paper_route_proxy = bool(getattr(CFG, "LATE_MOMENTUM_WATCH_PAPER_ROUTE_PROXY_TAG", True))
+    min_price = _float(getattr(cfg, "LATE_MOMENTUM_WATCH_MIN_PRICE5M", 300.0), 300.0)
+    max_price = _float(getattr(cfg, "LATE_MOMENTUM_WATCH_MAX_PRICE5M", 750.0), 750.0)
+    min_rank = _float(getattr(cfg, "LATE_MOMENTUM_WATCH_MIN_RANK_SCORE", 55.0), 55.0)
+    min_txns = _float(getattr(cfg, "LATE_MOMENTUM_WATCH_MIN_TXNS_5M", 300), 300.0)
+    min_liq = _float(getattr(cfg, "LATE_MOMENTUM_WATCH_MIN_LIQUIDITY_USD", 2000.0), 2000.0)
+    max_impact = _float(getattr(cfg, "LATE_MOMENTUM_WATCH_MAX_PRICE_IMPACT_PCT", 12.0), 12.0)
+    allow_rank_missing_paper = bool(getattr(cfg, "LATE_MOMENTUM_WATCH_ALLOW_RANK_MISSING_PAPER", True))
+    require_route_paper = bool(getattr(cfg, "LATE_MOMENTUM_WATCH_REQUIRE_ROUTE_PAPER", False))
+    require_route_live = bool(getattr(cfg, "LATE_MOMENTUM_WATCH_REQUIRE_ROUTE_LIVE", True))
+    tag_paper_route_proxy = bool(getattr(cfg, "LATE_MOMENTUM_WATCH_PAPER_ROUTE_PROXY_TAG", True))
     route_proxy = bool(dry_run and not live and not route and not require_route_paper and tag_paper_route_proxy)
 
     failures: list[str] = []
@@ -101,7 +104,7 @@ def evaluate_late_momentum_watch(token: dict[str, Any], *, dry_run: bool, live: 
     if rank < min_rank and not (dry_run and allow_rank_missing_paper and rank < 0):
         failures.append("rank_below_min")
     liq_decision = evaluate_liquidity_risk(token, live=live)
-    if bool(getattr(CFG, "GREEN_SNIPER_LIQ_GUARD_ENABLED", True)) and liq_decision.risk_level in {"high", "lethal"}:
+    if bool(getattr(cfg, "GREEN_SNIPER_LIQ_GUARD_ENABLED", True)) and liq_decision.risk_level in {"high", "lethal"}:
         failures.extend(f"liquidity_risk:{reason}" for reason in liq_decision.reasons)
 
     score = 0.0
@@ -115,10 +118,10 @@ def evaluate_late_momentum_watch(token: dict[str, Any], *, dry_run: bool, live: 
 
     if failures:
         return LateMomentumDecision("shadow", LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, ",".join(failures[:8]), round(max(score, 0.0), 3), tuple(failures), route_proxy)
-    if live and not bool(getattr(CFG, "LATE_MOMENTUM_WATCH_LIVE_ENABLED", False)):
+    if live and not bool(getattr(cfg, "LATE_MOMENTUM_WATCH_LIVE_ENABLED", False)):
         return LateMomentumDecision("shadow", LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, "live_disabled", round(score, 3), ("live_disabled",), route_proxy)
-    buy_enabled = bool(getattr(CFG, "LATE_MOMENTUM_WATCH_BUY_ENABLED", False))
-    if dry_run and buy_enabled and bool(getattr(CFG, "LATE_MOMENTUM_WATCH_PAPER_CANARY_ENABLED", False)):
+    buy_enabled = bool(getattr(cfg, "LATE_MOMENTUM_WATCH_BUY_ENABLED", False))
+    if dry_run and buy_enabled and bool(getattr(cfg, "LATE_MOMENTUM_WATCH_PAPER_CANARY_ENABLED", False)):
         return LateMomentumDecision("buy", LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, "late_momentum_canary", round(score, 3), (), route_proxy)
     reason = "research_only" if dry_run and not buy_enabled else "watch_only"
     return LateMomentumDecision("shadow", LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, reason, round(score, 3), (reason,), route_proxy)

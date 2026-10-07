@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from config.config import CFG, PROJECT_ROOT
+from runtime.paper_entry_policy import entry_config
 from analytics.current_run import current_run_identity, filter_current_run_rows
 from analytics.lane_policy_categories import POLICY_RESEARCH_RANK_CANARY
 from analytics.report_utils import (
@@ -309,13 +310,16 @@ def evaluate_research_rank_canary(
     *,
     dry_run: bool,
     live: bool,
+    cfg: Any = None,
+    record_audit: bool = True,
 ) -> ResearchRankCanaryDecision:
+    cfg = entry_config(CFG if cfg is None else cfg, dry_run=dry_run, live=live)
     min_score_raw, min_score, min_score_scale = normalize_score(
-        getattr(CFG, "RESEARCH_RANK_CANARY_MIN_SCORE", 64.81),
+        getattr(cfg, "RESEARCH_RANK_CANARY_MIN_SCORE", 64.81),
         64.81,
     )
-    amount = _float(getattr(CFG, "RESEARCH_RANK_CANARY_SIZE_SOL", 0.005), 0.005)
-    max_amount = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_SIZE_SOL", 0.03), 0.03)
+    amount = _float(getattr(cfg, "RESEARCH_RANK_CANARY_SIZE_SOL", 0.005), 0.005)
+    max_amount = _float(getattr(cfg, "RESEARCH_RANK_CANARY_MAX_SIZE_SOL", 0.03), 0.03)
     if max_amount > 0.0:
         amount = min(amount, max_amount)
     amount = max(0.0, amount)
@@ -357,12 +361,13 @@ def evaluate_research_rank_canary(
             elite_consolidation,
             pullback_tail_micro,
         )
-        _record_audit(token, out, dry_run=dry_run, live=live)
-        _record_event(token, out, dry_run=dry_run, live=live)
+        if record_audit:
+            _record_audit(token, out, dry_run=dry_run, live=live)
+            _record_event(token, out, dry_run=dry_run, live=live)
         return out
 
     def not_executable(reason: str) -> ResearchRankCanaryDecision:
-        if bool(getattr(CFG, "RESEARCH_RANK_CANARY_SHADOW_IF_NOT_EXECUTABLE", True)):
+        if bool(getattr(cfg, "RESEARCH_RANK_CANARY_SHADOW_IF_NOT_EXECUTABLE", True)):
             return decision(
                 False,
                 f"research_rank_canary_not_executable:{reason}",
@@ -371,13 +376,13 @@ def evaluate_research_rank_canary(
             )
         return decision(False, reason, executable=False)
 
-    if not bool(getattr(CFG, "RESEARCH_RANK_CANARY_ENABLED", True)):
+    if not bool(getattr(cfg, "RESEARCH_RANK_CANARY_ENABLED", True)):
         return decision(False, "disabled")
     if normalize_entry_lane(token.get("entry_lane")) != LANE_RESEARCH_SNIPER:
         return decision(False, "not_research_sniper")
-    if live and not bool(getattr(CFG, "RESEARCH_RANK_CANARY_LIVE_ENABLED", False)):
+    if live and not bool(getattr(cfg, "RESEARCH_RANK_CANARY_LIVE_ENABLED", False)):
         return decision(False, "live_disabled")
-    if dry_run and not bool(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_ENABLED", True)):
+    if dry_run and not bool(getattr(cfg, "RESEARCH_RANK_CANARY_PAPER_ENABLED", True)):
         return decision(False, "paper_disabled")
     if _toxic_initial_sell_pressure(token):
         return decision(False, "toxic_initial_sell_pressure", shadow_as_own_lane=True, executable=False)
@@ -386,8 +391,8 @@ def evaluate_research_rank_canary(
     if rank_score < min_score:
         return decision(False, "rank_below_min", shadow_as_own_lane=True, executable=False)
     price5m = _field_float(token, "price_pct_5m", "buy_price_pct_5m", default=0.0)
-    min_price5m = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 40.0), 40.0)
-    max_price5m = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_PRICE5M", 120.0), 120.0)
+    min_price5m = _float(getattr(cfg, "RESEARCH_RANK_CANARY_MIN_PRICE5M", 40.0), 40.0)
+    max_price5m = _float(getattr(cfg, "RESEARCH_RANK_CANARY_MAX_PRICE5M", 120.0), 120.0)
     liq = _field_float(token, "liquidity_usd", "buy_liquidity_usd", default=0.0)
     mcap = _field_float(token, "market_cap_usd", "buy_market_cap_usd", default=0.0)
     txns = _field_float(token, "txns_last_5m", "buy_txns_last_5m", default=0.0)
@@ -396,23 +401,23 @@ def evaluate_research_rank_canary(
     volume_24h = _field_float(token, "volume_24h_usd", "buy_volume_24h_usd", "volume_usd_24h", default=0.0)
     proxy = _bool(token.get("liquidity_is_proxy") or token.get("liquidity_usd_is_proxy") or token.get("buy_liquidity_is_proxy"))
     has_route = _bool(token.get("has_jupiter_route"))
-    min_mcap = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_MCAP_USD", 20_000.0), 20_000.0)
-    max_mcap = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_MCAP_USD", 120_000.0), 120_000.0)
-    priority_mode = bool(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MODE", True))
+    min_mcap = _float(getattr(cfg, "RESEARCH_RANK_CANARY_MIN_MCAP_USD", 20_000.0), 20_000.0)
+    max_mcap = _float(getattr(cfg, "RESEARCH_RANK_CANARY_MAX_MCAP_USD", 120_000.0), 120_000.0)
+    priority_mode = bool(getattr(cfg, "RESEARCH_RANK_CANARY_PRIORITY_MODE", True))
     priority_match = (
         priority_mode
-        and rank_score >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_RANK_SCORE", 70.0), 70.0)
-        and txns >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M", 1000), 1000.0)
-        and liq >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_LIQUIDITY_USD", 20_000.0), 20_000.0)
-        and _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_PRICE5M", 50.0), 50.0)
+        and rank_score >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PRIORITY_MIN_RANK_SCORE", 70.0), 70.0)
+        and txns >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M", 1000), 1000.0)
+        and liq >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PRIORITY_MIN_LIQUIDITY_USD", 20_000.0), 20_000.0)
+        and _float(getattr(cfg, "RESEARCH_RANK_CANARY_PRIORITY_MIN_PRICE5M", 50.0), 50.0)
         <= price5m
-        <= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MAX_PRICE5M", 120.0), 120.0)
+        <= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PRIORITY_MAX_PRICE5M", 120.0), 120.0)
         and min_mcap <= mcap <= max_mcap
         and not proxy
         and has_route
     )
     if priority_match:
-        priority_amount = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_SIZE_SOL", amount), amount)
+        priority_amount = _float(getattr(cfg, "RESEARCH_RANK_CANARY_PRIORITY_SIZE_SOL", amount), amount)
         if max_amount > 0.0:
             priority_amount = min(priority_amount, max_amount)
         return decision(
@@ -422,81 +427,81 @@ def evaluate_research_rank_canary(
             amount_sol=priority_amount,
         )
     stale_high_momentum = False
-    if bool(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_ENABLED", True)):
-        stale_min_price = _float(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MIN", 50.0), 50.0)
-        stale_max_age = _float(getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MAX_AGE_MIN", 20.0), 20.0)
+    if bool(getattr(cfg, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_ENABLED", True)):
+        stale_min_price = _float(getattr(cfg, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MIN", 50.0), 50.0)
+        stale_max_age = _float(getattr(cfg, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MAX_AGE_MIN", 20.0), 20.0)
         stale_max_queue_age = _float(
-            getattr(CFG, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MAX_QUEUE_AGE_MIN", 5.0),
+            getattr(cfg, "RESEARCH_RANK_CANARY_STALE_HIGH_PRICE5M_MAX_QUEUE_AGE_MIN", 5.0),
             5.0,
         )
-        priority_min_txns = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M", 1000), 1000.0)
+        priority_min_txns = _float(getattr(cfg, "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M", 1000), 1000.0)
         stale_high_momentum = (
             price5m >= stale_min_price
             and age_minutes > stale_max_age
             and queue_age_minutes > stale_max_queue_age
             and txns < priority_min_txns
         )
-    paper_normal_min_price = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_PRICE5M", 40.0), 40.0)
-    paper_normal_max_price = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MAX_PRICE5M", 120.0), 120.0)
+    paper_normal_min_price = _float(getattr(cfg, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_PRICE5M", 40.0), 40.0)
+    paper_normal_max_price = _float(getattr(cfg, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MAX_PRICE5M", 120.0), 120.0)
     paper_normal_match = (
         dry_run
-        and bool(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_BUY_ENABLED", True))
-        and rank_score >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_RANK_SCORE", min_score), min_score)
-        and txns >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_TXNS_5M", 300), 300.0)
-        and liq >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_LIQUIDITY_USD", 15_000.0), 15_000.0)
-        and _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_MCAP_USD", min_mcap), min_mcap)
+        and bool(getattr(cfg, "RESEARCH_RANK_CANARY_PAPER_NORMAL_BUY_ENABLED", True))
+        and rank_score >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_RANK_SCORE", min_score), min_score)
+        and txns >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_TXNS_5M", 300), 300.0)
+        and liq >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_LIQUIDITY_USD", 15_000.0), 15_000.0)
+        and _float(getattr(cfg, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_MCAP_USD", min_mcap), min_mcap)
         <= mcap
-        <= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MAX_MCAP_USD", 250_000.0), 250_000.0)
+        <= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MAX_MCAP_USD", 250_000.0), 250_000.0)
         and paper_normal_min_price <= price5m <= paper_normal_max_price
         and not proxy
         and has_route
     )
     if paper_normal_match:
         paper_amount = min(
-            _float(getattr(CFG, "RESEARCH_RANK_CANARY_PAPER_NORMAL_SIZE_SOL", 0.005), 0.005),
+            _float(getattr(cfg, "RESEARCH_RANK_CANARY_PAPER_NORMAL_SIZE_SOL", 0.005), 0.005),
             amount if amount > 0.0 else 0.005,
             max_amount if max_amount > 0.0 else 0.005,
         )
         return decision(True, "research_rank_canary_paper_normal", amount_sol=paper_amount)
-    if bool(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_ONLY", False)):
+    if bool(getattr(cfg, "RESEARCH_RANK_CANARY_PRIORITY_ONLY", False)):
         return decision(
             False,
             "shadow_rank_canary",
             shadow_as_own_lane=True,
             executable=False,
         )
-    elite_mode = bool(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MODE", True))
+    elite_mode = bool(getattr(cfg, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MODE", True))
     elite_match = (
         elite_mode
         and rank_score
-        >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MIN_RANK_SCORE", 75.0), 75.0)
-        and txns >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MIN_TXNS_5M", 300), 300.0)
+        >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MIN_RANK_SCORE", 75.0), 75.0)
+        and txns >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MIN_TXNS_5M", 300), 300.0)
         and liq
-        >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MIN_LIQUIDITY_USD", 20_000.0), 20_000.0)
-        and _float(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MIN_PRICE5M", 0.0), 0.0)
+        >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MIN_LIQUIDITY_USD", 20_000.0), 20_000.0)
+        and _float(getattr(cfg, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MIN_PRICE5M", 0.0), 0.0)
         <= price5m
-        <= _float(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MAX_PRICE5M", 25.0), 25.0)
+        <= _float(getattr(cfg, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MAX_PRICE5M", 25.0), 25.0)
         and min_mcap
         <= mcap
-        <= _float(getattr(CFG, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MAX_MCAP_USD", 250_000.0), 250_000.0)
+        <= _float(getattr(cfg, "RESEARCH_RANK_CANARY_ELITE_CONSOLIDATION_MAX_MCAP_USD", 250_000.0), 250_000.0)
         and not proxy
         and has_route
     )
     if elite_match:
         return decision(True, "research_rank_canary_elite_consolidation", elite_consolidation=True)
-    pullback_mode = bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MODE", True))
-    pullback_min_price = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MIN_PRICE5M", -10.0), -10.0)
-    pullback_max_price = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MAX_PRICE5M", 30.0), 30.0)
-    pullback_min_rank = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MIN_RANK_SCORE", 70.0), 70.0)
-    pullback_alt_min_rank = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_ALT_MIN_RANK_SCORE", 65.0), 65.0)
-    pullback_min_txns = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MIN_TXNS_5M", 300), 300.0)
-    pullback_alt_min_txns = _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_ALT_MIN_TXNS_5M", 900), 900.0)
+    pullback_mode = bool(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_MODE", True))
+    pullback_min_price = _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_MIN_PRICE5M", -10.0), -10.0)
+    pullback_max_price = _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_MAX_PRICE5M", 30.0), 30.0)
+    pullback_min_rank = _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_MIN_RANK_SCORE", 70.0), 70.0)
+    pullback_alt_min_rank = _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_ALT_MIN_RANK_SCORE", 65.0), 65.0)
+    pullback_min_txns = _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_MIN_TXNS_5M", 300), 300.0)
+    pullback_alt_min_txns = _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_ALT_MIN_TXNS_5M", 900), 900.0)
     pullback_min_liq = _float(
-        getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MIN_LIQUIDITY_USD", 15_000.0),
+        getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_MIN_LIQUIDITY_USD", 15_000.0),
         15_000.0,
     )
     pullback_max_mcap = _float(
-        getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_MAX_MCAP_USD", 350_000.0),
+        getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_MAX_MCAP_USD", 350_000.0),
         350_000.0,
     )
     pullback_strength_ok = (rank_score >= pullback_min_rank and txns >= pullback_min_txns) or (
@@ -512,23 +517,23 @@ def evaluate_research_rank_canary(
         and has_route
     )
     pullback_tail_amount = min(
-        _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_AMOUNT_SOL", 0.005), 0.005),
-        _float(getattr(CFG, "PAPER_EXPLORATION_AMOUNT_SOL", 0.1), 0.1),
-        _float(getattr(CFG, "RESEARCH_RANK_CANARY_MAX_SIZE_SOL", 0.02), 0.02),
+        _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_AMOUNT_SOL", 0.005), 0.005),
+        _float(getattr(cfg, "PAPER_EXPLORATION_AMOUNT_SOL", 0.1), 0.1),
+        _float(getattr(cfg, "RESEARCH_RANK_CANARY_MAX_SIZE_SOL", 0.02), 0.02),
     )
     pullback_tail_match = (
-        bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MICRO_MODE", True))
-        and _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_PRICE5M", -12.0), -12.0)
+        bool(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MICRO_MODE", True))
+        and _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_PRICE5M", -12.0), -12.0)
         <= price5m
-        <= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MAX_PRICE5M", 0.0), 0.0)
-        and rank_score >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_RANK_SCORE", 70.0), 70.0)
-        and txns >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_TXNS_5M", 600), 600.0)
-        and liq >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_LIQUIDITY_USD", 30_000.0), 30_000.0)
-        and _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_MCAP_USD", 150_000.0), 150_000.0)
+        <= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MAX_PRICE5M", 0.0), 0.0)
+        and rank_score >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_RANK_SCORE", 70.0), 70.0)
+        and txns >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_TXNS_5M", 600), 600.0)
+        and liq >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_LIQUIDITY_USD", 30_000.0), 30_000.0)
+        and _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_MCAP_USD", 150_000.0), 150_000.0)
         <= mcap
-        <= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MAX_MCAP_USD", 250_000.0), 250_000.0)
+        <= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MAX_MCAP_USD", 250_000.0), 250_000.0)
         and volume_24h
-        >= _float(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_VOLUME_24H", 400_000.0), 400_000.0)
+        >= _float(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_TAIL_MIN_VOLUME_24H", 400_000.0), 400_000.0)
         and not proxy
         and has_route
     )
@@ -541,7 +546,7 @@ def evaluate_research_rank_canary(
             amount_sol=pullback_tail_amount,
         )
     if pullback_match:
-        if bool(getattr(CFG, "RESEARCH_RANK_CANARY_PULLBACK_BUY_ENABLED", False)):
+        if bool(getattr(cfg, "RESEARCH_RANK_CANARY_PULLBACK_BUY_ENABLED", False)):
             return decision(True, "research_rank_canary_pullback", pullback=True)
         return decision(
             False,
@@ -562,28 +567,28 @@ def evaluate_research_rank_canary(
     if price5m > max_price5m:
         return decision(False, "price5m_out_of_band")
     if 40.0 <= price5m < 50.0:
-        low_band_min_rank = _float(getattr(CFG, "RESEARCH_RANK_CANARY_LOW_BAND_MIN_RANK_SCORE", 70.0), 70.0)
+        low_band_min_rank = _float(getattr(cfg, "RESEARCH_RANK_CANARY_LOW_BAND_MIN_RANK_SCORE", 70.0), 70.0)
         low_band_min_liq = _float(
-            getattr(CFG, "RESEARCH_RANK_CANARY_LOW_BAND_MIN_LIQUIDITY_USD", 20_000.0),
+            getattr(cfg, "RESEARCH_RANK_CANARY_LOW_BAND_MIN_LIQUIDITY_USD", 20_000.0),
             20_000.0,
         )
         if rank_score < low_band_min_rank and liq < low_band_min_liq:
             return decision(False, "price5m_40_50_requires_rank70_or_liq20k", shadow_as_own_lane=True, executable=False)
     if mcap < min_mcap or mcap > max_mcap:
         return decision(False, "mcap_out_of_band")
-    min_txns = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_TXNS_5M", 300), 300.0)
+    min_txns = _float(getattr(cfg, "RESEARCH_RANK_CANARY_MIN_TXNS_5M", 300), 300.0)
     if txns < min_txns:
         return decision(False, "txns_below_min")
-    min_liq = _float(getattr(CFG, "RESEARCH_RANK_CANARY_MIN_LIQUIDITY_USD", 15_000.0), 15_000.0)
+    min_liq = _float(getattr(cfg, "RESEARCH_RANK_CANARY_MIN_LIQUIDITY_USD", 15_000.0), 15_000.0)
     if liq < min_liq:
         return not_executable("liquidity_below_min")
-    if proxy and bool(getattr(CFG, "RESEARCH_RANK_CANARY_PREFER_REAL_LIQUIDITY", True)):
+    if proxy and bool(getattr(cfg, "RESEARCH_RANK_CANARY_PREFER_REAL_LIQUIDITY", True)):
         return decision(False, "proxy_liquidity", shadow_as_own_lane=True, executable=False)
-    if dry_run and bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)) and not has_route:
+    if dry_run and bool(getattr(cfg, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_PAPER", True)) and not has_route:
         return not_executable("no_route_paper")
-    if live and bool(getattr(CFG, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_LIVE", True)) and not has_route:
+    if live and bool(getattr(cfg, "RESEARCH_RANK_CANARY_REQUIRE_ROUTE_LIVE", True)) and not has_route:
         return not_executable("no_route_live")
-    if not bool(getattr(CFG, "RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED", True)):
+    if not bool(getattr(cfg, "RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED", True)):
         return decision(
             False,
             "research_rank_canary_normal_shadow_only",

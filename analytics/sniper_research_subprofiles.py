@@ -20,6 +20,7 @@ from analytics.report_utils import (
     write_markdown,
 )
 from config.config import CFG, PROJECT_ROOT
+from runtime.paper_entry_policy import entry_config
 from ml.lane_taxonomy import LANE_RESEARCH_SNIPER, LANE_SNIPER_RESEARCH_MICRO_FALLBACK
 
 
@@ -263,6 +264,7 @@ def evaluate_sniper_research_subprofile(
     *,
     cfg: Any = CFG,
 ) -> SniperResearchSubprofileDecision:
+    cfg = entry_config(cfg)
     if not bool(getattr(cfg, "SNIPER_RESEARCH_SUBPROFILES_ENABLED", True)):
         return SniperResearchSubprofileDecision(True, None, "subprofiles_disabled", ())
     if str(_first(row, "entry_lane", "lane") or "").strip().lower() == LANE_SNIPER_RESEARCH_MICRO_FALLBACK:

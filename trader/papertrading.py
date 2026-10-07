@@ -43,6 +43,7 @@ from utils.runtime_context import runtime_context_payload
 from trade_pnl import apply_partial_fill, summarize_trade
 from fetcher import jupiter_price, jupiter_router
 from research_loop import runner_forward
+from runtime.paper_entry_policy import snapshot as entry_policy_snapshot
 
 log = logging.getLogger("papertrading")
 
@@ -653,6 +654,7 @@ async def buy(
         "strategy_version": strategy_version,
         "experiment_id": experiment_id,
         "config_hash": config_hash,
+        "paper_entry_policy": entry_policy_snapshot(),
         "discovered_via": discovered_via,
         "partial_taken": False,
         "partial_count": 0,

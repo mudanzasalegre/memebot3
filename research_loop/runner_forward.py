@@ -453,6 +453,15 @@ def _valid_terminal(case: dict[str, Any], arm: dict[str, Any], now: dt.datetime)
         return False
 
 
+def validate_paper_cash_terminal(case: dict[str, Any], arm: dict[str, Any], now: dt.datetime) -> bool:
+    """Check raw quantity/cash conservation, not strategy or entry eligibility.
+
+    Other paired paper components must separately validate their entry prefix,
+    prospective plan, decisions, observation coverage and cohort population.
+    """
+    return _valid_terminal(case, arm, now)
+
+
 def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt.datetime) -> bool:
     closed = _time(arm.get("closed_at"))
     registered = _time(case.get("registered_at"))

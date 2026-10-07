@@ -1,0 +1,50 @@
+{
+  "status": "ENTRY_GATE_TRANSPORT_IMPLEMENTED_FORWARD_COLLECTION_PENDING",
+  "full_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Software transport and isolated verification, not a new financial run or completed whole-strategy experiment",
+  "implemented": {
+    "configuration_transport": "Four actual admission components consume a task-local immutable threshold view: research rank canary, sniper subprofiles, late momentum watch and moonshot. CFG, cached core filters and open-position exit configuration are not mutated",
+    "bounds": "One component and at most two finite adjacent admission thresholds per experiment. Amounts, quotas, live permissions, route requirements, impact limits, credentials and exits are outside the allowlist",
+    "extreme_returns": "Maximum recent-price-change thresholds can be examined above 1000 percent without introducing a take-profit ceiling. Increasing an entry threshold does not establish a winning buy. Existing uncapped runner exits and exact 0.1 SOL paper execution are preserved",
+    "integration": "The guarded main entry path reads only a checked paper-entry-gate manifest, binds a single snapshot through async waits, clears obsolete queued snapshots and restores baseline context on completion, exception or cancellation. Configuration hashes, decision token metadata and paper portfolio entries retain selected-policy provenance",
+    "evidence_transport": "Generic exported profiles and scalar replay reports cannot activate. An original declared 24-hour cohort with at least 50 distinct valid mints is rechecked against current component configuration and the actual pure gate functions. Missing, unsettled, duplicate, stale, mismatched or altered cases reject",
+    "cash": "Both gate arms use one common frozen quoted entry/exit cash record when either buys. Entry is exactly 0.1 SOL, raw SPL quantity and net USD/SOL conservation are rechecked, and estimated fees/slippage remain explicit. Only a known policy skip contributes zero; a missing hypothetical buy/quote is unknown and rejects",
+    "comparison": "One predeclared challenger, at least ten changed admission decisions, positive selected net SOL and USD, and positive paired bootstrap lower mean improvement in both currencies. This is gate-component evidence, not a capital-constrained whole-strategy profitability certificate",
+    "runtime_limits": "No provider calls or transaction sends in selection or gate replay. Evidence objects, cohort cardinality and cache are bounded; full source proof rechecks occur within five seconds. Corrupt, missing, expired or incompatible artifacts fall back to configured thresholds"
+  },
+  "verification": {
+    "focused_transport_runner_and_sizing": "100 passed in 9.35s",
+    "existing_four_gate_regression_suite": "55 passed in 1.68s",
+    "initial_full_working_checkout": "1131 passed, one failed: new nonsecret flag absent from local .env; corrected without changing credentials",
+    "full_working_checkout": "1132 passed in 59.29s",
+    "full_publishing_checkout": "1132 passed in 55.74s without personal .env",
+    "publishing_preflight": "PASS: config import, compilation, paper profile and seven empty-data report builders",
+    "python_runtime": "Both checkouts use the existing D:/Dev/Python/memebot3/.venv interpreter; no separate publishing .venv or fresh dependency installation is claimed",
+    "publishing_source_sync": "14 reviewed source files copied, zero deletions; personal .env, data, logs and runtime model weights excluded",
+    "qualification": "All new cash records, cohorts and quote outcomes in tests are synthetic isolated fixtures. No runtime cohort, observed financial profit or profitable model was generated or certified"
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "runtime_model_training_started": false,
+    "active_entry_policy_created": false,
+    "active_runtime_models_changed": false,
+    "shutdown_verification": "VERIFIED_OFF",
+    "shutdown_verified_at_utc": "2026-10-07T14:18:13.7581495Z",
+    "runtime_process_count_both_roots": 0,
+    "bot_locks_present_both_roots": 0,
+    "active_entry_policy_present_both_roots": false,
+    "database_process_state": "stopped",
+    "database_retrain_state": "idle",
+    "database_reports_refresh_state": "idle"
+  },
+  "remaining_full_goal_requirements": [
+    "Integrate automatic bounded proposal generation, predecision enrollment, immutable complete-population tracking and counterfactual quoted outcomes for rejected opportunities; no automatic collector was added in this stage",
+    "Share provider budgets with existing runner experiments, continue virtual positions after primary positions disappear, and implement checked candidate selection plus rollback history",
+    "Extend verified transport to any still-cached scanner/core-entry paths only after auditing their actual consumers; this stage covers four explicit entry components, not every setting",
+    "Validate fresh rare-runner, risk and continuation models and complete their checked automatic lifecycle",
+    "Complete architecture, first-launch, integration and provider failure-path audit",
+    "Obtain authorized costed prospective full-strategy evidence before any profitability or live-promotion claim"
+  ]
+}

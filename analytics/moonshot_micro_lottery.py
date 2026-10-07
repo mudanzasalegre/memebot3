@@ -19,6 +19,7 @@ from analytics.report_utils import (
     write_json,
 )
 from config.config import CFG, PROJECT_ROOT
+from runtime.paper_entry_policy import entry_config
 from ml.lane_taxonomy import LANE_MOONSHOT_MICRO_LOTTERY
 from ml.labels import moonshot_execution_label
 
@@ -296,6 +297,7 @@ def evaluate_moonshot_micro_lottery(
     live: bool,
     cfg: Any = CFG,
 ) -> MoonshotMicroLotteryDecision:
+    cfg = entry_config(cfg, dry_run=dry_run, live=live)
     raw_amount = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001) or 0.001)
     amount = max(raw_amount, 0.0)
     raw_cluster_tail_amount = float(
