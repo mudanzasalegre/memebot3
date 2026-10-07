@@ -32,7 +32,8 @@ def train_ev_model(*, frame: pd.DataFrame | None = None, min_rows: int = 20) -> 
     df[target] = values.clip(clip_min, clip_max)
     report = train_regressor_family(family="ev", targets=[target], feature_set_name="ev_features", frame=df,
                                    output_dir=MODEL_PATH.parent / "models" / "ev_compatibility", min_rows=min_rows,
-                                   validation_predictions_path=VAL_PREDS)
+                                   validation_predictions_path=VAL_PREDS,
+                                   financial_target_parameters={"clip_min": clip_min, "clip_max": clip_max})
     result = report.get("targets", {}).get(target, {})
     published = result.get("status") == "trained" and result.get("regression_validation_ready") is True
     if published:

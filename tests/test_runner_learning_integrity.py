@@ -11,6 +11,7 @@ from ml.label_builder import RUNNER_THRESHOLDS, build_labels
 from ml.temporal_validation import purged_temporal_windows
 from ml.family_training import train_classifier_family, train_regressor_family
 from ml.outcome_targets import enrich_outcome_targets
+from net_financial_fixtures import net_frame
 
 
 def _frame(rows=80):
@@ -94,13 +95,13 @@ def test_unlabelled_runner_rows_do_not_become_negatives(tmp_path):
 
 def test_regression_reports_only_temporal_mae(tmp_path):
     report = train_regressor_family(family="ev", targets=["ev_realized"], feature_set_name="ev_features",
-                                    frame=_frame(), output_dir=tmp_path, min_rows=10)
+                                    frame=net_frame(_frame()), output_dir=tmp_path, min_rows=10)
     target = report["targets"]["ev_realized"]
     assert target["validation"]["mode"] == "purged_token_walk_forward"
     assert target["mae"] is not None
     report = train_regressor_family(family="ev", targets=["ev_realized"], feature_set_name="ev_features",
                                     frame=_frame().drop(columns="ts"), output_dir=tmp_path, min_rows=10)
-    assert report["targets"]["ev_realized"]["mae"] is None
+    assert report["targets"]["ev_realized"]["status"] == "skipped"
 
 
 def test_peak_join_enriches_targets_only_and_rejects_future_feature(tmp_path):

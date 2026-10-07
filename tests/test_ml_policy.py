@@ -103,7 +103,7 @@ def test_global_enforce_blocks_below_threshold_only_after_activation(monkeypatch
     monkeypatch.setattr(ml_policy, "CFG", _cfg(ML_GATE_MODE="legacy", AI_THRESHOLD=0.5))
     monkeypatch.setattr(ml_policy, "THRESHOLDS_BY_LANE_PATH", tmp_path / "missing.json")
     monkeypatch.setattr(ml_policy, "LEGACY_THRESHOLD_PATH", legacy)
-    d = ml_policy.decide_ml_action(token={"entry_lane": "pump_early_pumpswap_profit"}, feature_row={}, proba=0.1, base_rules_passed=True, dry_run=True, live=False)
+    d = ml_policy.decide_ml_action(token={"entry_lane": "pump_early_pumpswap_profit"}, feature_row={}, proba=0.1, base_rules_passed=True, dry_run=True, live=False, entry_model_activation_ready=True)
     assert d.allow_buy is False
     assert d.enforce is True
 

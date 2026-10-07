@@ -5,6 +5,7 @@ import json
 import logging
 from pathlib import Path
 import threading
+import io
 from typing import Any
 
 import joblib
@@ -13,6 +14,7 @@ import pandas as pd
 
 from config.config import PROJECT_ROOT
 from ml.feature_matrix import coerce_feature_frame
+from ml.financial_targets import financial_target, supported_financial_training
 
 log = logging.getLogger(__name__)
 _lock = threading.RLock()
@@ -91,12 +93,13 @@ def _load(path: Path, *, require_temporal_validation: bool):
                 _cache[key] = (signature, None, [], metadata)
                 return None, [], metadata
             expected_hash = metadata.get("model_sha256")
-            if not expected_hash or sha256(path.read_bytes()).hexdigest() != expected_hash:
+            payload = path.read_bytes()
+            if not expected_hash or sha256(payload).hexdigest() != expected_hash:
                 raise ValueError("model/metadata checksum mismatch")
             features = list(dict.fromkeys(metadata.get("features") or []))
             if not features:
                 raise ValueError("model feature schema is absent")
-            model = joblib.load(path)
+            model = joblib.load(io.BytesIO(payload))
         except Exception as exc:
             log.warning("Specialized model unavailable family=%s target=%s error=%s", path.parent.name, path.stem, type(exc).__name__)
             model, features, metadata = None, [], {}
@@ -110,6 +113,9 @@ def _predict_snapshot(path: Path, model: Any, features: list[str], metadata: dic
         return None
     try:
         if any(metadata.get(key) != value for key, value in (expected_metadata or {}).items()):
+            return None
+        identity = {**metadata, **(expected_metadata or {})}
+        if financial_target(identity.get("family"), identity.get("target")) and not supported_financial_training(metadata):
             return None
         row = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec or {})
         X = coerce_feature_frame(pd.DataFrame([row]), features)
@@ -177,6 +183,9 @@ def predict_regression_estimate(family: str, target: str, vec: Any) -> dict[str,
     result = {"value": value, "lower": None, "upper": None, "error_radius_pct_points": None,
               "status": "unknown" if value is None else "validated_advisory_estimate",
               "unit": "percentage_points", "future_coverage_guaranteed": False}
+    if financial_target(family, target):
+        result["return_basis"] = (metadata.get("financial_training") or {}).get("return_basis") if value is not None else None
+        result["financial_scope"] = "estimated_paper_execution_not_live_profit" if value is not None else "unknown"
     if value is None:
         return result
     try:
@@ -205,6 +214,8 @@ def predict_ranking_score(family: str, target: str, vec: Any) -> float | None:
     """Validated rank percentile (0-100), explicitly not an event probability."""
     model, features, metadata = _load(_model_path(family, target), require_temporal_validation=True)
     if model is None or not metadata.get("ranking_validation_ready"):
+        return None
+    if financial_target(family, target) and not supported_financial_training(metadata):
         return None
     try:
         reference = np.asarray(metadata.get("rank_reference_quantiles") or [], dtype=float)

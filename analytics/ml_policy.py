@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -129,6 +130,8 @@ def _edge_score(ev_pred_pct: float | None, risk_proba: float | None) -> float | 
 
 
 def _sizing_multiplier(lane: str, proba: float | None, ev_pred_pct: float | None, risk_proba: float | None) -> float:
+    if proba is None and ev_pred_pct is None and risk_proba is None:
+        return 1.0
     if lane == LANE_PUMP_EARLY_GREEN_SNIPER and not _bool_cfg("GREEN_SNIPER_ML_RISK_REDUCE_SIZE", True):
         return 1.0
     if not _bool_cfg("ML_SIZING_ENABLED", False):
@@ -161,12 +164,22 @@ def decide_ml_action(
     live: bool,
     risk_proba: float | None = None,
     ev_pred_pct: float | None = None,
+    entry_model_activation_ready: bool = False,
 ) -> MlPolicyDecision:
     lane = _resolve_lane(token, feature_row)
     global_mode = _mode_cfg("ML_GATE_MODE", "shadow")
     if global_mode not in {"off", "shadow", "legacy", "enforce", "lane_aware", "sizing_only", "risk_veto_only"}:
         global_mode = "legacy"
     threshold, activation_ready, threshold_reason, source = _threshold_payload(lane)
+    # A stale threshold file cannot activate an unavailable or legacy model.
+    # Unknown inference stays advisory, without a blanket ML buy rejection.
+    try:
+        observed_proba = proba is not None and math.isfinite(float(proba)) and 0 <= float(proba) <= 1
+    except (TypeError, ValueError, OverflowError):
+        observed_proba = False
+    if not observed_proba:
+        proba = None
+    activation_ready = bool(activation_ready and entry_model_activation_ready is True and observed_proba)
     proba_pass = bool(proba is not None and threshold is not None and float(proba) >= float(threshold))
     risk_veto = _risk_veto_signal(risk_proba)
     risk_veto_enforced = _risk_veto_can_enforce(risk_proba, activation_ready=activation_ready)

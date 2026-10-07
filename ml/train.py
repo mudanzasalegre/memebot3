@@ -31,6 +31,8 @@ from ml.data_contract import (
     normalize_sample_type,
 )
 from ml.feature_matrix import coerce_feature_frame
+from ml.financial_targets import checked_financial_frame, supported_financial_training
+from features.builder import ALLOWED_FEATURES
 from ml.model_registry import ACTIVATION_READY_PROMOTION_ERROR, ModelArtifactSet, promote_candidate, write_candidate
 from ml.segment_report import SEGMENT_JSON, build_segment_report, write_segment_outputs
 from ml.tune_threshold import tune_from_frame
@@ -731,6 +733,13 @@ def _forward_holdout_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     train_mints = first_ts[first_ts < cutoff].index
     tr_df = df[df["mint"].isin(train_mints)].copy()
     te_df = df[df["mint"].isin(val_mints)].copy()
+    purged = False
+    from ml.financial_targets import declared_financial_rows
+    if declared_financial_rows(df).any():
+        train, test = _purge_checked_split(df, np.flatnonzero(df["mint"].isin(train_mints)),
+                                         np.flatnonzero(df["mint"].isin(val_mints)))
+        tr_df, te_df = df.iloc[train].copy(), df.iloc[test].copy()
+        purged = True
     return tr_df, te_df, {
         "mode": "forward_holdout",
         "cutoff": str(cutoff),
@@ -738,7 +747,22 @@ def _forward_holdout_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
         "tmax": str(tmax),
         "train_mints": int(tr_df["mint"].nunique()),
         "val_mints": int(te_df["mint"].nunique()),
+        "label_availability_purged": purged,
     }
+
+
+def _purge_checked_split(df, train, test):
+    """No label that closes at/after the validation decision is training data."""
+    from ml.temporal_validation import temporal_eligibility
+    valid, times, available, identities = temporal_eligibility(df)
+    test = np.asarray([i for i in test if valid.iloc[i]], dtype=int)
+    if not len(test):
+        return np.asarray([], dtype=int), test
+    cutoff = times.iloc[test].min() - pd.Timedelta(seconds=60)
+    test_tokens = set(identities.iloc[test])
+    train = np.asarray([i for i in train if valid.iloc[i] and available.iloc[i] < cutoff
+                        and times.iloc[i] < cutoff and identities.iloc[i] not in test_tokens], dtype=int)
+    return train, test
 
 
 def _walk_forward_splits_by_mint(
@@ -763,6 +787,9 @@ def _walk_forward_splits_by_mint(
         test_mask = df["mint"].isin(test_mints)
         tr_idx = np.where(train_mask.values)[0]
         te_idx = np.where(test_mask.values)[0]
+        from ml.financial_targets import declared_financial_rows
+        if declared_financial_rows(df).any():
+            tr_idx, te_idx = _purge_checked_split(df, tr_idx, te_idx)
         if len(tr_idx) == 0 or len(te_idx) == 0:
             continue
         splits.append((tr_idx, te_idx))
@@ -783,6 +810,7 @@ def _build_walk_forward_scheme(df: pd.DataFrame) -> tuple[list[tuple[np.ndarray,
         "splits": int(len(splits)),
         "n_splits_requested": int(n_splits),
         "min_train_blocks": int(min_train_blocks),
+        "label_availability_purged": bool(df.get("outcome_return_basis", pd.Series(dtype="object")).notna().any()),
     }
 
 
@@ -927,7 +955,7 @@ def _float_or_none(value: Any) -> float | None:
     return value_f if np.isfinite(value_f) else None
 
 
-def _enforcement_gates(quality: DatasetQuality, tune_result: dict[str, Any]) -> dict[str, Any]:
+def _enforcement_gates(quality: DatasetQuality, tune_result: dict[str, Any], financial_training=None, split_meta=None) -> dict[str, Any]:
     min_holdout_rows = int(getattr(CFG, "ML_MIN_HOLDOUT_ROWS", 40))
     min_holdout_positives = int(getattr(CFG, "ML_MIN_HOLDOUT_POSITIVES", 8))
     min_realized_selected = int(getattr(CFG, "ML_TUNE_MIN_REALIZED_SELECTED", 5))
@@ -937,6 +965,10 @@ def _enforcement_gates(quality: DatasetQuality, tune_result: dict[str, Any]) -> 
     realized_selected = _float_or_none(tune_result.get("realized_selected_rows_at_picked"))
 
     blockers: list[str] = []
+    if not supported_financial_training({"financial_training": financial_training}, entry=True):
+        blockers.append("checked_net_financial_training")
+    if (split_meta or {}).get("label_availability_purged") is not True:
+        blockers.append("financial_label_availability_purging")
     if not bool(quality.passed):
         blockers.append("dataset_quality")
     if int(quality.holdout_rows) < min_holdout_rows:
@@ -984,13 +1016,27 @@ def _build_training_context(
     dex_allowlist: Any | None = None,
     allow_missing_entry_lane: bool | None = None,
 ) -> dict[str, Any]:
+    from ml.financial_targets import declared_financial_rows
+    checked_source, financial_filtering = checked_financial_frame(df_source)
+    # Inspect copies before generic filtering can hide the broken half of a
+    # conflicting identity. Once net evidence is declared, never backfill the
+    # financial population with legacy gross/shadow rows.
+    declared_net = bool(declared_financial_rows(df_source).any())
     df_trainable, filtering_meta = _filter_outcome_training_rows(
-        df_source,
+        checked_source if declared_net else df_source,
         entry_lane_allowlist=entry_lane_allowlist,
         dex_allowlist=dex_allowlist,
         allow_missing_entry_lane=allow_missing_entry_lane,
     )
+    checked, financial_training = checked_financial_frame(df_trainable)
+    if not checked.empty:
+        df_trainable = checked
+    filtering_meta["financial_training"] = financial_training
+    filtering_meta["financial_filtering"] = financial_filtering
     df_trainable, x_cols, excluded_effective = _select_feature_columns(df_trainable)
+    if not checked.empty:
+        excluded_effective.extend(column for column in x_cols if column not in ALLOWED_FEATURES)
+        x_cols = [column for column in x_cols if column in ALLOWED_FEATURES]
 
     feat_hash = hashlib.md5(",".join(sorted(x_cols)).encode("utf-8")).hexdigest()[:10]
     base_quality = _initial_quality(df_source, df_trainable, x_cols, filtering_meta)
@@ -1000,7 +1046,11 @@ def _build_training_context(
     tr_df = pd.DataFrame()
     te_df = pd.DataFrame()
     cv_splits: list[tuple[np.ndarray, np.ndarray]] = []
-    if use_forward:
+    if df_trainable.empty:
+        use_forward = False
+        split_meta = {"mode": "empty_trainable_population", "reason": "no_eligible_observed_rows"}
+        val_quality_df = pd.DataFrame()
+    elif use_forward:
         tr_df, te_df, forward_meta = _forward_holdout_split(df_trainable)
         split_meta = dict(forward_meta)
         val_quality_df = te_df
@@ -1636,7 +1686,8 @@ def train_and_save() -> TrainResult:
 
     tune_result = dict(selected.tune_result)
     threshold_activation_ready = bool(tune_result.get("activation_ready"))
-    enforcement_gates = _enforcement_gates(quality, tune_result)
+    financial_training = checked_financial_frame(df_trainable)[1]
+    enforcement_gates = _enforcement_gates(quality, tune_result, financial_training, split_meta)
     tune_result["threshold_activation_ready"] = threshold_activation_ready
     tune_result["enforcement_gates"] = enforcement_gates
     tune_result["activation_ready"] = bool(enforcement_gates.get("activation_ready"))
@@ -1660,6 +1711,7 @@ def train_and_save() -> TrainResult:
         "ai_threshold_recommended": tune_result.get("picked"),
         "threshold_metric": tune_result.get("objective_applied"),
         "activation_ready": tune_result.get("activation_ready"),
+        "financial_training": financial_training,
         "threshold_result": tune_result,
         "enforcement_gates": enforcement_gates,
         "dataset_quality_passed": quality.passed,
@@ -1742,6 +1794,7 @@ def train_and_save() -> TrainResult:
             "precision_at_k_val": selected.precision_at_k,
             "threshold_metric": tune_result.get("objective_applied"),
             "activation_ready": tune_result.get("activation_ready"),
+            "financial_training": financial_training,
             "threshold_result": tune_result,
             "enforcement_gates": enforcement_gates,
             "promotion": promotion_status,

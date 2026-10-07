@@ -33,7 +33,8 @@ def train_risk_model(*, frame: pd.DataFrame | None = None, min_rows: int = 20) -
     df[target] = severe_loss_labels(df, severe_loss_pct=threshold)
     report = train_classifier_family(family="risk", targets=[target], feature_set_name="risk_features",
                                     frame=df, min_rows=min_rows, output_dir=MODEL_PATH.parent / "models" / "risk_compatibility",
-                                    validation_predictions_path=VAL_PREDS)
+                                    validation_predictions_path=VAL_PREDS,
+                                    financial_target_parameters={"severe_loss_pct": threshold})
     result = report.get("targets", {}).get(target, {})
     published = result.get("status") == "trained" and result.get("probability_validation_ready") is True
     if published:

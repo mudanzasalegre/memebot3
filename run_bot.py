@@ -778,7 +778,7 @@ def _ml_gate_state() -> dict[str, object]:
     elif raw_mode in {"lane_aware", "sizing_only", "risk_veto_only"}:
         enforce = False
     else:
-        enforce = True
+        enforce = activation_ready
 
     return {
         "mode": raw_mode,
@@ -5326,6 +5326,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         live=not DRY_RUN,
         risk_proba=risk_proba,
         ev_pred_pct=ev_pred_pct,
+        entry_model_activation_ready=ml_gate.get("activation_ready") is True,
     )
     if ml_decision.threshold is not None:
         ai_threshold_eff = float(ml_decision.threshold)

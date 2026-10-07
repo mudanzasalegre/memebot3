@@ -8,6 +8,13 @@ from sklearn.dummy import DummyClassifier
 from types import SimpleNamespace
 
 from ml.model_registry import promote_candidate, promote_family_candidate, write_candidate
+from ml.financial_targets import TRAINING_VERSION, TRAINING_SCOPE, VERSION
+
+
+def financial_meta():
+    return {"version": TRAINING_VERSION, "return_basis": VERSION, "scope": TRAINING_SCOPE,
+            "ready": True, "rows": 2, "unique_trades": 2, "population_sha256": "a" * 64,
+            "conflicting_trade_ids": [], "positive_pnl_ratios": [0.]}
 
 
 def test_model_registry_promotes_atomically(tmp_path, monkeypatch) -> None:
@@ -20,7 +27,8 @@ def test_model_registry_promotes_atomically(tmp_path, monkeypatch) -> None:
     model.fit(np.array([[0], [1]]), np.array([1, 1]))
     artifact = write_candidate(
         model=model,
-        meta={"features": ["x"], "feature_set_hash": "abc", "activation_ready": True},
+        meta={"features": ["price_pct_5m"], "feature_set_hash": "abc", "activation_ready": True,
+              "financial_training": financial_meta(), "validation_split": {"label_availability_purged": True}},
         model_id="m1",
     )
     active = tmp_path / "model.pkl"
@@ -67,9 +75,11 @@ def test_candidate_thresholds_publish_only_after_promotion(tmp_path, monkeypatch
     artifact = write_candidate(
         model=model,
         meta={
-            "features": ["x"],
+            "features": ["price_pct_5m"],
             "feature_set_hash": "abc",
             "activation_ready": True,
+            "financial_training": financial_meta(),
+            "validation_split": {"label_availability_purged": True},
             "threshold_result": new_threshold,
         },
         thresholds=new_lane_thresholds,

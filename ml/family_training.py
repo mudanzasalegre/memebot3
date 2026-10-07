@@ -27,6 +27,7 @@ from ml.outcome_targets import enrich_outcome_targets
 from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
 from ml.calibrated_ranker import fit_calibrated_ranker, reliability_bins
 from ml.prediction_validation import paired_token_loss_check, regression_error_check
+from ml.financial_targets import checked_financial_frame, financial_target
 from ml.train import _filter_outcome_training_rows, _load_dataset
 from ml.model_validation_warnings import (
     WARNING_IN_SAMPLE_ONLY,
@@ -179,10 +180,20 @@ def train_classifier_family(
     output_dir: Path | None = None,
     min_rows: int = 20,
     validation_predictions_path: Path | None = None,
+    financial_target_parameters: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     if validation_predictions_path is not None and len(targets) != 1:
         raise ValueError("validation_prediction_export_requires_one_target")
     df = _settled_training_frame(load_training_frame(frame))
+    financial = None
+    if family == "risk":
+        df, financial = checked_financial_frame(df)
+        df = attach_labels(df)
+        if "severe_loss_configured" in targets:
+            threshold = (financial_target_parameters or {}).get("severe_loss_pct")
+            if threshold is None or not np.isfinite(threshold) or not -100 <= threshold < 0:
+                raise ValueError("configured_risk_requires_explicit_net_target_definition")
+            df["severe_loss_configured"] = df["target_total_pnl_pct"].le(threshold).astype("Int64")
     features = list(dict.fromkeys(column for column in feature_set(feature_set_name) if column in df.columns))
     report: dict[str, Any] = {
         "family": family,
@@ -190,6 +201,7 @@ def train_classifier_family(
         "feature_set": feature_set_name,
         "feature_set_hash": feature_set_hash(feature_set_name),
         "rows": int(len(df)),
+        "financial_training": financial,
         "targets": {},
         "validation": target_validation_payload(
             warnings=[WARNING_IN_SAMPLE_ONLY, WARNING_NOT_READY_FOR_ENFORCEMENT],
@@ -275,6 +287,8 @@ def train_classifier_family(
             "model_path": str(model_path),
             "positives": int(y.sum()),
             "target_rows": len(y),
+            "financial_training": checked_financial_frame(target_df)[1] if financial is not None else None,
+            "financial_target_parameters": financial_target_parameters if financial is not None else None,
             "unlabelled_rows": int((~mask).sum()),
             "avg_pred": float(np.mean(pred)) if len(pred) else None,
             "base_rate": float(np.mean(truth)) if len(truth) else None,
@@ -330,10 +344,12 @@ def train_regressor_family(
     output_dir: Path | None = None,
     min_rows: int = 20,
     validation_predictions_path: Path | None = None,
+    financial_target_parameters: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     if validation_predictions_path is not None and len(targets) != 1:
         raise ValueError("validation_prediction_export_requires_one_target")
     df = _settled_training_frame(load_training_frame(frame))
+    # Mixed opportunity/financial target lists are handled independently below.
     features = list(dict.fromkeys(column for column in feature_set(feature_set_name) if column in df.columns))
     report: dict[str, Any] = {
         "family": family,
@@ -368,12 +384,24 @@ def train_regressor_family(
                 ),
             }
             continue
-        y = pd.to_numeric(df[target], errors="coerce")
+        target_source = df
+        financial = None
+        if financial_target(family, target):
+            target_source, financial = checked_financial_frame(df)
+            target_source = attach_labels(target_source)
+            if target == "ev_configured_clipped":
+                parameters = financial_target_parameters or {}
+                low, high = parameters.get("clip_min"), parameters.get("clip_max")
+                if low is None or high is None or not np.isfinite([low, high]).all() or low >= high:
+                    raise ValueError("configured_ev_requires_explicit_net_target_definition")
+                target_source[target] = target_source["target_total_pnl_pct"].clip(low, high)
+        y = pd.to_numeric(target_source[target], errors="coerce")
         mask = y.notna() & np.isfinite(y)
         if int(mask.sum()) < min_rows:
             report["targets"][target] = {
                 "status": "skipped",
                 "reason": "not_enough_target_rows",
+                "financial_training": financial,
                 "validation": target_validation_payload(
                     warnings=[WARNING_IN_SAMPLE_ONLY, WARNING_NOT_ENOUGH_ROWS, WARNING_NOT_READY_FOR_ENFORCEMENT],
                     details={"mode": "in_sample_only", "target_rows": int(mask.sum()), "min_rows": int(min_rows)},
@@ -381,8 +409,8 @@ def train_regressor_family(
             }
             continue
         model = RandomForestRegressor(n_estimators=50, max_depth=5, random_state=42, min_samples_leaf=5)
-        target_df = df.loc[mask].reset_index(drop=True)
-        target_X = X.loc[mask].reset_index(drop=True)
+        target_df = target_source.loc[mask].reset_index(drop=True)
+        target_X = coerce_feature_frame(target_df, features)
         target_y = y.loc[mask].reset_index(drop=True)
         truth, pred, positions, temporal = _forward_predictions(target_df, target_X, target_y, model, min_rows=min_rows, classifier=False)
         model.fit(target_X, target_y)
@@ -401,6 +429,8 @@ def train_regressor_family(
             "regression_validation_ready": bool(temporal["regression_evaluation"]["validation_ready"]),
             "regression_evaluation": temporal["regression_evaluation"],
             "target_rows": len(target_y), "unlabelled_rows": int((~mask).sum()),
+            "financial_training": checked_financial_frame(target_df)[1] if financial is not None else None,
+            "financial_target_parameters": financial_target_parameters if financial is not None else None,
             "features": features,
             "validation": target_validation_payload(
                 warnings=target_warnings,

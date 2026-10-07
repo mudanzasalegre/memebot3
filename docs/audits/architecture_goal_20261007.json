@@ -13,7 +13,7 @@
   ],
   "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
   "historical_initial_publication_state": {"branch": "main", "origin_main_commit_before_sync": "3479e24", "working_tree_clean_before_sync": true, "remote_fetch_completed": true, "source_sync_completed": true, "implementation_commit": "0c7aa6c0d2bc10462d29b1d8207a68a23fc7fbb8", "commit_push": "COMPLETE", "remote_revision_verified": true, "scope": "Initial publication proof, not the current Git HEAD after later source stages"},
-  "latest_stage_evidence": "docs/audits/net_learning_20261007.json",
+  "latest_stage_evidence": "docs/audits/financial_model_acceptance_20261007.json",
   "implemented_this_stage": [
     "Restore observed peak targets through a bounded causal historical join; preserve all entry features unchanged",
     "Persist observed peak and outcome-availability timestamp as outcome-only Parquet columns on future shadow and real closes",
@@ -52,7 +52,8 @@
     "Capture and persist the immutable original first-partial runner-research prefix together with its financial receipt; retain it through later partials, canonical closure and same-mint reentry; recover secondary intake/case/receipt failures with bounded rotation without reselling, requoting, rewinding later observations or fabricating future prices",
     "Check full captured first-partial populations and original causal identities before selecting or consuming runner policies, including cache invalidation, source enumeration/schema corruption, delayed coverage, per-cohort capture failures and acknowledged case loss; disabled research prevents maintenance, selected-policy consumption and selection writes while preserving the configured paper policy",
     "Freeze checksummed original T0 features and the label threshold in the existing pre-buy journal; derive new managed paper-trade targets only from the matching canonical terminal source, exact quotes, raw quantities, all unique exit receipts and reconciled estimated net costs; preserve gross returns and extreme peaks as separate diagnostics",
-    "Persist immutable retryable causal learning sources and export them idempotently into the original close-month Parquet partition with strict failures, atomic fsynced writes and a separate serial supervised filesystem worker that drains before shutdown. Revalidate new net contracts at model reads; checked SQL labels no longer classify gross spot returns or still-open holding timeouts as realized financial outcomes. Existing gross legacy diagnostics and active models remain unchanged and are not net-certified"
+    "Persist immutable retryable causal learning sources and export them idempotently into the original close-month Parquet partition with strict failures, atomic fsynced writes and a separate serial supervised filesystem worker that drains before shutdown. Revalidate new net contracts at model reads; checked SQL labels no longer classify gross spot returns or still-open holding timeouts as realized financial outcomes. Existing gross legacy diagnostics and active models remain unchanged and are not net-certified",
+    "Require checked estimated-net causal populations for financial risk/EV and primary-entry model acceptance, restore original T0 predictors, deduplicate exact copies and exclude conflicting identities before filtering, derive configured targets from net, purge primary training labels unavailable at validation time, require matching artifact checksums and timing contracts, and keep unavailable financial inference neutral so stale thresholds cannot independently reject every buy. Peak/runner/continuation opportunity learning stays separate from realised cash-return claims"
   ],
   "evidence": [
     "docs/audits/runner_learning_20261007.json",
@@ -105,7 +106,10 @@
     "docs/audits/net_learning_20261007.json",
     "runtime/trade_learning.py",
     "ml/financial_targets.py",
-    "tests/test_trade_learning.py"
+    "tests/test_trade_learning.py",
+    "docs/audits/financial_model_acceptance_20261007.json",
+    "tests/test_financial_model_acceptance.py",
+    "tests/net_financial_fixtures.py"
   ],
   "verification": {
     "pre_final_changes_full_pytest": "856 passed in 31.49s",
@@ -124,7 +128,8 @@
     "previous_sell_integrity_working_suite": "1347 passed in 228.28s after final stale-attempt state hardening",
     "previous_paper_archive_working_suite": "1381 passed in 161.45s after immutable close archive and final frozen-admission-policy retention",
     "previous_runner_intake_working_suite": "1417 passed in 150.66s after final first-partial intake, disabled-control and source-enumeration/schema checks",
-    "final_working_suite": "1457 passed in 164.35s after frozen T0, checked net targets, idempotent export and final periodic-labeler/worker checks",
+    "previous_net_learning_working_suite": "1457 passed in 164.35s after frozen T0, checked net targets, idempotent export and final periodic-labeler/worker checks",
+    "final_working_suite": "1484 passed in 183.23s after checked net-only financial model populations, primary temporal purging, checksum snapshots and neutral unknown policy",
     "previous_sizing_publishing_suite": "1031 passed in 71.96s without personal .env",
     "previous_runner_forward_publishing_suite": "1068 passed in 62.78s without personal .env",
     "previous_uncertainty_publishing_suite": "1097 passed in 74.08s without personal .env using existing working-checkout Python runtime",
@@ -137,7 +142,8 @@
     "previous_sell_integrity_publishing_suite": "1347 passed in 210.88s after final state hardening, without personal .env or local .venv using existing working-checkout Python runtime",
     "previous_paper_archive_publishing_suite": "1381 passed in 152.64s after immutable close archive and final frozen-admission-policy retention, without personal .env or local .venv using existing working-checkout Python runtime",
     "previous_runner_intake_publishing_suite": "1417 passed in 143.61s after final first-partial intake, disabled-control and source-enumeration/schema checks, without personal .env or local .venv using existing working-checkout Python runtime",
-    "final_publishing_suite": "1457 passed in 152.66s after frozen T0, checked net targets, idempotent export and final periodic-labeler/worker checks, without personal .env or local .venv using existing working-checkout Python runtime",
+    "previous_net_learning_publishing_suite": "1457 passed in 152.66s after frozen T0, checked net targets, idempotent export and final periodic-labeler/worker checks, without personal .env or local .venv using existing working-checkout Python runtime",
+    "final_publishing_suite": "1484 passed in 179.04s after checked net-only financial model populations, primary temporal purging, checksum snapshots and neutral unknown policy, without personal .env or local .venv using existing working-checkout Python runtime",
     "publishing_preflight": "PASS: both checkouts, compilation, configuration, paper profile and seven report builders",
     "publishing_ui_build": "Previously passed with bundle-size warning; UI unchanged in uncertainty, transport, collector, incumbent-successor, composition, independent-monitor, buy-integrity, sell-integrity, paper-archive, runner-intake and net-learning stages",
     "focused_runner_and_forward_suite": "147 passed in 59.65s in previous runner stage",
@@ -151,21 +157,22 @@
     "paper_archive_suite": "34 new synthetic isolated tests and both final 1381-test suites cover immutable outcome cells, checksum/schema/filename/lineage corruption, legacy retention and explicit read failures, exact causal trade grain, archive/ack failures, no repeated order/fee, replacement pre-provider rejection, concurrent buy ownership, bounded rotated maintenance, frozen admission provenance and extreme observed peaks separated from actual net returns",
     "runner_intake_suite": "36 new synthetic isolated tests and both final 1417-test suites cover original-prefix capture, actual paper partial/close/reentry after secondary disk failures, causal UUID/receipt proof, checksum/schema/filename conflicts, delayed and bounded recovery, active-case preservation, acknowledged case loss, full-population completeness, cached-selection invalidation, strict unreadable-source handling, original-cohort capture gaps and research-disabled controls. No runtime provider call, active policy/model write or profitability evidence is generated",
     "net_learning_suite": "40 new isolated tests and both final 1457-test suites cover detached pre-buy T0 features, checked negative and positive estimated-net outcomes, gross-positive/net-negative and extreme-peak distinctions, immutable sources, restart/same-mint recovery, exact replays, disk/response failure, Parquet corruption and conflicts, no legacy overwrite, source identity/receipt/quantity/time errors, strict model reads, periodic SQL labels, unknown open timeouts and separately supervised off-thread export/shutdown drain",
+    "financial_model_acceptance_suite": "27 new isolated cases and both final 1484-test suites cover mixed net/gross datasets, original T0 restoration, configured net target derivation, causal dedup/conflicts, invalid acceptance metadata, primary empty-population skip and future-close/reentry purging, legacy OOS bypass rejection, checksummed model/meta cache changes, detached status and stale-threshold neutral inference. Existing runtime models remain untouched and no profitability is established",
     "command": "D:/Dev/Python/memebot3/.venv/Scripts/python.exe -m pytest -q in each checkout",
     "verification_scope": "Automated software, empty-data report builders, isolated historical advisory training, synthetic model/entry/exit/collector fixtures and previous read-only SOL/USDC quote diagnostics; not prospective profitability, memecoin fills or live certification",
     "previous_shutdown_verified_at_utc": "2026-10-07T15:13:25.1749853Z",
     "previous_remaining_bot_processes": 0,
     "previous_bot_lock_present": false,
     "previous_sqlite_process_state": "stopped",
-    "final_shutdown": "VERIFIED_OFF_2026-10-07T20:40:46.7925135Z",
-    "current_shutdown_evidence": "docs/audits/net_learning_20261007.json"
+    "final_shutdown": "VERIFIED_OFF_2026-10-07T21:06:55.3000607Z",
+    "current_shutdown_evidence": "docs/audits/financial_model_acceptance_20261007.json"
   },
   "isolated_advisory_result": {"source_period": "2026-07-13 through 2026-07-15", "settled_source_rows": 2147, "comparison_rows": 536, "selected_ranking_targets": ["runner_50", "runner_100"], "active_runtime_models_changed": false, "bot_started": false, "interpretation": "Useful historical ranking discrimination only; rare higher targets remain unvalidated and no costed future profits are established"},
   "remaining_required_work": [
     "Complete the architecture and evidence audit across ingestion, opportunity ranking, scheduling, execution, monitoring, exit paths and learned policy activation",
     "Complete uncertainty, rare-runner and risk/continuation model validation on fresh evidence; calibrated event probabilities are not financial profitability evidence",
     "Complete scanner/feed follow-up and first-launch execution constraints; exact 0.1 SOL paper sizing and frozen runner exits are integrated but trading-policy activation remains separate",
-    "Owned buy/sell intents, primary paper JSON/SQL fill recovery, durable closed-trade archival/reentry protection, original first-partial research intake/recovery and new managed paper T0/net-label export are implemented; complete independently checked live wallet/quantity/finality reconciliation, fallback provider market/liquidity freshness, other research/export error paths, full-strategy forward-source integrity and net-only financial model acceptance/activation over mixed legacy datasets. No submission receipt or green paper test certifies these separate financial integrity boundaries",
+    "Owned buy/sell intents, primary paper JSON/SQL fill recovery, durable closed-trade archival/reentry protection, original first-partial research intake/recovery, managed paper T0/net-label export and checked net-only financial model acceptance over mixed legacy datasets are implemented; complete independently checked live wallet/quantity/finality reconciliation, fallback provider market/liquidity freshness, other research/export error paths, full-strategy forward-source integrity and prospective financial acceptance. No submission receipt or green paper test certifies these separate financial integrity boundaries",
     "Independent paper entry-component selection composition, checked incumbent/successor lifecycle and actual late-router consumption are implemented; complete still-cached scanner/core-entry consumers and full-strategy capital/admission/execution constraints. Obtain separately authorized fresh full-strategy closed evidence before a profitability claim",
     "Perform proportionate integration, first-launch and failure-path validation while keeping trading disabled",
     "Keep future implementation commits synchronized and leave all runtime services stopped after each verification stage"

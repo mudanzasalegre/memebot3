@@ -7,9 +7,9 @@ Inferencia en tiempo real para MemeBot 3.
 •  Expone:
        should_buy(vec)  →  probabilidad 0-1
        reload_model()   →  fuerza recarga en caliente
-•  Convierte cualquier entrada (dict / Series / DataFrame) a un
-   DataFrame de una fila con las columnas exactas que espera el modelo,
-   convierte a numérico, llena NaN con 0 y hace la predicción.
+•  Usa un snapshot coherente de modelo y metadata con checksum y población
+   financiera neta comprobada. Sin evidencia, la predicción es desconocida.
+•  Convierte dict / Series / DataFrame con el contrato común de features.
 
 Nota: Este archivo ahora usa logging en vez de print para integrarse con
 el sistema de logs del proyecto (utils/logger.py).
@@ -20,6 +20,9 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import io
+import copy
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -29,6 +32,8 @@ import pandas as pd
 
 from config.config import CFG, PROJECT_ROOT
 from ml.feature_matrix import coerce_feature_frame
+from ml.financial_targets import supported_financial_training
+from features.builder import ALLOWED_FEATURES
 
 # Logger del módulo
 log = logging.getLogger("ai_predict")
@@ -85,6 +90,8 @@ _model_lock = threading.Lock()
 _model: Optional[Any] = None               # objeto LightGBM / sklearn
 _model_mtime: Optional[float] = None       # timestamp del .pkl
 _model_path_loaded: Optional[Path] = None
+_model_signature: tuple | None = None
+_loaded_meta: dict[str, Any] = {}
 _FEATURES: Optional[Sequence[str]] = None  # orden de columnas
 _meta_cache: Optional[dict[str, Any]] = None
 _meta_mtime: Optional[float] = None
@@ -142,80 +149,48 @@ def _effective_model_paths() -> tuple[Path, Path, bool]:
     return _MODEL_PATH, _META_PATH, False
 
 
-def _load_model() -> None:
-    """Carga modelo y lista de features en memoria (lazy, thread-safe)."""
-    global _model, _model_mtime, _model_path_loaded, _FEATURES
-
-    model_path, meta_path, candidate_fallback = _effective_model_paths()
-    if candidate_fallback:
-        mtime = model_path.stat().st_mtime
-        if _model is not None and mtime == _model_mtime and _model_path_loaded == model_path:
-            return
-        with _model_lock:
-            current_mtime = model_path.stat().st_mtime
-            if _model is None or current_mtime != _model_mtime or _model_path_loaded != model_path:
-                _model = joblib.load(model_path)
-                _model_mtime = current_mtime
-                _model_path_loaded = model_path
-                _FEATURES = None
-                if meta_path.exists():
-                    try:
-                        meta = json.loads(meta_path.read_text())
-                        _FEATURES = meta.get("features")
-                    except Exception as e:
-                        log.warning("No se pudo leer meta %s: %s", meta_path, e)
-                if not _FEATURES:
-                    try:
-                        _FEATURES = list(_model.feature_name())
-                    except Exception:
-                        raise RuntimeError(
-                            f"No se pudo determinar _FEATURES; falta {meta_path} "
-                            "y el modelo no expone feature_name()."
-                        )
-                log.info("ðŸ§  Modelo cargado (candidate): %s (mtime=%d)", model_path.name, int(_model_mtime))
-        return
-
-    if not _MODEL_PATH.exists():  # primera ejecución: aún no hay modelo
-        _model = None
-        _model_mtime = None
-        _model_path_loaded = None
-        _FEATURES = None
-        log.debug("Modelo no encontrado en disco: %s", _MODEL_PATH)
-        return
-
-    mtime = _MODEL_PATH.stat().st_mtime
-    if _model is not None and mtime == _model_mtime and _model_path_loaded == _MODEL_PATH:
-        # Ya actualizado en memoria
-        return
-
+def _load_model():
+    """One checksum-checked net-model snapshot; absence is neutral/unknown."""
+    global _model, _model_mtime, _model_path_loaded, _FEATURES, _model_signature, _loaded_meta
+    model_path, meta_path, _candidate_fallback = _effective_model_paths()
     with _model_lock:
-        # doble-check por concurrencia
-        current_mtime = _MODEL_PATH.stat().st_mtime
-        if _model is None or current_mtime != _model_mtime or _model_path_loaded != _MODEL_PATH:
-            _model = joblib.load(_MODEL_PATH)
-            _model_mtime = current_mtime
-            _model_path_loaded = _MODEL_PATH
-
-            # lista de columnas entrenadas
-            _FEATURES = None
-            if _META_PATH.exists():
-                try:
-                    meta = json.loads(_META_PATH.read_text())
-                    _FEATURES = meta.get("features")
-                except Exception as e:
-                    log.warning("No se pudo leer meta %s: %s", _META_PATH, e)
-
-            # Fallback para algunos modelos (p.ej. LightGBM con atributo feature_name)
-            if not _FEATURES:
-                try:
-                    _FEATURES = list(_model.feature_name())
-                except Exception:
-                    raise RuntimeError(
-                        f"No se pudo determinar _FEATURES; falta {_META_PATH} "
-                        "y el modelo no expone feature_name()."
-                    )
-
-            log.info("🧠 Modelo cargado: %s (mtime=%d)", _MODEL_PATH.name, int(_model_mtime))
+        try:
+            model_stat, meta_stat = model_path.stat(), meta_path.stat()
+            signature = (str(model_path), str(meta_path), model_stat.st_mtime_ns, model_stat.st_size,
+                         meta_stat.st_mtime_ns, meta_stat.st_size)
+        except OSError:
+            signature = None
+        if signature is not None and signature == _model_signature:
+            return _model, list(_FEATURES or []), copy.deepcopy(_loaded_meta)
+        _model, _FEATURES, _loaded_meta = None, None, {}
+        _model_mtime, _model_path_loaded, _model_signature = None, None, signature
+        if signature is None:
+            return None, [], {}
+        try:
+            metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+            if not isinstance(metadata, dict):
+                raise ValueError("model metadata must be an object")
+            _loaded_meta = metadata
+            if not supported_financial_training(metadata, entry=True):
+                return None, [], copy.deepcopy(metadata)
+            if (metadata.get("validation_split") or {}).get("label_availability_purged") is not True:
+                return None, [], copy.deepcopy(metadata)
+            features = metadata.get("features")
+            if (not isinstance(features, list) or not features or len(set(features)) != len(features)
+                    or any(feature not in ALLOWED_FEATURES for feature in features)):
+                raise ValueError("unproved entry feature schema")
+            payload = model_path.read_bytes()
+            if sha256(payload).hexdigest() != metadata.get("model_sha256"):
+                raise ValueError("model/metadata checksum mismatch")
+            # Deserialize precisely the bytes that passed the checksum, never
+            # a replacement path from a concurrent promotion.
+            _model = joblib.load(io.BytesIO(payload))
+            _FEATURES = list(features)
+            _model_mtime, _model_path_loaded = model_stat.st_mtime, model_path
+        except Exception as exc:
+            _model, _FEATURES = None, None
+            log.warning("Entry model unavailable: %s", type(exc).__name__)
+        return _model, list(_FEATURES or []), copy.deepcopy(_loaded_meta)
 
 
 def _load_meta() -> dict[str, Any]:
@@ -318,34 +293,40 @@ def _to_dataframe(vec: Any) -> pd.DataFrame:
 
 
 # ╭────────────────── API pública ─────────────────╮
-def should_buy(vec: Any) -> float:
+def should_buy(vec: Any) -> float | None:
     """
     Devuelve la probabilidad de compra (label = 1) para el vector de características.
     •  `vec` puede ser dict, pandas.Series o pandas.DataFrame (1 fila).
-    •  Si no hay modelo aún (primera ejecución), devuelve 0.0.
+    •  Sin un modelo neto comprobado, devuelve None (desconocido, no fracaso).
     """
-    _load_model()
-    if _model is None:
-        log.debug("Predicción omitida: no hay modelo aún, devolviendo 0.0")
-        return 0.0  # primera ejecución: aún sin modelo entrenado
-
-    X = _to_dataframe(vec)
-
-    # LightGBM Booster o sklearn estimators
+    model, features, _metadata = _load_model()
+    if model is None:
+        return None
     try:
-        proba = _model.predict_proba(X)[0, 1]  # sklearn-style
-    except AttributeError:
-        proba = _model.predict(X)[0]           # LightGBM Booster
-    return float(proba)
+        row = vec.to_dict() if hasattr(vec, "to_dict") and not isinstance(vec, pd.DataFrame) else vec
+        X = coerce_feature_frame(row if isinstance(row, pd.DataFrame) else pd.DataFrame([row]), features)
+        if hasattr(model, "predict_proba"):
+            classes = list(model.classes_)
+            if classes != [0, 1]:
+                return None
+            proba = model.predict_proba(X)[0, 1]
+        else:
+            proba = model.predict(X)[0]
+        value = float(proba)
+        return value if np.isfinite(value) and 0 <= value <= 1 else None
+    except Exception as exc:
+        log.debug("Entry prediction unknown: %s", type(exc).__name__)
+        return None
 
 
 def reload_model() -> None:
     """Borra el modelo en memoria para forzar recarga (p. ej. tras retrain)."""
-    global _model, _model_mtime, _model_path_loaded, _meta_cache, _meta_mtime, _meta_path_loaded
+    global _model, _model_mtime, _model_path_loaded, _meta_cache, _meta_mtime, _meta_path_loaded, _model_signature
     with _model_lock:
         _model = None
         _model_mtime = None
         _model_path_loaded = None
+        _model_signature = None
         _meta_cache = None
         _meta_mtime = None
         _meta_path_loaded = None
@@ -354,9 +335,8 @@ def reload_model() -> None:
 
 def model_runtime_status() -> dict[str, Any]:
     """Estado ligero del modelo y de su activación recomendada."""
-    meta = _load_meta()
+    model, features, meta = _load_model()
     train_status = _load_train_status()
-    _load_model()
     dataset_quality = meta.get("dataset_quality")
     if not isinstance(dataset_quality, dict):
         dataset_quality = train_status.get("dataset_quality")
@@ -421,9 +401,12 @@ def model_runtime_status() -> dict[str, Any]:
         "candidate_fallback_used": bool(candidate_fallback),
         "candidate_model_path": str(effective_model_path) if candidate_fallback else None,
         "candidate_meta_path": str(effective_meta_path) if candidate_fallback else None,
-        "model_loaded": _model is not None,
-        "features_count": len(_FEATURES or ()),
-        "activation_ready": meta.get("activation_ready"),
+        "model_loaded": model is not None,
+        "features_count": len(features),
+        "activation_ready": bool(meta.get("activation_ready") is True and model is not None
+                                 and supported_financial_training(meta, entry=True)),
+        "financial_training": meta.get("financial_training"),
+        "financial_training_ready": supported_financial_training(meta, entry=True),
         "dataset_quality_passed": dataset_quality_passed,
         "threshold_metric": meta.get("threshold_metric") or train_status.get("threshold_metric"),
         "training_scope": meta.get("training_scope") or train_status.get("training_scope"),

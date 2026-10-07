@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Any
 
 import joblib
+from hashlib import sha256
 
 from config.config import CFG, PROJECT_ROOT
+from ml.financial_targets import supported_financial_training, financial_target
 
 
 MODELS_DIR = PROJECT_ROOT / "ml" / "models"
@@ -62,7 +64,7 @@ def write_candidate(
     tmp_model = model_path.with_name(model_path.name + ".tmp")
     joblib.dump(model, tmp_model)
     os.replace(tmp_model, model_path)
-    atomic_write_json(meta_path, meta)
+    atomic_write_json(meta_path, {**meta, "model_sha256": sha256(model_path.read_bytes()).hexdigest()})
     thresholds_path = None
     if thresholds is not None:
         thresholds_path = candidate_dir / "thresholds.by_lane.json"
@@ -94,6 +96,20 @@ def _ensure_activation_ready(meta: dict[str, Any]) -> None:
         raise RuntimeError(ACTIVATION_READY_PROMOTION_ERROR)
 
 
+def _ensure_financial_artifact(meta, path, *, entry=False):
+    if not supported_financial_training(meta, entry=entry):
+        raise RuntimeError("checked net financial training required for model promotion")
+    if entry:
+        if (meta.get("validation_split") or {}).get("label_availability_purged") is not True:
+            raise RuntimeError("purged financial label availability required for model promotion")
+        from features.builder import ALLOWED_FEATURES
+        features = meta.get("features")
+        if not isinstance(features, list) or not features or any(feature not in ALLOWED_FEATURES for feature in features):
+            raise RuntimeError("proved T0 feature schema required for model promotion")
+    if meta.get("model_sha256") != sha256(path.read_bytes()).hexdigest():
+        raise RuntimeError("model/metadata checksum mismatch blocks promotion")
+
+
 def promote_candidate(artifact: ModelArtifactSet, *, active_model_path: Path | None = None) -> dict[str, Any]:
     _ensure_promotion_unlocked()
     active_model_path = active_model_path or CFG.MODEL_PATH
@@ -102,6 +118,7 @@ def promote_candidate(artifact: ModelArtifactSet, *, active_model_path: Path | N
         raise FileNotFoundError("candidate model/meta is incomplete")
     meta = json.loads(artifact.meta_path.read_text(encoding="utf-8"))
     _ensure_activation_ready(meta)
+    _ensure_financial_artifact(meta, artifact.model_path, entry=True)
     # Validate load and JSON before touching active files.
     joblib.load(artifact.model_path)
 
@@ -149,6 +166,8 @@ def promote_family_candidate(
     families = dict(registry.get("families") or {})
     meta = json.loads(artifact.meta_path.read_text(encoding="utf-8"))
     _ensure_activation_ready(meta)
+    if financial_target(family, meta.get("target")):
+        _ensure_financial_artifact(meta, artifact.model_path)
     joblib.load(artifact.model_path)
     family_dir.mkdir(parents=True, exist_ok=True)
     tmp_model = active_model_path.with_name(active_model_path.name + ".tmp")

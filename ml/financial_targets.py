@@ -3,12 +3,99 @@ from __future__ import annotations
 
 import json
 import math
+from hashlib import sha256
 
 import numpy as np
 import pandas as pd
 
 from runtime.trade_learning import VERSION, validate_source
+from features.builder import COLUMNS
 from ml.data_contract import normalize_sample_type
+
+TRAINING_VERSION = "checked_net_training_population_v1"
+TRAINING_SCOPE = "estimated_paper_execution_not_live_profit"
+
+
+def financial_target(family, target):
+    """Peak opportunity targets are not estimates of realised cash returns."""
+    return family == "risk" or (family == "ev" and target != "ev_peak_adjusted")
+
+
+def checked_financial_frame(frame):
+    """One original T0 per checked trade; reject conflicting or broken copies.
+
+    Rebuild all predictor inputs from the frozen pre-buy source. A later mutable
+    dataset value, derived label or peak cannot replace those original inputs.
+    Legacy/shadow rows remain available to opportunity workflows, not this one.
+    """
+    grouped = {}
+    unchecked = 0
+    for row in frame.to_dict(orient="records"):
+        identity = row.get("outcome_trade_id")
+        net = checked_net_return(row)
+        if not isinstance(identity, str) or not identity:
+            unchecked += 1
+            continue
+        grouped.setdefault(identity, []).append((row, net))
+    selected, conflicts, duplicates, thresholds = [], [], 0, set()
+    population = []
+    for identity, copies in sorted(grouped.items()):
+        hashes = {row.get("outcome_source_sha256") for row, net in copies if net is not None}
+        if any(net is None for _, net in copies) or len(hashes) != 1:
+            unchecked += len(copies)
+            conflicts.append(identity)
+            continue
+        row, net = copies[0]
+        source = json.loads(row["outcome_execution_proof"])
+        restored = {**row, **source["entry_features"]["vector"]}
+        restored["timestamp"] = pd.to_datetime(restored["timestamp"], utc=True)
+        restored["mint"] = restored["address"]
+        restored["outcome_closed_at"] = pd.to_datetime(source["trade"]["closed_at"], utc=True)
+        # Availability is the close, not a retry/export wall-clock time.
+        restored["ts"] = restored["outcome_closed_at"]
+        for column in ("realized_pnl_pct", "total_pnl_pct", "pnl_pct", "target_total_pnl_pct"):
+            restored[column] = net
+        threshold = source["entry_features"]["positive_pnl_ratio"]
+        restored["label"] = int(net / 100 >= threshold)
+        selected.append(restored)
+        duplicates += len(copies) - 1
+        thresholds.add(threshold)
+        population.append([identity, source["payload_sha256"]])
+    out = pd.DataFrame(selected, columns=frame.columns.union(
+        pd.Index(COLUMNS + ["mint", "realized_pnl_pct", "total_pnl_pct", "pnl_pct", "target_total_pnl_pct",
+                          "label", "ts", "outcome_closed_at"]), sort=False))
+    report = {
+        "version": TRAINING_VERSION, "return_basis": VERSION, "scope": TRAINING_SCOPE,
+        "source_rows": len(frame), "rows": len(out), "unique_trades": len(out),
+        "unchecked_rows": unchecked, "duplicates_removed": duplicates,
+        "conflicting_trade_ids": conflicts, "positive_pnl_ratios": sorted(thresholds),
+        "population_sha256": sha256(json.dumps(population, separators=(",", ":")).encode()).hexdigest(),
+        "ready": bool(len(out) and not conflicts),
+    }
+    return out.reset_index(drop=True), report
+
+
+def supported_financial_training(metadata, *, entry=False):
+    """Fail closed for legacy financial artifacts, never for peak ranking."""
+    try:
+        proof = metadata["financial_training"]
+        fingerprint = proof["population_sha256"]
+        rows = proof["rows"]
+        thresholds = proof["positive_pnl_ratios"]
+        return (proof.get("ready") is True and proof.get("version") == TRAINING_VERSION
+                and proof.get("return_basis") == VERSION and proof.get("scope") == TRAINING_SCOPE
+                and type(rows) is int and rows > 0 and type(proof.get("unique_trades")) is int
+                and proof.get("unique_trades") == rows
+                and ("target_rows" not in metadata or metadata["target_rows"] == rows)
+                and ("rows" not in metadata or metadata["rows"] == rows)
+                and not proof.get("conflicting_trade_ids")
+                and isinstance(fingerprint, str) and len(fingerprint) == 64
+                and all(c in "0123456789abcdef" for c in fingerprint)
+                and isinstance(thresholds, list) and bool(thresholds)
+                and all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in thresholds)
+                and (not entry or len(thresholds) == 1))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
 
 
 def checked_net_return(row):

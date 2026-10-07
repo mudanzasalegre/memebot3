@@ -15,6 +15,7 @@ from ml.family_training import train_classifier_family, train_regressor_family
 from ml.label_builder import build_labels
 from ml.prediction_validation import paired_token_loss_check, regression_error_check
 from ml.risk_model import severe_loss_labels
+from net_financial_fixtures import net_frame
 
 
 def _frame(n=160):
@@ -150,18 +151,18 @@ def test_compatibility_risk_training_exports_oos_rank_not_fit_probabilities(tmp_
     _configured_paths(trainer, tmp_path, "risk", monkeypatch)
     _configured_paths(risk_predict, tmp_path, "risk", monkeypatch)
     monkeypatch.setattr(runtime, "PROJECT_ROOT", tmp_path)
-    frame = _frame()
+    frame = net_frame(_frame())
     frame.loc[0, "target_total_pnl_pct"] = np.nan
     report = trainer.train_risk_model(frame=frame)
     assert report["compatibility_published"]
     target = report["targets"]["severe_loss_configured"]
-    assert target["unlabelled_rows"] == 1
+    assert report["financial_training"]["unchecked_rows"] == 1
     exported = pd.read_csv(trainer.VAL_PREDS)
     assert 0 < len(exported) < len(frame)
     assert "rank_score" in exported and "y_prob" not in exported
     assert 0 <= risk_predict.predict_risk({"price_pct_5m": 5}) <= 1
     old_hash = sha256(trainer.MODEL_PATH.read_bytes()).hexdigest()
-    report = trainer.train_risk_model(frame=frame.drop(columns="ts"))
+    report = trainer.train_risk_model(frame=frame.drop(columns=["ts", "outcome_closed_at"]))
     assert not report["compatibility_published"]
     assert sha256(trainer.MODEL_PATH.read_bytes()).hexdigest() == old_hash
     monkeypatch.setattr(risk_predict, "CFG", dataclasses.replace(risk_predict.CFG, ML_SEVERE_LOSS_PCT=-50))
@@ -173,11 +174,11 @@ def test_compatibility_ev_training_is_oos_and_preserves_configured_clip(tmp_path
     from analytics import ev_predict
     _configured_paths(trainer, tmp_path, "ev", monkeypatch)
     _configured_paths(ev_predict, tmp_path, "ev", monkeypatch)
-    frame = _frame()
+    frame = net_frame(_frame())
     frame.loc[0, "target_total_pnl_pct"] = np.inf
     report = trainer.train_ev_model(frame=frame)
     assert report["compatibility_published"]
-    assert report["targets"]["ev_configured_clipped"]["unlabelled_rows"] == 1
+    assert report["targets"]["ev_configured_clipped"]["financial_training"]["rows"] == 159
     exported = pd.read_csv(trainer.VAL_PREDS)
     assert 0 < len(exported) < len(frame)
     assert np.isfinite(exported.target_ev).all()
@@ -202,7 +203,7 @@ def test_invalid_error_envelope_cannot_return_ev_value(tmp_path, monkeypatch, in
     from analytics import ev_predict
     _configured_paths(trainer, tmp_path, "ev", monkeypatch)
     _configured_paths(ev_predict, tmp_path, "ev", monkeypatch)
-    assert trainer.train_ev_model(frame=_frame())["compatibility_published"]
+    assert trainer.train_ev_model(frame=net_frame(_frame()))["compatibility_published"]
     meta = json.loads(trainer.META_PATH.read_text())
     meta["regression_evaluation"]["absolute_error_radius_pct_points"] = invalid
     trainer.META_PATH.write_text(json.dumps(meta))
@@ -227,7 +228,7 @@ def test_probability_ready_flag_cannot_override_invalid_cluster_evidence(tmp_pat
     _configured_paths(trainer, tmp_path, "risk", monkeypatch)
     _configured_paths(risk_predict, tmp_path, "risk", monkeypatch)
     monkeypatch.setattr(runtime, "PROJECT_ROOT", tmp_path)
-    assert trainer.train_risk_model(frame=_frame())["compatibility_published"]
+    assert trainer.train_risk_model(frame=net_frame(_frame()))["compatibility_published"]
     metadata = json.loads(trainer.META_PATH.read_text())
     metadata["validation"]["temporal"]["probability_evaluation"]["cluster_skill"][field] = value
     trainer.META_PATH.write_text(json.dumps(metadata))

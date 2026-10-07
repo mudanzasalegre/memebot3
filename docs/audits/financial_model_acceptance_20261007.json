@@ -1,0 +1,58 @@
+{
+  "stage": "Checked net-only financial model populations, temporal acceptance and neutral unknown inference",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "requested_trade_size_sol": 0.1,
+  "runtime_requirement": "Both checkout runtimes remain OFF. Only temporary synthetic training fixtures and read-only checks are authorized in this stage; no runtime model training, model/policy activation, wallet order or new bot run occurred.",
+  "findings": [
+    "Checked net close rows had been introduced, but historical gross/shadow rows could still supply training and OOS metrics to financial risk, EV and primary-entry models",
+    "The primary entry reader exposed arbitrary active or shadow-candidate predictions without a checked financial population or model/meta checksum; unavailable models returned a fabricated zero rather than unknown",
+    "A stale threshold file could independently authorize ML enforcement even after the entry model became unavailable, creating a possible blanket buy rejection. This is a source-code defect, not proof that it explains every historical no-buy run",
+    "The primary entry forward holdout and mint-grouped walk-forward did not purge training labels that only closed after the validation decision or later reentries of early training tokens"
+  ],
+  "implemented": {
+    "financial_population": "Revalidate serialized terminal execution proofs and original causal identity/timestamps/net return. Group all copies before generic filtering; deduplicate identical proof copies and exclude an entire identity if any copy is broken or contradictory. Restore predictor inputs from the immutable original T0 source, not mutable later dataset fields; record unique-trade population hash, counts, cost basis, scope and frozen positive-label thresholds",
+    "financial_targets": "Risk targets and realised EV targets only use checked estimated-net paper populations. Configured severe-loss and EV-clip definitions are explicit and derived again from net returns, not supplied arbitrary labels. A mixed dataset cannot backfill missing financial evidence with gross or shadow rows. Original gross diagnostics and peak/runner/continuation opportunity learning remain available separately",
+    "entry_training": "Once net evidence is declared, the actual primary training context uses only the checked financial population and the T0 feature whitelist. An invalid or empty declared population cleanly skips without gross backfill or an empty holdout-index failure. Legacy-only diagnostic candidates cannot activate as financially supported models",
+    "temporal_validation": "Primary forward holdout and mint-grouped walk-forward now require settled observations and purge any training label that closes at or after the earliest validation decision minus a 60-second embargo. Later decisions of early training tokens are also excluded; token-disjoint folds remain intact. Primary acceptance, promotion and runtime loading require the label-availability-purged contract",
+    "model_acceptance": "Financial-family readers and ranking APIs reject legacy financial artifacts even when old OOS flags otherwise look valid. Candidate metadata includes the exact model checksum. Primary promotion requires checked net population, uniform frozen positive-label definition, T0 schema and purged timing, in addition to existing quality/threshold/optimization gates. No existing runtime model was migrated, trained, overwritten or activated",
+    "coherent_inference": "Primary inference caches by both model and metadata nanosecond signatures and deserializes exactly the bytes that passed the checksum. Model-only or metadata-only updates invalidate the snapshot. Returned status metadata is detached so callers cannot mutate the cached proof. Specialized readers likewise deserialize checked bytes rather than a concurrently replaceable file path",
+    "unknown_policy": "An unavailable, corrupt, unsupported or unpurged entry model returns None, not zero. Actual policy enforcement requires both an active checked model and a finite observed prediction; a stale threshold alone cannot veto all buys. With no ML observations, the sizing copilot is neutral. Existing base safety checks, lane authorization and exact 0.1 SOL paper sizing remain in force",
+    "preserved_upside": "No new take-profit percentage ceiling or cap on extreme runner/continuation detection was introduced. An observed enormous peak remains opportunity information, not asserted realised net profit or live execution evidence"
+  },
+  "verification": {
+    "status": "SOFTWARE_VALIDATED_OFF_NO_PROFITABILITY_CLAIM",
+    "new_financial_acceptance_cases": 27,
+    "final_focused_acceptance_policy_registry_suite": "43 passed in 8.39s",
+    "focused_primary_context_temporal_registry_runner_suite": "52 passed in 9.98s before final detached-status cases",
+    "earlier_focused_integration": "126 passed in 31.48s before final temporal-purging and detached-status checks",
+    "full_working_checkout": "1484 passed in 183.23s",
+    "full_publishing_checkout": "1484 passed in 179.04s without personal .env or local .venv, using the existing working-checkout Python runtime",
+    "preflight_both": {"ok": true, "compile_errors": 0, "configuration_import_returncode": 0, "paper_profile_ok": true, "empty_data_report_builders": 7, "all_report_builders_ok": true},
+    "source_sync": {"reviewed_code_and_test_files": 16, "updates": 14, "adds": 2, "deleted": 0, "initial_applied_plan_sha256": "a0f228be9cf5bb0d8f7cc57647d7afb3471f7ef349c65ab7e7915e8c0672e89c", "final_temporal_status_updates": "Five reviewed source paths copied mechanically with absolute path-containment checks after the initial sync", "personal_env_data_logs_models_excluded": true},
+    "scope": "Synthetic receipt proofs checked by production validators; mixed gross/net sources, original T0 restoration, configured target derivation, duplicate/conflicting trade identities, invalid metadata, uniform label definitions, primary filtering and empty-population skip, future close/reentry purging, legacy/OOS bypass rejection, checksum and metadata-only changes, detached cache status and neutral policy fallback. This is software evidence, not profitable prospective trading"
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "runtime_model_training_started": false,
+    "shutdown_verified_at_utc": "2026-10-07T21:06:55.3000607Z",
+    "artifact_snapshot_verified_at_utc": "2026-10-07T21:04:43.8474421Z",
+    "remaining_bot_processes_both_checkouts": 0,
+    "root_and_data_bot_locks_both_checkouts": false,
+    "real_learning_sources_buy_sell_journals_and_closed_archive_cells_created": 0,
+    "real_runner_sources_receipts_cases_and_active_policies_created": 0,
+    "runtime_model_artifacts_changed_since_204717_utc": 0,
+    "runtime_feature_files_changed_since_204717_utc": 0,
+    "sqlite_state": {"bot_id": "main", "process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"},
+    "stop_stack": {"completed_at_utc": "2026-10-07T21:06:54Z", "requested_by": "user", "killed": 0, "remaining": 0, "runtime_finalizer": "ok"}
+  },
+  "remaining_full_goal_requirements": [
+    "Complete full-strategy forward-source integrity and the remaining architecture consumers; checked net training alone is not prospective financial acceptance",
+    "Complete fallback market/liquidity freshness, cached scanner/core-entry consumption, feed follow-up and full-strategy capital/admission/execution constraints",
+    "Independently establish live wallet, fill quantity, chain finality and reconciliation before any separately authorized live execution",
+    "Obtain separately authorized fresh full-strategy costed closed evidence, including runner capture and drawdown, before claiming profitability or automatic financial-policy acceptance",
+    "Keep further changes synchronized, committed and pushed from the publishing checkout, with runtime services OFF"
+  ],
+  "completion_rule": "Do not mark the full goal complete from this net-model software block or passing tests. No maximum-benefit, future-profit or zero-error guarantee is established."
+}
