@@ -35,6 +35,7 @@ from ml.feature_matrix import coerce_feature_frame
 from ml.financial_targets import supported_financial_training
 from features.builder import ALLOWED_FEATURES
 from analytics.inference_scope import scoped_snapshot, scoped_prediction
+from features.context_encoding import checked_context_schema
 
 # Logger del módulo
 log = logging.getLogger("ai_predict")
@@ -180,6 +181,8 @@ def _load_model_unscoped():
             if (not isinstance(features, list) or not features or len(set(features)) != len(features)
                     or any(feature not in ALLOWED_FEATURES for feature in features)):
                 raise ValueError("unproved entry feature schema")
+            if not checked_context_schema(metadata, features):
+                raise ValueError("unproved entry context encoding")
             payload = model_path.read_bytes()
             if sha256(payload).hexdigest() != metadata.get("model_sha256"):
                 raise ValueError("model/metadata checksum mismatch")

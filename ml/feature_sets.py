@@ -4,6 +4,7 @@ from hashlib import sha256
 from typing import Iterable
 
 from features.builder import ALLOWED_FEATURES
+from features.context_encoding import CONTEXT_FEATURES
 
 _COMMON = [
     "entry_regime_code",
@@ -62,6 +63,7 @@ FEATURE_SETS: dict[str, list[str]] = {
     "continuation_features": _COMMON + ["price_pct_5m", "txns_last_5m", "price_impact_pct", "route_proxy"],
     "exit_features": _COMMON + ["exit_profile"],
 }
+FEATURE_SETS = {name: list(dict.fromkeys([*values, *CONTEXT_FEATURES])) for name, values in FEATURE_SETS.items()}
 
 _FORBIDDEN_SUBSTR = (
     "future",
@@ -75,7 +77,7 @@ _FORBIDDEN_SUBSTR = (
     "max_pnl",
     "peak_pnl",
 )
-_SAFE = {"exit_profile"}
+_SAFE = {"exit_profile", *CONTEXT_FEATURES}
 
 
 def validate_feature_set(features: Iterable[str]) -> list[str]:

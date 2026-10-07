@@ -4,6 +4,7 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
+from features.context_encoding import augment_context_frame
 
 
 def coerce_feature_frame(frame: pd.DataFrame, feature_names: Sequence[str]) -> pd.DataFrame:
@@ -12,7 +13,7 @@ def coerce_feature_frame(frame: pd.DataFrame, feature_names: Sequence[str]) -> p
     inferencia en tiempo real: NaN -> 0.0.
     """
     cols = list(feature_names)
-    X = frame.reindex(columns=cols).copy()
+    X = augment_context_frame(frame, cols).reindex(columns=cols).copy()
     X = X.apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0.0)
     return X.astype(np.float32)
 

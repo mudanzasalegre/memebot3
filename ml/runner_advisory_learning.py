@@ -26,9 +26,10 @@ from ml.feature_sets import feature_set_hash
 from ml.label_builder import RUNNER_THRESHOLDS
 from ml.model_validation_warnings import precision_at_k
 from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
+from features.context_encoding import checked_context_schema, SCHEMA_SHA256
 
 ROLE = "scanner_ranking_only"
-PIPELINE_VERSION = 2  # Independent-token calibration/support replaces row-only support.
+PIPELINE_VERSION = 3  # Checked static context encoding is part of comparison identity.
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -68,7 +69,10 @@ def _safe_model_path(family_dir: Path, relative: Any) -> Path:
     return path
 
 
-def _evaluate(model: Any, features: list[str], cohort: pd.DataFrame, target: str) -> dict[str, Any]:
+def _evaluate(model: Any, features: list[str], cohort: pd.DataFrame, target: str,
+              *, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    if not checked_context_schema(metadata or {}, features):
+        raise ValueError("Unproved advisory context encoding")
     observed = pd.to_numeric(cohort[target], errors="coerce")
     mask = observed.isin([0, 1])
     y = observed[mask].astype(int).to_numpy()
@@ -150,6 +154,7 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
         fingerprint = sha256(json.dumps({
             "pipeline_version": PIPELINE_VERSION, "cohort": _cohort_digest(df),
             "feature_set_hash": feature_set_hash("runner_features"),
+            "context_encoding_sha256": SCHEMA_SHA256,
             "min_rows": min_rows, "min_lift_delta": delta,
             "targets": list(RUNNER_THRESHOLDS),
         }, sort_keys=True).encode()).hexdigest()
@@ -197,7 +202,7 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
             if sha256(path.read_bytes()).hexdigest() != metadata.get("model_sha256"):
                 raise ValueError("Candidate artifact checksum mismatch")
             model = joblib.load(path)
-            evaluation = _evaluate(model, metadata["features"], holdout, target)
+            evaluation = _evaluate(model, metadata["features"], holdout, target, metadata=metadata)
             decision["challenger"] = evaluation
             incumbent_evaluation = None
             incumbent = heads.get(target)
@@ -212,7 +217,7 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
                 checksum = sha256(old_path.read_bytes()).hexdigest()
                 if checksum != old_meta.get("model_sha256") or checksum != incumbent.get("model_sha256"):
                     raise ValueError("Incumbent artifact checksum mismatch; not replacing it silently")
-                incumbent_evaluation = _evaluate(joblib.load(old_path), old_meta["features"], holdout, target)
+                incumbent_evaluation = _evaluate(joblib.load(old_path), old_meta["features"], holdout, target, metadata=old_meta)
                 decision["incumbent"] = incumbent_evaluation
             selected, reason = _candidate_decision(candidate, evaluation, incumbent_evaluation, min_lift_delta=delta)
             decision.update({"selected": selected, "reason": reason})
@@ -260,6 +265,7 @@ def rollback_runner_advisory(*, root: Path | None = None) -> bool:
             model_path = _safe_model_path(path.parent, entry["path"])
             metadata = _read_json(model_path.with_suffix(".meta.json"))
             if (model_path.stem != target or metadata.get("activation_role") != ROLE
+                    or not checked_context_schema(metadata, metadata.get("features") or [])
                     or sha256(model_path.read_bytes()).hexdigest() != entry.get("model_sha256")
                     or metadata.get("model_sha256") != entry.get("model_sha256")):
                 return False

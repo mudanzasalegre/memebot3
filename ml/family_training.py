@@ -21,6 +21,8 @@ from sklearn.metrics import brier_score_loss
 
 from config.config import CFG, PROJECT_ROOT
 from ml.feature_matrix import coerce_feature_frame
+from features.context_encoding import (augment_context_frame, available_context_features,
+    context_encoding_schema, FEATURE_SOURCES)
 from ml.feature_sets import feature_set, feature_set_hash
 from ml.label_builder import attach_labels
 from ml.outcome_targets import enrich_outcome_targets
@@ -152,7 +154,8 @@ def _save_family_model(model, path: Path, metadata: dict[str, Any]) -> None:
     meta_tmp = meta_path.with_name(f".{meta_path.name}.{uuid4().hex}.tmp")
     try:
         joblib.dump(model, temporary)
-        payload = {**metadata, "model_sha256": sha256(temporary.read_bytes()).hexdigest()}
+        payload = {**metadata, "model_sha256": sha256(temporary.read_bytes()).hexdigest(),
+                   "context_encoding": context_encoding_schema(metadata.get("features") or [])}
         meta_tmp.write_text(json.dumps(_json_safe(payload), indent=2, allow_nan=False), encoding="utf-8")
         os.replace(temporary, path)
         os.replace(meta_tmp, meta_path)
@@ -194,6 +197,7 @@ def train_classifier_family(
             if threshold is None or not np.isfinite(threshold) or not -100 <= threshold < 0:
                 raise ValueError("configured_risk_requires_explicit_net_target_definition")
             df["severe_loss_configured"] = df["target_total_pnl_pct"].le(threshold).astype("Int64")
+    df = augment_context_frame(df, available_context_features(df))
     features = list(dict.fromkeys(column for column in feature_set(feature_set_name) if column in df.columns))
     report: dict[str, Any] = {
         "family": family,
@@ -350,6 +354,7 @@ def train_regressor_family(
         raise ValueError("validation_prediction_export_requires_one_target")
     df = _settled_training_frame(load_training_frame(frame))
     # Mixed opportunity/financial target lists are handled independently below.
+    df = augment_context_frame(df, available_context_features(df))
     features = list(dict.fromkeys(column for column in feature_set(feature_set_name) if column in df.columns))
     report: dict[str, Any] = {
         "family": family,
@@ -463,7 +468,9 @@ def train_exit_classifier(
         peak = pd.to_numeric(df.get("max_pnl_pct_seen", df.get("target_total_pnl_pct")), errors="coerce").fillna(0)
         risk = pd.to_numeric(df.get("target_total_pnl_pct"), errors="coerce").fillna(0)
         df["best_exit_profile"] = np.where(peak >= 300, "moonbag", np.where(peak >= 100, "runner", np.where(risk < -30, "defensive", "balanced")))
-    features = [column for column in feature_set("exit_features") if column in df.columns and column != "exit_profile"]
+    df = augment_context_frame(df, available_context_features(df))
+    features = [column for column in feature_set("exit_features") if column in df.columns
+                and column != "exit_profile" and FEATURE_SOURCES.get(column) != "exit_profile"]
     report: dict[str, Any] = {"family": "exit", "rows": int(len(df)), "targets": {}}
     if len(df) < min_rows or not features or df["best_exit_profile"].nunique() < 2:
         report["status"] = "skipped"

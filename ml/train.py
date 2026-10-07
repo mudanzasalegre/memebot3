@@ -33,6 +33,8 @@ from ml.data_contract import (
 from ml.feature_matrix import coerce_feature_frame
 from ml.financial_targets import checked_financial_frame, supported_financial_training
 from features.builder import ALLOWED_FEATURES
+from features.context_encoding import (CONTEXT_FEATURES, augment_context_frame,
+    available_context_features, context_encoding_schema, independent_input_count)
 from ml.model_registry import ACTIVATION_READY_PROMOTION_ERROR, ModelArtifactSet, promote_candidate, write_candidate
 from ml.segment_report import SEGMENT_JSON, build_segment_report, write_segment_outputs
 from ml.tune_threshold import tune_from_frame
@@ -116,6 +118,7 @@ class DatasetQuality:
     holdout_positives: int
     holdout_unique_tokens: int
     sample_type_counts: dict[str, int]
+    non_constant_input_sources: int = 0
 
 
 @dataclass
@@ -679,6 +682,7 @@ def _filter_outcome_training_rows(
 
 
 def _select_feature_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str], list[str]]:
+    df = augment_context_frame(df, available_context_features(df))
     excluded_effective: list[str] = []
     keep_candidate: list[str] = []
 
@@ -687,7 +691,7 @@ def _select_feature_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str], 
             excluded_effective.append(col)
             continue
         lc = col.lower()
-        if any(sub in lc for sub in _FORBIDDEN_SUBSTR):
+        if col not in CONTEXT_FEATURES and any(sub in lc for sub in _FORBIDDEN_SUBSTR):
             excluded_effective.append(col)
             continue
         if pd.api.types.is_numeric_dtype(df[col]):
@@ -838,8 +842,10 @@ def _initial_quality(
         reasons.append(f"unique_tokens<{CFG.ML_MIN_UNIQUE_TOKENS}")
     if realized_return_rows < int(getattr(CFG, "ML_MIN_REALIZED_RETURN_ROWS", 50)):
         reasons.append(f"realized_return_rows<{CFG.ML_MIN_REALIZED_RETURN_ROWS}")
-    if len(x_cols) < int(getattr(CFG, "ML_MIN_NON_CONSTANT_FEATURES", 12)):
-        reasons.append(f"non_constant_numeric_features<{CFG.ML_MIN_NON_CONSTANT_FEATURES}")
+    input_sources = independent_input_count(x_cols)
+    min_inputs = int(getattr(CFG, "ML_MIN_NON_CONSTANT_FEATURES", 12))
+    if input_sources < min_inputs:
+        reasons.append(f"non_constant_input_sources<{min_inputs}")
 
     return DatasetQuality(
         passed=not reasons,
@@ -856,6 +862,7 @@ def _initial_quality(
         realized_return_rows=realized_return_rows,
         numeric_feature_candidates=len(x_cols),
         non_constant_numeric_features=len(x_cols),
+        non_constant_input_sources=input_sources,
         holdout_rows=0,
         holdout_positives=0,
         holdout_unique_tokens=0,
@@ -887,6 +894,7 @@ def _finalize_quality(quality: DatasetQuality, val_df: pd.DataFrame) -> DatasetQ
         realized_return_rows=quality.realized_return_rows,
         numeric_feature_candidates=quality.numeric_feature_candidates,
         non_constant_numeric_features=quality.non_constant_numeric_features,
+        non_constant_input_sources=quality.non_constant_input_sources,
         holdout_rows=holdout_rows,
         holdout_positives=holdout_positives,
         holdout_unique_tokens=holdout_unique_tokens,
@@ -1099,6 +1107,7 @@ def _build_training_context(
             realized_return_rows=quality.realized_return_rows,
             numeric_feature_candidates=quality.numeric_feature_candidates,
             non_constant_numeric_features=quality.non_constant_numeric_features,
+            non_constant_input_sources=quality.non_constant_input_sources,
             holdout_rows=quality.holdout_rows,
             holdout_positives=quality.holdout_positives,
             holdout_unique_tokens=quality.holdout_unique_tokens,
@@ -1724,6 +1733,7 @@ def train_and_save() -> TrainResult:
         "rows_missing_lane_metadata": int(filtering_meta.get("rows_missing_lane_metadata", 0)),
         **readiness,
         "features": x_cols,
+        "context_encoding": context_encoding_schema(x_cols),
         "feature_set_hash": feat_hash,
         "excluded_columns": sorted(excluded_effective),
         "model_path": str(MODEL_PATH),

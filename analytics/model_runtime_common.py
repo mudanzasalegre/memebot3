@@ -16,6 +16,8 @@ from config.config import PROJECT_ROOT
 from ml.feature_matrix import coerce_feature_frame
 from ml.financial_targets import financial_target, supported_financial_training
 from analytics.inference_scope import scoped_value, scoped_snapshot, scoped_prediction
+from features.context_encoding import checked_context_schema
+from features.builder import ALLOWED_FEATURES
 
 log = logging.getLogger(__name__)
 _lock = threading.RLock()
@@ -102,9 +104,12 @@ def _load_unscoped(path: Path, *, require_temporal_validation: bool):
             payload = path.read_bytes()
             if not expected_hash or sha256(payload).hexdigest() != expected_hash:
                 raise ValueError("model/metadata checksum mismatch")
-            features = list(dict.fromkeys(metadata.get("features") or []))
-            if not features:
+            features = metadata.get("features")
+            if (not isinstance(features, list) or not features or len(set(features)) != len(features)
+                    or any(name not in ALLOWED_FEATURES for name in features)):
                 raise ValueError("model feature schema is absent")
+            if not checked_context_schema(metadata, features):
+                raise ValueError("unproved specialized context encoding")
             model = joblib.load(io.BytesIO(payload))
         except Exception as exc:
             log.warning("Specialized model unavailable family=%s target=%s error=%s", path.parent.name, path.stem, type(exc).__name__)

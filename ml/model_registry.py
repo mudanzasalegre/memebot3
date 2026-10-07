@@ -13,6 +13,7 @@ from hashlib import sha256
 
 from config.config import CFG, PROJECT_ROOT
 from ml.financial_targets import supported_financial_training, financial_target
+from features.context_encoding import checked_context_schema
 
 
 MODELS_DIR = PROJECT_ROOT / "ml" / "models"
@@ -97,15 +98,18 @@ def _ensure_activation_ready(meta: dict[str, Any]) -> None:
 
 
 def _ensure_financial_artifact(meta, path, *, entry=False):
+    if not checked_context_schema(meta, meta.get("features") or []):
+        raise RuntimeError("checked T0 context encoding required for model promotion")
     if not supported_financial_training(meta, entry=entry):
         raise RuntimeError("checked net financial training required for model promotion")
+    from features.builder import ALLOWED_FEATURES
+    features = meta.get("features")
+    if (not isinstance(features, list) or not features or len(set(features)) != len(features)
+            or any(feature not in ALLOWED_FEATURES for feature in features)):
+        raise RuntimeError("proved T0 feature schema required for model promotion")
     if entry:
         if (meta.get("validation_split") or {}).get("label_availability_purged") is not True:
             raise RuntimeError("purged financial label availability required for model promotion")
-        from features.builder import ALLOWED_FEATURES
-        features = meta.get("features")
-        if not isinstance(features, list) or not features or any(feature not in ALLOWED_FEATURES for feature in features):
-            raise RuntimeError("proved T0 feature schema required for model promotion")
     if meta.get("model_sha256") != sha256(path.read_bytes()).hexdigest():
         raise RuntimeError("model/metadata checksum mismatch blocks promotion")
 
@@ -168,6 +172,8 @@ def promote_family_candidate(
     _ensure_activation_ready(meta)
     if financial_target(family, meta.get("target")):
         _ensure_financial_artifact(meta, artifact.model_path)
+    elif not checked_context_schema(meta, meta.get("features") or []):
+        raise RuntimeError("checked T0 context encoding required for model promotion")
     joblib.load(artifact.model_path)
     family_dir.mkdir(parents=True, exist_ok=True)
     tmp_model = active_model_path.with_name(active_model_path.name + ".tmp")

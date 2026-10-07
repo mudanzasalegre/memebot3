@@ -13,7 +13,7 @@
   ],
   "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
   "historical_initial_publication_state": {"branch": "main", "origin_main_commit_before_sync": "3479e24", "working_tree_clean_before_sync": true, "remote_fetch_completed": true, "source_sync_completed": true, "implementation_commit": "0c7aa6c0d2bc10462d29b1d8207a68a23fc7fbb8", "commit_push": "COMPLETE", "remote_revision_verified": true, "scope": "Initial publication proof, not the current Git HEAD after later source stages"},
-  "latest_stage_evidence": "docs/audits/entry_inference_20261008.json",
+  "latest_stage_evidence": "docs/audits/context_encoding_20261008.json",
   "implemented_this_stage": [
     "Restore observed peak targets through a bounded causal historical join; preserve all entry features unchanged",
     "Persist observed peak and outcome-availability timestamp as outcome-only Parquet columns on future shadow and real closes",
@@ -56,7 +56,8 @@
     "Require checked estimated-net causal populations for financial risk/EV and primary-entry model acceptance, restore original T0 predictors, deduplicate exact copies and exclude conflicting identities before filtering, derive configured targets from net, purge primary training labels unavailable at validation time, require matching artifact checksums and timing contracts, and keep unavailable financial inference neutral so stale thresholds cannot independently reject every buy. Peak/runner/continuation opportunity learning stays separate from realised cash-return claims",
     "Bind canonical market fields to detached original provider HTTP receipts and sources; bypass all positive/negative/partial cache layers for sensitive/critical reads while retaining rate limits; preserve real zeros and unknowns, reject stale/changed/wrong-mint observations, prevent unrelated DexScreener search and updated-as-created ages, require actual fresh Jupiter-only price at the existing final entry guard, and recheck original batch/fallback prices per position and after awaits. Primary monitor and post-partial extreme-runner liquidity protection now process measured zero without inventing missing liquidity or adding an upside ceiling",
     "Treat queued snapshots as discovery identity only; collect fresh fast market inputs in the common scanner/sniper evaluator, preserve selected liquidity source/proxy basis and optional absence, freeze original decision inputs and recheck after awaits and against final model market columns before buy-limiter/intents. Temporarily missing/stale observations requeue the whole decision without negative targets, retry-budget consumption or permanent expiry blacklist. Paper liquidity proxies never overwrite observed zero or manufacture route truth, and admission probes use the configured exact 0.1 SOL amount without adding an upside ceiling",
-    "Pin checked consumed primary/specialized models, detached metadata, schemas and family manifests inside each task-local entry scope; cache only exact ordered consumed matrices with bounded cleanup. Recompute all entry forecasts, model-bound lane thresholds and ranking after lane/route/proxy changes at a fixed T0, refresh sizing without losing existing caps, recheck final ML/risk/quality before buy intents, retain the exact final learning vector, preserve unknown predictions as null and prevent enforced risk-veto or live bypasses. This is software coherence, not full-strategy financial acceptance"
+    "Pin checked consumed primary/specialized models, detached metadata, schemas and family manifests inside each task-local entry scope; cache only exact ordered consumed matrices with bounded cleanup. Recompute all entry forecasts, model-bound lane thresholds and ranking after lane/route/proxy changes at a fixed T0, refresh sizing without losing existing caps, recheck final ML/risk/quality before buy intents, retain the exact final learning vector, preserve unknown predictions as null and prevent enforced risk-veto or live bypasses. This is software coherence, not full-strategy financial acceptance",
+    "Derive versioned fixed-vocabulary one-hot T0 lane/gate/tier/exit/social/risk context in the common training/inference matrix, preserve raw causal receipts and historical Parquet schemas, keep absent/unrecognized context explicit and reject unproved encoding or specialized outcome predictors. Count source descriptors rather than dummy dimensions for primary diversity readiness, bind encoding identity into automatic advisory comparison/fingerprints/rollback, and leave legacy artifact interpretation unchanged. Active models are not retrained or promoted by this source stage"
   ],
   "evidence": [
     "docs/audits/runner_learning_20261007.json",
@@ -121,7 +122,10 @@
     "tests/test_entry_observation.py",
     "docs/audits/entry_inference_20261008.json",
     "analytics/inference_scope.py",
-    "tests/test_entry_inference_coherence.py"
+    "tests/test_entry_inference_coherence.py",
+    "docs/audits/context_encoding_20261008.json",
+    "features/context_encoding.py",
+    "tests/test_context_encoding.py"
   ],
   "verification": {
     "pre_final_changes_full_pytest": "856 passed in 31.49s",
@@ -144,7 +148,8 @@
     "previous_financial_model_working_suite": "1484 passed in 183.23s after checked net-only financial model populations, primary temporal purging, checksum snapshots and neutral unknown policy",
     "previous_market_freshness_working_suite": "1553 passed in 208.93s after per-field market receipts, fresh fallback/critical and original batch-age checks, provider/source identity, zero/missing preservation and post-partial extreme-runner zero-liquidity protection",
     "previous_entry_freshness_working_suite": "1616 passed in 186.06s after common fresh scanner/sniper inputs, immutable decision observations, transient full reevaluation, selected-provider proxy-basis preservation and non-permanent bounded queue expiry",
-    "final_working_suite": "1670 passed after per-entry checked model snapshots, current-vector forecasts/model-bound thresholds/sizing and final ML/risk/quality guard",
+    "previous_entry_inference_working_suite": "1670 passed after per-entry checked model snapshots, current-vector forecasts/model-bound thresholds/sizing and final ML/risk/quality guard",
+    "final_working_suite": "1806 passed in 217.78s after final fixed-vocabulary T0 context encoding, checked training/inference/advisory identity and equivalent NumPy indicator optimization",
     "previous_sizing_publishing_suite": "1031 passed in 71.96s without personal .env",
     "previous_runner_forward_publishing_suite": "1068 passed in 62.78s without personal .env",
     "previous_uncertainty_publishing_suite": "1097 passed in 74.08s without personal .env using existing working-checkout Python runtime",
@@ -161,7 +166,8 @@
     "previous_financial_model_publishing_suite": "1484 passed in 179.04s after checked net-only financial model populations, primary temporal purging, checksum snapshots and neutral unknown policy, without personal .env or local .venv using existing working-checkout Python runtime",
     "previous_market_freshness_publishing_suite": "1553 passed in 206.83s after market freshness, original batch-age/source and post-partial zero-liquidity protection, without personal .env or local .venv using existing working-checkout Python runtime",
     "previous_entry_freshness_publishing_suite": "1616 passed in 184.13s after common fresh scanner/sniper inputs and final liquidity-basis preservation, without personal .env or local .venv using existing working-checkout Python runtime",
-    "final_publishing_suite": "1670 passed after per-entry model/input/final-decision coherence, without personal .env or local .venv using existing working-checkout Python runtime",
+    "previous_entry_inference_publishing_suite": "1670 passed after per-entry model/input/final-decision coherence, without personal .env or local .venv using existing working-checkout Python runtime",
+    "final_publishing_suite": "1806 passed in 207.72s after final fixed-vocabulary context encoding and checked lifecycle, without personal .env or local .venv using existing working-checkout Python runtime",
     "publishing_preflight": "PASS: both checkouts, compilation, configuration, paper profile and seven report builders",
     "publishing_ui_build": "Previously passed with bundle-size warning; UI unchanged in uncertainty, transport, collector, incumbent-successor, composition, independent-monitor, buy-integrity, sell-integrity, paper-archive, runner-intake, net-learning, financial-model and market-freshness stages",
     "focused_runner_and_forward_suite": "147 passed in 59.65s in previous runner stage",
@@ -179,14 +185,15 @@
     "market_freshness_suite": "69 new isolated cases, 128 focused tests and both final 1553-test suites cover original per-field provider HTTP receipts, stale/missing/changed/wrong-mint observations, detached cache and failed-refresh invalidation, forced provider queries with retained cooldown/rate limits and Gecko timeout, meaningful zero/unknown normalization, actual batch/monitor branches with later expiry and real fallback source, Jupiter-only final entry evidence, and zero-liquidity protection after extreme-runner partials. No runtime provider request, trading run, model training or financial evidence is produced",
     "entry_freshness_suite": "63 new isolated cases, 131 focused tests and both final 1616-test suites cover actual common entry preparation, original current market inputs and model columns, unknown optional fields, all stale market aliases, venue migration, selected-provider liquidity proxy metadata, explicit paper-only liquidity generation and measured zero, unknown-route rejection, exact probe sizing, transient wait without negative targets or buy-intents/limiter slots, retry-budget preservation, non-permanent bounded expiry/capacity, identity-only legacy queue dispatch and extreme momentum through +1000000 percent. No runtime provider request, bot run, model training or financial evidence is produced",
     "entry_inference_suite": "54 new isolated cases, 146 focused tests and both final 1670-test suites cover pinned checked primary/specialized artifacts, same-snapshot model activation and lane thresholds, unchanged/changed ordered consumed matrices, bounded memoization, unknown heads, detached schemas/metadata, family-manifest changes, nested/thread/task/cancellation/late-child cleanup, current all-head vector and fixed T0, sizing threshold and retained caps, exact final pending learning vector, paper-only nonrisk bypass, final enforced-risk/current-quality/lower-live-size revalidation, and nullable SQL/telemetry/heuristic-rank semantics. Synthetic temporary artifact training does not alter active models or establish financial profitability",
+    "context_encoding_suite": "136 new isolated cases, 240 focused tests in 26.91s and both final 1806-test suites cover every fixed category and missing/unknown distinctions, original aliases, immutable source/vocabulary, untrusted-indicator replacement, ordered float32 matrices, unchanged raw Parquet/causal proof, independent source-field readiness, actual primary/runner/checked-net EV fitting and inference, unsupported encoding/outcome predictor rejection, exact-input memoization, advisory comparison and checked rollback. Synthetic one-row 108-column matrix conversion median falls from 15.91 to 7.61 ms; this does not measure model, provider, scanner or order latency. Active models and financial runtime data are unchanged; no profitability evidence is generated",
     "command": "D:/Dev/Python/memebot3/.venv/Scripts/python.exe -m pytest -q in each checkout",
     "verification_scope": "Automated software, empty-data report builders, isolated historical advisory training, synthetic model/entry/exit/collector fixtures and previous read-only SOL/USDC quote diagnostics; not prospective profitability, memecoin fills or live certification",
     "previous_shutdown_verified_at_utc": "2026-10-07T15:13:25.1749853Z",
     "previous_remaining_bot_processes": 0,
     "previous_bot_lock_present": false,
     "previous_sqlite_process_state": "stopped",
-    "final_shutdown": "VERIFIED_OFF_2026-10-07T22:37:09.4294804Z",
-    "current_shutdown_evidence": "docs/audits/entry_inference_20261008.json"
+    "final_shutdown": "VERIFIED_OFF_2026-10-07T23:06:13.1923522Z",
+    "current_shutdown_evidence": "docs/audits/context_encoding_20261008.json"
   },
   "isolated_advisory_result": {"source_period": "2026-07-13 through 2026-07-15", "settled_source_rows": 2147, "comparison_rows": 536, "selected_ranking_targets": ["runner_50", "runner_100"], "active_runtime_models_changed": false, "bot_started": false, "interpretation": "Useful historical ranking discrimination only; rare higher targets remain unvalidated and no costed future profits are established"},
   "remaining_required_work": [
@@ -194,7 +201,7 @@
     "Complete uncertainty, rare-runner and risk/continuation model validation on fresh evidence; calibrated event probabilities are not financial profitability evidence",
     "Complete scanner/feed follow-up and first-launch execution constraints; exact 0.1 SOL paper sizing and frozen runner exits are integrated but trading-policy activation remains separate",
     "Owned buy/sell intents, primary paper JSON/SQL fill recovery, durable closed-trade archival/reentry protection, original first-partial research intake/recovery, managed paper T0/net-label export, checked net-only financial model acceptance and primary fallback/monitor HTTP-receipt freshness are implemented; complete independently checked live wallet/quantity/finality reconciliation, provider market-asof/depth and production response contracts, other research/export error paths, full-strategy forward-source integrity and prospective financial acceptance. No client receipt, submission receipt or green paper test certifies these separate financial integrity boundaries",
-    "Independent paper entry-component selection composition, checked incumbent/successor lifecycle, actual late-router consumption, common fresh market preparation and current-vector inference under pinned model snapshots are implemented; complete auxiliary source age contracts, categorical train/inference contracts, atomic multi-head provenance, durable full-strategy decision provenance and full-strategy capital/admission/execution constraints. Obtain separately authorized fresh full-strategy closed evidence before a profitability claim",
+    "Independent paper entry-component composition, checked incumbent/successor lifecycle, actual late-router consumption, common fresh market preparation, current-vector inference under pinned models and versioned fixed-vocabulary context encoding are implemented; complete auxiliary source ages, additional subprofile/numeric missingness contracts, primary internal calibration and diagnostic multiclass exit acceptance, atomic multi-head provenance, durable full-strategy decision provenance and full-strategy capital/admission/execution constraints. Obtain separately authorized fresh full-strategy closed evidence before a profitability claim",
     "Perform proportionate integration, first-launch and failure-path validation while keeping trading disabled",
     "Keep future implementation commits synchronized and leave all runtime services stopped after each verification stage"
   ],

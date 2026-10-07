@@ -20,6 +20,7 @@ from utils.data_utils import (
     sanitize_token_data,
 )
 from utils.time import utc_now
+from features.context_encoding import CONTEXT_FEATURES
 
 COLUMNS: list[str] = [
     "address",
@@ -239,6 +240,7 @@ ALLOWED_FEATURES: set[str] = {
     "config_hash",
 }
 FORBIDDEN_FEATURES: set[str] = set()
+ALLOWED_FEATURES.update(CONTEXT_FEATURES)
 _FORBIDDEN_SUBSTR: tuple[str, ...] = (
     "pnl",
     "future",
@@ -258,6 +260,7 @@ _SAFE_T0_METADATA_KEYS: set[str] = {
     "profit_pnl_guard_failures",
     "runner_exit_profile",
 }
+_SAFE_T0_METADATA_KEYS.update(CONTEXT_FEATURES)
 
 
 def _has_forbidden_keys(

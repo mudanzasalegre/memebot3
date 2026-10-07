@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "stage": "Versioned categorical T0 context across training, inference and advisory lifecycle",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "working_checkout": "D:/Dev/Python/memebot3",
+  "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
+  "findings": [
+    "The primary numeric-only feature selector discarded entry lane, gate profile, profit tier, configured exit profile and textual social/risk context",
+    "The shared numeric matrix converted textual predictors to zero. An old specialized exit-profile input therefore had no usable category distinction",
+    "Expanding one category to multiple dummy columns could otherwise inflate the primary minimum nonconstant-feature readiness gate",
+    "Specialized artifact loading did not require unique whitelisted T0 predictors; metadata could declare outcome or undeclared columns",
+    "Advisory same-cohort comparison and rollback verified model bytes but lacked an explicit category-encoding identity"
+  ],
+  "implementation": {
+    "encoding": {"version": "fixed_t0_context_onehot_v1", "schema_sha256": "880743776524c12a0c38670aa039e0fa3fb667dfdd03b4fcd3d95664cf523510", "descriptor_sources": ["entry_lane", "gate_profile", "profit_lane_tier", "exit_profile", "social_status", "green_sniper_risk_level", "liquidity_risk_level"], "derived_columns": 107, "vocabulary": "Fixed immutable software vocabulary, canonical existing lane aliases, separate unobserved/unrecognized categories and exact one-hot indicators. No fitted future vocabulary, numeric ordinal distances, token identities or lossy hashing"},
+    "shared_inputs": "The shared feature matrix derives requested categorical indicators from the raw T0 descriptors for both fitting and inference, in exact artifact feature order and float32 form. Existing precomputed indicator columns are not trusted. Primary and family trainers include the context whose descriptor columns are available; absence alone cannot invent a training input population",
+    "raw_receipt_preservation": "Builder COLUMNS, Parquet storage and frozen_entry_features_v1 remain unchanged. Original raw descriptors are already retained in the causal T0 proof; indicators are derived only at model use. No historical receipt, source checksum, Parquet partition or runtime dataset was migrated or rewritten",
+    "quality": "Primary quality reports non_constant_input_sources and applies the existing minimum to distinct underlying descriptor/numeric field names, not dummy dimensions. This counts source fields, not statistical independence or predictive skill. Existing row, token, positive, temporal and net-return acceptance gates remain required",
+    "artifact_acceptance": "New encoded models carry exact encoding version, vocabulary hash and ordered encoded-feature declarations. Primary and specialized inference, financial promotion and other family context promotion reject missing, mixed or unsupported declarations. Specialized loaders also require a nonempty unique ALLOWED_FEATURES schema, preventing outcome columns from becoming predictors. Legacy models without encoded columns retain their original numeric/text-imputation interpretation",
+    "advisory_lifecycle": "The automatic runner-advisory fingerprint includes encoding identity and pipeline version 3. Challenger and incumbent evaluation validate their encoding before comparison; rollback cannot activate a different/unproved schema. Existing same-later-cohort, label-mature, token-disjoint, rare-positive support and ranking-only role remain required",
+    "exit_classifier_boundary": "The diagnostic multiclass exit classifier retains its exclusion of configured exit_profile, including derived indicators of that field. Its separate lack of validated runtime multiclass/OOS support is not solved or represented as certified here",
+    "upside_and_size": "No upside, observed-peak, runner target or take-profit cap and no change to the exact requested 0.1 SOL paper order contract. Synthetic +25000 percent values pass unchanged through the numeric matrix"
+  },
+  "verification": {
+    "status": "FULL_SOFTWARE_REGRESSION_PASSED_RUNTIME_OFF",
+    "new_cases": 136,
+    "focused_final": "240 passed in 26.91s after final equivalent NumPy indicator construction",
+    "full_working": "1806 passed in 217.78s on final optimized code",
+    "full_publishing": "1806 passed in 207.72s on final optimized code, without personal .env or local .venv using the existing working-checkout Python runtime",
+    "preflight": {"working": "PASS", "publishing_without_personal_env": "PASS", "compile_errors": 0, "config_import_rc": 0, "paper_profile_ok": true, "empty_data_report_builders": 7, "all_report_builders_ok": true},
+    "matrix_microbenchmark": {"scope": "Synthetic one-row feature matrix only; not model, scanner, provider or order latency", "columns": 108, "calls_per_repeat": 100, "repeats": 3, "before_median_ms": 15.90864199999487, "before_max_ms": 16.279230999934953, "after_median_ms": 7.610337999940384, "after_max_ms": 7.716773000138346, "change": "Convert normalized category keys once per source and construct float32 indicators with equivalent NumPy comparisons"},
+    "artifact_snapshot": {"checked_at_utc": "2026-10-07T23:03:45Z", "change_window_start_utc": "2026-10-07T22:38:50Z", "both_checkouts": {"financial_and_forward_json_cells": 0, "changed_models_and_ml_artifacts": 0, "changed_feature_parquet_csv": 0, "active_policy_json": 0, "root_and_data_locks_present": false}, "scope": "Current file counts/change-window check; not a historical checksum audit or an observation of live profitability"},
+    "final_artifact_change_check": {"checked_at_utc": "2026-10-07T23:06:48Z", "both_checkouts": {"changed_models_and_ml_artifacts": 0, "changed_feature_parquet_csv": 0}},
+    "source_sync": {"source_paths_before_evidence": 11, "deleted": 0, "initial_applied_plan_sha256": "347b73e35a35d51440fef6b0d50848c7bf0f32c86d7eb9079eab3b183c677b7f", "final_vocabulary_copy": "Reviewed context_encoding.py only after producer coverage and final equivalent NumPy optimization were completed", "personal_env_data_logs_models_excluded": true},
+    "scope": "Every fixed category, unobserved versus observed missing/unknown, existing lane aliases, input immutability, stale indicator rejection, ordered float32 matrices, legacy artifact compatibility, immutable vocabulary, raw Parquet/causal receipt preservation, primary nonconstant selection/source counting, actual primary fit/checked reader and exact-input memoization, actual OOS runner training/reader and checked-net EV training restoring original context, malformed encoding/outcome predictor rejection, advisory comparison and rollback. All training occurs on synthetic isolated temporary artifacts, never active runtime models"
+  },
+  "runtime": {"bot_started": false, "live_activated": false, "runtime_model_training_started": false, "final_shutdown_verification": {"checked_at_utc": "2026-10-07T23:06:13.1923522Z", "stop_stack": "killed=0 remaining=0", "remaining_bot_processes": 0, "both_checkout_root_and_data_locks": false, "sqlite_bot_runtime_state": [["main", "stopped", "idle", "idle"]]}},
+  "limitations_and_next_work": [
+    "Existing active artifacts were not retrained or promoted. Future automatic training can use this encoding only when the original dataset and model acceptance gates pass",
+    "Unrecognized future descriptor values are explicit but not individually modeled. Vocabulary changes require a corresponding version/identity and verified artifact acceptance; a mismatched artifact remains unavailable rather than silently changing meaning",
+    "This deterministic transformation cannot validate the truth, freshness or causality of auxiliary provider context. Additional subprofile/full-strategy provenance, numeric missingness and atomic multi-head contracts remain separate work",
+    "Primary internal calibration and diagnostic multiclass exit-model acceptance require further architecture scrutiny; a green encoding test does not establish complete calibration or live financial reliability",
+    "Complete first-launch, lane/capital/admission/execution invariants, provider response/as-of/depth, live wallet/raw quantity/finality and prospective complete costed full-strategy closed evidence remain necessary",
+    "Synthetic category discrimination, model probabilities and preserved extreme peaks do not establish actual opportunities captured, executable gains or profitability"
+  ],
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO"
+}
