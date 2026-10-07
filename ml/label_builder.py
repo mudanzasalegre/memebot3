@@ -54,12 +54,14 @@ def build_labels(frame: pd.DataFrame, *, capture_factor: float = 0.35) -> pd.Dat
     out["severe_loss_30"] = realized.le(-30).astype("Int64").where(realized.notna())
     out["severe_loss_50"] = realized.le(-50).astype("Int64").where(realized.notna())
     exit_text = _text_any(frame, "exit_reason", "exit_reason_full", "reason", "green_sniper_reason", "reject_reason")
-    out["liquidity_crush_loss"] = (exit_text.str.contains("LIQUIDITY_CRUSH", regex=False) & realized.lt(0)).fillna(False).astype(int)
+    reason_known = exit_text.str.strip().ne("")
+    loss_observed = realized.notna() & reason_known
+    out["liquidity_crush_loss"] = (exit_text.str.contains("LIQUIDITY_CRUSH", regex=False) & realized.lt(0)).astype("Int64").where(loss_observed)
     out["toxic_exit_loss"] = (
         exit_text.str.contains("LIQUIDITY_CRUSH", regex=False)
         | exit_text.str.contains("NO_PUMP_EXIT", regex=False)
         | exit_text.str.contains("ADVERSE_TICK", regex=False)
-    ).fillna(False).astype(int)
+    ).fillna(False).astype("Int64").where(loss_observed)
     for threshold in RUNNER_THRESHOLDS:
         out[f"runner_{threshold}"] = peak.ge(float(threshold)).astype("Int64").where(peak.notna())
     out["continuation_1m"] = seen_1m

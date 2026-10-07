@@ -26,6 +26,7 @@ from ml.label_builder import attach_labels
 from ml.outcome_targets import enrich_outcome_targets
 from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
 from ml.calibrated_ranker import fit_calibrated_ranker, reliability_bins
+from ml.prediction_validation import paired_token_loss_check, regression_error_check
 from ml.train import _filter_outcome_training_rows, _load_dataset
 from ml.model_validation_warnings import (
     WARNING_IN_SAMPLE_ONLY,
@@ -95,6 +96,8 @@ def _forward_predictions(df, X, y, model, *, min_rows: int, classifier: bool):
     truths, predictions, positions = [], [], []
     evaluated_folds = []
     probability_truth, probability_predictions, baseline_predictions = [], [], []
+    probability_tokens, regression_baselines = [], []
+    _, _, _, identities = temporal_eligibility(df)
     for train, test in windows:
         if classifier and y.iloc[train].nunique() < 2:
             continue
@@ -107,15 +110,18 @@ def _forward_predictions(df, X, y, model, *, min_rows: int, classifier: bool):
                 probability_truth.extend(y.iloc[test].tolist())
                 probability_predictions.extend(candidate.predict_proba(X.iloc[test])[:, 1].tolist())
                 baseline_predictions.extend([float(y.iloc[train].mean())] * len(test))
+                probability_tokens.extend(identities.iloc[test].tolist())
         else:
             candidate = clone(model).fit(X.iloc[train], y.iloc[train])
             pred = candidate.predict(X.iloc[test])
+            regression_baselines.extend([float(y.iloc[train].median())] * len(test))
         truths.extend(y.iloc[test].tolist())
         predictions.extend(pred.tolist())
         positions.extend(test.tolist())
         evaluated_folds.append({"train_rows": len(train), "test_rows": len(test), "calibration": calibration})
     details["evaluated_folds"] = evaluated_folds
     details["out_of_sample_rows"] = len(truths)
+    details["out_of_sample_unique_tokens"] = int(identities.iloc[positions].nunique())
     if classifier:
         brier = float(brier_score_loss(probability_truth, probability_predictions)) if probability_truth else None
         baseline_brier = float(brier_score_loss(probability_truth, baseline_predictions)) if probability_truth else None
@@ -125,7 +131,15 @@ def _forward_predictions(df, X, y, model, *, min_rows: int, classifier: bool):
             "brier_skill_score": 1 - brier / baseline_brier if baseline_brier is not None and baseline_brier > 0 else None,
             "baseline": "Each outer fold's mature training prevalence, not the future test prevalence",
             "reliability_bins": reliability_bins(probability_truth, probability_predictions),
+            "positive_tokens": len({token for token, label in zip(probability_tokens, probability_truth) if label == 1}),
+            "negative_tokens": len({token for token, label in zip(probability_tokens, probability_truth) if label == 0}),
+            "cluster_skill": paired_token_loss_check(
+                probability_tokens, (np.asarray(probability_truth) - np.asarray(probability_predictions)) ** 2,
+                (np.asarray(probability_truth) - np.asarray(baseline_predictions)) ** 2),
         }
+    else:
+        details["regression_evaluation"] = regression_error_check(
+            identities.iloc[positions].tolist(), truths, predictions, regression_baselines)
     return np.asarray(truths), np.asarray(predictions), np.asarray(positions, dtype=int), details
 
 
@@ -146,6 +160,16 @@ def _save_family_model(model, path: Path, metadata: dict[str, Any]) -> None:
         meta_tmp.unlink(missing_ok=True)
 
 
+def _export_validation_predictions(frame: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        frame.to_csv(temporary, index=False)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def train_classifier_family(
     *,
     family: str,
@@ -154,7 +178,10 @@ def train_classifier_family(
     frame: pd.DataFrame | None = None,
     output_dir: Path | None = None,
     min_rows: int = 20,
+    validation_predictions_path: Path | None = None,
 ) -> dict[str, Any]:
+    if validation_predictions_path is not None and len(targets) != 1:
+        raise ValueError("validation_prediction_export_requires_one_target")
     df = _settled_training_frame(load_training_frame(frame))
     features = list(dict.fromkeys(column for column in feature_set(feature_set_name) if column in df.columns))
     report: dict[str, Any] = {
@@ -236,9 +263,13 @@ def train_classifier_family(
         probability_eval = temporal["probability_evaluation"]
         skill = probability_eval.get("brier_skill_score")
         probability_ready = bool(calibration["calibrated"] and probability_eval["rows"] >= 30
-                                 and probability_eval["positives"] >= 5 and skill is not None and skill > 0)
+                                 and probability_eval["positive_tokens"] >= 5 and probability_eval["negative_tokens"] >= 5
+                                 and probability_eval["cluster_skill"]["validation_ready"]
+                                 and skill is not None and skill > 0)
         lift = p_at_k / float(np.mean(truth)) if p_at_k is not None and len(truth) and np.mean(truth) > 0 else None
-        ranking_ready = bool(len(truth) >= 30 and int(np.sum(truth)) >= 5 and lift is not None and lift >= 1.25)
+        positive_tokens = temporal_eligibility(target_df)[3].iloc[positions][truth == 1].nunique() if len(truth) else 0
+        ranking_ready = bool(temporal["out_of_sample_unique_tokens"] >= 30 and positive_tokens >= 5
+                             and lift is not None and lift >= 1.25)
         report["targets"][target] = {
             "status": "trained",
             "model_path": str(model_path),
@@ -252,6 +283,7 @@ def train_classifier_family(
             "baseline_brier_score": probability_eval["baseline_brier_score"],
             "brier_skill_score": skill,
             "probabilities_calibrated": bool(calibration["calibrated"]),
+            "prediction_kind": "calibrated_binary_probability",
             "probability_validation_ready": probability_ready,
             "ranking_validation_ready": ranking_ready,
             "calibration": calibration,
@@ -274,6 +306,14 @@ def train_classifier_family(
         _save_family_model(model, model_path, {**report["targets"][target], "family": family, "target": target,
                            "trained_at_utc": report["trained_at_utc"], "feature_set_hash": report["feature_set_hash"],
                            "use": "advisory_only", "automatic_live_activation": False})
+        if validation_predictions_path is not None:
+            export = target_df.iloc[positions].copy()
+            export = export.assign(y_true=truth, rank_score=pred)
+            # A rank score is not a calibrated probability. The CSV makes the
+            # actual OOS role explicit and cannot masquerade as fit-row returns.
+            export = export[[column for column in ("mint", "address", "timestamp", "outcome_closed_at", "ts",
+                                                   "target_total_pnl_pct", "y_true", "rank_score") if column in export]]
+            _export_validation_predictions(export, validation_predictions_path)
     report["status"] = "ok"
     report["data_quality"] = df.attrs.get("outcome_target_join", {})
     target_warnings = [warning for item in report["targets"].values() for warning in item.get("validation", {}).get("warnings", [])]
@@ -289,7 +329,10 @@ def train_regressor_family(
     frame: pd.DataFrame | None = None,
     output_dir: Path | None = None,
     min_rows: int = 20,
+    validation_predictions_path: Path | None = None,
 ) -> dict[str, Any]:
+    if validation_predictions_path is not None and len(targets) != 1:
+        raise ValueError("validation_prediction_export_requires_one_target")
     df = _settled_training_frame(load_training_frame(frame))
     features = list(dict.fromkeys(column for column in feature_set(feature_set_name) if column in df.columns))
     report: dict[str, Any] = {
@@ -354,6 +397,9 @@ def train_regressor_family(
             "status": "trained",
             "model_path": str(model_path),
             "mae": float(mean_absolute_error(truth, pred)) if len(pred) else None,
+            "prediction_kind": "regression_pct_points",
+            "regression_validation_ready": bool(temporal["regression_evaluation"]["validation_ready"]),
+            "regression_evaluation": temporal["regression_evaluation"],
             "target_rows": len(target_y), "unlabelled_rows": int((~mask).sum()),
             "features": features,
             "validation": target_validation_payload(
@@ -364,6 +410,11 @@ def train_regressor_family(
         _save_family_model(model, model_path, {**report["targets"][target], "family": family, "target": target,
                            "trained_at_utc": report["trained_at_utc"], "feature_set_hash": report["feature_set_hash"],
                            "use": "advisory_only", "automatic_live_activation": False})
+        if validation_predictions_path is not None:
+            export = target_df.iloc[positions].copy().assign(target_ev=truth, ev_pred_pct=pred)
+            export = export[[column for column in ("mint", "address", "timestamp", "outcome_closed_at", "ts",
+                                                   "target_total_pnl_pct", "target_ev", "ev_pred_pct") if column in export]]
+            _export_validation_predictions(export, validation_predictions_path)
     report["status"] = "ok"
     report["data_quality"] = df.attrs.get("outcome_target_join", {})
     target_warnings = [warning for item in report["targets"].values() for warning in item.get("validation", {}).get("warnings", [])]

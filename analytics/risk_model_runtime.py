@@ -13,7 +13,7 @@ def predict_severe_loss_risk(vec: Any) -> dict[str, float | str | None]:
     toxic = predict_model("risk", "toxic_exit_loss", vec)
     family_model_seen = any(value is not None for value in (risk30, risk50, crush, toxic))
     if risk30 is None:
-        risk30 = predict_risk(vec)
+        risk30 = predict_risk(vec, severe_loss_pct=-30)
     max_known = max(
         [float(value) for value in (risk30, risk50, crush, toxic) if value is not None],
         default=None,

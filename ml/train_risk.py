@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from pathlib import Path
+import math
 
 import joblib
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 
 from config.config import CFG, PROJECT_ROOT
-from ml.feature_matrix import coerce_feature_frame
-from ml.risk_model import risk_summary, severe_loss_labels
-from ml.train import _filter_outcome_training_rows, _load_dataset, _select_feature_columns
+from ml.family_training import _save_family_model, train_classifier_family
+from ml.risk_model import severe_loss_labels
+from ml.train import _filter_outcome_training_rows, _load_dataset
 
 MODEL_PATH = PROJECT_ROOT / "ml" / "risk_model.pkl"
 META_PATH = PROJECT_ROOT / "ml" / "risk_model.meta.json"
@@ -19,36 +17,38 @@ VAL_PREDS = PROJECT_ROOT / "data" / "metrics" / "risk_val_preds.csv"
 THRESHOLDS_JSON = PROJECT_ROOT / "data" / "metrics" / "risk_thresholds.json"
 
 
-def train_risk_model() -> dict:
-    df = _load_dataset()
-    df, _meta = _filter_outcome_training_rows(df, entry_lane_allowlist=getattr(CFG, "ML_BOOTSTRAP_ENTRY_LANE_ALLOWLIST", ""), dex_allowlist=getattr(CFG, "ML_BOOTSTRAP_DEX_ALLOWLIST", ""))
+def train_risk_model(*, frame: pd.DataFrame | None = None, min_rows: int = 20) -> dict:
+    df = frame.copy() if frame is not None else _load_dataset()
+    if frame is None:
+        df, _meta = _filter_outcome_training_rows(df, entry_lane_allowlist=getattr(CFG, "ML_BOOTSTRAP_ENTRY_LANE_ALLOWLIST", ""), dex_allowlist=getattr(CFG, "ML_BOOTSTRAP_DEX_ALLOWLIST", ""))
     if df.empty:
         raise ValueError("risk model requires outcome rows")
-    df["label"] = severe_loss_labels(df, severe_loss_pct=float(getattr(CFG, "ML_SEVERE_LOSS_PCT", -30.0)))
-    df, x_cols, excluded = _select_feature_columns(df)
-    if int(df["label"].sum()) <= 0 or int((1 - df["label"]).sum()) <= 0:
-        raise ValueError("risk model requires both classes")
-    X = coerce_feature_frame(df, x_cols)
-    y = df["label"].astype(int)
-    model = LogisticRegression(max_iter=1000, class_weight="balanced")
-    model.fit(X, y)
-    proba = model.predict_proba(X)[:, 1]
-    VAL_PREDS.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame({"mint": df["mint"].values, "y_true": y.values, "y_prob": proba, "target_total_pnl_pct": df["target_total_pnl_pct"].values}).to_csv(VAL_PREDS, index=False)
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, MODEL_PATH)
-    meta = {
-        "trained_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "target": f"target_total_pnl_pct <= {getattr(CFG, 'ML_SEVERE_LOSS_PCT', -30.0)}",
-        "features": x_cols,
-        "excluded_columns": excluded,
-        "rows": int(len(df)),
-        "positives": int(y.sum()),
-    }
-    META_PATH.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    thresholds = risk_summary(y, proba, threshold=float(getattr(CFG, "ML_RISK_VETO_THRESHOLD", 0.70)))
-    THRESHOLDS_JSON.write_text(json.dumps(thresholds, indent=2), encoding="utf-8")
-    return meta
+    threshold = float(getattr(CFG, "ML_SEVERE_LOSS_PCT", -30.0))
+    if not math.isfinite(threshold) or not -100 <= threshold < 0:
+        raise ValueError("invalid_severe_loss_threshold")
+    veto_threshold = float(getattr(CFG, "ML_RISK_VETO_THRESHOLD", 0.70))
+    if not math.isfinite(veto_threshold) or not 0 <= veto_threshold <= 1:
+        raise ValueError("invalid_risk_veto_threshold")
+    target = "severe_loss_configured"
+    df[target] = severe_loss_labels(df, severe_loss_pct=threshold)
+    report = train_classifier_family(family="risk", targets=[target], feature_set_name="risk_features",
+                                    frame=df, min_rows=min_rows, output_dir=MODEL_PATH.parent / "models" / "risk_compatibility",
+                                    validation_predictions_path=VAL_PREDS)
+    result = report.get("targets", {}).get(target, {})
+    published = result.get("status") == "trained" and result.get("probability_validation_ready") is True
+    if published:
+        model = joblib.load(result["model_path"])
+        _save_family_model(model, MODEL_PATH, {**result, "family": "risk", "target": target,
+                           "trained_at_utc": report["trained_at_utc"], "severe_loss_pct": threshold,
+                           "use": "advisory_only", "automatic_live_activation": False})
+    diagnostics = {"published": bool(published), "severe_loss_pct": threshold,
+                   "probability_validation_ready": bool(result.get("probability_validation_ready")),
+                   "threshold": veto_threshold,
+                   "veto_performance": "not_established_by_training_or_rank_csv",
+                   "validation": result.get("validation", {})}
+    THRESHOLDS_JSON.parent.mkdir(parents=True, exist_ok=True)
+    THRESHOLDS_JSON.write_text(json.dumps(diagnostics, indent=2, allow_nan=False), encoding="utf-8")
+    return {**report, "compatibility_published": bool(published), "severe_loss_pct": threshold}
 
 
 if __name__ == "__main__":

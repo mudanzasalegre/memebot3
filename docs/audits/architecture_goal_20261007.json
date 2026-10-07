@@ -12,7 +12,8 @@
     "Leave all bot services stopped and verify the authoritative process state"
   ],
   "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
-  "publishing_state_checked": {"branch": "main", "origin_main_commit_before_sync": "3479e24", "working_tree_clean_before_sync": true, "remote_fetch_completed": true, "source_sync_completed": true, "implementation_commit": "0c7aa6c0d2bc10462d29b1d8207a68a23fc7fbb8", "commit_push": "COMPLETE", "remote_revision_verified": true},
+  "historical_initial_publication_state": {"branch": "main", "origin_main_commit_before_sync": "3479e24", "working_tree_clean_before_sync": true, "remote_fetch_completed": true, "source_sync_completed": true, "implementation_commit": "0c7aa6c0d2bc10462d29b1d8207a68a23fc7fbb8", "commit_push": "COMPLETE", "remote_revision_verified": true, "scope": "Initial publication proof, not the current Git HEAD after later source stages"},
+  "latest_stage_evidence": "docs/audits/model_uncertainty_20261007.json",
   "implemented_this_stage": [
     "Restore observed peak targets through a bounded causal historical join; preserve all entry features unchanged",
     "Persist observed peak and outcome-availability timestamp as outcome-only Parquet columns on future shadow and real closes",
@@ -39,7 +40,8 @@
     "Remove invented offline candidate scores, separate percent points from dollars and gross from validated net PnL, preserve current-run identity and reject incomplete or nonfinite AutoResearch hard-gate evidence",
     "Fix first-launch paper imports without private wallet credentials, structural root discovery and safe DRY_RUN defaults; remove stale exit-regime configuration caching",
     "Verify complete regression from both the working and publishing checkouts, including a publishing checkout without a personal .env, and pass local preflight plus UI build",
-    "Implement bounded paired prospective runner-exit research using exact entry/partial/exit quote accounting; consume checked selections only on new paper entries, reuse primary market/quote observations, preserve intent identity across awaits, and support checked rollback and expiry without touching live settings"
+    "Implement bounded paired prospective runner-exit research using exact entry/partial/exit quote accounting; consume checked selections only on new paper entries, reuse primary market/quote observations, preserve intent identity across awaits, and support checked rollback and expiry without touching live settings",
+    "Unify risk/EV compatibility readers with validated family readers, reject old in-sample bypasses, preserve missing risk labels, require independent-token OOS loss skill, expose empirical continuation error envelopes, and remove fabricated confidence from prediction magnitude"
   ],
   "evidence": [
     "docs/audits/runner_learning_20261007.json",
@@ -61,9 +63,12 @@
     "docs/audits/publication_shutdown_20261007.json",
     "docs/audits/paired_runner_forward_20261007.json",
     "research_loop/runner_forward.py",
-    "tests/test_runner_forward.py"
+    "tests/test_runner_forward.py",
+    "docs/audits/model_uncertainty_20261007.json",
+    "ml/prediction_validation.py",
+    "tests/test_model_uncertainty_integrity.py"
   ],
-  "verification": {"pre_final_changes_full_pytest": "856 passed in 31.49s", "intermediate_suite": "876 passed, 1 failed: new advisory flags absent from local .env; corrected to match .env.example", "advisory_stage_suite": "884 passed in 35.90s", "previous_exit_stage_suite": "955 passed in 89.83s", "previous_sizing_working_suite": "1031 passed in 78.41s", "final_working_suite": "1068 passed in 67.18s", "previous_sizing_publishing_suite": "1031 passed in 71.96s without personal .env", "final_publishing_suite": "1068 passed in 62.78s without personal .env", "publishing_preflight": "PASS", "publishing_ui_build": "PASS with bundle-size warning", "focused_runner_and_forward_suite": "147 passed in 59.65s", "command": ".venv/Scripts/python.exe -m pytest -q", "verification_scope": "Automated software, empty-data report builders, isolated historical advisory training and read-only SOL/USDC quote diagnostics; not prospective profitability, memecoin fills or live certification", "previous_shutdown_verified_at_utc": "2026-10-07T11:24:50.8739391Z", "previous_remaining_bot_processes": 0, "previous_bot_lock_present": false, "previous_sqlite_process_state": "stopped", "final_shutdown": "VERIFIED_OFF_2026-10-07T13:05:40Z", "current_shutdown_evidence": "docs/audits/paired_runner_forward_20261007.json"},
+  "verification": {"pre_final_changes_full_pytest": "856 passed in 31.49s", "intermediate_suite": "876 passed, 1 failed: new advisory flags absent from local .env; corrected to match .env.example", "advisory_stage_suite": "884 passed in 35.90s", "previous_exit_stage_suite": "955 passed in 89.83s", "previous_sizing_working_suite": "1031 passed in 78.41s", "previous_runner_forward_working_suite": "1068 passed in 67.18s", "final_working_suite": "1097 passed in 90.45s", "previous_sizing_publishing_suite": "1031 passed in 71.96s without personal .env", "previous_runner_forward_publishing_suite": "1068 passed in 62.78s without personal .env", "final_publishing_suite": "1097 passed in 74.08s without personal .env using existing working-checkout Python runtime", "publishing_preflight": "PASS", "publishing_ui_build": "PASS with bundle-size warning; UI unchanged in model uncertainty stage", "focused_runner_and_forward_suite": "147 passed in 59.65s", "focused_learning_and_uncertainty_suite": "75 passed in 18.30s", "command": "D:/Dev/Python/memebot3/.venv/Scripts/python.exe -m pytest -q in each checkout", "verification_scope": "Automated software, empty-data report builders, isolated historical advisory training, synthetic model-uncertainty fixtures and previous read-only SOL/USDC quote diagnostics; not prospective profitability, memecoin fills or live certification", "previous_shutdown_verified_at_utc": "2026-10-07T13:05:40.1910036Z", "previous_remaining_bot_processes": 0, "previous_bot_lock_present": false, "previous_sqlite_process_state": "stopped", "final_shutdown": "VERIFIED_OFF_2026-10-07T13:31:44Z", "current_shutdown_evidence": "docs/audits/model_uncertainty_20261007.json"},
   "isolated_advisory_result": {"source_period": "2026-07-13 through 2026-07-15", "settled_source_rows": 2147, "comparison_rows": 536, "selected_ranking_targets": ["runner_50", "runner_100"], "active_runtime_models_changed": false, "bot_started": false, "interpretation": "Useful historical ranking discrimination only; rare higher targets remain unvalidated and no costed future profits are established"},
   "remaining_required_work": [
     "Complete the architecture and evidence audit across ingestion, opportunity ranking, scheduling, execution, monitoring, exit paths and learned policy activation",

@@ -28,7 +28,7 @@ from ml.model_validation_warnings import precision_at_k
 from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
 
 ROLE = "scanner_ranking_only"
-PIPELINE_VERSION = 1
+PIPELINE_VERSION = 2  # Independent-token calibration/support replaces row-only support.
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -77,8 +77,11 @@ def _evaluate(model: Any, features: list[str], cohort: pd.DataFrame, target: str
         raise ValueError("Invalid holdout ranking predictions")
     precision = precision_at_k(y, scores)
     rate = float(np.mean(y)) if len(y) else None
+    identities = temporal_eligibility(cohort)[3].loc[mask]
     return {
         "rows": len(y), "positives": int(y.sum()), "base_rate": rate,
+        "unique_tokens": int(identities.nunique()),
+        "positive_tokens": int(identities.iloc[np.flatnonzero(y == 1)].nunique()),
         "precision_at_k": precision,
         "precision_lift_at_k": float(precision / rate) if precision is not None and rate else None,
         "cohort_sha256": _cohort_digest(cohort.loc[mask]),
@@ -91,7 +94,9 @@ def _candidate_decision(candidate: dict[str, Any], challenger: dict[str, Any],
     if not candidate.get("ranking_validation_ready"):
         return False, "internal_temporal_ranking_not_validated"
     lift = challenger.get("precision_lift_at_k")
-    if challenger["rows"] < 30 or challenger["positives"] < 5 or lift is None or lift < 1.25:
+    if (challenger["rows"] < 30 or challenger["positives"] < 5
+            or int(challenger.get("unique_tokens", 0)) < 30 or int(challenger.get("positive_tokens", 0)) < 5
+            or lift is None or lift < 1.25):
         return False, "insufficient_later_cohort_ranking_evidence"
     if incumbent is None:
         return True, "bootstrap_validated_scanner_ranker"

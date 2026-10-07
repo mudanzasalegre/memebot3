@@ -1,0 +1,56 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Software integrity of risk, continuation and return-estimate validation; extreme upward paths are not take-profit caps",
+  "findings_from_source": [
+    "Legacy risk training fit and evaluated the same rows, and its runtime reader did not require temporal validation, calibration or checksums",
+    "Legacy EV training also exported fit-row predictions as validation; its runtime reader could use unvalidated or corrupted artifacts",
+    "EV confidence was fabricated from the magnitude of the predicted return",
+    "Family regressors had temporal MAE but no comparison with a mature training-only baseline or token-cluster uncertainty gate",
+    "Missing legacy risk returns became healthy negative labels, and absent exit reasons became negative toxic/liquidity labels"
+  ],
+  "implementation": {
+    "shared_reader": "Family and compatibility prediction APIs share checksum, temporal-validation, role, target, calibration and finite-evidence checks. Corrupt or old in-sample artifacts return unknown without aborting the entry path",
+    "cluster_unit": "Case-sensitive mint, not decisions or repeated rows. At least 30 independent OOS tokens; probability validation additionally requires at least five positive and five negative token supports. Fit/calibration class support also counts distinct mints, and advisory challenger holdouts require at least 30 independent mints and five positive mint supports",
+    "skill_check": "Deterministic 1000-sample token-cluster bootstrap of paired OOS model-vs-baseline loss. Probability baseline is mature training prevalence; regression baseline is mature training median. Positive lower historical loss-improvement bound is required for advisory prediction readiness",
+    "regression_uncertainty": "Expose a 90-percent empirical OOS token-maximum absolute-error envelope in percentage points. It is not conditional uncertainty or guaranteed future coverage. Read point and metadata from the same verified snapshot",
+    "confidence": "Prediction magnitude cannot fabricate a confidence probability; ev_confidence stays unknown",
+    "automatic_advisory_upgrade": "Scanner advisory pipeline revision 2 invalidates unchanged-data fingerprints after this methodology change. A subsequent daemon cycle can reevaluate instead of skipping an upgraded validation pipeline forever",
+    "labels": "Missing or nonfinite observed risk returns remain unlabelled. Missing outcome or exit-reason evidence cannot fabricate negative toxic/liquidity labels",
+    "compatibility_training": "Existing risk/EV trainer APIs retain configured severe-loss and clipping semantics, use purged token-disjoint temporal evaluation, and export only actual OOS rows. Rank CSVs are explicitly not calibrated probability CSVs. A weak/untimed retrain cannot overwrite a previously validated compatibility artifact",
+    "configuration_binding": "Configured risk threshold and EV clipping bounds must match the saved validated artifact. The fixed risk30 API cannot silently substitute a configured risk50 label",
+    "extreme_paths": "Runner learning thresholds through 10000 percent remain event labels, not exit ceilings. Continuation regression targets retain finite extreme observed values above 10000 percent. Existing synthetic exit tests cover continued upward paths through 100000 percent",
+    "risk_boundaries": "No new buy permission, safety-gate bypass, live enforcement, sizing change or live activation. Existing exact 0.1 SOL paper contract and immutable entry exit-policy snapshots are unchanged"
+  },
+  "verification": {
+    "focused_learning_and_uncertainty": "75 passed in 18.30s",
+    "full_working_checkout": "1097 passed in 90.45s",
+    "full_publishing_checkout": "1097 passed in 74.08s",
+    "publishing_personal_env_present": false,
+    "python_runtime": "Both checkouts were verified with the existing D:/Dev/Python/memebot3/.venv Python runtime; publishing checkout has no separate .venv",
+    "publishing_preflight": "PASS: config import, compilation, paper profile and seven empty-data report builders",
+    "git_diff_check": "PASS; Git reports its existing LF-to-CRLF normalization warnings",
+    "qualification": "Test training rows, price paths and provider quotes are isolated synthetic fixtures. No observed financial returns or prospective winning model are certified"
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "runtime_model_training_started": false,
+    "published_runtime_model_weights": false,
+    "source_behavior_change": "Pre-existing unvalidated legacy prediction files are preserved but cannot produce an authoritative risk/EV value until valid retraining",
+    "stop_stack_completed_at_utc": "2026-10-07T13:31:43Z",
+    "shutdown_verified_at_utc": "2026-10-07T13:31:44.0154515Z",
+    "runtime_process_count_both_roots": 0,
+    "bot_locks_present_both_roots": 0,
+    "database_process_state": "stopped",
+    "database_retrain_state": "idle",
+    "database_reports_refresh_state": "idle",
+    "active_runner_research_policy_exists": false
+  },
+  "remaining_full_goal_requirements": [
+    "Generalized entry-policy/scanner champion-challenger transport and comparable prospective evaluation beyond the advisory-ranking and paired runner-exit components",
+    "Fresh rare-runner, risk and continuation evidence, with a checked automatic model lifecycle; corrected training methodology is not current profitable model certification",
+    "Complete architecture, integration, provider and first-launch failure-path audit",
+    "Authorized costed prospective full-strategy evidence before any profitability or live-promotion claim"
+  ]
+}

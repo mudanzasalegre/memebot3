@@ -1,49 +1,46 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+import math
 
 import joblib
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
 
 from config.config import CFG, PROJECT_ROOT
-from ml.feature_matrix import coerce_feature_frame
-from ml.train import _filter_outcome_training_rows, _load_dataset, _select_feature_columns
+from ml.family_training import _save_family_model, train_regressor_family
+from ml.train import _filter_outcome_training_rows, _load_dataset
 
 MODEL_PATH = PROJECT_ROOT / "ml" / "ev_model.pkl"
 META_PATH = PROJECT_ROOT / "ml" / "ev_model.meta.json"
 VAL_PREDS = PROJECT_ROOT / "data" / "metrics" / "ev_val_preds.csv"
 
 
-def train_ev_model() -> dict:
-    df = _load_dataset()
-    df, _meta = _filter_outcome_training_rows(df, entry_lane_allowlist=getattr(CFG, "ML_BOOTSTRAP_ENTRY_LANE_ALLOWLIST", ""), dex_allowlist=getattr(CFG, "ML_BOOTSTRAP_DEX_ALLOWLIST", ""))
+def train_ev_model(*, frame: pd.DataFrame | None = None, min_rows: int = 20) -> dict:
+    df = frame.copy() if frame is not None else _load_dataset()
+    if frame is None:
+        df, _meta = _filter_outcome_training_rows(df, entry_lane_allowlist=getattr(CFG, "ML_BOOTSTRAP_ENTRY_LANE_ALLOWLIST", ""), dex_allowlist=getattr(CFG, "ML_BOOTSTRAP_DEX_ALLOWLIST", ""))
     if df.empty:
         raise ValueError("EV model requires outcome rows")
-    target = pd.to_numeric(df.get("target_total_pnl_pct"), errors="coerce")
     clip_min = float(getattr(CFG, "ML_EV_CLIP_MIN", -100.0))
     clip_max = float(getattr(CFG, "ML_EV_CLIP_MAX", 300.0))
-    df = df[target.notna()].copy()
-    target = target[target.notna()].clip(clip_min, clip_max)
-    df, x_cols, excluded = _select_feature_columns(df)
-    X = coerce_feature_frame(df, x_cols)
-    model = RandomForestRegressor(n_estimators=80, max_depth=5, random_state=42, min_samples_leaf=10)
-    model.fit(X, target)
-    pred = model.predict(X)
-    VAL_PREDS.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame({"mint": df["mint"].values, "target_ev": target.values, "ev_pred_pct": pred}).to_csv(VAL_PREDS, index=False)
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, MODEL_PATH)
-    meta = {
-        "trained_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "target": f"clip(target_total_pnl_pct, {clip_min}, {clip_max})",
-        "features": x_cols,
-        "excluded_columns": excluded,
-        "rows": int(len(df)),
-    }
-    META_PATH.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    return meta
+    if not math.isfinite(clip_min) or not math.isfinite(clip_max) or clip_min >= clip_max:
+        raise ValueError("invalid_ev_clip_range")
+    values = pd.to_numeric(df.get("target_total_pnl_pct", pd.Series(float("nan"), index=df.index)), errors="coerce")
+    # Reject infinity before clipping: it is not an observed giant winner.
+    values = values.where(values.map(lambda value: pd.notna(value) and math.isfinite(float(value))))
+    target = "ev_configured_clipped"
+    df[target] = values.clip(clip_min, clip_max)
+    report = train_regressor_family(family="ev", targets=[target], feature_set_name="ev_features", frame=df,
+                                   output_dir=MODEL_PATH.parent / "models" / "ev_compatibility", min_rows=min_rows,
+                                   validation_predictions_path=VAL_PREDS)
+    result = report.get("targets", {}).get(target, {})
+    published = result.get("status") == "trained" and result.get("regression_validation_ready") is True
+    if published:
+        model = joblib.load(result["model_path"])
+        _save_family_model(model, MODEL_PATH, {**result, "family": "ev", "target": target,
+                           "trained_at_utc": report["trained_at_utc"], "clip_min": clip_min, "clip_max": clip_max,
+                           "use": "advisory_only", "automatic_live_activation": False})
+    return {**report, "compatibility_published": bool(published), "clip_min": clip_min, "clip_max": clip_max}
 
 
 if __name__ == "__main__":

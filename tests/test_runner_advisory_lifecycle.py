@@ -104,10 +104,13 @@ def test_failed_training_preserves_manifest(trained, monkeypatch):
 
 def test_decision_requires_same_cohort_and_later_positives():
     candidate = {"ranking_validation_ready": True}
-    new = {"rows": 100, "positives": 10, "precision_lift_at_k": 3.0, "cohort_sha256": "a"}
+    new = {"rows": 100, "positives": 10, "unique_tokens": 100, "positive_tokens": 10,
+           "precision_lift_at_k": 3.0, "cohort_sha256": "a"}
     old = {**new, "precision_lift_at_k": 2.0, "cohort_sha256": "b"}
     assert learning._candidate_decision(candidate, new, old, min_lift_delta=0.05)[1] == "incomparable_cohorts"
     assert not learning._candidate_decision(candidate, {**new, "positives": 4}, None, min_lift_delta=0.05)[0]
+    assert not learning._candidate_decision(candidate, {**new, "unique_tokens": 1}, None, min_lift_delta=0.05)[0]
+    assert not learning._candidate_decision(candidate, {**new, "positive_tokens": 1}, None, min_lift_delta=0.05)[0]
 
 
 def test_manifest_path_traversal_and_invalid_roles_fail_closed(tmp_path, monkeypatch):

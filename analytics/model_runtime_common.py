@@ -20,6 +20,18 @@ _cache: dict[tuple[str, bool], tuple[tuple[int, ...], Any, list[str], dict[str, 
 _registry_cache: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
 
 
+def _supported_cluster_skill(evaluation: Any) -> bool:
+    try:
+        cluster = evaluation["cluster_skill"]
+        lower = float(cluster["lower_loss_improvement"])
+        mean = float(cluster["mean_loss_improvement"])
+        return (cluster.get("validation_ready") is True and int(cluster["unique_tokens"]) >= 30
+                and int(cluster["rows"]) >= 30 and cluster["method"] == "paired_token_cluster_bootstrap"
+                and np.isfinite(lower) and np.isfinite(mean) and lower > 0 and mean > 0)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+
+
 def _model_path(family: str, target: str) -> Path:
     directory = PROJECT_ROOT / "ml" / "models" / family
     manifest_path = directory / "advisory_manifest.json"
@@ -66,6 +78,8 @@ def _load(path: Path, *, require_temporal_validation: bool):
         model, features, metadata = None, [], {}
         try:
             metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+            if not isinstance(metadata, dict):
+                raise ValueError("model metadata must be an object")
             validation = metadata.get("validation") or {}
             temporal = validation.get("temporal") or {}
             if path.parent.parent.name == "versions" and path.parent.parent.parent.name == "runner" and metadata.get("activation_role") != "scanner_ranking_only":
@@ -85,38 +99,106 @@ def _load(path: Path, *, require_temporal_validation: bool):
             model = joblib.load(path)
         except Exception as exc:
             log.warning("Specialized model unavailable family=%s target=%s error=%s", path.parent.name, path.stem, type(exc).__name__)
-            model, features = None, []
+            model, features, metadata = None, [], {}
         _cache[key] = (signature, model, features, metadata)
         return model, features, metadata
 
 
-def predict_model(family: str, target: str, vec: Any, *, default_features: list[str] | None = None,
-                  require_temporal_validation: bool = True) -> float | str | None:
-    """Advisory prediction; absence/corruption is unknown, not fabricated zero."""
-    model, features, metadata = _load(_model_path(family, target), require_temporal_validation=require_temporal_validation)
+def _predict_snapshot(path: Path, model: Any, features: list[str], metadata: dict[str, Any], vec: Any,
+                      *, expected_metadata: dict[str, Any] | None = None) -> float | None:
     if model is None:
         return None
     try:
+        if any(metadata.get(key) != value for key, value in (expected_metadata or {}).items()):
+            return None
         row = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec or {})
         X = coerce_feature_frame(pd.DataFrame([row]), features)
         if hasattr(model, "predict_proba"):
             if metadata.get("activation_role") == "scanner_ranking_only":
                 return None
-            if not metadata.get("probabilities_calibrated") or not metadata.get("probability_validation_ready"):
+            evaluation = metadata.get("validation", {}).get("temporal", {}).get("probability_evaluation", {})
+            brier = float(evaluation.get("brier_score", float("nan")))
+            baseline_brier = float(evaluation.get("baseline_brier_score", float("nan")))
+            if (metadata.get("prediction_kind") != "calibrated_binary_probability"
+                    or metadata.get("probabilities_calibrated") is not True
+                    or metadata.get("probability_validation_ready") is not True
+                    or not _supported_cluster_skill(evaluation)
+                    or int(evaluation.get("positive_tokens", 0)) < 5
+                    or int(evaluation.get("negative_tokens", 0)) < 5
+                    or not np.isfinite(brier) or not np.isfinite(baseline_brier)
+                    or not 0 <= brier < baseline_brier <= 1):
                 return None
             classes = list(getattr(model, "classes_", []))
             positive = 1 if 1 in classes else "1" if "1" in classes else None
             if len(classes) == 2 and positive is not None:
                 value = float(model.predict_proba(X)[0, classes.index(positive)])
                 return value if np.isfinite(value) and 0 <= value <= 1 else None
+            return None
+        evaluation = metadata.get("regression_evaluation") or {}
+        radius = float(evaluation.get("absolute_error_radius_pct_points", float("nan")))
+        skill = float(evaluation.get("mae_skill_score", float("nan")))
+        if (metadata.get("prediction_kind") != "regression_pct_points"
+                or metadata.get("regression_validation_ready") is not True
+                or evaluation.get("validation_ready") is not True
+                or not _supported_cluster_skill(evaluation)
+                or not np.isfinite(radius) or radius < 0 or not np.isfinite(skill) or skill <= 0):
+            return None
         prediction = model.predict(X)[0]
-        if isinstance(prediction, str):
-            return prediction
         value = float(prediction)
         return value if np.isfinite(value) else None
     except Exception as exc:
-        log.debug("Specialized prediction unavailable family=%s target=%s error=%s", family, target, type(exc).__name__)
+        log.debug("Specialized prediction unavailable family=%s target=%s error=%s", path.parent.name, path.stem, type(exc).__name__)
         return None
+
+
+def predict_artifact(path: Path, vec: Any, *, require_temporal_validation: bool = True,
+                     expected_metadata: dict[str, Any] | None = None) -> float | None:
+    """One checked reader; compatibility artifacts cannot bypass OOS skill."""
+    model, features, metadata = _load(path, require_temporal_validation=require_temporal_validation)
+    return _predict_snapshot(path, model, features, metadata, vec, expected_metadata=expected_metadata)
+
+
+def predict_model(family: str, target: str, vec: Any, *, default_features: list[str] | None = None,
+                  require_temporal_validation: bool = True) -> float | str | None:
+    """Advisory prediction; absence/corruption is unknown, not fabricated zero."""
+    return predict_artifact(_model_path(family, target), vec,
+                            require_temporal_validation=require_temporal_validation,
+                            expected_metadata={"family": family, "target": target})
+
+
+def predict_regression_estimate(family: str, target: str, vec: Any) -> dict[str, Any]:
+    # Read one verified snapshot. A concurrent retrain must not combine an old
+    # point prediction with a new model's error metadata.
+    path = _model_path(family, target)
+    model, features, metadata = _load(path, require_temporal_validation=True)
+    value = _predict_snapshot(path, model, features, metadata, vec,
+                              expected_metadata={"family": family, "target": target,
+                                                 "prediction_kind": "regression_pct_points"})
+    result = {"value": value, "lower": None, "upper": None, "error_radius_pct_points": None,
+              "status": "unknown" if value is None else "validated_advisory_estimate",
+              "unit": "percentage_points", "future_coverage_guaranteed": False}
+    if value is None:
+        return result
+    try:
+        evaluation = metadata["regression_evaluation"]
+        radius = float(evaluation["absolute_error_radius_pct_points"])
+        if not np.isfinite(radius) or radius < 0:
+            raise ValueError("invalid empirical error radius")
+        lower, upper = float(value) - radius, float(value) + radius
+        if not np.isfinite(lower) or not np.isfinite(upper):
+            raise ValueError("nonfinite empirical error bounds")
+        result.update(lower=lower, upper=upper,
+                      error_radius_pct_points=radius, interval_method=evaluation["interval_method"])
+    except (TypeError, ValueError, KeyError, OverflowError):
+        result.update(value=None, status="unknown")
+    return result
+
+
+def invalidate_model_cache(path: Path) -> None:
+    with _lock:
+        for key in list(_cache):
+            if key[0] == str(path):
+                _cache.pop(key, None)
 
 
 def predict_ranking_score(family: str, target: str, vec: Any) -> float | None:
@@ -140,4 +222,4 @@ def predict_ranking_score(family: str, target: str, vec: Any) -> float | None:
         return None
 
 
-__all__ = ["predict_model", "predict_ranking_score"]
+__all__ = ["predict_model", "predict_artifact", "predict_regression_estimate", "predict_ranking_score", "invalidate_model_cache"]

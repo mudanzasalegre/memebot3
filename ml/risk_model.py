@@ -7,8 +7,9 @@ import pandas as pd
 
 
 def severe_loss_labels(frame: pd.DataFrame, *, severe_loss_pct: float = -30.0) -> pd.Series:
-    returns = pd.to_numeric(frame.get("target_total_pnl_pct"), errors="coerce")
-    return returns.le(float(severe_loss_pct)).fillna(False).astype(int)
+    returns = pd.to_numeric(frame.get("target_total_pnl_pct", pd.Series(np.nan, index=frame.index)), errors="coerce")
+    returns = returns.replace([np.inf, -np.inf], np.nan)
+    return returns.le(float(severe_loss_pct)).astype("Int64").where(returns.notna())
 
 
 def risk_summary(y_true: Any, y_prob: Any, threshold: float = 0.70) -> dict[str, Any]:

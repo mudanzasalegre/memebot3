@@ -7,7 +7,7 @@ import numpy as np
 from sklearn.base import clone
 from sklearn.calibration import CalibratedClassifierCV
 
-from ml.temporal_validation import purged_temporal_windows
+from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
 
 
 class CalibratedRanker:
@@ -44,8 +44,13 @@ def fit_calibrated_ranker(model, X, y, frame, *, min_rows: int = 20, min_class_c
         train, calibration = windows[-1]
         fit_counts = y.iloc[train].value_counts()
         cal_counts = y.iloc[calibration].value_counts()
+        identities = temporal_eligibility(frame)[3]
+        fit_token_counts = {label: int(identities.iloc[train][y.iloc[train].to_numpy() == label].nunique()) for label in (0, 1)}
+        cal_token_counts = {label: int(identities.iloc[calibration][y.iloc[calibration].to_numpy() == label].nunique()) for label in (0, 1)}
+        details.update(fit_tokens_by_class=fit_token_counts, calibration_tokens_by_class=cal_token_counts)
         supported = len(calibration) >= 12 and all(
-            int(counts.get(label, 0)) >= min_class_count for counts in (fit_counts, cal_counts) for label in (0, 1)
+            int(counts.get(label, 0)) >= min_class_count
+            for counts in (fit_counts, cal_counts, fit_token_counts, cal_token_counts) for label in (0, 1)
         )
         if supported:
             base_model = clone(model).fit(X.iloc[train], y.iloc[train])
@@ -61,7 +66,7 @@ def fit_calibrated_ranker(model, X, y, frame, *, min_rows: int = 20, min_class_c
             details.update({"calibrated": True, "fit_rows": len(train), "calibration_rows": len(calibration),
                             "fit_positives": int(y.iloc[train].sum()), "calibration_positives": int(y.iloc[calibration].sum())})
             return CalibratedRanker(base_model, calibrated), details
-        details["reason"] = "insufficient_disjoint_calibration_classes_or_rows"
+        details["reason"] = "insufficient_disjoint_calibration_classes_rows_or_tokens"
     else:
         details["reason"] = "missing_mature_temporal_calibration_window"
     return CalibratedRanker(clone(model).fit(X, y)), details
