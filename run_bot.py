@@ -6995,10 +6995,11 @@ async def _evaluate_and_buy_guarded(token: dict, ses: SessionLocal, *, source: s
     addr = str((token or {}).get("address") or "???")
     try:
         from research_loop.entry_gate_policy import selected_scope
+        from research_loop.entry_gate_forward import capture_scope
         from runtime.paper_entry_policy import snapshot
         # One immutable, verified paper snapshot for this entire async decision.
         # No global mutation: simultaneous evaluations and the exit monitor are isolated.
-        with selected_scope(CFG, root=PROJECT_ROOT):
+        with selected_scope(CFG, root=PROJECT_ROOT), capture_scope(CFG, root=PROJECT_ROOT):
             token.pop("paper_entry_policy", None)
             if (selected := snapshot()) is not None:
                 token["paper_entry_policy"] = selected
@@ -9610,10 +9611,11 @@ async def main_loop() -> None:
             log.error("Check positions → %s", exc)
 
         # 4.5) Shadows (modo real o estrategia shadow en paper/live)
-        if DRY_RUN and bool(getattr(CFG, "PAPER_RUNNER_RESEARCH_ENABLED", False)):
+        if DRY_RUN and (bool(getattr(CFG, "PAPER_RUNNER_RESEARCH_ENABLED", False))
+                        or bool(getattr(CFG, "PAPER_ENTRY_RESEARCH_ENABLED", False))):
             try:
-                from research_loop import runner_forward
-                await runner_forward.tick(root=PROJECT_ROOT, cfg=CFG)
+                from research_loop import paired_forward
+                await paired_forward.tick(root=PROJECT_ROOT, cfg=CFG)
             except Exception as exc:
                 log.warning("Runner forward research unavailable: %s", type(exc).__name__)
 
@@ -9688,6 +9690,8 @@ async def _runner() -> None:
         # just like an exception; otherwise the API can retain a stale
         # ``running`` row after the process has already exited.
         _runtime_process_state = "stopped"
+        from research_loop.entry_gate_forward import stop_background_tasks
+        await stop_background_tasks()
         try:
             await _publish_runtime_state_once()
         except Exception as publish_exc:

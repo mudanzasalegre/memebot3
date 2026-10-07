@@ -174,7 +174,10 @@ def register_partial(entry: dict[str, Any], *, root: Path | str | None = None,
     base_id = _policy_id(policy)
     day = stamp.replace(hour=0, minute=0, second=0, microsecond=0)
     cohort = f"{day.strftime('%Y%m%d')}_{base_id}"
-    if len(list((directory / "active").glob("*.json"))) >= MAX_ACTIVE:
+    from research_loop import entry_gate_forward
+    combined_tokens = active_tokens(root) | entry_gate_forward.active_tokens(root)
+    if (len(list((directory / "active").glob("*.json"))) >= MAX_ACTIVE
+            or (token not in combined_tokens and len(combined_tokens) >= MAX_ACTIVE)):
         _write(directory / "coverage_gaps" / f"{cohort}_{case_id}.json",
                {"cohort_id": cohort, "case_id": case_id, "reason": "research_capacity_exceeded"})
         return False  # No trade is vetoed, but this cohort cannot select a policy.
@@ -238,14 +241,17 @@ def _apply_quote(case: dict[str, Any], arm: dict[str, Any], quote: Any, sol_usd:
     subject = arm["subject"]
     requested = _time(intent.get("requested_at"))
     if (arm.get("closed") or requested is None or now < requested
-            or not isinstance(quantity, int) or not 0 < quantity <= subject["qty_lamports"]):
+            or not isinstance(quantity, int) or isinstance(quantity, bool)
+            or not 0 < quantity <= subject["qty_lamports"]):
         return False
     impact = _number(getattr(quote, "price_impact_bps", None))
     routes = getattr(quote, "other", {}).get("routePlan_len")
     if (getattr(quote, "ok", False) is not True or getattr(quote, "in_amount", None) != quantity
             or not isinstance(getattr(quote, "in_amount", None), int)
+            or isinstance(getattr(quote, "in_amount", None), bool)
             or not isinstance(getattr(quote, "out_amount", None), int)
-            or not isinstance(routes, int) or routes <= 0
+            or isinstance(getattr(quote, "out_amount", None), bool)
+            or not isinstance(routes, int) or isinstance(routes, bool) or routes <= 0
             or not _positive(getattr(quote, "out_amount", None)) or impact is None
             or abs(impact) / 100 > subject["entry_route_quote"]["max_impact_pct"]
             or not _positive(sol_usd)):
@@ -281,6 +287,29 @@ def _apply_quote(case: dict[str, Any], arm: dict[str, Any], quote: Any, sol_usd:
             subject["partial_ladder_state"] = runner_ladder.encode_ladder_state(next_state)
     arm.pop("intent", None)
     return True
+
+
+def paper_exit_request(arm: dict[str, Any], price: Any, now: dt.datetime, *, liq_now=None) -> None:
+    """Shared exit engine; caller owns immutable prefix and observation coverage."""
+    _request(arm, price, now, liq_now=liq_now)
+
+
+def apply_paper_exit_quote(case: dict[str, Any], arm: dict[str, Any], quote: Any,
+                          sol_usd: float, now: dt.datetime) -> bool:
+    """Shared exact-quantity quote/cash engine; never signs or sends a swap."""
+    return _apply_quote(case, arm, quote, sol_usd, now)
+
+
+def active_tokens(root: Path | str | None = None) -> set[str]:
+    return set(_index(_directory(root)))
+
+
+def has_quote_demand(root: Path | str | None = None) -> bool:
+    for path in (_directory(root) / "active").glob("*.json"):
+        case = _read(path)
+        if case and any(arm.get("intent") for arm in (case.get("arms") or {}).values()):
+            return True
+    return False
 
 
 def _observe_case(case: dict[str, Any], price: Any, stamp: dt.datetime,
@@ -394,7 +423,9 @@ async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datet
                     for _, case in cases for arm_id, arm in case["arms"].items() if arm.get("intent")]
         requests.sort(key=lambda item: item[:3])
         quote_calls = 0
-        if requests:
+        from research_loop import entry_gate_forward, forward_budget
+        if requests and forward_budget.claim(Path(root or PROJECT_ROOT), "runner_exit",
+                other_pending=entry_gate_forward.has_quote_demand(root), now=sampled_at):
             _, _, _, selected_case, selected_arm = requests[0]
             quantity, token = selected_arm["intent"]["quantity"], selected_case["token"]
             try:
@@ -493,7 +524,8 @@ def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt
                 or abs(fill["impact_bps"]) / 100 > prefix["entry_route_quote"]["max_impact_pct"]
                 or not isinstance(fill["input_raw_spl"], int) or not isinstance(fill["output_lamports"], int)):
             return False
-        if not isinstance(fill.get("route_count"), int) or fill["route_count"] <= 0:
+        if (not isinstance(fill.get("route_count"), int) or isinstance(fill["route_count"], bool)
+                or fill["route_count"] <= 0):
             return False
         model = prefix["execution_cost_model"]
         if (model.get("version") != "estimated-v1" or model.get("observed_execution") is not False

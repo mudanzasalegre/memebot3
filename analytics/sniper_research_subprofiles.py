@@ -264,6 +264,8 @@ def evaluate_sniper_research_subprofile(
     *,
     cfg: Any = CFG,
 ) -> SniperResearchSubprofileDecision:
+    from research_loop.entry_gate_forward import capture_gate
+    capture_gate("sniper_subprofile", row, cfg)
     cfg = entry_config(cfg)
     if not bool(getattr(cfg, "SNIPER_RESEARCH_SUBPROFILES_ENABLED", True)):
         return SniperResearchSubprofileDecision(True, None, "subprofiles_disabled", ())

@@ -313,7 +313,14 @@ def evaluate_research_rank_canary(
     cfg: Any = None,
     record_audit: bool = True,
 ) -> ResearchRankCanaryDecision:
-    cfg = entry_config(CFG if cfg is None else cfg, dry_run=dry_run, live=live)
+    cfg = CFG if cfg is None else cfg
+    if dry_run and not live:
+        from research_loop.entry_gate_forward import capture_gate
+        observed = dict(token)
+        observed["rank_score"] = ((rank_info or {}).get("rank_score")
+            or (rank_info or {}).get("research_rank_score") or token.get("rank_score") or token.get("research_rank_score"))
+        capture_gate("rank_canary", observed, cfg)
+    cfg = entry_config(cfg, dry_run=dry_run, live=live)
     min_score_raw, min_score, min_score_scale = normalize_score(
         getattr(cfg, "RESEARCH_RANK_CANARY_MIN_SCORE", 64.81),
         64.81,

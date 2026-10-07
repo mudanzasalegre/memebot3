@@ -297,6 +297,9 @@ def evaluate_moonshot_micro_lottery(
     live: bool,
     cfg: Any = CFG,
 ) -> MoonshotMicroLotteryDecision:
+    if dry_run and not live:
+        from research_loop.entry_gate_forward import capture_gate
+        capture_gate("moonshot", row, cfg)
     cfg = entry_config(cfg, dry_run=dry_run, live=live)
     raw_amount = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001) or 0.001)
     amount = max(raw_amount, 0.0)

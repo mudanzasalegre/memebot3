@@ -312,6 +312,16 @@ async def backfill_entry_notionals() -> int:
     return updated
 
 
+def quote_impact_limit_pct(cfg: Any = None) -> float | None:
+    cfg = CFG if cfg is None else cfg
+    value = getattr(cfg, "PAPER_BOOTSTRAP_MAX_PRICE_IMPACT_PCT", _IMPACT_MAX_PCT) if getattr(cfg, "PAPER_BOOTSTRAP_ENABLED", False) else _IMPACT_MAX_PCT
+    try:
+        result = float(value)
+        return result if math.isfinite(result) and result > 0 else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 async def _has_jupiter_route(token_mint: str, amount_sol: float = 0.1, *, proof: dict | None = None) -> tuple[Optional[bool], str]:
     """
     Intenta averiguar si Jupiter tiene **ruta ejecutable**.
@@ -328,7 +338,9 @@ async def _has_jupiter_route(token_mint: str, amount_sol: float = 0.1, *, proof:
         impact = quote.price_impact_bps
         if impact is None or not math.isfinite(impact):
             return False, "IMPACT_UNKNOWN"
-        limit = float(getattr(CFG, "PAPER_BOOTSTRAP_MAX_PRICE_IMPACT_PCT", _IMPACT_MAX_PCT)) if getattr(CFG, "PAPER_BOOTSTRAP_ENABLED", False) else _IMPACT_MAX_PCT
+        limit = quote_impact_limit_pct()
+        if limit is None:
+            return False, "IMPACT_LIMIT_UNKNOWN"
         if abs(impact) / 100 > limit:
             return False, "HIGH_QUOTE_IMPACT"
         if proof is not None:
@@ -351,6 +363,8 @@ def _research_root() -> pathlib.Path:
 
 
 def record_market_observation(address: str, price: float, *, liq_now: float | None = None) -> None:
+    from research_loop import entry_gate_forward
+    entry_gate_forward.observe_market(address, price, root=_research_root(), cfg=CFG, liq_now=liq_now)
     entry = _PORTFOLIO.get(address)
     if not entry or entry.get("closed") or not _positive_finite(price):
         return
@@ -785,6 +799,8 @@ async def sell(
         proceeds_usd = quote.out_amount / 1e9 * float(sol_usd)
         try:
             runner_forward.observe_quote(key, quote, float(sol_usd), root=_research_root(), cfg=CFG)
+            from research_loop import entry_gate_forward
+            entry_gate_forward.observe_quote(key, quote, float(sol_usd), root=_research_root(), cfg=CFG)
         except Exception as exc:
             log.warning("[runner_forward] quote reuse unavailable: %s", type(exc).__name__)
         reference_tokens = (take_qty / int(entry["entry_qty"])) * float(entry["entry_notional_usd"]) / float(entry["buy_price_usd"])

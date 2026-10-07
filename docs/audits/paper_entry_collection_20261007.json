@@ -1,0 +1,55 @@
+{
+  "status": "COLLECTOR_SOFTWARE_VALIDATED_FORWARD_EVIDENCE_PENDING",
+  "full_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Software implementation of prospective sampled component experiments; no new financial run, transaction or full-strategy profitability certificate",
+  "requested_tail_scope": "Beyond 100 and 200 percent: existing learning targets include 500, 1000, 2000, 5000 and 10000 percent, and frozen paper runner exits have no fixed profit-percentage ceiling. Synthetic exit tests cover up to 100000 percent. None of these targets establishes that an opportunity will be bought, that its peak can be filled, or that the portfolio will earn that return",
+  "implemented": {
+    "proposal_and_capture": "Deterministic bounded neighboring admission parameters across four gate components. An immutable 24-hour proposal precedes counterfactual evaluation; hash-chained enrollment is written before the primary gate returns and before any future quote. Applicability uses only then-known features. Task-local suppression prevents recursive counterfactual capture",
+    "population": "One open experiment, distinct valid mints, at most 128 registered cases, declared 900-second default sampling and shared quote-slot/capacity eligibility. Original plans, full-window heartbeats, registration features and all enrolled cases are rechecked. This is a declared sample, not exhaustive feed coverage",
+    "counterfactual_cash": "An exact 100000000-lamport entry quote is requested promptly when either arm buys. One common virtual position with raw quoted SPL quantity, frozen runner policy and shared exit engine supplies paired net SOL and USD. An explicit both-arm skip needs no fabricated cash. Missing, late, invalid, nonfinite or unsettled quotes remain unknown and reject selection",
+    "cost_qualification": "Quoted routes and price impact are checked under the primary paper limit. Slippage and per-fill fees are explicit estimated-v1 assumptions, not observed fills, transaction fees, rent or realized wallet profit",
+    "continued_monitoring": "Virtual entry positions remain monitored independently of actual portfolio membership. Primary market and exact-quantity reverse quotes can be reused. Missing price cadence or changed exit configuration marks incomparable coverage; open positions are not retuned by a subsequent selection",
+    "shared_provider_budget": "One root-scoped extra logical quote reservation per minute across runner-exit and entry-gate research, conservative charging on failure/skip and alternation when both have pending demand. One fresh union price poll per minute, at most 128 unique active mints with existing batches of 50. Primary trading is not throttled by this research budget. Client retries/fallbacks and SOL-price requests are not claimed to be a one-HTTP-request budget",
+    "price_freshness": "Research polling explicitly bypasses positive/negative caches and fixed stable-price shortcuts; malformed or unavailable prices stay unknown",
+    "selection": "First selection or same-parameter refresh requires a checked original cohort, at least 50 distinct tokens and ten changed decisions, positive selected net SOL/USD and positive paired bootstrap lower mean improvement in both currencies. Selections expire within seven days and original checkpoints are required by the actual guarded paper entry consumer",
+    "rollback_and_history": "A fresh comparable same-parameter cohort with negative paired upper bounds in both currencies and positive configured baseline retires that selection with preserved proof/history. A different challenger cannot overwrite an incumbent without a direct comparison; that successor lifecycle remains pending",
+    "shutdown_and_corruption": "Pending background dispatchers are cancelled and drained during shutdown, and dispatched entries cannot issue a second quote after restart. Corrupt checkpoints are preserved, not reset to a fresh population or request allowance. A failing secondary collector does not abort primary trading or the other collector"
+  },
+  "verification": {
+    "initial_focused_result": "Four new tests failed because the virtual prefix called initial_ladder_state with unsupported arguments. Corrected the integration call; 90 focused tests then passed",
+    "expanded_focused_suite": "148 passed in 18.91s before the final added strict raw-input type fixture",
+    "intermediate_full_working_suite": "1166 passed in 72.44s before stable-price and strict quote-type hardening",
+    "full_working_checkout": "1171 passed in 62.03s",
+    "full_publishing_checkout": "1171 passed in 59.62s without personal .env",
+    "local_preflight_both_checkouts": "PASS: configuration import, zero compilation errors, paper profile and seven empty-data report builders in each checkout",
+    "publishing_preflight": "PASS",
+    "publishing_source_sync": "19 reviewed source files synchronized with zero deletions. Personal .env, data, logs, runtime weights and dependency directories excluded",
+    "qualification": "Synthetic clocks, quotes, prices, gates and cash in isolated temporary directories. Real component hooks, async contexts, cancellation, source rechecks, quote budgets and regression are exercised; no actual new paper run or profitable model is certified",
+    "python_runtime": "Existing D:/Dev/Python/memebot3/.venv interpreter for both checkouts; publishing checkout remains without personal .env or separate .venv",
+    "tests": ["tests/test_entry_gate_forward.py", "tests/test_paired_forward.py", "tests/test_paper_entry_policy.py", "tests/test_runner_forward.py", "tests/test_runner_price_policy.py"]
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "active_runtime_models_changed": false,
+    "runtime_model_training_started": false,
+    "runtime_cohort_created": false,
+    "active_entry_policy_created": false,
+    "shutdown_verification": "VERIFIED_OFF",
+    "shutdown_verified_at_utc": "2026-10-07T15:13:25.1749853Z",
+    "runtime_process_count_both_roots": 0,
+    "bot_locks_present_both_roots": 0,
+    "active_entry_policy_count_both_roots": 0,
+    "runtime_entry_plan_count_both_roots": 0,
+    "database_process_state": "stopped",
+    "database_retrain_state": "idle",
+    "database_reports_refresh_state": "idle"
+  },
+  "remaining_full_goal_requirements": [
+    "Complete direct incumbent-versus-successor admission comparison and revalidation; the first-selection/same-parameter lifecycle is not a full automatic champion-challenger lifecycle",
+    "Audit and extend checked transport to still-cached scanner/core-entry consumers and downstream full-strategy capital/admission constraints",
+    "Complete fresh rare-runner, risk and continuation model validation and architecture/provider/first-launch failure-path work",
+    "Obtain separately authorized fresh prospective full-strategy closed evidence with executable quantities and defensible costs before any profitability or live-promotion claim"
+  ]
+}

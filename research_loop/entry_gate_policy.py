@@ -35,7 +35,18 @@ def _time(value: Any) -> dt.datetime:
     return result.astimezone(dt.timezone.utc)
 
 
+def plan_identity(plan: dict[str, Any]) -> str:
+    mutable = {"enrollment_complete", "case_ids", "enrollment_journal", "enrollment_heartbeats"}
+    return policy.digest({k: v for k, v in plan.items() if k not in mutable})
+
+
 def gate_decision(gate: str, features: dict[str, Any], cfg: Any) -> bool | None:
+    from research_loop.entry_gate_forward import suppress_capture
+    with suppress_capture():
+        return _gate_decision(gate, features, cfg)
+
+
+def _gate_decision(gate: str, features: dict[str, Any], cfg: Any) -> bool | None:
     """The real component, without audit writes or provider requests."""
     for key in ("rank_score", "price_pct_5m", "txns_last_5m", "liquidity_usd",
                 "market_cap_usd", "price_impact_pct", "age_minutes"):
@@ -74,7 +85,7 @@ def _entry_cash(case: dict[str, Any], plan: dict[str, Any], now: dt.datetime) ->
     if (prefix.get("dry_run") is not True or prefix.get("test_event")
             or prefix.get("run_id") != plan["run_id"]
             or prefix.get("run_started_at") != plan["run_started_at"]
-            or _time(prefix["opened_at"]) != decision_at
+            or not decision_at <= _time(prefix["opened_at"]) <= decision_at + dt.timedelta(seconds=30)
             or prefix.get("amount_sol") != .1 or route.get("in_amount") != 100000000
             or isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0
             or not isinstance(route.get("out_amount"), int) or route["out_amount"] <= 0
@@ -98,7 +109,7 @@ def _entry_cash(case: dict[str, Any], plan: dict[str, Any], now: dt.datetime) ->
             or case.get("exit_rule_id") != plan["exit_rule_id"] or close > now
             or case.get("cash_rule") != "one_common_frozen_entry_and_exit_for_both_gate_arms"):
         raise ValueError("incomplete or incomparable counterfactual coverage")
-    cash_case = {"prefix": prefix, "registered_at": decision_at.isoformat(),
+    cash_case = {"prefix": prefix, "registered_at": prefix["opened_at"],
                  "cohort_ends_at": plan["cohort_ends_at"]}
     if not validate_paper_cash_terminal(cash_case, terminal, now):
         raise ValueError("unresolved or nonconserved quoted cash")
@@ -125,7 +136,37 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
                 or plan.get("enrollment_complete") is not True
                 or not MIN_TOKENS <= len(cases) <= MAX_CASES):
             raise ValueError("incomplete, unbound or nonprospective plan")
-        plan_id = policy.digest({k: v for k, v in plan.items() if k not in {"enrollment_complete", "case_ids"}})
+        plan_id = plan_identity(plan)
+        collector_validated = False
+        if plan.get("collector_version"):
+            from research_loop.entry_gate_forward import COLLECTOR
+            if plan["collector_version"] != COLLECTOR:
+                raise ValueError("unknown collector")
+            previous = plan_id
+            events = plan["enrollment_journal"]
+            if len(events) != len(cases):
+                raise ValueError("missing original registration")
+            for i, (event, case) in enumerate(zip(events, cases)):
+                if (event["sequence"] != i or event["previous_sha256"] != previous
+                        or event["case_id"] != case["case_id"] or event["token"] != case["token"]
+                        or event["captured_at"] != case["decision_at"]
+                        or event["features_sha256"] != policy.digest(case["features"])
+                        or event["sha256"] != policy.digest({k: v for k, v in event.items() if k != "sha256"})):
+                    raise ValueError("altered enrollment journal")
+                previous = event["sha256"]
+            sampling = plan["sampling"]
+            if (sampling.get("method") != "first_eligible_after_interval_and_shared_quote_slot"
+                    or sampling.get("future_outcome_used") is not False
+                    or not 600 <= policy.number(sampling["interval_s"]) <= 1800
+                    or sampling["max_cases"] != MAX_CASES
+                    or any((_time(b["captured_at"]) - _time(a["captured_at"])).total_seconds() < sampling["interval_s"]
+                           for a, b in zip(events, events[1:]))):
+                raise ValueError("invalid predeclared sampler")
+            beats = [_time(value) for value in plan["enrollment_heartbeats"]]
+            if (not beats or beats[0] != start or beats[-1] < end or beats[-1] > end + dt.timedelta(minutes=5)
+                    or any(not 0 < (b - a).total_seconds() <= 300 for a, b in zip(beats, beats[1:]))):
+                raise ValueError("incomplete full-window collector uptime")
+            collector_validated = True
         ids, tokens, paired_sol, paired_usd, selected_sol, selected_usd, closes = [], set(), [], [], [], [], []
         changed = 0
         for case in cases:
@@ -161,7 +202,7 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
             selected_sol.append(sol if challenger else 0.0)
             selected_usd.append(usd if challenger else 0.0)
         if (sorted(ids) != sorted(plan["case_ids"]) or changed < 10 or not closes
-                or max(closes) - min(_time(c["decision_at"]) for c in cases) < dt.timedelta(hours=24)
+                or (not collector_validated and max(closes) - min(_time(c["decision_at"]) for c in cases) < dt.timedelta(hours=24))
                 or stamp - max(closes) > dt.timedelta(hours=MAX_AGE_HOURS)):
             raise ValueError("missing population, effective differences, duration or freshness")
         rng = random.Random(1907)
@@ -172,11 +213,16 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
             boot_usd.append(statistics.fmean(paired_usd[i] for i in sampled))
         # One predeclared challenger; 2.5% lower marginal bounds for both currencies.
         lower_sol, lower_usd = sorted(boot_sol)[49], sorted(boot_usd)[49]
+        upper_sol, upper_usd = sorted(boot_sol)[-50], sorted(boot_usd)[-50]
+        baseline_sol = sum(s - d for s, d in zip(selected_sol, paired_sol))
+        baseline_usd = sum(s - d for s, d in zip(selected_usd, paired_usd))
         accepted = lower_sol > 0 and lower_usd > 0 and sum(selected_sol) > 0 and sum(selected_usd) > 0
         result.update(accepted=accepted, reasons=[] if accepted else ["no_positive_costed_paired_improvement"],
             plan_id=plan_id, gate=gate, parameters=candidate, unique_tokens=len(tokens), changed_decisions=changed,
             net_pnl_sol=sum(selected_sol), net_pnl_usd=sum(selected_usd),
             paired_lower_mean_sol=lower_sol, paired_lower_mean_usd=lower_usd,
+            paired_upper_mean_sol=upper_sol, paired_upper_mean_usd=upper_usd,
+            rollback_to_configured=(upper_sol < 0 and upper_usd < 0 and baseline_sol > 0 and baseline_usd > 0),
             generated_at=stamp.isoformat(),
             case_evidence=[{"case_id": case["case_id"], "sha256": policy.digest(case)} for case in cases])
     except (KeyError, TypeError, ValueError, OverflowError, AttributeError, ZeroDivisionError):
@@ -220,6 +266,17 @@ def load_selection(cfg: Any, *, root: Path | str, now: dt.datetime | None = None
         if policy.digest(bundle) != manifest.get("evidence_sha256"):
             return None
         plan, cases = bundle["plan"], []
+        from research_loop.entry_gate_forward import COLLECTOR, exit_rule_id
+        if plan.get("collector_version") != COLLECTOR or plan.get("exit_configuration_id") != exit_rule_id():
+            return None
+        identity = plan_identity(plan)
+        original = _read(directory / "plans" / f"{identity}.json", inside=directory)
+        journal = _read(directory / "journals" / f"{identity}.json", inside=directory)
+        beats = _read(directory / "heartbeats" / f"{identity}.json", inside=directory)
+        if (plan_identity(original) != identity or original.get("enrollment_complete") is True
+                or journal.get("events") != plan.get("enrollment_journal")
+                or beats.get("times") != plan.get("enrollment_heartbeats")):
+            return None
         if len(plan["case_ids"]) != len(set(plan["case_ids"])) or not MIN_TOKENS <= len(plan["case_ids"]) <= MAX_CASES:
             return None
         paths = []

@@ -15,6 +15,7 @@ import pytest
 
 from config.config import CFG
 from research_loop import entry_gate_policy as transport
+from research_loop import entry_gate_forward as collector
 from runtime import paper_entry_policy as policy
 
 
@@ -33,6 +34,9 @@ PARAMETERS = {"RESEARCH_RANK_CANARY_MIN_SCORE": 60}
 def cohort(cfg, *, start=None):
     start = start or dt.datetime.now(dt.timezone.utc).replace(microsecond=0) - dt.timedelta(hours=27)
     plan = {"version": transport.VERSION, "role": transport.ROLE, "gate": "rank_canary",
+        "collector_version": collector.COLLECTOR, "exit_configuration_id": collector.exit_rule_id(),
+        "sampling": {"method": "first_eligible_after_interval_and_shared_quote_slot", "interval_s": 900,
+                     "max_cases": transport.MAX_CASES, "future_outcome_used": False},
         "parameters": PARAMETERS, "configured_hash": policy.configured_hash(cfg, "rank_canary"),
         "planned_at": start.isoformat(), "cohort_started_at": start.isoformat(),
         "cohort_ends_at": (start + dt.timedelta(hours=24)).isoformat(),
@@ -42,7 +46,7 @@ def cohort(cfg, *, start=None):
     cases = []
     for i in range(50):
         mint = base58.b58encode((i + 1).to_bytes(32, "big")).decode()
-        decision = start + dt.timedelta(minutes=i)
+        decision = start + dt.timedelta(seconds=i * 900)
         close = start + dt.timedelta(hours=26, seconds=i)
         features = {"address": mint, "entry_lane": "pump_early_sniper_research", "rank_score": 62 if i < 30 else 72,
             "price_pct_5m": 70, "txns_last_5m": 600, "liquidity_usd": 20000,
@@ -72,7 +76,15 @@ def cohort(cfg, *, start=None):
             "cash": {"prefix": prefix, "terminal": terminal}}
         case["case_id"] = policy.digest([plan_id, mint, case["decision_at"], features])
         cases.append(case)
-    plan.update(enrollment_complete=True, case_ids=[case["case_id"] for case in cases])
+    events, previous = [], plan_id
+    for i, case in enumerate(cases):
+        event = {"sequence": i, "case_id": case["case_id"], "token": case["token"], "captured_at": case["decision_at"],
+                 "features_sha256": policy.digest(case["features"]), "previous_sha256": previous}
+        event["sha256"] = policy.digest(event)
+        previous = event["sha256"]
+        events.append(event)
+    plan.update(enrollment_complete=True, case_ids=[case["case_id"] for case in cases], enrollment_journal=events,
+                enrollment_heartbeats=[(start + dt.timedelta(minutes=i)).isoformat() for i in range(1441)])
     return plan, cases, start + dt.timedelta(hours=27)
 
 
@@ -84,6 +96,14 @@ def install(root, cfg):
     directory = root / "data/research/entry_gate_forward"
     (directory / "closed").mkdir(parents=True)
     (directory / "evaluations").mkdir()
+    for folder in ("plans", "journals", "heartbeats"):
+        (directory / folder).mkdir()
+    identity = transport.plan_identity(plan)
+    original = {k: v for k, v in plan.items() if k not in {
+        "enrollment_complete", "case_ids", "enrollment_journal", "enrollment_heartbeats"}}
+    (directory / "plans" / f"{identity}.json").write_text(json.dumps(original))
+    (directory / "journals" / f"{identity}.json").write_text(json.dumps({"events": plan["enrollment_journal"]}))
+    (directory / "heartbeats" / f"{identity}.json").write_text(json.dumps({"times": plan["enrollment_heartbeats"]}))
     name = policy.digest(bundle) + ".json"
     for case in cases:
         (directory / "closed" / f"{case['case_id']}.json").write_text(json.dumps(case))

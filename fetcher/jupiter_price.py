@@ -487,7 +487,7 @@ def _dedup_preserve_order(items: Iterable[str]) -> List[str]:
 
 
 # ───────────────────────────── API enriquecida (batch) ─────────────────────────
-async def get_many_prices(mints: List[str]) -> Dict[str, PriceInfo]:
+async def get_many_prices(mints: List[str], *, force_refresh: bool = False) -> Dict[str, PriceInfo]:
     """
     Devuelve dict mint -> PriceInfo(status, price_usd, has_route, routes_count).
     Reglas:
@@ -517,7 +517,7 @@ async def get_many_prices(mints: List[str]) -> Dict[str, PriceInfo]:
             instant_skips += 1
             continue
         fp = _KNOWN_STABLES.get(m)
-        if fp is not None:
+        if fp is not None and not force_refresh:
             # Mete en caché OK y resultado enriquecido
             _cache_set_ok(m, float(fp))
             result[m] = _pi("OK", float(fp), True, 1)
@@ -540,12 +540,12 @@ async def get_many_prices(mints: List[str]) -> Dict[str, PriceInfo]:
     cache_hits_nil = 0
 
     for m in mints:
-        hit = _cache_get_ok(m)
+        hit = None if force_refresh else _cache_get_ok(m)
         if hit is not None:
             result[m] = _pi("OK", hit, True, 1)
             cache_hits_ok += 1
             continue
-        if _cache_get_nil(m):
+        if not force_refresh and _cache_get_nil(m):
             result[m] = _pi("NIL", None, False, 0)
             cache_hits_nil += 1
             continue
@@ -656,12 +656,12 @@ async def get_quote_status(mint: str) -> Dict[str, object]:
 
 
 # ──────────────────────────── API legacy (compat) ──────────────────────────────
-async def get_many_usd_prices(mints: List[str]) -> Dict[str, float]:
+async def get_many_usd_prices(mints: List[str], *, force_refresh: bool = False) -> Dict[str, float]:
     """
     **Compat**: mantiene la firma original devolviendo sólo precios OK.
     Internamente usa la versión enriquecida y filtra por status=="OK".
     """
-    enriched = await get_many_prices(mints)
+    enriched = await get_many_prices(mints, force_refresh=True) if force_refresh else await get_many_prices(mints)
     return {m: pi.price_usd for m, pi in enriched.items() if pi.status == "OK" and pi.price_usd is not None}
 
 
