@@ -1,0 +1,61 @@
+{
+  "status": "SOFTWARE_VALIDATED_RUNTIME_OFF",
+  "full_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Buy intent, result, paper-store and SQL identity durability; owned timeout/cancellation recovery, ambiguous live retry prevention and funds admission. Not realized profitability, observed live fills or exhaustive whole-strategy acceptance",
+  "source_findings": {
+    "lost_entry_boundary": "The token-evaluation timeout includes buyer execution and the later SQL position commit. Previously there was no durable buy intent/result, so an executed paper or live buy could lack a monitored SQL position after cancellation, response loss or commit failure",
+    "paper_store": "Paper portfolio writes overwrote the destination directly and swallowed errors. Loading any missing, corrupt or unreadable portfolio silently substituted an empty dictionary. Those behaviors could lose or conceal existing financial state",
+    "ambiguous_live_resubmission": "The live buyer fell back from a managed Jupiter exception to GMGN and retried GMGN up to three times, including errors in price/notional enrichment after submission. An exception did not prove that the earlier wallet effect was absent",
+    "unknown_funds": "The live funds check authorized orders without a configured public wallet identity and after an RPC failure. Invalid balance types and nonfinite amounts were not explicitly excluded",
+    "raw_quantity_precision": "Managed output quantities passed through float before integer conversion, losing precision for valid raw integer strings above 2^53",
+    "paper_sell_boundary_remaining": "Paper partial/full sells still call _save without strict=True, then report success. The close-recovery outbox captures SQL position/trade-event state, not the paper JSON, and is acknowledged after the SQL commit. A swallowed paper-store save failure can therefore leave those two stores inconsistent; this separate boundary remains unimplemented in this stage",
+    "fallback_freshness_remaining": "price_service.get_price critical=True bypasses a negative cache but still returns positive/partial cache hits, and _query_sources can consume adapter caches. Monitor fallback and liquidity freshness remain separate unresolved work"
+  },
+  "implemented": {
+    "durable_intent_before_buy": "Each owned entry writes an atomic fsync'ed versioned intent before invoking the buyer. One active execution or unresolved prior intent blocks a second execution. Fixed logical identity is buy:<uuid> in the existing source_position_key column; no runtime schema or personal data was migrated during this stage",
+    "canonical_causal_metadata": "The original Position constructor is now one canonical helper, called before the buy to freeze entry metadata. Only returned fill fields are subsequently overlaid. The journal records prepared, fill_received, position_prepared and persisted/no_fill transitions; acknowledgements retain complete resolved records in an archive",
+    "checked_results": "Positive results require an integer SQLite-compatible raw quantity, positive finite price/notional and a nonempty signature. Known zero-quantity pre-execution rejection signatures are terminal no_fill. Missing, corrupt, nonfinite or ambiguous outcomes remain pending, not fabricated failed executions or buy-exception shadows",
+    "paper_atomic_store": "JSON contents are serialized with no NaN/Infinity or implicit object coercion, written to an individually-created temporary file, flushed/fsync'ed, then atomically replaced. BUY requires successful persistence and restores the previous in-memory entry if that write fails. A missing first-launch portfolio is empty; an unreadable, corrupt or incorrectly shaped portfolio raises a fail-closed error and is preserved",
+    "durable_paper_identity": "New paper entries and returned responses share entry_intent_id and SIM-<uuid> buy signature, avoiding timestamp collisions. Recovery can identify a persisted paper buy even when its returned response was lost",
+    "paper_restart_replay": "At startup before owned loops, and periodically before monitor consumers, inactive unresolved paper buys are matched to a freshly loaded portfolio. A matching durable unmodified fill can reconstruct its SQL position from captured metadata; a proven absent prepared paper fill can resolve no_fill. Missing/conflicting received-fill evidence, another open SQL owner or unexpected paper changes remain quarantined. Existing matching SQL rows are acknowledged without overwriting later partials or closed state",
+    "entry_ownership": "A task-local scope shares only its own tracking container with its wait_for child. Recovery skips active calls/commits, and timeout/cancellation releases ownership after the guarded evaluation and owned session are drained. A resumed command cannot bypass pending buy recovery; the published buys_paused field includes that independent cause, without silently changing the manual pause flag",
+    "live_single_submission": "Managed submission/enrichment exceptions raise BuyOutcomeUncertain without a legacy fallback. GMGN submits once, with no ambiguous retry or fabricated BUY_FAILED return. Raw output strings are parsed as integers without a float round trip. Live recovery never invents a wallet-confirmed position or sends a transaction; unresolved live records remain quarantined pending independent wallet/finality evidence",
+    "live_funds_admission": "Nonfinite or boolean amounts are rejected before submission. Missing wallet identity, RPC failure, invalid/negative balance and insufficient balance plus gas reserve do not authorize a live order",
+    "preserved": "Exact 0.1 SOL paper order and quote contracts, security/route/impact/capital guards, immutable checked paper entry components, frozen runner policies, uncapped percentage upside, owned independent monitoring and OFF requirement remain. No strategy/model/policy was activated"
+  },
+  "verification": {
+    "new_focused_suite": "57 passed in 6.63s: isolated atomic storage, strict corruption handling, before-submit journal failure, wait_for child ownership, restart at each durable boundary, live quarantine, SQL commit/ack failure, closed-row preservation, conflicts, actual resume command, funds/RPC admission and single submission",
+    "intermediate_compatibility": "144 passed in 35.62s in existing entry, monitor, startup, sizing, runner-forward and close-recovery tests; then 190 passed in 42.18s with the initial new recovery scenarios, before the final funding/control additions",
+    "actual_runtime_integration": "AST-extracted actual canonical Position builder and actual entry execution tail call the real paper buyer with mocked quote/price providers and isolated SQLite. Success, cancellation after fill and failed SQL commit recover exactly one position with frozen metadata. Real guarded-entry and _runner regressions include the new owned scope and startup recovery hook",
+    "full_working_checkout": "1291 passed in 204.69s",
+    "full_publishing_checkout": "1291 passed in 190.00s without personal .env or local .venv, using the existing working-checkout Python runtime",
+    "preflight_both": "PASS: zero compilation errors, configuration import rc=0, paper profile OK and all seven empty-data report builders OK",
+    "source_sync": "Eight reviewed implementation/test files applied with zero deletion; two audit files synchronized separately after verification. Personal .env, data, logs and runtime weights excluded",
+    "previous_publication_resolved": "The earlier GitHub internal-server rejection cleared; independent-monitor commit 5d7357c790dd1d9baae85c2e11f962204434c6cd now matches origin/main before this new stage publication",
+    "ui_build": "Not rerun: UI source is unchanged; previous build evidence remains separate"
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "runtime_model_training_started": false,
+    "active_runtime_models_changed": false,
+    "active_entry_policy_created": false,
+    "runtime_cohort_created": false,
+    "runtime_buy_journal_files_created": 0,
+    "shutdown_verified_at_utc": "2026-10-07T17:29:24.1975617Z",
+    "remaining_bot_processes_both_checkouts": 0,
+    "bot_locks_present_both_checkouts": false,
+    "sqlite_state": "main=stopped, retrain=idle, reports=idle",
+    "active_entry_policies_and_collection_plans_both_checkouts": 0,
+    "runtime_weights_changed_since_165656_utc": 0,
+    "stop_stack": "2026-10-07T17:27:51Z requested_by=user; killed=0 remaining=0"
+  },
+  "remaining_full_goal_requirements": [
+    "Implement paper partial/full sell durability and reconciliation of paper JSON versus SQL; audit unknown live sell outcomes and their pre-execution intent boundary",
+    "Complete separately checked live wallet/finality and actual filled-quantity reconciliation. A returned signature/quoted order and SQL acknowledgement are not comprehensive observed execution acceptance",
+    "Complete monitor fallback/liquidity freshness, scanner feed continuity, still-cached core configuration and full-strategy admission/capital/execution coverage",
+    "Complete fresh rare-runner/risk/continuation and whole-strategy costed terminal forward evidence under separately authorized runtime execution. Software tests do not establish profitability or guarantee zero future errors"
+  ],
+  "durability_limit": "File fsync plus same-directory atomic replacement protects partial process writes; this is not a claim covering every filesystem, hardware or power-loss scenario"
+}

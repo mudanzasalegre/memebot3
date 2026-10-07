@@ -206,6 +206,7 @@ async def test_prefetch_rejects_nonfinite_zero_boolean_and_out_of_request_prices
 
 @pytest.mark.asyncio
 async def test_owned_entry_sessions_rollback_exception_timeout_and_allow_next_commit(tmp_path):
+    from runtime.buy_recovery import BuyRecoveryStore
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
     engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'isolated.db').as_posix()}")
@@ -226,6 +227,7 @@ async def test_owned_entry_sessions_rollback_exception_timeout_and_allow_next_co
         await session.commit()
     namespace = {"asyncio": asyncio, "CFG": SimpleNamespace(DRY_RUN=True), "PROJECT_ROOT": tmp_path,
         "SessionLocal": sessions, "EVALUATE_TOKEN_TIMEOUT_S": .1, "_evaluate_and_buy": evaluate,
+        "_BUY_RECOVERY": BuyRecoveryStore(tmp_path / "buy_journal"),
         "_note_runtime_error": lambda *args: errors.append(args), "log": SimpleNamespace(error=lambda *args: None)}
     exec(compile(ast.Module(body=[_function("_evaluate_and_buy_guarded")], type_ignores=[]), "run_bot.py", "exec"), namespace)
     try:
@@ -249,6 +251,7 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
         async def __aenter__(self): return self
         async def __aexit__(self, *args): cleaned.add("recovery")
     async def recovery(session, **kwargs): assert kwargs["force"]
+    async def buy_recovery(session, **kwargs): assert kwargs["force"]
     async def main(*, positions_ready):
         try:
             positions_ready.set()
@@ -283,6 +286,7 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
         published.append(True)
     namespace = {"asyncio": asyncio, "CFG": SimpleNamespace(ML_RETRAIN_IN_MAIN_LOOP=False),
         "async_init_db": init, "SessionLocal": RecoverySession, "_recover_close_persistence_outbox": recovery,
+        "_recover_buy_persistence_outbox": buy_recovery,
         "main_loop": main, "_position_monitor_loop": monitor, "_periodic_labeler": lambda: loop("labeler"),
         "runtime_state_loop": lambda: loop("state"), "control_command_loop": fault,
         "_background_tasks": {task}, "_publish_runtime_state_once": publish,

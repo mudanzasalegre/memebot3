@@ -38,8 +38,8 @@ Cambios
 
 from __future__ import annotations
 
-import asyncio
 import logging
+import math
 import os
 from typing import Dict, Final, Optional, Tuple
 
@@ -50,6 +50,7 @@ from utils.time import is_in_trading_window, seconds_until_next_window
 from db.database import SessionLocal
 from db.models import Position
 from sqlalchemy import select
+from runtime.buy_recovery import BuyOutcomeUncertain
 
 # Precio: Jupiter Price v3 (Lite)
 from fetcher import jupiter_price
@@ -103,13 +104,23 @@ try:
 except Exception:
     _JUP_BUY_SLIPPAGE_BPS = 150
 
-_RETRIES: Final[int] = 3
-_RETRY_WAIT: Final[int] = 2  # s entre intentos
-
 _WALLET_PUBKEY: Final[str] = os.getenv("SOL_PUBLIC_KEY", "")
 
 
 # ─── Helpers ─────────────────────────────────────────────────
+def _raw_token_units(value: object) -> int:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return max(0, value)
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return int(value)
+    return 0
+
+
+def _validate_submission(qty: int, signature: object) -> None:
+    if qty <= 0 or not str(signature or "").strip():
+        raise BuyOutcomeUncertain("Submitted order has no confirmed quantity/signature")
+
+
 def _parse_route(resp: dict) -> Tuple[int, float, dict]:
     """
     Normaliza la respuesta de gmgn:
@@ -124,12 +135,7 @@ def _parse_route(resp: dict) -> Tuple[int, float, dict]:
     quote = route.get("quote", {}) or {}
 
     out_amount = quote.get("outAmount") or quote.get("toAmount") or quote.get("out_amount")
-    if isinstance(out_amount, str) and out_amount.isdigit():
-        qty_lp = int(out_amount)
-    elif isinstance(out_amount, (int, float)) and out_amount > 0:
-        qty_lp = int(out_amount)
-    else:
-        qty_lp = 0
+    qty_lp = _raw_token_units(out_amount)
 
     total_usd = quote.get("inAmountUSD")
     try:
@@ -144,16 +150,21 @@ def _parse_route(resp: dict) -> Tuple[int, float, dict]:
 
 async def _has_enough_funds(amount_sol: float) -> bool:
     """Comprueba que queda SOL suficiente + reserva para gas."""
+    if (not isinstance(amount_sol, (int, float)) or isinstance(amount_sol, bool)
+            or not math.isfinite(amount_sol) or amount_sol <= 0):
+        return False
     if not _WALLET_PUBKEY:
-        return True
+        log.warning("[buyer] live funds unknown: public wallet identity is missing")
+        return False
     try:
         balance_lp = await get_balance_lamports(_WALLET_PUBKEY)
         needed_lp = int(amount_sol * 1e9) + _GAS_RESERVE_LAMPORTS
+        if not isinstance(balance_lp, int) or isinstance(balance_lp, bool) or balance_lp < 0:
+            return False
         return balance_lp >= needed_lp
     except Exception as exc:  # noqa: BLE001
-        log.warning("[buyer] balance check error: %s", exc)
-        # En caso de error de RPC, no bloqueamos la estrategia
-        return True
+        log.warning("[buyer] balance check error: %s", type(exc).__name__)
+        return False  # Unknown capital is not evidence that funds exist.
 
 
 async def _max_positions_reached() -> bool:
@@ -203,10 +214,9 @@ def _extract_out_amount(route: dict) -> Optional[int]:
     quote = (route.get("quote") or {}) if isinstance(route.get("quote"), dict) else route
     for k in ("outAmount", "out_amount", "toAmount"):
         v = quote.get(k)
-        if isinstance(v, str) and v.isdigit():
-            return int(v)
-        if isinstance(v, (int, float)) and v > 0:
-            return int(v)
+        amount = _raw_token_units(v)
+        if amount > 0:
+            return amount
     return None
 
 
@@ -418,6 +428,10 @@ async def buy(
     _ = entry_lane
     _ = discovered_via
 
+    if (not isinstance(amount_sol, (int, float)) or isinstance(amount_sol, bool)
+            or not math.isfinite(amount_sol)):
+        return {"qty_lamports": 0, "signature": "INVALID_AMOUNT", "route": {}}
+
     # ─────── Simulación directa (paper-trading) ────────────
     if amount_sol <= 0:
         log.info("[buyer] SIMULACIÓN · no se envía orden real (amount=%.4f SOL)", amount_sol)
@@ -580,10 +594,8 @@ async def buy(
             )
             order = dict(managed_resp.get("order") or {})
             route = dict(managed_resp.get("route") or {})
-            try:
-                qty_lp = int(float(order.get("outAmount") or 0))
-            except Exception:
-                qty_lp = 0
+            qty_lp = _raw_token_units(order.get("outAmount"))
+            _validate_submission(qty_lp, managed_resp.get("signature"))
 
             buy_price_usd, price_src = await _resolve_buy_price_usd(
                 token_mint=mint_key,
@@ -606,74 +618,61 @@ async def buy(
                 "venue": "jupiter_managed",
             }
         except Exception as exc:  # noqa: BLE001
-            log.warning("[buyer] managed Jupiter buy fallo, fallback a legacy/gmgn: %s", exc)
+            # A response/transport/enrichment failure does not prove that the
+            # wallet side effect was absent. Never execute another venue here.
+            raise BuyOutcomeUncertain("Managed buy outcome needs reconciliation; no fallback sent") from exc
 
-    last_exc: Exception | None = None
-    for attempt in range(1, _RETRIES + 1):
-        try:
-            resp = await gmgn.buy(token_addr, amount_sol)
-            qty_lp, _price_unit_from_quote, route = _parse_route(resp)
+    # One submission only. Retrying an ambiguous side effect can double-buy.
+    try:
+        resp = await gmgn.buy(token_addr, amount_sol)
+        qty_lp, _price_unit_from_quote, route = _parse_route(resp)
+        _validate_submission(qty_lp, resp.get("signature"))
 
-            # tokens_received (si disponemos de outAmount y decimals)
-            tokens_received: Optional[float] = None
-            out_raw = _extract_out_amount(route)
-            decimals = _extract_decimals(route)
+        # tokens_received (si disponemos de outAmount y decimals)
+        tokens_received: Optional[float] = None
+        out_raw = _extract_out_amount(route)
+        decimals = _extract_decimals(route)
 
-            # Si gmgn no incluye decimals, no forzamos: buy_price se resuelve con Jupiter/sol_est.
-            if out_raw is not None and isinstance(decimals, int) and decimals >= 0:
-                try:
-                    tokens_received = out_raw / (10 ** decimals)
-                except Exception:
-                    tokens_received = None
-
-            buy_price_usd, price_src = await _resolve_buy_price_usd(
-                token_mint=mint_key,
-                amount_sol=amount_sol,
-                tokens_received=tokens_received,
-                ds_price_usd=price_hint,
-                jupiter_prefetch=jup_price_prefetch,
-            )
-            entry_notional_usd = await _resolve_entry_notional_usd(amount_sol)
-
-            # Sanity opcional: si tenemos hint y jupiter_price, y divergen demasiado,
-            # podemos etiquetar la fuente para telemetría (no bloquea por defecto).
+        # Si gmgn no incluye decimals, no forzamos: buy_price se resuelve con Jupiter/sol_est.
+        if out_raw is not None and isinstance(decimals, int) and decimals >= 0:
             try:
-                if price_hint and price_hint > 0 and buy_price_usd and buy_price_usd > 0:
-                    dev_pct = abs(100.0 * (1.0 - (float(price_hint) / float(buy_price_usd))))
-                    if dev_pct > _PRICE_DIVERGENCE_MAX_PCT:
-                        log.debug(
-                            "[buyer] Divergencia hint vs buy_price (%0.2f%%) (hint=%g buy=%g)",
-                            dev_pct, float(price_hint), float(buy_price_usd)
-                        )
+                tokens_received = out_raw / (10 ** decimals)
             except Exception:
-                pass
+                tokens_received = None
 
-            return {
-                "qty_lamports": int(qty_lp),
-                "signature": str(resp.get("signature", "") or ""),
-                "route": route,
-                "buy_price_usd": float(buy_price_usd),
-                "peak_price": float(buy_price_usd),
-                "price_source": str(price_src),
-                "price_confidence": price_service.price_confidence_from_source(price_src, buy_price_usd),
-                "entry_notional_usd": float(entry_notional_usd),
-                "venue": "gmgn",
-            }
+        buy_price_usd, price_src = await _resolve_buy_price_usd(
+            token_mint=mint_key,
+            amount_sol=amount_sol,
+            tokens_received=tokens_received,
+            ds_price_usd=price_hint,
+            jupiter_prefetch=jup_price_prefetch,
+        )
+        entry_notional_usd = await _resolve_entry_notional_usd(amount_sol)
 
-        except Exception as exc:  # noqa: BLE001
-            last_exc = exc
-            log.warning("[buyer] gmgn.buy fallo (%s/%s): %s", attempt, _RETRIES, exc)
-            if attempt < _RETRIES:
-                await asyncio.sleep(_RETRY_WAIT)
+        # Sanity opcional: si tenemos hint y jupiter_price, y divergen demasiado,
+        # podemos etiquetar la fuente para telemetría (no bloquea por defecto).
+        try:
+            if price_hint and price_hint > 0 and buy_price_usd and buy_price_usd > 0:
+                dev_pct = abs(100.0 * (1.0 - (float(price_hint) / float(buy_price_usd))))
+                if dev_pct > _PRICE_DIVERGENCE_MAX_PCT:
+                    log.debug(
+                        "[buyer] Divergencia hint vs buy_price (%0.2f%%) (hint=%g buy=%g)",
+                        dev_pct, float(price_hint), float(buy_price_usd)
+                    )
+        except Exception:
+            pass
 
-    # ─────── Fracaso definitivo ────────────────────────────
-    log.error("[buyer] gmgn.buy agotó reintentos: %s", last_exc)
-    return {
-        "qty_lamports": 0,
-        "signature": "BUY_FAILED",
-        "route": {},
-        "buy_price_usd": 0.0,
-        "peak_price": 0.0,
-        "price_source": "fallback0",
-        "venue": "failed",
-    }
+        return {
+            "qty_lamports": int(qty_lp),
+            "signature": str(resp.get("signature", "") or ""),
+            "route": route,
+            "buy_price_usd": float(buy_price_usd),
+            "peak_price": float(buy_price_usd),
+            "price_source": str(price_src),
+            "price_confidence": price_service.price_confidence_from_source(price_src, buy_price_usd),
+            "entry_notional_usd": float(entry_notional_usd),
+            "venue": "gmgn",
+        }
+
+    except Exception as exc:  # noqa: BLE001
+        raise BuyOutcomeUncertain("Legacy buy outcome needs reconciliation; no retry sent") from exc

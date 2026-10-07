@@ -17,6 +17,7 @@ from config.config import CFG
 from research_loop import entry_gate_policy as transport
 from research_loop import entry_gate_forward as collector
 from runtime import paper_entry_policy as policy
+from runtime.buy_recovery import BuyRecoveryStore
 
 
 class _GuardSession:
@@ -323,6 +324,7 @@ def test_guarded_real_call_path_binds_snapshot_and_restores_it(tmp_path, monkeyp
     node = next(n for n in source.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_evaluate_and_buy_guarded")
     namespace = {"asyncio": asyncio, "CFG": cfg, "PROJECT_ROOT": tmp_path, "SessionLocal": _GuardSession,
         "EVALUATE_TOKEN_TIMEOUT_S": .1, "_evaluate_and_buy": evaluate,
+        "_BUY_RECOVERY": BuyRecoveryStore(tmp_path / "buy_journal"),
         "_note_runtime_error": lambda *args: pytest.fail(str(args)), "log": SimpleNamespace(error=lambda *args: None)}
     exec(compile(ast.Module(body=[node], type_ignores=[]), "run_bot.py", "exec"), namespace)
     token = {"address": "synthetic", "paper_entry_policy": {"obsolete": True}}
@@ -499,6 +501,7 @@ def test_actual_guard_holds_one_checked_composition_through_network_await(tmp_pa
     node = next(n for n in source.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_evaluate_and_buy_guarded")
     namespace = {"asyncio": asyncio, "CFG": cfg, "PROJECT_ROOT": tmp_path, "SessionLocal": _GuardSession,
         "EVALUATE_TOKEN_TIMEOUT_S": .1, "_evaluate_and_buy": evaluate,
+        "_BUY_RECOVERY": BuyRecoveryStore(tmp_path / "buy_journal"),
         "_note_runtime_error": lambda *args: pytest.fail(str(args)), "log": SimpleNamespace(error=lambda *args: None)}
     exec(compile(ast.Module(body=[node], type_ignores=[]), "run_bot.py", "exec"), namespace)
     asyncio.run(namespace["_evaluate_and_buy_guarded"]({"address": "synthetic"}, None, source="unit"))

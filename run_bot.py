@@ -117,6 +117,7 @@ BUY_SOFT_SCORE_MIN = CFG.BUY_SOFT_SCORE_MIN  # nuevo
 # ───────── DB & modelos ─────────────────────────────────────────────────────
 from db.database import add_trade_event, set_position_exit_reason, SessionLocal, async_init_db  # noqa: E402
 from db.models import Position, Token  # noqa: E402
+from runtime.buy_recovery import BuyRecoveryStore  # noqa: E402
 from runtime.close_recovery import (  # noqa: E402
     CloseRecoveryError,
     append_pending as append_close_recovery_pending,
@@ -832,6 +833,8 @@ _runtime_retrain_state: str = "idle"
 _runtime_reports_refresh_state: str = "idle"
 _runtime_discovery_paused: bool = False
 _runtime_buys_paused: bool = False
+_BUY_RECOVERY = BuyRecoveryStore(PROJECT_ROOT / "data" / "metrics" / "buy_recovery")
+_last_buy_recovery_retry_monotonic: float = 0.0
 _CLOSE_RECOVERY_OUTBOX_PATH = PROJECT_ROOT / "data" / "metrics" / "close_recovery_outbox.jsonl"
 _CLOSE_RECOVERY_PENDING: set[str] = load_close_recovery_pending_addresses(_CLOSE_RECOVERY_OUTBOX_PATH)
 _close_recovery_pause_active: bool = bool(_CLOSE_RECOVERY_PENDING)
@@ -3750,7 +3753,7 @@ async def _build_runtime_state_snapshot() -> RuntimeStateSnapshot:
         process_state=_effective_runtime_process_state(now),
         dry_run=bool(DRY_RUN),
         discovery_paused=bool(_runtime_discovery_paused),
-        buys_paused=bool(_runtime_buys_paused),
+        buys_paused=bool(_runtime_buys_paused or _BUY_RECOVERY.pending_addresses),
         retrain_state=_runtime_retrain_state,
         reports_refresh_state=_runtime_reports_refresh_state,
         wallet_sol=wallet_sol,
@@ -3974,6 +3977,8 @@ async def _execute_control_command(command: dict[str, object]) -> tuple[str, dic
         return COMMAND_STATUS_DONE, {"buys_paused": True}, None
 
     if command_type == "resume_buys":
+        if _BUY_RECOVERY.pending_addresses:
+            return COMMAND_STATUS_REJECTED, {"buys_paused": True, "reason": "buy_recovery_pending"}, "buy_recovery_pending"
         if _CLOSE_RECOVERY_PENDING:
             return (
                 COMMAND_STATUS_REJECTED,
@@ -4558,6 +4563,90 @@ def _green_shadow_can_continue_to_runner_canary(token: dict, decision: object) -
     token["green_runner_canary_candidate"] = 1
     token["green_runner_canary_reason"] = ",".join(sorted(failures))
     return True
+
+
+def _build_entry_position(token: dict, size_decision, *, addr: str, amount_sol: float,
+                          proba: float, qty_lp: int = 0, price_usd: float = 0.0,
+                          buy_resp: dict | None = None, price_src=None,
+                          price_confidence=None, buy_sig: str | None = None) -> Position:
+    """One canonical entry snapshot for normal persistence and crash recovery."""
+    buy_resp = dict(buy_resp or {})
+    runner_exit_profile = _runner_profile_for_subject(token)
+    run_ctx = get_runtime_context()
+    run_started_at = parse_iso_utc(run_ctx.get("started_at")) if run_ctx.get("started_at") else None
+    pos = Position(
+        address=addr,
+        symbol=token.get("symbol"),
+        qty=qty_lp,
+        entry_qty=qty_lp,
+        buy_price_usd=price_usd,
+        opened_at=utc_now(),
+        highest_pnl_pct=0.0,
+        max_pnl_pct_seen=0.0,
+        entry_regime=size_decision.regime,
+        size_bucket=size_decision.bucket,
+        size_multiplier=float(size_decision.multiplier),
+        buy_amount_sol=float(amount_sol),
+        dry_run=bool(DRY_RUN),
+        entry_notional_usd=float(buy_resp.get("entry_notional_usd") or 0.0),
+        entry_ai_proba=float(proba),
+        entry_score_total=_metric_int(token, "score_total"),
+        entry_lane=str(token.get("entry_lane") or "") or None,
+        entry_subprofile=str(token.get("entry_subprofile") or token.get("sniper_research_subprofile") or "") or None,
+        entry_reason=str(
+            token.get("sniper_research_subprofile_reason")
+            or token.get("pumpswap_rebound_confirmation_reason")
+            or token.get("green_sniper_reason")
+            or ""
+        )
+        or None,
+        gate_profile=str(token.get("gate_profile") or token.get("sniper_gate_profile") or "") or None,
+        strategy_version=str(token.get("strategy_version") or "") or None,
+        experiment_id=str(token.get("experiment_id") or "") or None,
+        exit_profile=str(token.get("exit_profile") or runner_exit_profile or "") or None,
+        config_hash=str(token.get("config_hash") or "") or None,
+        run_id=str(run_ctx.get("run_id") or "") or None,
+        run_started_at=run_started_at,
+        buy_dex_id=str(token.get("dex_id") or token.get("dexId") or "") or None,
+        buy_price_pct_5m=token.get("price_pct_5m"),
+        buy_txns_last_5m=_metric_int(token, "txns_last_5m"),
+        buy_liquidity_is_proxy=bool(_is_liquidity_proxy(token)),
+        mcap_bucket=str(token.get("mcap_bucket") or "") or None,
+        price5m_bucket=str(token.get("price5m_bucket") or "") or None,
+        realized_qty=0,
+        realized_proceeds_usd=0.0,
+        realized_cost_usd=0.0,
+        realized_pnl_usd=0.0,
+        runner_exit_profile=runner_exit_profile,
+        time_to_partial_sec=None,
+        time_to_peak_sec=None,
+        peak_after_partial_pct=None,
+        exit_from_peak_giveback_pct=None,
+        partial_count=0,
+        max_adverse_pnl_pct=0.0,
+        exit_state="pre_partial",
+        partial_ladder_state=runner_ladder.encode_ladder_state(runner_ladder.initial_ladder_state()),
+        runner_trailing_policy=buy_resp.get("runner_trailing_policy") if DRY_RUN else None,
+        buy_liquidity_usd=token.get("liquidity_usd"),
+        buy_market_cap_usd=token.get("market_cap_usd"),
+        buy_volume_24h_usd=token.get("volume_24h_usd"),
+    )
+    if hasattr(pos, "token_mint"):
+        pos.token_mint = token.get("address") or addr
+    if hasattr(pos, "price_source_at_buy"):
+        pos.price_source_at_buy = price_src
+    if hasattr(pos, "price_confidence_at_buy"):
+        pos.price_confidence_at_buy = price_confidence
+    if hasattr(pos, "buy_tx_sig"):
+        pos.buy_tx_sig = buy_sig or None
+
+    # Compat opcional (si existiera el alias en tu modelo)
+    if hasattr(pos, "liq_at_buy_usd"):
+        try:
+            setattr(pos, "liq_at_buy_usd", float(token.get("liquidity_usd") or 0.0))
+        except Exception:
+            setattr(pos, "liq_at_buy_usd", None)
+    return pos
 
 
 async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
@@ -6624,7 +6713,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         token["price_confidence_reason"] = jtok.get("price_confidence_reason")
         token["price_provider_degraded"] = bool(jtok.get("price_provider_degraded"))
 
-    if _runtime_buys_paused:
+    if _runtime_buys_paused or _BUY_RECOVERY.pending_addresses:
         log.info("BUY omitido por pause flag %s", addr[:6])
         _pending_ai_vectors.pop(addr, None)
         _research_decision(
@@ -6676,6 +6765,11 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         return
 
     # 13) — BUY —
+    token["runner_exit_profile"] = _runner_profile_for_subject(token)
+    token["exit_profile"] = token.get("runner_exit_profile")
+    token["config_hash"] = _config_hash()
+    pos = _build_entry_position(token, size_decision, addr=addr, amount_sol=amount_sol, proba=proba)
+    attempt = _BUY_RECOVERY.begin(pos, paper=bool(DRY_RUN), amount_sol=float(amount_sol))
     if DRY_RUN:
         token["_actual_paper_buy_attempted"] = 1
         _stats["actual_paper_buy_attempts"] += 1
@@ -6705,6 +6799,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 experiment_id=token.get("experiment_id"),
                 config_hash=_config_hash(),
                 require_jupiter_for_buy=bool(require_jup_for_buy),
+                entry_intent_id=attempt.intent_id,
             )
         else:
             buy_resp = await buyer.buy(
@@ -6717,41 +6812,13 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 entry_lane=token.get("entry_lane"),
                 discovered_via=token.get("discovered_via"),
             )
+        attempt.receive(buy_resp)
     except Exception as exc:
-        log.error("buyer.buy %s → %s", addr[:4], exc, exc_info=True)
-        strategy_runtime.record_execution(size_decision.regime, False)
-        log_execution_event(
-            addr,
-            regime=size_decision.regime,
-            side="buy",
-            ok=False,
-            venue="exception",
-        )
-        # Shadow si falla la compra real
-        _research_decision(
-            token,
-            action="shadow",
-            reason="buy_exception",
-            stage="execution",
-            proba=proba,
-            threshold=ai_threshold_eff,
-            rank_info=rank_info,
-            shadow_kind="execution",
-            dedup_ttl_s=300,
-        )
-        await _open_shadow(
-            addr,
-            vec,
-            price_hint=token.get("price_usd"),
-            force=True,
-            regime=size_decision.regime,
-            reason="buy_exception",
-            stage="execution",
-            proba=proba,
-            threshold=ai_threshold_eff,
-            rank_info=rank_info,
-            shadow_kind="execution",
-        )
+        # No false failed-fill/shadow label: this call may have executed before
+        # its response or SQL acknowledgement was lost. Its intent stays durable.
+        log.error("Buy outcome unconfirmed %s: %s", addr[:6], type(exc).__name__)
+        _note_runtime_error("buy_recovery_pending", exc)
+        _pending_ai_vectors.pop(addr, None)
         _remove_from_queue_if_present(addr)
         return
 
@@ -6860,85 +6927,19 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         dedup_ttl_s=0,
     )
 
-    # 14) — crear Position (incluye *buy_* métricas y fuente de compra) —
-    runner_exit_profile = _runner_profile_for_subject(token)
-    run_ctx = get_runtime_context()
-    run_started_at = parse_iso_utc(run_ctx.get("started_at")) if run_ctx.get("started_at") else None
-    pos = Position(
-        address=addr,
-        symbol=token.get("symbol"),
-        qty=qty_lp,
-        entry_qty=qty_lp,
-        buy_price_usd=price_usd,
-        opened_at=utc_now(),
-        highest_pnl_pct=0.0,
-        max_pnl_pct_seen=0.0,
-        entry_regime=size_decision.regime,
-        size_bucket=size_decision.bucket,
-        size_multiplier=float(size_decision.multiplier),
-        buy_amount_sol=float(amount_sol),
-        dry_run=bool(DRY_RUN),
-        entry_notional_usd=float(buy_resp.get("entry_notional_usd") or 0.0),
-        entry_ai_proba=float(proba),
-        entry_score_total=_metric_int(token, "score_total"),
-        entry_lane=str(token.get("entry_lane") or "") or None,
-        entry_subprofile=str(token.get("entry_subprofile") or token.get("sniper_research_subprofile") or "") or None,
-        entry_reason=str(
-            token.get("sniper_research_subprofile_reason")
-            or token.get("pumpswap_rebound_confirmation_reason")
-            or token.get("green_sniper_reason")
-            or ""
-        )
-        or None,
-        gate_profile=str(token.get("gate_profile") or token.get("sniper_gate_profile") or "") or None,
-        strategy_version=str(token.get("strategy_version") or "") or None,
-        experiment_id=str(token.get("experiment_id") or "") or None,
-        exit_profile=str(token.get("exit_profile") or runner_exit_profile or "") or None,
-        config_hash=str(token.get("config_hash") or "") or None,
-        run_id=str(run_ctx.get("run_id") or "") or None,
-        run_started_at=run_started_at,
-        buy_dex_id=str(token.get("dex_id") or token.get("dexId") or "") or None,
-        buy_price_pct_5m=token.get("price_pct_5m"),
-        buy_txns_last_5m=_metric_int(token, "txns_last_5m"),
-        buy_liquidity_is_proxy=bool(_is_liquidity_proxy(token)),
-        mcap_bucket=str(token.get("mcap_bucket") or "") or None,
-        price5m_bucket=str(token.get("price5m_bucket") or "") or None,
-        realized_qty=0,
-        realized_proceeds_usd=0.0,
-        realized_cost_usd=0.0,
-        realized_pnl_usd=0.0,
-        runner_exit_profile=runner_exit_profile,
-        time_to_partial_sec=None,
-        time_to_peak_sec=None,
-        peak_after_partial_pct=None,
-        exit_from_peak_giveback_pct=None,
-        partial_count=0,
-        max_adverse_pnl_pct=0.0,
-        exit_state="pre_partial",
-        partial_ladder_state=runner_ladder.encode_ladder_state(runner_ladder.initial_ladder_state()),
-        runner_trailing_policy=buy_resp.get("runner_trailing_policy") if DRY_RUN else None,
-        buy_liquidity_usd=token.get("liquidity_usd"),
-        buy_market_cap_usd=token.get("market_cap_usd"),
-        buy_volume_24h_usd=token.get("volume_24h_usd"),
-    )
-    if hasattr(pos, "token_mint"):
-        pos.token_mint = token.get("address") or addr
-    if hasattr(pos, "price_source_at_buy"):
-        pos.price_source_at_buy = price_src
-    if hasattr(pos, "price_confidence_at_buy"):
-        pos.price_confidence_at_buy = price_confidence
-    if hasattr(pos, "buy_tx_sig"):
-        pos.buy_tx_sig = buy_sig or None
-
-    # Compat opcional (si existiera el alias en tu modelo)
-    if hasattr(pos, "liq_at_buy_usd"):
-        try:
-            setattr(pos, "liq_at_buy_usd", float(token.get("liquidity_usd") or 0.0))
-        except Exception:
-            setattr(pos, "liq_at_buy_usd", None)
-
+    # 14) Persist the same immutable identity captured before execution.
+    pos.qty = pos.entry_qty = qty_lp
+    pos.buy_price_usd = price_usd
+    pos.opened_at = utc_now()
+    pos.entry_notional_usd = float(buy_resp["entry_notional_usd"])
+    pos.price_source_at_buy = price_src
+    pos.price_confidence_at_buy = price_confidence
+    pos.buy_tx_sig = buy_sig
+    pos.runner_trailing_policy = buy_resp.get("runner_trailing_policy") if DRY_RUN else None
+    attempt.capture_position(pos)
     ses.add(pos)
     await ses.commit()
+    attempt.confirm(pos)
 
     if (meta := lista_pares.meta(addr)) and meta.get("attempts", 0) > 0:
         _stats["requeue_success"] += 1
@@ -7000,7 +7001,7 @@ async def _evaluate_and_buy_guarded(token: dict, ses: SessionLocal, *, source: s
         from runtime.paper_entry_policy import snapshot
         # One immutable, verified paper snapshot for this entire async decision.
         # No global mutation: simultaneous evaluations and the exit monitor are isolated.
-        with selected_scope(CFG, root=PROJECT_ROOT), capture_scope(CFG, root=PROJECT_ROOT):
+        with selected_scope(CFG, root=PROJECT_ROOT), capture_scope(CFG, root=PROJECT_ROOT), _BUY_RECOVERY.scope():
             token.pop("paper_entry_policy", None)
             if (selected := snapshot()) is not None:
                 token["paper_entry_policy"] = selected
@@ -7587,6 +7588,22 @@ async def _commit_close_persistence(
     return True
 
 
+async def _recover_buy_persistence_outbox(ses: SessionLocal, *, force: bool = False) -> int:
+    global _last_buy_recovery_retry_monotonic
+    if not _BUY_RECOVERY.pending_addresses:
+        return 0
+    now = time.monotonic()
+    if not force and now - _last_buy_recovery_retry_monotonic < 30:
+        return 0
+    _last_buy_recovery_retry_monotonic = now
+    from trader.papertrading import load_portfolio
+    result = await _BUY_RECOVERY.recover(ses, paper_portfolio=load_portfolio())
+    if result["failed"]:
+        _note_runtime_error("buy_recovery_pending", RuntimeError(
+            f"{len(result['failed'])} buy outcomes remain unconfirmed; new buys are blocked"))
+    return len(result["resolved"])
+
+
 async def _recover_close_persistence_outbox(ses: SessionLocal, *, force: bool = False) -> int:
     """Replay durable post-sell snapshots before allowing new risk."""
 
@@ -7987,6 +8004,8 @@ async def _check_positions(ses: SessionLocal) -> None:
 
     global _wallet_sol_balance
 
+    if _BUY_RECOVERY.pending_addresses:
+        await _recover_buy_persistence_outbox(ses)
     if _CLOSE_RECOVERY_PENDING:
         await _recover_close_persistence_outbox(ses)
     positions = await _load_open_positions(ses)
@@ -9697,6 +9716,7 @@ async def _runner() -> None:
         # runtime-state publication, or the strategy-history bootstrap can
         # observe stale rows.
         async with SessionLocal() as recovery_session:
+            await _recover_buy_persistence_outbox(recovery_session, force=True)
             await _recover_close_persistence_outbox(recovery_session, force=True)
         from runtime.loop_scheduler import supervise
         positions_ready = asyncio.Event()

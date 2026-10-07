@@ -31,6 +31,7 @@ import math
 import os
 import pathlib
 import time
+import uuid
 from typing import Any, Dict, Optional, Tuple
 
 from config.config import CFG, PROJECT_ROOT
@@ -44,6 +45,7 @@ from trade_pnl import apply_partial_fill, summarize_trade
 from fetcher import jupiter_price, jupiter_router
 from research_loop import runner_forward
 from runtime.paper_entry_policy import snapshot as entry_policy_snapshot
+from utils.atomic_json import read_json_strict, write_json_atomic
 
 log = logging.getLogger("papertrading")
 
@@ -378,18 +380,34 @@ def record_market_observation(address: str, price: float, *, liq_now: float | No
     runner_forward.observe_market(address, price, root=_research_root(), cfg=CFG, liq_now=liq_now)
 _DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-try:
-    _PORTFOLIO: Dict[str, Any] = json.loads(_DATA_PATH.read_text())
-except Exception:  # noqa: BLE001
-    _PORTFOLIO = {}
+class PaperPortfolioError(RuntimeError):
+    pass
 
 
-def _save() -> None:
-    """Graba `_PORTFOLIO` en disco (best-effort)."""
+def load_portfolio() -> Dict[str, Any]:
+    """A missing first-launch store is empty; a corrupt store is never empty."""
     try:
-        _DATA_PATH.write_text(json.dumps(_PORTFOLIO, indent=2, default=str))
+        portfolio = read_json_strict(_DATA_PATH)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise PaperPortfolioError("Paper portfolio is unreadable; preserve it and keep trading stopped") from exc
+    if not isinstance(portfolio, dict) or any(not isinstance(value, dict) for value in portfolio.values()):
+        raise PaperPortfolioError("Paper portfolio must contain address-keyed entries")
+    return portfolio
+
+
+_PORTFOLIO: Dict[str, Any] = load_portfolio()
+
+
+def _save(*, strict: bool = False) -> None:
+    """Atomically replace the portfolio; a BUY requires successful persistence."""
+    try:
+        write_json_atomic(_DATA_PATH, _PORTFOLIO)
     except Exception as exc:  # noqa: BLE001
-        log.warning("[papertrading] no se pudo guardar portfolio: %s", exc)
+        if strict:
+            raise PaperPortfolioError("Paper fill was not durably persisted") from exc
+        log.warning("[papertrading] no se pudo guardar portfolio: %s", type(exc).__name__)
 
 
 # ───────────────────── utilidades locales ──────────────────────
@@ -457,6 +475,7 @@ async def buy(
     experiment_id: str | None = None,
     config_hash: str | None = None,
     require_jupiter_for_buy: bool | None = None,
+    entry_intent_id: str | None = None,
 ) -> dict:
     """
     Registra una posición simulada.
@@ -634,8 +653,15 @@ async def buy(
         qty_lp = int(route_proof["out_amount"] / (1 + cost_model["slippage_bps"] / 10000))
         if qty_lp <= 0:
             return {"ok": False, "qty_lamports": 0, "signature": "QUOTED_OUTPUT_TOO_SMALL", "route": {}}
+    intent_id = entry_intent_id or uuid.uuid4().hex
+    if not isinstance(intent_id, str) or len(intent_id) != 32 or any(char not in "0123456789abcdef" for char in intent_id):
+        raise ValueError("Invalid paper entry intent identity")
+    buy_signature = "SIM-" + intent_id
+    previous = _PORTFOLIO.get(mint_key)
     _PORTFOLIO[mint_key] = {
         **runtime_context_payload(),
+        "entry_intent_id": intent_id,
+        "buy_signature": buy_signature,
         "qty_lamports": qty_lp,
         "entry_qty": qty_lp,
         "buy_price_usd": float(buy_price_usd),
@@ -692,7 +718,14 @@ async def buy(
         "last_partial_price_usd": None,
         "exit_reason": None,
     }
-    _save()
+    try:
+        _save(strict=True)
+    except BaseException:
+        if previous is None:
+            _PORTFOLIO.pop(mint_key, None)
+        else:
+            _PORTFOLIO[mint_key] = previous
+        raise
 
     log.info(
         "[papertrading] 💰💰 BUY %s amount_sol=%.3f price_usd=%.8g src=%s",
@@ -700,7 +733,7 @@ async def buy(
     )
     return {
         "qty_lamports": qty_lp,
-        "signature": f"SIM-{int(time.time()*1e3)}",
+        "signature": buy_signature,
         "route": {},
         "buy_price_usd": float(buy_price_usd),
         "peak_price": float(buy_price_usd),
