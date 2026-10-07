@@ -67,7 +67,7 @@ def position_snapshot(position: Position) -> dict[str, Any]:
     return snapshot
 
 
-def _position(snapshot: Mapping[str, Any]) -> Position:
+def position_from_snapshot(snapshot: Mapping[str, Any]) -> Position:
     fields = {}
     for column in Position.__table__.columns:
         if column.name in snapshot and column.name != "id":
@@ -265,7 +265,7 @@ class BuyRecoveryStore:
                         "runner_trailing_policy": fill.get("runner_trailing_policy"),
                         "opened_at": entry.get("opened_at"), "source_position_key": "buy:" + intent_id}
                     _time(snapshot["opened_at"])
-                    attempt.capture_position(_position(snapshot))
+                    attempt.capture_position(position_from_snapshot(snapshot))
                     row = attempt.row
                 snapshot = row["position"]
                 self._validate_identity(row, snapshot)
@@ -285,7 +285,7 @@ class BuyRecoveryStore:
                     token = await session.get(Token, row["address"])
                     if token is None:
                         session.add(Token(address=row["address"], symbol=snapshot.get("symbol")))
-                    position = _position(snapshot)
+                    position = position_from_snapshot(snapshot)
                     session.add(position)
                 await session.commit()
                 attempt.confirm(position)

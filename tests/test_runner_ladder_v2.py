@@ -78,7 +78,7 @@ def test_plan_next_state_records_executed_ladder_steps() -> None:
     assert state["last_pending_step_count"] == 3
 
 
-def test_papertrading_partial_executes_ladder_fraction_and_persists_state(monkeypatch) -> None:
+def test_papertrading_partial_executes_ladder_fraction_and_persists_state(monkeypatch, tmp_path) -> None:
     import trader.papertrading as papertrading
 
     address = "So11111111111111111111111111111111111111112"
@@ -109,7 +109,7 @@ def test_papertrading_partial_executes_ladder_fraction_and_persists_state(monkey
         return 2.0, "test"
 
     monkeypatch.setattr(papertrading, "_PORTFOLIO", portfolio)
-    monkeypatch.setattr(papertrading, "_save", lambda: None)
+    monkeypatch.setattr(papertrading, "_DATA_PATH", tmp_path / "data" / "paper_portfolio.json")
     monkeypatch.setattr(papertrading.price_service, "get_price_usd", fake_price)
     monkeypatch.setattr(papertrading, "_resolve_close_price_usd", fake_close_price)
 
@@ -122,6 +122,8 @@ def test_papertrading_partial_executes_ladder_fraction_and_persists_state(monkey
     assert entry["partial_count"] == 3
     assert entry["exit_state"] == "post_partial"
     assert state["executed_steps"] == ["tp1", "tp2", "tp3"]
+    assert papertrading.load_portfolio()[address]["qty_lamports"] == 300
+    assert len(papertrading.load_portfolio()[address]["exit_fill_events"]) == 1
 
 
 def test_seller_partial_helper_uses_ladder_fraction_and_persists_state(monkeypatch) -> None:

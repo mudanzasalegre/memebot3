@@ -117,7 +117,8 @@ BUY_SOFT_SCORE_MIN = CFG.BUY_SOFT_SCORE_MIN  # nuevo
 # ───────── DB & modelos ─────────────────────────────────────────────────────
 from db.database import add_trade_event, set_position_exit_reason, SessionLocal, async_init_db  # noqa: E402
 from db.models import Position, Token  # noqa: E402
-from runtime.buy_recovery import BuyRecoveryStore  # noqa: E402
+from runtime.buy_recovery import BuyRecoveryStore, position_from_snapshot  # noqa: E402
+from runtime.sell_recovery import SellRecoveryStore  # noqa: E402
 from runtime.close_recovery import (  # noqa: E402
     CloseRecoveryError,
     append_pending as append_close_recovery_pending,
@@ -834,9 +835,10 @@ _runtime_reports_refresh_state: str = "idle"
 _runtime_discovery_paused: bool = False
 _runtime_buys_paused: bool = False
 _BUY_RECOVERY = BuyRecoveryStore(PROJECT_ROOT / "data" / "metrics" / "buy_recovery")
+_SELL_RECOVERY = SellRecoveryStore(PROJECT_ROOT / "data" / "metrics" / "sell_recovery")
 _last_buy_recovery_retry_monotonic: float = 0.0
 _CLOSE_RECOVERY_OUTBOX_PATH = PROJECT_ROOT / "data" / "metrics" / "close_recovery_outbox.jsonl"
-_CLOSE_RECOVERY_PENDING: set[str] = load_close_recovery_pending_addresses(_CLOSE_RECOVERY_OUTBOX_PATH)
+_CLOSE_RECOVERY_PENDING: set[str] = load_close_recovery_pending_addresses(_CLOSE_RECOVERY_OUTBOX_PATH) | _SELL_RECOVERY.pending_addresses
 _close_recovery_pause_active: bool = bool(_CLOSE_RECOVERY_PENDING)
 _close_recovery_prior_buys_paused: bool = False
 _close_recovery_prior_discovery_paused: bool = False
@@ -3753,7 +3755,7 @@ async def _build_runtime_state_snapshot() -> RuntimeStateSnapshot:
         process_state=_effective_runtime_process_state(now),
         dry_run=bool(DRY_RUN),
         discovery_paused=bool(_runtime_discovery_paused),
-        buys_paused=bool(_runtime_buys_paused or _BUY_RECOVERY.pending_addresses),
+        buys_paused=bool(_runtime_buys_paused or _BUY_RECOVERY.pending_addresses or _SELL_RECOVERY.pending_addresses),
         retrain_state=_runtime_retrain_state,
         reports_refresh_state=_runtime_reports_refresh_state,
         wallet_sol=wallet_sol,
@@ -6713,7 +6715,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         token["price_confidence_reason"] = jtok.get("price_confidence_reason")
         token["price_provider_degraded"] = bool(jtok.get("price_provider_degraded"))
 
-    if _runtime_buys_paused or _BUY_RECOVERY.pending_addresses:
+    if _runtime_buys_paused or _BUY_RECOVERY.pending_addresses or _SELL_RECOVERY.pending_addresses:
         log.info("BUY omitido por pause flag %s", addr[:6])
         _pending_ai_vectors.pop(addr, None)
         _research_decision(
@@ -7445,6 +7447,63 @@ def _release_close_recovery_pause_if_safe() -> None:
     _close_recovery_pause_active = False
 
 
+def _build_sell_recovery_from_intent(row: dict, response: dict) -> dict:
+    """Reconstruct the SQL fill from the frozen pre-execution position."""
+    pos = position_from_snapshot(row["before"])
+    pos.id = row["position_id"]
+    stamp = parse_iso_utc(response["filled_at"])
+    price = response["price_used_usd"]
+    kwargs = {}
+    if response["partial"]:
+        event_type, reason = "partial_fill", "partial_fill"
+        plan = row.get("partial_plan") or {}
+        proceeds_before = float(pos.realized_proceeds_usd or 0)
+        pnl_before = float(pos.realized_pnl_usd or 0)
+        _record_partial_trade_fill(pos, qty_sold=response["qty_sold"], fill_price_usd=price,
+            filled_at=stamp, partial_increment=int(plan.get("pending_step_count") or 1),
+            partial_ladder_state=plan.get("next_state"), persist_ladder_state=False)
+        kwargs = {"notional_usd": pos.realized_proceeds_usd - proceeds_before,
+                  "pnl_usd": pos.realized_pnl_usd - pnl_before, "pnl_pct": pos.total_pnl_pct}
+    else:
+        event_type, reason = "close", row["reason"]
+        pos.closed, pos.closed_at, pos.close_price_usd = True, stamp, price
+        set_position_exit_reason(pos, reason)
+        pos.exit_tx_sig = response["signature"]
+        pos.price_source_at_close = response["price_source_close"]
+        pos.price_confidence_at_close = response["price_confidence_close"]
+        _seal_closed_trade_metrics(pos, price)
+        kwargs = {"pnl_usd": pos.total_pnl_usd, "pnl_pct": pos.total_pnl_pct}
+    return _build_close_persistence_recovery(pos, event_type=event_type, ts_utc=stamp,
+        qty=response["qty_sold"], price_usd=price, reason=reason,
+        price_source=response["price_source_close"], price_confidence=response["price_confidence_close"],
+        sell_response=response, regime=str(pos.entry_regime or "unknown"), **kwargs)
+
+
+async def _sell_position_guarded(pos: Position, quantity: int, *, reason: str,
+                                 partial_plan=None, **kwargs) -> dict:
+    """Journal intent before submission and SQL state before returning a fill."""
+    from trader.papertrading import load_portfolio
+    before = load_portfolio().get(pos.address) if DRY_RUN else None
+    attempt = _SELL_RECOVERY.begin(pos, quantity, paper=bool(DRY_RUN), reason=reason,
+                                   partial_plan=partial_plan, paper_before=before)
+    try:
+        if DRY_RUN:
+            kwargs.update(exit_intent_id=attempt.intent_id, exit_reason=reason,
+                          partial_ladder_plan=attempt.row.get("partial_plan"))
+        response = await seller.sell(pos.address, quantity, **kwargs)
+        checked = attempt.receive(response)
+        if checked is None:
+            return response
+        record = _build_sell_recovery_from_intent(attempt.row, checked)
+        _SELL_RECOVERY.prepare_sql(record)
+        return checked
+    finally:
+        _SELL_RECOVERY.finish(attempt)
+        _CLOSE_RECOVERY_PENDING.update(_SELL_RECOVERY.pending_addresses)
+        if _CLOSE_RECOVERY_PENDING:
+            _activate_close_recovery_pause()
+
+
 def _build_close_persistence_recovery(
     pos: Position,
     *,
@@ -7463,7 +7522,7 @@ def _build_close_persistence_recovery(
 ) -> dict[str, object]:
     """Capture the replay payload while ``pos`` is still attached and loaded."""
 
-    return build_recovery_record(
+    record = build_recovery_record(
         pos,
         event_type=event_type,
         reason=reason,
@@ -7482,6 +7541,8 @@ def _build_close_persistence_recovery(
         },
         telemetry={"regime": regime, "exit_reason": reason},
     )
+    _SELL_RECOVERY.prepare_sql(record)
+    return record
 
 
 def _arm_close_persistence_recovery(recovery_record: dict[str, object]) -> None:
@@ -7503,10 +7564,12 @@ def _resolve_close_persistence_recovery(recovery_record: dict[str, object]) -> N
         recovery_record,
         status="resolved",
     )
+    _SELL_RECOVERY.acknowledge(recovery_record)
     _CLOSE_RECOVERY_PENDING.clear()
     _CLOSE_RECOVERY_PENDING.update(
         load_close_recovery_pending_addresses(_CLOSE_RECOVERY_OUTBOX_PATH)
     )
+    _CLOSE_RECOVERY_PENDING.update(_SELL_RECOVERY.pending_addresses)
     _release_close_recovery_pause_if_safe()
 
 
@@ -7585,6 +7648,14 @@ async def _commit_close_persistence(
         # A failure here deliberately propagates.  The committed DB mutation and
         # pending journal row make the next startup replay safe and idempotent.
         _resolve_close_persistence_recovery(recovery_record)
+    else:
+        # The independent atomic sell journal still retains the fill if the
+        # append-only close outbox is unavailable. SQL success can acknowledge it.
+        _SELL_RECOVERY.acknowledge(recovery_record)
+        _CLOSE_RECOVERY_PENDING.clear()
+        _CLOSE_RECOVERY_PENDING.update(load_close_recovery_pending_addresses(_CLOSE_RECOVERY_OUTBOX_PATH))
+        _CLOSE_RECOVERY_PENDING.update(_SELL_RECOVERY.pending_addresses)
+        _release_close_recovery_pause_if_safe()
     return True
 
 
@@ -7609,6 +7680,7 @@ async def _recover_close_persistence_outbox(ses: SessionLocal, *, force: bool = 
 
     global _last_close_recovery_retry_monotonic
 
+    _CLOSE_RECOVERY_PENDING.update(_SELL_RECOVERY.pending_addresses)
     if not _CLOSE_RECOVERY_PENDING:
         _release_close_recovery_pause_if_safe()
         return 0
@@ -7623,9 +7695,21 @@ async def _recover_close_persistence_outbox(ses: SessionLocal, *, force: bool = 
         return 0
     _last_close_recovery_retry_monotonic = now_mono
 
+    from trader.papertrading import load_portfolio
+    records, intent_failures = _SELL_RECOVERY.recover_to_outbox(
+        paper_portfolio=load_portfolio() if any(row["paper"] for row in _SELL_RECOVERY.records.values()) else {},
+        build_record=_build_sell_recovery_from_intent)
+    for record in records:
+        _arm_close_persistence_recovery(record)
     result = await replay_close_recovery_pending(ses, _CLOSE_RECOVERY_OUTBOX_PATH)
+    for record in result.resolved:
+        _SELL_RECOVERY.acknowledge(record)
     _CLOSE_RECOVERY_PENDING.clear()
     _CLOSE_RECOVERY_PENDING.update(result.pending_addresses)
+    _CLOSE_RECOVERY_PENDING.update(_SELL_RECOVERY.pending_addresses)
+    for failure in intent_failures:
+        _note_runtime_error("sell_submission_unconfirmed", RuntimeError(
+            f"Sell {failure['intent_id']} remains quarantined: {failure['error_type']}"))
 
     for recovered in result.resolved:
         address = str(recovered.get("address") or "").strip()
@@ -7883,6 +7967,7 @@ def _record_partial_trade_fill(
     filled_at: dt.datetime,
     partial_increment: int = 1,
     partial_ladder_state: Optional[dict[str, object]] = None,
+    persist_ladder_state: bool = True,
 ) -> None:
     remaining_before = int(getattr(pos, "qty", 0) or 0)
     sold_qty = max(0, min(remaining_before, int(qty_sold or 0)))
@@ -7919,7 +8004,8 @@ def _record_partial_trade_fill(
     if partial_ladder_state is not None and hasattr(pos, "partial_ladder_state"):
         try:
             pos.partial_ladder_state = runner_ladder.encode_ladder_state(partial_ladder_state)
-            runner_ladder.write_position_state(str(getattr(pos, "id", None) or getattr(pos, "address", "")), partial_ladder_state)
+            if persist_ladder_state:
+                runner_ladder.write_position_state(str(getattr(pos, "id", None) or getattr(pos, "address", "")), partial_ladder_state)
         except Exception:
             log.debug("partial_ladder_state persist failed for %s", getattr(pos, "address", "")[:6], exc_info=True)
     if hasattr(pos, "first_partial_at") and getattr(pos, "first_partial_at", None) is None:
@@ -8264,13 +8350,16 @@ async def _check_positions(ses: SessionLocal) -> None:
             and float(pos_exit_policy.liq_crush_fraction) > 0
             and float(liq_now) <= float(pos.buy_liquidity_usd) * float(pos_exit_policy.liq_crush_fraction)
         ):
-            sell_resp = await seller.sell(
-                pos.address,
+            sell_resp = await _sell_position_guarded(
+                pos,
                 pos.qty,
+                reason="LIQUIDITY_CRUSH",
                 token_mint=mint_key,
                 price_hint=price,
                 price_source_hint=price_src,
             )
+            if sell_resp.get("ok") is not False:
+                now = parse_iso_utc(sell_resp["filled_at"])
 
             # Si falla la venta, NO cierres (evita “closed=true” sin haber vendido)
             if sell_resp is not None and sell_resp.get("ok") is False:
@@ -8404,13 +8493,17 @@ async def _check_positions(ses: SessionLocal) -> None:
                         qty_total,
                         sell_fraction * 100.0,
                     )
-                    part_resp = await seller.sell(
-                        pos.address,
+                    part_resp = await _sell_position_guarded(
+                        pos,
                         qty_to_sell,
+                        reason="partial_fill",
+                        partial_plan=ladder_plan,
                         token_mint=mint_key,
                         price_hint=price,
                         price_source_hint=price_src,
                     )
+                    if part_resp.get("ok") is not False:
+                        now = parse_iso_utc(part_resp["filled_at"])
 
                     if part_resp is not None and part_resp.get("ok") is False:
                         log.warning("⚠️ TP parcial falló %s: %s", pos.address[:6], part_resp.get("err"))
@@ -8635,13 +8728,16 @@ async def _check_positions(ses: SessionLocal) -> None:
             except Exception:
                 log.debug("post-partial floor price hint failed for %s", pos.address[:6], exc_info=True)
 
-        sell_resp = await seller.sell(
-            pos.address,
+        sell_resp = await _sell_position_guarded(
+            pos,
             pos.qty,
+            reason=str(exit_reason),
             token_mint=mint_key,
             price_hint=sell_price_hint,            # el que calculaste en el monitor (puede ser None)
             price_source_hint=sell_price_source_hint, # "jup_batch" | "jup_single" | "jup_critical" | "dex_full" | None
         )
+        if sell_resp.get("ok") is not False:
+            now = parse_iso_utc(sell_resp["filled_at"])
 
         # Si falla la venta, NO cierres la posición
         if sell_resp is not None and sell_resp.get("ok") is False:

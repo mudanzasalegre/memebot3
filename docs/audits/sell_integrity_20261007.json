@@ -1,0 +1,53 @@
+{
+  "stage": "Pre-execution sell intent, atomic paper fills and idempotent SQL recovery",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "requested_trade_size_sol": 0.1,
+  "runtime_requirement": "All bot services remain OFF. Synthetic tests do not authorize a new paper run or live trading.",
+  "implemented": {
+    "intent_boundary": "The three primary monitor exit routes journal a unique sell intent before calling the seller, including the original SQL position, quantity, reason, paper entry identity and frozen partial ladder plan. A checked positive response is journaled and converted into a canonical SQL close/partial snapshot before returning to the monitor consumer. Cancellation or an unknown result retains quarantine rather than a fabricated no-fill result",
+    "atomic_paper_fill": "Paper sells calculate on a copy. Quantity, cash accounting, costs and a unique exit-fill receipt are persisted together by the atomic strict portfolio writer. A write failure restores the original portfolio mapping and never reports a completed fill. Original entry references are updated only after the durable write succeeds",
+    "serialized_paper_execution": "A per-mint async lock spans price/quote awaits and fill persistence, with reference-counted idle cleanup. A repeated matching exit intent returns its original receipt without another quote, fee or sale; contradictory quantities remain errors",
+    "paper_restart": "An inactive prepared or received paper sell can be reconstructed from its exact durable exit event and the frozen pre-sell SQL position. An unchanged prepared paper entry with no such event proves an absent paper fill. Conflicting lineage, quantities, receipts, SQL ownership or accounting remain quarantined. Recovery never sends a transaction",
+    "sql_replay": "The close outbox uses the sell intent identity and pre-sell quantity. Existing committed events are recognized before applying a position snapshot, so an old partial acknowledgement cannot reopen a later close or rewind a later partial. Address, run and entry lineage are checked. SQLite's timezone-less UTC values are not interpreted as local workstation time",
+    "monotonic_intent_state": "The authoritative store validates state transitions even when a caller retains an older attempt object. Prepared SQL snapshots cannot become received-only fills or no-fill results, and archived terminal identities cannot be resurrected by stale writes. Reusing an identical checked SQL snapshot avoids a duplicate fsync",
+    "single_live_submission": "Managed and legacy Jupiter errors after entering submission raise an uncertain-outcome error without trying GMGN. Legacy call compatibility is selected before execution instead of resubmitting after an internal TypeError. A GMGN submission exception is also uncertain, not a proven no-fill",
+    "live_boundary": "The current live seller provides submission evidence, not observed token quantities or chain finality. Its response cannot satisfy the guarded checked-fill contract without those missing facts, so the intent stays quarantined. No wallet-confirmed fill, financial proceeds or safe retry is invented",
+    "preserved": "Exact 0.1 SOL paper buys, safety/route/capital gates, uncapped percentage runner upside, frozen proportional drawdown protection, bounded automatic paper selection and the OFF requirement are unchanged. No model, policy or trading service was activated"
+  },
+  "verification": {
+    "focused_sell_suite": "56 passed in 8.28s before the final explicit empty-plan alignment; the final full suites cover that alignment",
+    "focused_with_existing_close_recovery": "62 passed in 8.76s before final checked SQL snapshot validation",
+    "intermediate_full_regression": "Each checkout initially had 1346 passed and one failed: an old ladder test replaced _save with a no-argument no-op. That fixture now uses the real atomic writer in an isolated directory and verifies both saved quantity and exit receipt. The required strict production save was retained",
+    "final_focused_ladder_and_sell_suite": "74 passed in 13.07s before the final idempotent prepared-snapshot fsync optimization; the full suites cover that optimization",
+    "final_focused_sell_state_suite": "56 passed in 12.20s after stale-attempt transition and terminal-resurrection protection",
+    "previous_full_before_final_state_hardening": "1347 passed in 211.71s in working and 1347 passed in 202.55s in publishing",
+    "full_working_checkout": "1347 passed in 228.28s after final stale-attempt state hardening",
+    "full_publishing_checkout": "1347 passed in 210.88s after final state hardening, without personal .env or local .venv, using the existing working-checkout Python runtime",
+    "preflight_both": "PASS: compile_errors=0, config_import_rc=0, paper profile OK and all seven empty-data report builders OK in each checkout",
+    "source_sync": "Eight reviewed implementation/test files synchronized into the previously clean publishing checkout; two audit files synchronized after verification; zero deletion. Secrets, personal .env, logs, data and runtime model artifacts excluded",
+    "test_scope": "Actual AST-extracted guarded execution, canonical fill builder and SQL/recovery helpers; real paper seller; isolated SQLite/files; mocked providers and live submission. Tests cover disk errors, lost responses, cancellation, prepare/commit/ack failures, repeated recovery, concurrent fills, conflicting/corrupt identities and all three primary monitor exit consumers. No bot process or real wallet transaction was started"
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "runtime_model_training_started": false,
+    "shutdown_verified_at_utc": "2026-10-07T18:42:58.7777462Z",
+    "remaining_bot_processes_both_checkouts": 0,
+    "root_and_data_bot_locks_both_checkouts": false,
+    "runtime_buy_journal_files_created": 0,
+    "runtime_sell_journal_files_created": 0,
+    "sqlite_state": "main=stopped, retrain=idle, reports=idle",
+    "runtime_model_files_changed_since_173802_utc": 0,
+    "active_entry_policies_and_open_collection_plans_both_checkouts": 0,
+    "stop_stack": "2026-10-07T18:42:01Z requested_by=user; killed=0 remaining=0"
+  },
+  "remaining_full_goal_requirements": [
+    "Independently reconcile real wallet balances, submitted signatures, actual token/SOL movements and finality before any live fill or safe retry can be certified",
+    "Complete fallback provider market/liquidity freshness, still-cached scanner/core-entry consumers, opportunity/feed follow-up and full-strategy capital/admission constraints",
+    "Review retry/durability of secondary closed-trade archives and post-fill research enrollment. The primary paper portfolio and SQL fill recovery are hardened here; their success does not certify all downstream analytical exports",
+    "Complete rare-runner model and full-strategy validation using separately authorized fresh costed closed evidence; historical ranking and synthetic uncapped upside tests do not establish future profits",
+    "Keep subsequent implementation synchronized, commit/push reviewed source and leave both checkout runtimes OFF"
+  ],
+  "evidence": ["runtime/sell_recovery.py", "runtime/close_recovery.py", "trader/papertrading.py", "trader/seller.py", "run_bot.py", "tests/test_sell_recovery.py", "tests/test_close_recovery.py"]
+}

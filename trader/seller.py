@@ -27,6 +27,7 @@ Notas importantes (alineación con tu orquestador):
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 from datetime import datetime, timezone
@@ -38,6 +39,7 @@ import analytics.exit_policy as exit_policy
 from utils.time import parse_iso_utc
 from utils import price_service
 from fetcher import jupiter_price
+from runtime.sell_recovery import SellOutcomeUncertain
 
 # Router Jupiter opcional (quote + swap real)
 try:
@@ -267,10 +269,13 @@ async def _sell_execute_prefer_jupiter(
     if qty_lamports <= 0:
         return False, {"signature": "NO_QTY", "route": {}, "ok": False}
 
+    # A timeout/exception after submission is not proof that nothing sold.
+    submission_started = False
     # 1) Jupiter swap real si está disponible
     if _JUP_ROUTER_AVAILABLE and jupiter is not None:
         try:
             if hasattr(jupiter, "execute_managed_swap") and bool(getattr(jupiter, "JUP_API_KEY", "")):
+                submission_started = True
                 managed_resp = await jupiter.execute_managed_swap(
                     input_mint=token_mint,
                     output_mint=SOL_MINT,
@@ -296,12 +301,13 @@ async def _sell_execute_prefer_jupiter(
 
             if getattr(quote, "ok", False):
                 try:
-                    # execute_swap puede aceptar QuoteResult o quote.raw (dict), según implementación
-                    try:
-                        txid = await jupiter.execute_swap(quote=quote.raw)  # type: ignore[arg-type]
-                    except TypeError:
-                        # compat: execute_swap(quote_result)
-                        txid = await jupiter.execute_swap(quote)  # type: ignore[misc]
+                    # Choose compatibility before the call, never by retrying an
+                    # execution that raised TypeError internally after sending.
+                    parameters = inspect.signature(jupiter.execute_swap).parameters
+                    keyword = "quote" in parameters and parameters["quote"].kind != inspect.Parameter.POSITIONAL_ONLY
+                    submission_started = True
+                    txid = (await jupiter.execute_swap(quote=quote.raw) if keyword
+                            else await jupiter.execute_swap(quote))
 
                     route_meta = {
                         "router": "jupiter",
@@ -311,7 +317,9 @@ async def _sell_execute_prefer_jupiter(
                     }
                     return True, {"signature": txid, "route": route_meta, "ok": True, "venue": "jupiter_legacy"}
                 except Exception as exc:
-                    log.warning("[seller] Jupiter execute_swap falló: %s", exc)
+                    if submission_started:
+                        raise SellOutcomeUncertain("Jupiter sell submission is unconfirmed; do not retry") from exc
+                    log.warning("[seller] Jupiter execution preparation failed: %s", type(exc).__name__)
             else:
                 log.info(
                     "[seller] Jupiter sin ruta válida para cerrar %s (mint=%s)",
@@ -319,6 +327,8 @@ async def _sell_execute_prefer_jupiter(
                     token_mint[:6],
                 )
         except Exception as exc:
+            if submission_started:
+                raise SellOutcomeUncertain("Jupiter sell submission is unconfirmed; do not fall back") from exc
             log.debug("[seller] Jupiter get_quote error: %s", exc)
 
     # 2) Fallback a GMGN solo si hay liquidez decente (si podemos medirla)
@@ -355,15 +365,7 @@ async def _sell_execute_prefer_jupiter(
             "venue": "gmgn",
         }
     except Exception as e:
-        log.exception("[seller] Fallback gmgn.sell error: %s", e)
-        return False, {
-            "signature": "ERROR",
-            "route": {"router": "gmgn"},
-            "ok": False,
-            "error": str(e),
-            "price_used_usd": None,
-            "price_source_close": None,
-        }
+        raise SellOutcomeUncertain("GMGN sell submission is unconfirmed; do not retry") from e
 
 
 # ─── Venta real ─────────────────────────────────────────────────────────────
@@ -410,10 +412,10 @@ async def sell(
             "price_source_close": None,
         }
 
-    if qty_lamports <= 0:
+    if type(qty_lamports) is not int or not 0 < qty_lamports <= 2**63 - 1:
         log.warning("[seller] Qty=0 — orden ignorada")
         return {
-            "signature": "NO_QTY",
+            "signature": "INVALID_QUANTITY",
             "route": {},
             "ok": False,
             "price_used_usd": None,
@@ -432,6 +434,9 @@ async def sell(
         return exec_payload
 
     signature = exec_payload.get("signature")
+    if (not isinstance(signature, str) or not signature.strip()
+            or signature in {"ERROR", "SELL_FAILED", "UNKNOWN", "NO_QTY"}):
+        raise SellOutcomeUncertain("Sell submission returned no signature")
     route = exec_payload.get("route", {}) or {}
     ok_flag = bool(exec_payload.get("ok", True))
     venue = exec_payload.get("venue")
@@ -467,6 +472,8 @@ async def sell(
         "price_source_close": src_used,
         "price_confidence_close": price_confidence_close,
         "venue": venue,
+        "filled_at": datetime.now(timezone.utc).isoformat(),
+        "execution_evidence": "submission_only_not_chain_fill",
     }
 
 

@@ -24,6 +24,7 @@ Cambios
 from __future__ import annotations
 
 import asyncio
+import copy
 import datetime as dt
 import json
 import logging
@@ -770,7 +771,44 @@ async def _retry_fill_buy_price(
 
 
 # ─── venta (simulada): soporta parciales y cierre total ─────────────────────
-async def sell(
+_SELL_LOCKS: dict[str, tuple[asyncio.Lock, int]] = {}
+
+
+async def sell(address: str, qty_lamports: int, **kwargs) -> dict:
+    """Serialize fills per mint, including quote awaits; release idle locks."""
+    key = _pick_key_for_entry(address, kwargs.get("token_mint"))
+    lock, users = _SELL_LOCKS.get(key, (asyncio.Lock(), 0))
+    _SELL_LOCKS[key] = (lock, users + 1)
+    kwargs = copy.deepcopy(kwargs)
+    try:
+        async with lock:
+            return await _sell_owned(address, qty_lamports, **kwargs)
+    finally:
+        remaining = _SELL_LOCKS[key][1] - 1
+        if remaining:
+            _SELL_LOCKS[key] = (lock, remaining)
+        else:
+            del _SELL_LOCKS[key]
+
+
+def _persist_sell_fill(key, original, entry, response, total_qty):
+    entry.setdefault("exit_fill_events", []).append({
+        "intent_id": response["exit_intent_id"], "qty_before": total_qty,
+        "response": copy.deepcopy(response),
+    })
+    _PORTFOLIO[key] = entry
+    try:
+        _save(strict=True)
+    except BaseException:
+        _PORTFOLIO[key] = original
+        raise
+    # Preserve references used by callers, but only after the durable write.
+    original.clear()
+    original.update(entry)
+    _PORTFOLIO[key] = original
+
+
+async def _sell_owned(
     address: str,
     qty_lamports: int,
     *,
@@ -778,6 +816,8 @@ async def sell(
     price_hint: float | None = None,
     price_source_hint: str | None = None,
     exit_reason: str | None = None,
+    exit_intent_id: str | None = None,
+    partial_ladder_plan: dict | None = None,
 ) -> dict:
     """
     Vende (simulado) una cantidad del token. Si `qty_lamports` es menor que el tamaño
@@ -788,6 +828,15 @@ async def sell(
     """
     key = _pick_key_for_entry(address, token_mint)
     entry = _PORTFOLIO.get(key)
+    if type(qty_lamports) is not int or not 0 < qty_lamports <= 2**63 - 1:
+        return {"ok": False, "error": "INVALID_QUANTITY", "signature": None}
+    if entry and exit_intent_id:
+        previous = [event for event in entry.get("exit_fill_events", [])
+                    if event.get("intent_id") == exit_intent_id]
+        if previous:
+            if len(previous) != 1 or previous[0]["response"]["qty_sold"] != qty_lamports:
+                raise PaperPortfolioError("Paper sell intent conflicts with an earlier fill")
+            return copy.deepcopy(previous[0]["response"])
     if not entry or entry.get("closed"):
         raise RuntimeError(f"No hay posición activa para {address[:4]}")
     entry = _ensure_entry_accounting(entry)
@@ -795,15 +844,16 @@ async def sell(
 
     if not _is_solana_address(key):
         log.error("[papertrading] Venta bloqueada: address no Solana %r", key)
-        sig = f"SIM-{int(time.time()*1e3)}"
-        return {"signature": sig, "error": "INVALID_ADDRESS", "price_used_usd": None, "price_source_close": None}
+        return {"ok": False, "signature": None, "error": "INVALID_ADDRESS", "price_used_usd": None, "price_source_close": None}
 
     total_qty = int(entry.get("qty_lamports", 0))
-    take_qty = max(0, min(int(qty_lamports), total_qty))
+    if qty_lamports > total_qty:
+        return {"ok": False, "error": "INVALID_QUANTITY", "signature": None}
+    take_qty = qty_lamports
     if take_qty <= 0:
         sig = f"SIM-{int(time.time()*1e3)}"
         log.info("[papertrading] sell qty=0 — nada que hacer")
-        return {"signature": sig, "price_used_usd": None, "price_source_close": None}
+        return {"ok": False, "error": "NO_QTY", "signature": None, "price_used_usd": None, "price_source_close": None}
 
     # 1) Resolver precio de cierre (prioriza hint)
     if entry.get("entry_route_quote"):
@@ -844,6 +894,9 @@ async def sell(
         return {"ok": False, "error": "EXIT_PRICE_UNAVAILABLE", "err": "EXIT_PRICE_UNAVAILABLE",
                 "signature": None, "price_used_usd": None, "price_source_close": None,
                 "qty_sold": 0, "qty_left": total_qty}
+    # Financial changes are isolated until the atomic portfolio write succeeds.
+    original_entry = entry
+    entry = copy.deepcopy(entry)
     if cost_model:
         price_now = float(price_now) * (1 - float(cost_model["slippage_bps"]) / 10000)
         if not _positive_finite(sol_usd):
@@ -853,11 +906,18 @@ async def sell(
         entry["execution_fill_count"] = int(entry.get("execution_fill_count") or 1) + 1
     price_confidence_close = price_service.price_confidence_from_source(price_src, price_now)
 
-    sig = f"SIM-{int(time.time()*1e3)}"
+    intent_id = exit_intent_id or uuid.uuid4().hex
+    sig = f"SIM-EXIT-{intent_id}"
+    filled_at = utc_now().isoformat()
+    response = {"ok": True, "signature": sig, "venue": "paper",
+                "price_used_usd": float(price_now), "price_source_close": price_src,
+                "price_confidence_close": price_confidence_close, "qty_sold": take_qty,
+                "qty_left": total_qty - take_qty, "partial": take_qty < total_qty,
+                "filled_at": filled_at, "exit_intent_id": intent_id}
 
     # 3) Parcial vs cierre total
     if take_qty < total_qty:
-        partial_ladder_plan = None
+        supplied_plan = partial_ladder_plan
         try:
             buy_price_for_plan = float(entry.get("buy_price_usd") or 0.0)
             pnl_pct_for_plan = (
@@ -866,9 +926,9 @@ async def sell(
                 else 0.0
             )
             exit_policy.update_exit_state(entry, pnl_pct=pnl_pct_for_plan)
-            partial_ladder_plan = exit_policy.partial_ladder_plan(entry, pnl_pct_for_plan)
+            partial_ladder_plan = supplied_plan if supplied_plan is not None else exit_policy.partial_ladder_plan(entry, pnl_pct_for_plan)
         except Exception:
-            partial_ladder_plan = None
+            partial_ladder_plan = supplied_plan
         totals = apply_partial_fill(
             entry_qty=entry.get("entry_qty", total_qty),
             remaining_qty=total_qty,
@@ -896,15 +956,15 @@ async def sell(
         entry["exit_state"] = "post_partial"
         if isinstance(partial_ladder_plan, dict) and isinstance(partial_ladder_plan.get("next_state"), dict):
             entry["partial_ladder_state"] = runner_ladder.encode_ladder_state(partial_ladder_plan["next_state"])
-        entry["first_partial_at"] = entry.get("first_partial_at") or utc_now().isoformat()
-        entry["last_partial_at"] = utc_now().isoformat()
+        entry["first_partial_at"] = entry.get("first_partial_at") or filled_at
+        entry["last_partial_at"] = filled_at
         entry["last_partial_qty"] = int(take_qty)
         entry["last_partial_price_usd"] = float(price_now)
         entry["price_source_close"] = price_src  # guardamos fuente de la última acción
         entry["price_confidence_close"] = price_confidence_close
         entry["exit_reason"] = exit_reason or "partial_tp"
         _update_net_costs(entry, closing=False)
-        _save()
+        _persist_sell_fill(key, original_entry, entry, response, total_qty)
         try:
             runner_forward.register_partial(entry, root=_research_root(), cfg=CFG)
         except Exception as exc:
@@ -914,15 +974,7 @@ async def sell(
             "📝 PAPER-PARTIAL %s…  qty=%d/%d  px=%.6f USD  src=%s  sig=%s  reason=%s",
             key[:4], take_qty, total_qty, price_now, price_src, sig, entry["exit_reason"]
         )
-        return {
-            "signature": sig,
-            "price_used_usd": float(price_now),
-            "price_source_close": price_src,
-            "price_confidence_close": price_confidence_close,
-            "partial": True,
-            "qty_sold": take_qty,
-            "qty_left": int(entry["qty_lamports"]),
-        }
+        return response
 
     # 4) Cierre total
     buy_price = float(entry.get("buy_price_usd") or 0.0)
@@ -938,7 +990,7 @@ async def sell(
 
     entry.update(
         {
-            "closed_at": utc_now().isoformat(),
+            "closed_at": filled_at,
             "close_price_usd": float(price_now),
             "pnl_pct": float(totals.total_pnl_pct),
             "closed": True,
@@ -956,12 +1008,14 @@ async def sell(
         total_proceeds_sol = float(entry.get("realized_proceeds_sol") or 0) + (totals.total_proceeds_usd - float(entry.get("realized_proceeds_usd") or 0)) / float(sol_usd)
         entry["net_total_pnl_sol"] = total_proceeds_sol - float(entry["amount_sol"]) - float(entry["estimated_fees_sol"])
         entry["total_proceeds_sol"] = total_proceeds_sol
-    _save()
+    _persist_sell_fill(key, original_entry, entry, response, total_qty)
     # Append-only closed-trade evidence survives a later buy of the same mint.
     archive = _DATA_PATH.parent / "paper_closed_trades.jsonl"
     try:
         with archive.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(entry, default=str, allow_nan=False) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
     except (OSError, ValueError) as exc:
         log.error("[papertrading] CLOSED_TRADE_ARCHIVE_FAILED: %s", exc)
 
@@ -969,15 +1023,7 @@ async def sell(
         "📝 PAPER-SELL %s…  close=%.6f USD  PnL=%.2f%%  src=%s  sig=%s  reason=%s",
         key[:4], price_now, totals.total_pnl_pct, price_src, sig, entry["exit_reason"]
     )
-    return {
-        "signature": sig,
-        "price_used_usd": float(price_now),
-        "price_source_close": price_src,
-        "price_confidence_close": price_confidence_close,
-        "partial": False,
-        "qty_sold": take_qty,
-        "qty_left": 0,
-    }
+    return response
 
 
 # ─── helpers de parciales ───────────────────────────────────────────────────

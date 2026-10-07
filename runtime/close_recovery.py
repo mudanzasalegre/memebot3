@@ -16,6 +16,8 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import math
+import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,8 +112,12 @@ def _json_value(value: Any) -> Any:
 
 
 def _parse_datetime(value: Any) -> dt.datetime | None:
-    if value is None or isinstance(value, dt.datetime):
+    if value is None:
         return value
+    if isinstance(value, dt.datetime):
+        # SQLite returns stored UTC instants without a timezone. Never reinterpret
+        # those ledger timestamps in the workstation's local timezone.
+        return value if value.tzinfo else value.replace(tzinfo=dt.timezone.utc)
     text = str(value).strip()
     if not text:
         return None
@@ -160,14 +166,19 @@ def build_recovery_record(
         raise ValueError("close recovery requires position_id and address")
 
     response = dict(sell_response or {})
+    intent_id = response.get("_sell_intent_id")
+    if intent_id is not None and re.fullmatch(r"[0-9a-f]{32}", str(intent_id)) is None:
+        raise ValueError("invalid sell intent identity")
     return {
         "schema_version": SCHEMA_VERSION,
         "ts_utc": _utc_now_iso(),
         "status": "pending",
-        "recovery_id": uuid.uuid4().hex,
+        "recovery_id": intent_id or uuid.uuid4().hex,
         "address": address,
         "position_id": int(position_id),
         "run_id": getattr(position, "run_id", None),
+        "source_position_key": getattr(position, "source_position_key", None),
+        "expected_before_qty": response.get("_qty_before"),
         "event_type": str(event_type),
         "reason": str(reason),
         "sell_signature": str(response.get("signature") or "") or None,
@@ -200,7 +211,7 @@ def append_journal_row(path: Path, row: Mapping[str, Any]) -> None:
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(_json_value(dict(row)), sort_keys=True, separators=(",", ":")) + "\n"
+    payload = json.dumps(_json_value(dict(row)), sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
     try:
         with path.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(payload)
@@ -363,6 +374,12 @@ def _validate_record(record: Mapping[str, Any]) -> None:
         raise ValueError("missing trade_event snapshot")
     if not event.get("ts_utc"):
         raise ValueError("missing trade_event timestamp")
+    for values in (record["position_snapshot"], event):
+        if any(isinstance(value, float) and not math.isfinite(value) for value in values.values()):
+            raise ValueError("non-finite close recovery accounting")
+    before = record.get("expected_before_qty")
+    if before is not None and (type(before) is not int or not 0 < before <= 2**63 - 1):
+        raise ValueError("invalid pre-sell quantity")
 
 
 async def _candidate_events(session: AsyncSession, position_id: int, event_type: str) -> Iterable[TradeEvent]:
@@ -384,7 +401,10 @@ async def _apply_record(session: AsyncSession, record: Mapping[str, Any]) -> Pos
     if position is None:
         raise LookupError(f"position_id={position_id} not found")
 
-    apply_position_snapshot(position, record["position_snapshot"])
+    if position.address != record.get("address") or position.run_id != record.get("run_id"):
+        raise ValueError("close recovery position ownership mismatch")
+    if record.get("source_position_key") is not None and position.source_position_key != record["source_position_key"]:
+        raise ValueError("close recovery entry lineage mismatch")
     event_snapshot = dict(record["trade_event"])
     rid = recovery_id(record)
     candidates = await _candidate_events(session, position_id, str(event_snapshot["event_type"]))
@@ -392,8 +412,19 @@ async def _apply_record(session: AsyncSession, record: Mapping[str, Any]) -> Pos
     if existing is None:
         existing = next((event for event in candidates if _event_matches_snapshot(event, event_snapshot)), None)
     if existing is not None:
+        if not _event_matches_snapshot(existing, event_snapshot):
+            raise ValueError("close recovery event identity conflicts with payload")
         _tag_event(existing, rid)
+        # SQL already contains this fill. Applying an old partial snapshot here
+        # would reopen a later close or rewind another committed partial.
+        return position
     else:
+        before = record.get("expected_before_qty")
+        if before is not None and position.qty != before:
+            raise ValueError("close recovery pre-sell quantity mismatch")
+        if position.closed:
+            raise ValueError("cannot replay an unproven fill over a closed position")
+        apply_position_snapshot(position, record["position_snapshot"])
         marker = json.dumps({"close_recovery_id": rid}, sort_keys=True, separators=(",", ":"))
         add_trade_event(
             session,
