@@ -47,6 +47,7 @@ from fetcher import jupiter_price, jupiter_router
 from research_loop import runner_forward
 from runtime.paper_entry_policy import snapshot as entry_policy_snapshot
 from utils.atomic_json import read_json_strict, write_json_atomic
+from runtime.paper_archive import PaperArchiveError, archive_closed_trade
 
 log = logging.getLogger("papertrading")
 
@@ -411,6 +412,60 @@ def _save(*, strict: bool = False) -> None:
         log.warning("[papertrading] no se pudo guardar portfolio: %s", type(exc).__name__)
 
 
+def _archive_closed(key: str) -> str:
+    """Archive first; acknowledgement metadata cannot invalidate a filled sell."""
+    original = _PORTFOLIO[key]
+    archive_id = archive_closed_trade(_DATA_PATH.parent, original, token=key)
+    if original.get("closed_archive_pending") is True:
+        updated = {**original, "closed_archive_pending": False}
+        _PORTFOLIO[key] = updated
+        try:
+            _save(strict=True)
+        except PaperPortfolioError:
+            _PORTFOLIO[key] = original
+            log.warning("[papertrading] archive acknowledged but portfolio marker remains pending")
+        else:
+            original.clear()
+            original.update(updated)
+            _PORTFOLIO[key] = original
+    return archive_id
+
+
+_ARCHIVE_REPAIR_STATE: dict[str, tuple[float, int]] = {}
+
+
+async def repair_paper_archives(*, force: bool = False, limit: int = 8) -> dict:
+    """Bound secondary retries; never execute a trade or modify its cash state."""
+    key = str(_DATA_PATH.resolve())
+    previous, cursor = _ARCHIVE_REPAIR_STATE.get(key, (0., 0))
+    stamp = time.monotonic()
+    if not force and stamp - previous < 30:
+        return {"status": "throttled", "attempted": 0, "failed": 0}
+    if len(_ARCHIVE_REPAIR_STATE) >= 32 and key not in _ARCHIVE_REPAIR_STATE:
+        _ARCHIVE_REPAIR_STATE.pop(next(iter(_ARCHIVE_REPAIR_STATE)))
+    keys = list(_PORTFOLIO)
+    attempted = failed = examined = 0
+    limit = max(1, min(8, int(limit)))
+    while keys and examined < min(128, len(keys)) and attempted < limit:
+        token = keys[cursor % len(keys)]
+        cursor += 1
+        examined += 1
+        current = _PORTFOLIO.get(token, {})
+        if current.get("closed") is True and current.get("closed_archive_pending") is True:
+            attempted += 1
+            async def repair_owned():
+                fresh = _PORTFOLIO.get(token, {})
+                if fresh.get("closed") is True and fresh.get("closed_archive_pending") is True:
+                    _archive_closed(token)
+            try:
+                await _serialized_paper_order(token, repair_owned)
+            except PaperArchiveError as exc:
+                failed += 1
+                log.warning("[papertrading] closed archive retry pending: %s", type(exc).__name__)
+    _ARCHIVE_REPAIR_STATE[key] = (stamp, cursor % len(keys) if keys else 0)
+    return {"status": "pending" if failed else "ok", "attempted": attempted, "failed": failed}
+
+
 # ───────────────────── utilidades locales ──────────────────────
 def _is_solana_address(addr: str) -> bool:
     """Filtro defensivo: descarta EVM (0x…) y longitudes extrañas."""
@@ -459,7 +514,13 @@ def _ensure_entry_accounting(entry: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ─── lógica de compra ──────────────────────────────────────────
-async def buy(
+async def buy(address: str, amount_sol: float, **kwargs) -> dict:
+    kwargs = copy.deepcopy(kwargs)
+    return await _serialized_paper_order(kwargs.get("token_mint") or address,
+        _buy_owned, address, amount_sol, **kwargs)
+
+
+async def _buy_owned(
     address: str,
     amount_sol: float,
     *,
@@ -494,12 +555,26 @@ async def buy(
     mint_key = token_mint or address
     if not _positive_finite(amount_sol):
         return {"ok": False, "qty_lamports": 0, "signature": "INVALID_AMOUNT", "route": {}}
+    intent_id = uuid.uuid4().hex if entry_intent_id is None else entry_intent_id
+    if not isinstance(intent_id, str) or len(intent_id) != 32 or any(char not in "0123456789abcdef" for char in intent_id):
+        raise ValueError("Invalid paper entry intent identity")
+    if ((_DATA_PATH.parent / "paper_closed_trades" / (intent_id + ".json")).exists()
+            or any(row.get("entry_intent_id") == intent_id
+                   or row.get("buy_signature") == "SIM-" + intent_id
+                   for row in _PORTFOLIO.values())):
+        return {"ok": False, "qty_lamports": 0, "signature": "ENTRY_INTENT_ALREADY_USED", "route": {}}
     if getattr(CFG, "PAPER_EXACT_TRADE_SIZE_ENABLED", False):
         required_amount = getattr(CFG, "PAPER_EXACT_TRADE_SIZE_SOL", 0.1)
         if not _positive_finite(required_amount) or not math.isclose(float(amount_sol), float(required_amount), abs_tol=1e-9, rel_tol=0):
             return {"ok": False, "qty_lamports": 0, "signature": "EXACT_PAPER_SIZE_REQUIRED", "route": {}}
     if mint_key in _PORTFOLIO and not _PORTFOLIO[mint_key].get("closed"):
         return {"ok": False, "qty_lamports": 0, "signature": "POSITION_ALREADY_OPEN", "route": {}}
+    if mint_key in _PORTFOLIO:
+        try:
+            _archive_closed(mint_key)
+        except PaperArchiveError as exc:
+            log.warning("[papertrading] replacement blocked until prior close is archived: %s", type(exc).__name__)
+            return {"ok": False, "qty_lamports": 0, "signature": "PAPER_ARCHIVE_UNAVAILABLE", "route": {}}
     require_jup_price = _REQUIRE_JUP_PRICE if require_jupiter_for_buy is None else bool(require_jupiter_for_buy)
     exact_size_mode = bool(getattr(CFG, "PAPER_EXACT_TRADE_SIZE_ENABLED", False))
     require_exact_quote = require_jup_price or exact_size_mode
@@ -654,9 +729,6 @@ async def buy(
         qty_lp = int(route_proof["out_amount"] / (1 + cost_model["slippage_bps"] / 10000))
         if qty_lp <= 0:
             return {"ok": False, "qty_lamports": 0, "signature": "QUOTED_OUTPUT_TOO_SMALL", "route": {}}
-    intent_id = entry_intent_id or uuid.uuid4().hex
-    if not isinstance(intent_id, str) or len(intent_id) != 32 or any(char not in "0123456789abcdef" for char in intent_id):
-        raise ValueError("Invalid paper entry intent identity")
     buy_signature = "SIM-" + intent_id
     previous = _PORTFOLIO.get(mint_key)
     _PORTFOLIO[mint_key] = {
@@ -777,12 +849,17 @@ _SELL_LOCKS: dict[str, tuple[asyncio.Lock, int]] = {}
 async def sell(address: str, qty_lamports: int, **kwargs) -> dict:
     """Serialize fills per mint, including quote awaits; release idle locks."""
     key = _pick_key_for_entry(address, kwargs.get("token_mint"))
+    kwargs = copy.deepcopy(kwargs)
+    return await _serialized_paper_order(key, _sell_owned, address, qty_lamports, **kwargs)
+
+
+async def _serialized_paper_order(key, action, *args, **kwargs):
+    """Buy, sell and archive repair share the same per-mint ownership."""
     lock, users = _SELL_LOCKS.get(key, (asyncio.Lock(), 0))
     _SELL_LOCKS[key] = (lock, users + 1)
-    kwargs = copy.deepcopy(kwargs)
     try:
         async with lock:
-            return await _sell_owned(address, qty_lamports, **kwargs)
+            return await action(*args, **kwargs)
     finally:
         remaining = _SELL_LOCKS[key][1] - 1
         if remaining:
@@ -836,6 +913,11 @@ async def _sell_owned(
         if previous:
             if len(previous) != 1 or previous[0]["response"]["qty_sold"] != qty_lamports:
                 raise PaperPortfolioError("Paper sell intent conflicts with an earlier fill")
+            if entry.get("closed_archive_pending") is True:
+                try:
+                    _archive_closed(key)
+                except PaperArchiveError:
+                    log.warning("[papertrading] completed fill remains pending archival")
             return copy.deepcopy(previous[0]["response"])
     if not entry or entry.get("closed"):
         raise RuntimeError(f"No hay posición activa para {address[:4]}")
@@ -1001,6 +1083,7 @@ async def _sell_owned(
             "total_pnl_usd": float(totals.total_pnl_usd),
             "total_pnl_pct": float(totals.total_pnl_pct),
             "exit_reason": exit_reason or entry.get("exit_reason") or "manual/auto",
+            "closed_archive_pending": True,
         }
     )
     _update_net_costs(entry, closing=True)
@@ -1009,15 +1092,12 @@ async def _sell_owned(
         entry["net_total_pnl_sol"] = total_proceeds_sol - float(entry["amount_sol"]) - float(entry["estimated_fees_sol"])
         entry["total_proceeds_sol"] = total_proceeds_sol
     _persist_sell_fill(key, original_entry, entry, response, total_qty)
-    # Append-only closed-trade evidence survives a later buy of the same mint.
-    archive = _DATA_PATH.parent / "paper_closed_trades.jsonl"
+    # A durable per-entry cell replaces fragile append-only writes. Existing
+    # JSONL history stays untouched and is still read by the evidence readers.
     try:
-        with archive.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(entry, default=str, allow_nan=False) + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-    except (OSError, ValueError) as exc:
-        log.error("[papertrading] CLOSED_TRADE_ARCHIVE_FAILED: %s", exc)
+        _archive_closed(key)
+    except PaperArchiveError as exc:
+        log.error("[papertrading] CLOSED_TRADE_ARCHIVE_PENDING: %s", type(exc).__name__)
 
     log.info(
         "📝 PAPER-SELL %s…  close=%.6f USD  PnL=%.2f%%  src=%s  sig=%s  reason=%s",

@@ -13,7 +13,7 @@
   ],
   "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
   "historical_initial_publication_state": {"branch": "main", "origin_main_commit_before_sync": "3479e24", "working_tree_clean_before_sync": true, "remote_fetch_completed": true, "source_sync_completed": true, "implementation_commit": "0c7aa6c0d2bc10462d29b1d8207a68a23fc7fbb8", "commit_push": "COMPLETE", "remote_revision_verified": true, "scope": "Initial publication proof, not the current Git HEAD after later source stages"},
-  "latest_stage_evidence": "docs/audits/sell_integrity_20261007.json",
+  "latest_stage_evidence": "docs/audits/paper_archive_20261007.json",
   "implemented_this_stage": [
     "Restore observed peak targets through a bounded causal historical join; preserve all entry features unchanged",
     "Persist observed peak and outcome-availability timestamp as outcome-only Parquet columns on future shadow and real closes",
@@ -47,7 +47,8 @@
     "Compose independently verified paper entry components in one immutable per-entry snapshot, isolate corrupt peers and mutable caches, alternate local proposals under one global quote/capacity budget, bound absent-lane waiting, and correct the actual late-momentum pre-dispatch consumer and prospective routing-envelope registration",
     "Move position protection into one independently supervised serial monitor with fresh tick/entry/startup session ownership; serve hot/legacy queues just in time with preserved pending tails and fair rotation; bypass primary Jupiter batch OK/NIL caches; cancel/drain owned loops, social and retained background work before publishing stopped",
     "Persist owned pre-buy intents, checked fill results and canonical causal SQL snapshots; make paper buys atomic and fail closed on corrupt portfolios; recover missing paper SQL entries idempotently without reopening later closes; block pending recovery and ambiguous live retries/fallbacks; preserve raw integer quantities and reject unknown live capital before submission",
-    "Journal pre-sell intents across all three primary exit consumers, atomically persist paper partial/full fills and unique receipts, serialize per-mint execution, recover lost paper responses into SQL without reselling, preserve later closes during acknowledgement replay, verify original position lineage and pre-sell quantity, and prevent ambiguous live submission fallback/retry without inventing chain fill evidence"
+    "Journal pre-sell intents across all three primary exit consumers, atomically persist paper partial/full fills and unique receipts, serialize per-mint execution, recover lost paper responses into SQL without reselling, preserve later closes during acknowledgement replay, verify original position lineage and pre-sell quantity, and prevent ambiguous live submission fallback/retry without inventing chain fill evidence",
+    "Persist immutable checksummed per-trade paper close cells with pending archival repair, protect historical outcomes before same-mint replacement, retain original frozen entry/exit policies and net costs, share buy/sell/archive per-mint ownership, reject reused entry identities, and connect analytical readers without silently losing corrupt archive records or merging separate causal trades. Preserve extreme observed peaks without presenting them as realized profit"
   ],
   "evidence": [
     "docs/audits/runner_learning_20261007.json",
@@ -90,7 +91,10 @@
     "tests/test_buy_recovery.py",
     "docs/audits/sell_integrity_20261007.json",
     "runtime/sell_recovery.py",
-    "tests/test_sell_recovery.py"
+    "tests/test_sell_recovery.py",
+    "docs/audits/paper_archive_20261007.json",
+    "runtime/paper_archive.py",
+    "tests/test_paper_archive.py"
   ],
   "verification": {
     "pre_final_changes_full_pytest": "856 passed in 31.49s",
@@ -106,7 +110,8 @@
     "previous_composition_working_suite": "1207 passed in 125.11s",
     "previous_independent_monitor_working_suite": "1234 passed in 186.50s",
     "previous_buy_integrity_working_suite": "1291 passed in 204.69s",
-    "final_working_suite": "1347 passed in 228.28s after final stale-attempt state hardening",
+    "previous_sell_integrity_working_suite": "1347 passed in 228.28s after final stale-attempt state hardening",
+    "final_working_suite": "1381 passed in 161.45s after immutable close archive and final frozen-admission-policy retention",
     "previous_sizing_publishing_suite": "1031 passed in 71.96s without personal .env",
     "previous_runner_forward_publishing_suite": "1068 passed in 62.78s without personal .env",
     "previous_uncertainty_publishing_suite": "1097 passed in 74.08s without personal .env using existing working-checkout Python runtime",
@@ -116,9 +121,10 @@
     "previous_composition_publishing_suite": "1207 passed in 130.22s without personal .env using existing working-checkout Python runtime",
     "previous_independent_monitor_publishing_suite": "1234 passed in 180.56s without personal .env or local .venv using existing working-checkout Python runtime",
     "previous_buy_integrity_publishing_suite": "1291 passed in 190.00s without personal .env or local .venv using existing working-checkout Python runtime",
-    "final_publishing_suite": "1347 passed in 210.88s after final state hardening, without personal .env or local .venv using existing working-checkout Python runtime",
+    "previous_sell_integrity_publishing_suite": "1347 passed in 210.88s after final state hardening, without personal .env or local .venv using existing working-checkout Python runtime",
+    "final_publishing_suite": "1381 passed in 152.64s after immutable close archive and final frozen-admission-policy retention, without personal .env or local .venv using existing working-checkout Python runtime",
     "publishing_preflight": "PASS: both checkouts, compilation, configuration, paper profile and seven report builders",
-    "publishing_ui_build": "Previously passed with bundle-size warning; UI unchanged in uncertainty, transport, collector, incumbent-successor, composition, independent-monitor and buy-integrity stages",
+    "publishing_ui_build": "Previously passed with bundle-size warning; UI unchanged in uncertainty, transport, collector, incumbent-successor, composition, independent-monitor, buy-integrity, sell-integrity and paper-archive stages",
     "focused_runner_and_forward_suite": "147 passed in 59.65s in previous runner stage",
     "focused_learning_and_uncertainty_suite": "75 passed in 18.30s in previous model stage",
     "focused_entry_and_runner_collector_suite": "148 passed in 18.91s before final strict raw-entry type fixture; final full suites include that fixture",
@@ -127,21 +133,22 @@
     "independent_monitor_suite": "98 focused tests and both final 1234-test suites cover startup readiness, stalled entry with independent monitoring, serial cadence, scoped real SQLite rollback/commit, failure/cancellation supervision and background drain, fresh primary batch filtering, just-in-time hot updates/expiry and legacy fair at-most-once service with unchanged configured item limits",
     "buy_integrity_suite": "57 new focused tests and both final 1291-test suites cover durable pre-execution identity, checked results, atomic paper buys, corruption, response loss, restart and SQLite commit/ack failure, no duplicate/reopened position, task ownership, active-call exclusion, resume protection, raw quantity precision, ambiguous managed/legacy submissions and fail-closed live funds",
     "sell_integrity_suite": "56 new synthetic isolated tests and both final 1347-test suites cover strict atomic partial/full portfolio fills, durable pre-sell identity, serialized per-mint quote/fill ownership, response loss/cancellation, canonical SQL reconstruction, prepare/commit/ack failure, corruption/conflicts, UTC replay, later-close preservation, stale-attempt state rollback and terminal resurrection prevention, and single live submission without ambiguous fallback or retry",
+    "paper_archive_suite": "34 new synthetic isolated tests and both final 1381-test suites cover immutable outcome cells, checksum/schema/filename/lineage corruption, legacy retention and explicit read failures, exact causal trade grain, archive/ack failures, no repeated order/fee, replacement pre-provider rejection, concurrent buy ownership, bounded rotated maintenance, frozen admission provenance and extreme observed peaks separated from actual net returns",
     "command": "D:/Dev/Python/memebot3/.venv/Scripts/python.exe -m pytest -q in each checkout",
     "verification_scope": "Automated software, empty-data report builders, isolated historical advisory training, synthetic model/entry/exit/collector fixtures and previous read-only SOL/USDC quote diagnostics; not prospective profitability, memecoin fills or live certification",
     "previous_shutdown_verified_at_utc": "2026-10-07T15:13:25.1749853Z",
     "previous_remaining_bot_processes": 0,
     "previous_bot_lock_present": false,
     "previous_sqlite_process_state": "stopped",
-    "final_shutdown": "VERIFIED_OFF_2026-10-07T18:42:58.7777462Z",
-    "current_shutdown_evidence": "docs/audits/sell_integrity_20261007.json"
+    "final_shutdown": "VERIFIED_OFF_2026-10-07T19:18:05.9301756Z",
+    "current_shutdown_evidence": "docs/audits/paper_archive_20261007.json"
   },
   "isolated_advisory_result": {"source_period": "2026-07-13 through 2026-07-15", "settled_source_rows": 2147, "comparison_rows": 536, "selected_ranking_targets": ["runner_50", "runner_100"], "active_runtime_models_changed": false, "bot_started": false, "interpretation": "Useful historical ranking discrimination only; rare higher targets remain unvalidated and no costed future profits are established"},
   "remaining_required_work": [
     "Complete the architecture and evidence audit across ingestion, opportunity ranking, scheduling, execution, monitoring, exit paths and learned policy activation",
     "Complete uncertainty, rare-runner and risk/continuation model validation on fresh evidence; calibrated event probabilities are not financial profitability evidence",
     "Complete scanner/feed follow-up and first-launch execution constraints; exact 0.1 SOL paper sizing and frozen runner exits are integrated but trading-policy activation remains separate",
-    "Owned buy/sell intents and primary paper JSON/SQL fill recovery are implemented; complete independently checked live wallet/quantity/finality reconciliation, fallback provider market/liquidity freshness and secondary closed-trade archive/research-export retry boundaries. No submission receipt or green paper test certifies these separate financial integrity boundaries",
+    "Owned buy/sell intents, primary paper JSON/SQL fill recovery and durable closed-trade archival/reentry protection are implemented; complete independently checked live wallet/quantity/finality reconciliation, fallback provider market/liquidity freshness, post-partial research enrollment/export retries from the original causal prefix, and complete forward-source integrity/net-cost label propagation. No submission receipt or green paper test certifies these separate financial integrity boundaries",
     "Independent paper entry-component selection composition, checked incumbent/successor lifecycle and actual late-router consumption are implemented; complete still-cached scanner/core-entry consumers and full-strategy capital/admission/execution constraints. Obtain separately authorized fresh full-strategy closed evidence before a profitability claim",
     "Perform proportionate integration, first-launch and failure-path validation while keeping trading disabled",
     "Keep future implementation commits synchronized and leave all runtime services stopped after each verification stage"

@@ -379,7 +379,8 @@ def configure_paper(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_paper_buy_requires_atomic_persistence_and_restores_memory_on_failure(tmp_path, monkeypatch):
     paper = configure_paper(monkeypatch, tmp_path)
-    previous = {"closed": True, "historic": "preserved"}
+    previous = {"closed": True, "historic": "preserved", "qty_lamports": 0,
+        "opened_at": STAMP.isoformat(), "closed_at": STAMP.isoformat()}
     paper._PORTFOLIO[MINT] = previous
     paper._save(strict=True)
     before = paper._DATA_PATH.read_bytes()

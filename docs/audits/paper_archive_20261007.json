@@ -1,0 +1,54 @@
+{
+  "stage": "Durable per-trade paper outcomes and checked analytical readers",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "requested_trade_size_sol": 0.1,
+  "runtime_requirement": "Both checkout runtimes stay OFF. No fresh bot run, live transaction, runtime model training or policy activation is authorized by this stage.",
+  "finding": "A primary paper close could be durable while its best-effort JSONL archive failed. A later buy of the same mint could then replace the only portfolio copy of that closed outcome. Losing financial outcomes biases downstream reporting and learning, including extreme-runner capture diagnostics.",
+  "implemented": {
+    "immutable_archive": "Each new closed entry receives an atomic fsynced JSON cell keyed by its checked entry-intent UUID. The record binds terminal quantity, mint, open/close chronology, entry identity, frozen policy, costs, financial outcome and unique exit receipts with a payload checksum. Existing outcomes cannot be replaced with a different snapshot. Legacy JSONL remains untouched and is still read as historical input",
+    "financial_boundary": "The primary portfolio records the complete fill and an archive-pending marker atomically before the secondary archive attempt. Secondary archive or marker-acknowledgement failure never turns an already completed sale into an unfilled sale. Matching sell-intent retries return the original receipt without another quote, fee or order",
+    "replacement_boundary": "Before replacing a closed mint with a new paper buy, its previous outcome must be verified in the durable archive. An unavailable archive gives a proved pre-execution rejection before provider calls. Already-used entry identities are rejected, including identities still in the portfolio when their archive has not yet succeeded",
+    "bounded_repair": "Startup and the paper main loop invoke secondary archival maintenance. It rotates through at most 128 entries, attempts at most eight archives per call and uses a 30-second throttle. It shares per-mint ownership with buys and sells, rechecks current state after acquiring ownership, and never executes a trade or changes cash accounting",
+    "concurrency": "The same per-mint lock spans buy route/price awaits, sell quote/fill awaits and archive repair. Concurrent buys cannot both pass an open-position check and overwrite one another. Idle locks are released",
+    "analytical_grain": "Report and forward-evidence readers consume canonical cells and legacy JSONL. Checked causal UUIDs preserve repeated trades even at the same mint and timestamp. A legacy alias merges only when it has one compatible checked identity; ambiguous legacy joins remain explicit errors/rejections instead of invented assignments",
+    "source_integrity": "Unreadable archive cells or legacy lines are surfaced explicitly. Diagnostic forward totals retain separately valid records but acceptance is rejected. Report loading fails explicitly instead of silently omitting an unreadable closed outcome. Arbitrary top-level and provider payload fields are not archived",
+    "extreme_runners": "Archive and capture diagnostics preserve peaks of 500, 1000, 5000, 10000 and 50000 percent without a fixed profit ceiling. A peak remains an observed maximum, not a realized return. Synthetic fixtures with 10 percent net return keep that actual return regardless of the extreme peak",
+    "unchanged": "Exact 0.1 SOL paper buys, existing entry/route/capital safety gates, uncapped runner exits and frozen drawdown protection remain in place. No active strategy or model was promoted"
+  },
+  "verification": {
+    "status": "PASS_SOFTWARE_ONLY",
+    "previous_full_working": "1380 passed in 156.36s before the final explicit frozen-admission-policy retention test",
+    "previous_full_publishing": "1380 passed in 132.39s before the final explicit frozen-admission-policy retention test",
+    "final_focused_archive": "34 passed in 3.20s including frozen admission provenance",
+    "full_working_checkout": "1381 passed in 161.45s after final frozen-admission-policy retention",
+    "full_publishing_checkout": "1381 passed in 152.64s after final frozen-admission-policy retention, without personal .env or local .venv, using the working-checkout Python runtime",
+    "preflight_both": "PASS after final source changes: compile_errors=0, config_import_rc=0, paper profile OK and all seven empty-data report builders OK in each checkout",
+    "source_sync": "Ten reviewed implementation/test files copied into the initially clean publishing checkout, zero deletions, followed by reviewed same-stage updates. Personal .env, data, logs and runtime model artifacts excluded",
+    "scope": "Synthetic isolated portfolio/archive files, mocked quote providers, cost-checked accounting, actual paper buy/sell functions, AST-extracted runtime maintenance helper and startup/shutdown lifecycle. No real bot or wallet order was run"
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "runtime_model_training_started": false,
+    "shutdown_verified_at_utc": "2026-10-07T19:18:05.9301756Z",
+    "remaining_bot_processes_both_checkouts": 0,
+    "bot_locks_both_checkouts": false,
+    "runtime_buy_journal_files_created": 0,
+    "runtime_sell_journal_files_created": 0,
+    "real_canonical_archive_cells_created": 0,
+    "sqlite_state": "main=stopped, retrain=idle, reports=idle",
+    "runtime_models_changed_since_184516_utc": 0,
+    "active_entry_policies_and_open_collection_plans_both_checkouts": 0,
+    "stop_stack": "2026-10-07T19:18:05Z requested_by=user; killed=0 remaining=0"
+  },
+  "remaining_full_goal_requirements": [
+    "Make post-partial runner-research enrollment durably recoverable from its original causal prefix; a later retry must not borrow future observations or silently manufacture complete coverage",
+    "Review complete forward-evidence source integrity and net-cost model-label propagation; this stage checks closed archives, not every remaining permissive dataset reader or research export",
+    "Complete fallback market/liquidity freshness, still-cached scanner/core-entry consumers, opportunity/feed follow-up and full-strategy capital/admission constraints",
+    "Independently reconcile real wallet balances, submitted signatures, actual token/SOL movements and chain finality before certifying any live fill or safe retry",
+    "Obtain separately authorized fresh, complete, costed full-strategy and rare-runner evidence before a profitability claim; historical ranking and synthetic unlimited-upside tests are not financial validation",
+    "Keep further reviewed implementation synchronized and leave both checkout runtimes OFF"
+  ],
+  "evidence": ["runtime/paper_archive.py", "trader/papertrading.py", "analytics/report_utils.py", "analytics/forward_evidence.py", "run_bot.py", "tests/test_paper_archive.py", "tests/test_main_loop_position_monitor.py"]
+}

@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from analytics.current_run import parse_time
-from analytics.report_utils import load_paper_positions, load_sqlite_positions, read_jsonl
+from analytics.report_utils import load_paper_positions, load_sqlite_positions
+from runtime.paper_archive import PaperArchiveError, entry_identity, read_closed_evidence
 
 
 def _finite(value: Any) -> float | None:
@@ -85,9 +86,12 @@ def collect_forward_evidence(root: Path, *, run_id: str | None, started_at: Any,
     if started is not None and started > now:
         reasons.append("prospective_start_in_future")
     identity_invalid = bool(reasons)
-    rows = (read_jsonl(root / "data" / "paper_closed_trades.jsonl") + load_paper_positions(root)
-            + load_sqlite_positions(root))
-    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    archived, archive_issues = read_closed_evidence(root / "data")
+    if archive_issues:
+        reasons.append("paper_closed_archive_unreadable")
+    rows = archived + load_paper_positions(root) + load_sqlite_positions(root)
+    candidates, known = [], {}
+    grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for row in rows:
         opened, closed = parse_time(row.get("opened_at")), parse_time(row.get("closed_at"))
         if identity_invalid or not _true(row.get("dry_run")) or _true(row.get("test_event")) or row.get("run_id") == "SMOKE":
@@ -98,12 +102,26 @@ def collect_forward_evidence(root: Path, *, run_id: str | None, started_at: Any,
             continue
         if profile and row.get("config_profile") != profile:
             continue
-        # Solana addresses are case sensitive. Open time identifies repeat buys.
+        # Solana mints are case sensitive; checked UUIDs preserve repeat buys.
         address = row.get("token_address") or row.get("address")
         if not isinstance(address, str) or not address.strip():
             reasons.append("forward_trade_identity_missing")
             continue
-        grouped.setdefault((address, opened.isoformat()), []).append(row)
+        try:
+            causal_id = entry_identity(row)
+        except PaperArchiveError:
+            reasons.append("forward_trade_identity_invalid")
+            continue
+        base = (address, opened.isoformat())
+        if causal_id:
+            known.setdefault(base, set()).add(causal_id)
+        candidates.append((base, causal_id, row))
+    for base, causal_id, row in candidates:
+        matches = known.get(base, set())
+        if causal_id is None and len(matches) > 1:
+            reasons.append("ambiguous_legacy_trade_identity")
+            continue
+        grouped.setdefault((*base, causal_id or next(iter(matches), "")), []).append(row)
     selected = {}
     open_positions = set()
     uncosted = 0
@@ -167,6 +185,7 @@ def collect_forward_evidence(root: Path, *, run_id: str | None, started_at: Any,
     lower = statistics.mean(pcts) - 1.96 * statistics.stdev(pcts) / math.sqrt(len(pcts)) if len(pcts) > 1 else None
     return {
         "evidence_rejections": sorted(set(reasons)), "run_id": run_id, "cost_basis": "estimated_paper_fills_not_live",
+        "closed_archive_integrity_issues": archive_issues,
         "config_hash": config_hash, "profile": profile,
         "window_started_at": started.isoformat() if started else None,
         "evidence_schema": "cost_checked_terminal_trades_v2",

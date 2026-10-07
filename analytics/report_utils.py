@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 from config.config import PROJECT_ROOT
 from ml.data_contract import normalize_candidate_event_row
+from runtime.paper_archive import PaperArchiveError, entry_identity, read_closed_evidence
 
 _INCLUDE_TEST_EVENTS = False
 
@@ -183,7 +184,7 @@ def sort_event_rows(rows: Iterable[dict[str, Any]], *keys: str) -> list[dict[str
 def position_key(row: dict[str, Any]) -> str:
     address = address_of(row)
     lane = str(row.get("entry_lane") or row.get("lane") or row.get("profit_lane_tier") or row.get("size_bucket") or "").strip().lower()
-    stamp = first_nonempty(row, "source_position_key", "id", "buy_tx_sig", "opened_at", "created_at", "closed_at", "run_id")
+    stamp = first_nonempty(row, "entry_intent_id", "source_position_key", "id", "buy_tx_sig", "opened_at", "created_at", "closed_at", "run_id")
     identity = address or lane or "position"
     return f"{identity}:{stamp if stamp is not None else id(row)}"
 
@@ -326,10 +327,21 @@ def load_sqlite_closed_trades(root: Path | None = None) -> list[dict[str, Any]]:
 
 def dedupe_position_rows(json_rows: list[dict[str, Any]], sqlite_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    def trade_identity(row: dict[str, Any]) -> tuple[str, str]:
+    seen: set[str | tuple[str, ...]] = set()
+    known: dict[tuple[str, str], set[str]] = {}
+    for row in json_rows + sqlite_rows:
         stamp = parse_event_timestamp(row.get("opened_at"))
-        return (address_of(row), stamp.isoformat() if stamp else "")
+        identity = entry_identity(row)
+        if identity and stamp:
+            known.setdefault((address_of(row), stamp.isoformat()), set()).add(identity)
+    def trade_identity(row: dict[str, Any]) -> tuple[str, str, str]:
+        stamp = parse_event_timestamp(row.get("opened_at"))
+        base = (address_of(row), stamp.isoformat() if stamp else "")
+        identity = entry_identity(row)
+        matches = known.get(base, set())
+        if identity is None and len(matches) > 1:
+            raise PaperArchiveError("Legacy position cannot be assigned to multiple causal entries")
+        return (*base, identity or next(iter(matches), ""))
     sqlite_addresses = {address_of(row) for row in sqlite_rows if address_of(row)}
     json_by_trade = {trade_identity(row): row for row in json_rows}
     sqlite_trade_ids = {trade_identity(row) for row in sqlite_rows}
@@ -354,9 +366,11 @@ def dedupe_position_rows(json_rows: list[dict[str, Any]], sqlite_rows: list[dict
                         if field in companion:
                             item[field] = companion[field]
             if source == "paper_portfolio" and address and address in sqlite_addresses:
-                if identity in sqlite_trade_ids or not identity[1] or (address, "") in sqlite_trade_ids:
+                if identity in sqlite_trade_ids or not identity[1] or (address, "", "") in sqlite_trade_ids:
                     continue
-            key = position_key(item)
+            # A legacy alias and its one proven UUID refer to the same trade.
+            # Unmatched legacy SQL ids retain their original distinct grain.
+            key = ("causal_trade", *identity) if identity[2] else position_key(item)
             if key in seen:
                 continue
             seen.add(key)
@@ -366,7 +380,10 @@ def dedupe_position_rows(json_rows: list[dict[str, Any]], sqlite_rows: list[dict
 
 def load_deduped_positions(root: Path | None = None) -> list[dict[str, Any]]:
     root = root or PROJECT_ROOT
-    return dedupe_position_rows(load_paper_positions(root) + read_jsonl(root / "data" / "paper_closed_trades.jsonl"), load_sqlite_positions(root))
+    closed, issues = read_closed_evidence(root / "data")
+    if issues:
+        raise PaperArchiveError("Closed-trade evidence is unreadable; do not silently omit it")
+    return dedupe_position_rows(load_paper_positions(root) + closed, load_sqlite_positions(root))
 
 
 def bought_addresses(root: Path | None = None) -> set[str]:

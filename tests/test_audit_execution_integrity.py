@@ -114,7 +114,9 @@ async def test_costs_are_frozen_and_all_partials_charge_one_fee(isolated_paper, 
     from analytics.forward_evidence import _costed_close
     assert _costed_close(entry) is not None
     assert _costed_close(entry)[4] is False  # synthetic fixture is not executable quote proof
-    assert len((isolated_paper / "paper_closed_trades.jsonl").read_text().splitlines()) == 1
+    from runtime.paper_archive import read_closed_evidence
+    archived, issues = read_closed_evidence(isolated_paper)
+    assert len(archived) == 1 and not issues
 
 
 @pytest.mark.asyncio

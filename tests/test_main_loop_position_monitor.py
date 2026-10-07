@@ -252,6 +252,9 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
         async def __aexit__(self, *args): cleaned.add("recovery")
     async def recovery(session, **kwargs): assert kwargs["force"]
     async def buy_recovery(session, **kwargs): assert kwargs["force"]
+    async def archive_recovery(**kwargs):
+        assert kwargs["force"]
+        cleaned.add("archive_recovery")
     async def main(*, positions_ready):
         try:
             positions_ready.set()
@@ -282,9 +285,10 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
     monkeypatch.setattr(research, "stop_background_tasks", stop_research)
     async def publish():
         assert namespace["_runtime_process_state"] == "stopped"
-        assert cleaned == {"recovery", "main", "monitor", "labeler", "state", "background", "social", "research"}
+        assert cleaned == {"recovery", "archive_recovery", "main", "monitor", "labeler", "state", "background", "social", "research"}
         published.append(True)
     namespace = {"asyncio": asyncio, "CFG": SimpleNamespace(ML_RETRAIN_IN_MAIN_LOOP=False),
+        "DRY_RUN": True, "_repair_paper_archive_evidence": archive_recovery,
         "async_init_db": init, "SessionLocal": RecoverySession, "_recover_close_persistence_outbox": recovery,
         "_recover_buy_persistence_outbox": buy_recovery,
         "main_loop": main, "_position_monitor_loop": monitor, "_periodic_labeler": lambda: loop("labeler"),

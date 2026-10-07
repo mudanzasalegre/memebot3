@@ -7659,6 +7659,16 @@ async def _commit_close_persistence(
     return True
 
 
+async def _repair_paper_archive_evidence(*, force: bool = False) -> dict:
+    if not DRY_RUN:
+        return {"status": "disabled", "attempted": 0, "failed": 0}
+    from trader.papertrading import repair_paper_archives
+    result = await repair_paper_archives(force=force)
+    if result["failed"]:
+        log.warning("Paper outcome archive remains pending for %d attempted closes", result["failed"])
+    return result
+
+
 async def _recover_buy_persistence_outbox(ses: SessionLocal, *, force: bool = False) -> int:
     global _last_buy_recovery_retry_monotonic
     if not _BUY_RECOVERY.pending_addresses:
@@ -9753,6 +9763,11 @@ async def main_loop(*, positions_ready: asyncio.Event | None = None) -> None:
         # Discovery, entry timeouts and reporting cannot postpone its next tick.
 
         # 4.5) Shadows (modo real o estrategia shadow en paper/live)
+        if DRY_RUN:
+            try:
+                await _repair_paper_archive_evidence()
+            except Exception as exc:
+                log.warning("Paper archive maintenance unavailable: %s", type(exc).__name__)
         if DRY_RUN and (bool(getattr(CFG, "PAPER_RUNNER_RESEARCH_ENABLED", False))
                         or bool(getattr(CFG, "PAPER_ENTRY_RESEARCH_ENABLED", False))):
             try:
@@ -9814,6 +9829,8 @@ async def _runner() -> None:
         async with SessionLocal() as recovery_session:
             await _recover_buy_persistence_outbox(recovery_session, force=True)
             await _recover_close_persistence_outbox(recovery_session, force=True)
+        if DRY_RUN:
+            await _repair_paper_archive_evidence(force=True)
         from runtime.loop_scheduler import supervise
         positions_ready = asyncio.Event()
         tasks = [
