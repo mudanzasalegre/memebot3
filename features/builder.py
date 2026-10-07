@@ -402,13 +402,13 @@ def _coerce_age_minutes(tok: Dict[str, Any], now: dt.datetime) -> float:
     return compute_age_minutes(tok, now=now)
 
 
-def build_feature_vector(tok: Dict[str, Any]) -> pd.Series:
+def build_feature_vector(tok: Dict[str, Any], *, now: dt.datetime | None = None) -> pd.Series:
     tok = sanitize_token_data(dict(tok))
 
     bad_keys = _has_forbidden_keys(tok, FORBIDDEN_FEATURES, _FORBIDDEN_SUBSTR)
     assert not bad_keys, f"Token incluye claves de futuro/no permitidas: {bad_keys}"
 
-    now = utc_now()
+    now = now if now is not None else utc_now()
     age_min = _coerce_age_minutes(tok, now)
 
     discovered_via = _normalize_discovery(tok.get("discovered_via", "dex"))

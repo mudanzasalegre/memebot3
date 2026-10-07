@@ -149,7 +149,7 @@ def log_buy_event(
 def log_ml_decision_event(
     address: str,
     *,
-    proba: float,
+    proba: float | None,
     threshold: float,
     passed: bool,
     enforced: bool,
@@ -160,7 +160,8 @@ def log_ml_decision_event(
     score_total: int | None = None,
 ) -> None:
     payload: dict[str, Any] = {
-        "proba": float(proba),
+        "proba": None if proba is None else float(proba),
+        "prediction_status": "unknown" if proba is None else "observed",
         "threshold": float(threshold),
         "passed": bool(passed),
         "enforced": bool(enforced),

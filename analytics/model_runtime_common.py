@@ -15,6 +15,7 @@ import pandas as pd
 from config.config import PROJECT_ROOT
 from ml.feature_matrix import coerce_feature_frame
 from ml.financial_targets import financial_target, supported_financial_training
+from analytics.inference_scope import scoped_value, scoped_snapshot, scoped_prediction
 
 log = logging.getLogger(__name__)
 _lock = threading.RLock()
@@ -34,7 +35,7 @@ def _supported_cluster_skill(evaluation: Any) -> bool:
         return False
 
 
-def _model_path(family: str, target: str) -> Path:
+def _model_path_unscoped(family: str, target: str) -> Path:
     directory = PROJECT_ROOT / "ml" / "models" / family
     manifest_path = directory / "advisory_manifest.json"
     if not manifest_path.exists():
@@ -63,7 +64,12 @@ def _model_path(family: str, target: str) -> Path:
         return unavailable
 
 
-def _load(path: Path, *, require_temporal_validation: bool):
+def _model_path(family: str, target: str) -> Path:
+    return scoped_value(("family_path", str(PROJECT_ROOT), family, target),
+                        lambda: _model_path_unscoped(family, target))
+
+
+def _load_unscoped(path: Path, *, require_temporal_validation: bool):
     meta_path = path.with_suffix(".meta.json")
     key = (str(path), require_temporal_validation)
     try:
@@ -107,6 +113,11 @@ def _load(path: Path, *, require_temporal_validation: bool):
         return model, features, metadata
 
 
+def _load(path: Path, *, require_temporal_validation: bool):
+    return scoped_snapshot(("artifact", str(path), require_temporal_validation),
+        lambda: _load_unscoped(path, require_temporal_validation=require_temporal_validation))
+
+
 def _predict_snapshot(path: Path, model: Any, features: list[str], metadata: dict[str, Any], vec: Any,
                       *, expected_metadata: dict[str, Any] | None = None) -> float | None:
     if model is None:
@@ -137,7 +148,8 @@ def _predict_snapshot(path: Path, model: Any, features: list[str], metadata: dic
             classes = list(getattr(model, "classes_", []))
             positive = 1 if 1 in classes else "1" if "1" in classes else None
             if len(classes) == 2 and positive is not None:
-                value = float(model.predict_proba(X)[0, classes.index(positive)])
+                value = float(scoped_prediction(("probability", str(path), id(model), metadata.get("model_sha256")),
+                    X, lambda: model.predict_proba(X)[0, classes.index(positive)]))
                 return value if np.isfinite(value) and 0 <= value <= 1 else None
             return None
         evaluation = metadata.get("regression_evaluation") or {}
@@ -149,7 +161,8 @@ def _predict_snapshot(path: Path, model: Any, features: list[str], metadata: dic
                 or not _supported_cluster_skill(evaluation)
                 or not np.isfinite(radius) or radius < 0 or not np.isfinite(skill) or skill <= 0):
             return None
-        prediction = model.predict(X)[0]
+        prediction = scoped_prediction(("regression", str(path), id(model), metadata.get("model_sha256")),
+                                       X, lambda: model.predict(X)[0])
         value = float(prediction)
         return value if np.isfinite(value) else None
     except Exception as exc:
@@ -223,7 +236,8 @@ def predict_ranking_score(family: str, target: str, vec: Any) -> float | None:
             return None
         row = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec or {})
         X = coerce_feature_frame(pd.DataFrame([row]), features)
-        value = float(model.rank_score(X)[0])
+        value = float(scoped_prediction(("ranking", id(model), metadata.get("model_sha256")),
+                                       X, lambda: model.rank_score(X)[0]))
         if not np.isfinite(value):
             return None
         low = np.searchsorted(reference, value, side="left")

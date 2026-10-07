@@ -239,7 +239,7 @@ from analytics.reporting import (  # noqa: E402
     render_edge_markdown,
     summarize_edge,
 )
-from analytics.ai_predict import should_buy, reload_model, model_runtime_status  # noqa: E402
+from analytics.ai_predict import should_buy, entry_prediction_state, reload_model, model_runtime_status  # noqa: E402
 
 # ───────── Características + ML store ───────────────────────────────────────
 from features.builder import build_feature_vector  # noqa: E402
@@ -4474,6 +4474,67 @@ def _entry_observation_is_current(token: dict, observation, *, stage: str, vecto
     return False
 
 
+def _score_entry_inputs(token: dict, *, captured_at: dt.datetime):
+    """One current vector for every prediction, bound threshold and ranking."""
+    token["runner_exit_profile"] = _runner_profile_for_subject(token)
+    token["exit_profile"] = token.get("runner_exit_profile")
+    token["config_hash"] = _config_hash()
+    vec = build_feature_vector(token, now=captured_at)
+    payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+    mode = str(getattr(CFG, "ML_GATE_MODE", "legacy") or "legacy").strip().lower()
+    proba = None if mode == "off" else should_buy(vec)
+    risk = predict_risk(vec) if bool(getattr(CFG, "ML_RISK_MODEL_ENABLED", True)) else None
+    ev = predict_ev(vec) if bool(getattr(CFG, "ML_EV_MODEL_ENABLED", True)) else None
+    state = entry_prediction_state()
+    decision = decide_ml_action(token=token, feature_row=payload, proba=proba,
+        base_rules_passed=True, dry_run=DRY_RUN, live=not DRY_RUN, risk_proba=risk,
+        ev_pred_pct=ev, entry_model_activation_ready=state["activation_ready"],
+        entry_model_metadata=state["metadata"])
+    threshold = (float(decision.threshold) if decision.threshold is not None
+                 else filters.effective_ai_threshold(token, AI_THRESHOLD))
+    rank = research_runtime.score_candidate(payload, proba=proba, threshold=threshold)
+    return vec, payload, proba, risk, ev, threshold, rank, decision
+
+
+def _entry_ml_allowed(decision, *, paper: bool, bypass: bool) -> bool:
+    # Explicit paper exploration may bypass admission probabilities, never an
+    # enforced risk veto or a live decision. Missing models remain advisory.
+    return bool(not decision.risk_veto_enforced and (decision.allow_buy or (paper and bypass)))
+
+
+def _refresh_entry_sizing(token, proba, threshold, risk, ev, *, queue_attempts,
+                          strategy_cap=None, paper_shadow_probe=False):
+    """Recompute current sizing without dropping previously established caps."""
+    size = entry_sizing.compute_entry_sizing(token=token, ai_proba=proba,
+        base_amount_sol=TRADE_AMOUNT_SOL_CFG, queue_attempts=queue_attempts,
+        ai_threshold=threshold)
+    if strategy_cap is not None:
+        size = _apply_strategy_size_cap(size, strategy_cap)
+    if paper_shadow_probe:
+        size = _apply_strategy_size_cap(size, _PAPER_COLD_START_SHADOW_PROBE_SIZE_MULTIPLIER)
+    green = None
+    if str(token.get("entry_lane") or "").strip().lower() in {
+        "pump_early_green_candle_sniper", "pump_early_late_momentum_watch",
+        "pump_early_birth_probe_micro_canary", "pump_early_moonshot_micro_lottery",
+    }:
+        green = compute_green_sniper_sizing(token, dry_run=DRY_RUN, live=not DRY_RUN,
+            size_hint=token.get("green_sniper_size_hint"), risk_proba=risk, ev_pred_pct=ev)
+        token["green_sniper_size_mode"] = green.mode
+        token["green_sniper_size_reason"] = green.reason
+    return size, green
+
+
+def _defer_entry_model(token, *, decision, proba, threshold, rank_info, reason):
+    """A changed decision is not an observed losing financial outcome."""
+    addr = str(token.get("address") or "")
+    _pending_ai_vectors.pop(addr, None)
+    log_ml_policy_decision_event(addr, decision, base_rules_passed=True)
+    _research_decision(token, action="wait", reason=reason, stage="final_ml_policy",
+        proba=proba, threshold=threshold, rank_info=rank_info, dedup_ttl_s=60)
+    _requeue_or_cooldown_candidate(addr, token, reason=reason,
+        backoff=_DEX_MATURE_QUALITY_BACKOFF_S)
+
+
 async def _maybe_apply_paper_sniper_liquidity_proxy(token: dict, addr: str) -> bool:
     if not (
         DRY_RUN
@@ -4596,7 +4657,7 @@ def _green_shadow_can_continue_to_runner_canary(token: dict, decision: object) -
 
 
 def _build_entry_position(token: dict, size_decision, *, addr: str, amount_sol: float,
-                          proba: float, qty_lp: int = 0, price_usd: float = 0.0,
+                          proba: float | None, qty_lp: int = 0, price_usd: float = 0.0,
                           buy_resp: dict | None = None, price_src=None,
                           price_confidence=None, buy_sig: str | None = None) -> Position:
     """One canonical entry snapshot for normal persistence and crash recovery."""
@@ -4619,7 +4680,7 @@ def _build_entry_position(token: dict, size_decision, *, addr: str, amount_sol: 
         buy_amount_sol=float(amount_sol),
         dry_run=bool(DRY_RUN),
         entry_notional_usd=float(buy_resp.get("entry_notional_usd") or 0.0),
-        entry_ai_proba=float(proba),
+        entry_ai_proba=None if proba is None else float(proba),
         entry_score_total=_metric_int(token, "score_total"),
         entry_lane=str(token.get("entry_lane") or "") or None,
         entry_subprofile=str(token.get("entry_subprofile") or token.get("sniper_research_subprofile") or "") or None,
@@ -5191,8 +5252,11 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         return
 
     # 9) — IA + soft score gate —
-    vec = build_feature_vector(token)
-    vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+    entry_model_at = utc_now()
+    token["runner_exit_profile"] = _runner_profile_for_subject(token)
+    token["exit_profile"] = token.get("runner_exit_profile")
+    token["config_hash"] = _config_hash()
+    vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
     for key in (
         "age_minutes",
         "snapshot_missing_fields",
@@ -5211,12 +5275,6 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     ):
         if key in vec_payload and vec_payload.get(key) is not None:
             token[key] = vec_payload.get(key)
-    ml_gate_mode_raw = str(getattr(CFG, "ML_GATE_MODE", "legacy") or "legacy").strip().lower()
-    proba = None if ml_gate_mode_raw == "off" else should_buy(vec)
-    risk_proba = predict_risk(vec) if bool(getattr(CFG, "ML_RISK_MODEL_ENABLED", True)) else None
-    ev_pred_pct = predict_ev(vec) if bool(getattr(CFG, "ML_EV_MODEL_ENABLED", True)) else None
-    ai_threshold_eff = filters.effective_ai_threshold(token, AI_THRESHOLD)
-    rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
     _research_stage(
         token,
         stage="late_funnel",
@@ -5226,24 +5284,21 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     )
     if str(token.get("entry_regime") or "").strip().lower() == "pump_early" and _PUMP_EARLY_SNIPER_ENABLED:
         _tag_pump_sniper_gate(token, rank_info)
-        vec = build_feature_vector(token)
-        vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+        vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
         rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
     research_canary_decision = evaluate_research_rank_canary(token, rank_info, dry_run=DRY_RUN, live=not DRY_RUN)
     research_rank_canary_fast_path = bool(research_canary_decision.allowed)
     if research_rank_canary_fast_path:
         apply_research_rank_canary_context(token, research_canary_decision)
-        vec = build_feature_vector(token)
-        vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+        vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
         rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
     elif bool(getattr(research_canary_decision, "shadow_as_own_lane", False)):
         apply_research_rank_canary_shadow_context(token, research_canary_decision)
-        vec = build_feature_vector(token)
+        vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
         paper_exploration_decision = await _maybe_apply_paper_exploration_quota(token, ses, addr)
         paper_exploration_fast_path = bool(getattr(paper_exploration_decision, "allowed", False))
         if paper_exploration_fast_path:
-            vec = build_feature_vector(token)
-            vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+            vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
             rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
             require_jup_for_buy = False
         else:
@@ -5257,8 +5312,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             paper_bootstrap_fast_path = bool(getattr(paper_bootstrap_decision, "allowed", False))
             if paper_bootstrap_fast_path:
                 require_jup_for_buy = False
-                vec = build_feature_vector(token)
-                vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+                vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
                 rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
         if not paper_bootstrap_fast_path and not paper_exploration_fast_path:
             _research_decision(
@@ -5361,25 +5415,14 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "green_shadow"))
             _remove_from_queue_if_present(addr)
             return
-    ml_gate = _ml_gate_state()
-    ml_decision = decide_ml_action(
-        token=token,
-        feature_row=vec_payload,
-        proba=proba,
-        base_rules_passed=True,
-        dry_run=DRY_RUN,
-        live=not DRY_RUN,
-        risk_proba=risk_proba,
-        ev_pred_pct=ev_pred_pct,
-        entry_model_activation_ready=ml_gate.get("activation_ready") is True,
-    )
+    vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
     if ml_decision.threshold is not None:
         ai_threshold_eff = float(ml_decision.threshold)
         rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
     ml_pass = bool(proba is not None and proba >= ai_threshold_eff)
     log_ml_decision_event(
         addr,
-        proba=float(proba or 0.0),
+        proba=proba,
         threshold=float(ai_threshold_eff),
         passed=bool(ml_pass),
         enforced=bool(ml_decision.enforce),
@@ -5390,20 +5433,19 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         score_total=_metric_int(token, "score_total"),
     )
     log_ml_policy_decision_event(addr, ml_decision, base_rules_passed=True)
-    if not ml_decision.allow_buy and not (
+    if not _entry_ml_allowed(ml_decision, paper=bool(DRY_RUN), bypass=bool(
         moonshot_fast_path
         or shadow_followup_fast_path
         or paper_exploration_fast_path
         or paper_bootstrap_fast_path
         or sniper_micro_fallback_probe
         or sniper_micro_fallback_fast_path
-    ):
+    )):
         paper_exploration_decision = await _maybe_apply_paper_exploration_quota(token, ses, addr)
         paper_exploration_fast_path = bool(getattr(paper_exploration_decision, "allowed", False))
         if paper_exploration_fast_path:
             require_jup_for_buy = False
-            vec = build_feature_vector(token)
-            vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+            vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
             rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
         else:
             paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
@@ -5416,17 +5458,16 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             paper_bootstrap_fast_path = bool(getattr(paper_bootstrap_decision, "allowed", False))
             if paper_bootstrap_fast_path:
                 require_jup_for_buy = False
-                vec = build_feature_vector(token)
-                vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+                vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
                 rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
-    if not ml_decision.allow_buy and not (
+    if not _entry_ml_allowed(ml_decision, paper=bool(DRY_RUN), bypass=bool(
         moonshot_fast_path
         or shadow_followup_fast_path
         or paper_exploration_fast_path
         or paper_bootstrap_fast_path
         or sniper_micro_fallback_probe
         or sniper_micro_fallback_fast_path
-    ):
+    )):
         _stats["filtered_out"] += 1
         reject_reason = f"ml_policy:{ml_decision.reason}"
         _store_policy_reject(vec, already_vector=True, reason=reject_reason)
@@ -5455,7 +5496,6 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             backoff=_DEX_MATURE_QUALITY_BACKOFF_S,
         )
         return
-    proba = float(proba or 0.0)
 
     soft_score_min_eff = filters.effective_soft_score_min(token, BUY_SOFT_SCORE_MIN)
     sniper_gate_ok_preview = bool(
@@ -5490,8 +5530,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         paper_exploration_fast_path = bool(getattr(paper_exploration_decision, "allowed", False))
         if paper_exploration_fast_path:
             require_jup_for_buy = False
-            vec = build_feature_vector(token)
-            vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+            vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
             rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
             sniper_gate_ok_preview = True
         else:
@@ -5505,8 +5544,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             paper_bootstrap_fast_path = bool(getattr(paper_bootstrap_decision, "allowed", False))
             if paper_bootstrap_fast_path:
                 require_jup_for_buy = False
-                vec = build_feature_vector(token)
-                vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+                vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
                 rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
                 sniper_gate_ok_preview = True
     if (
@@ -6002,8 +6040,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                     token,
                     subprofile_decision,
                 )
-        vec = build_feature_vector(token)
-        vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+        vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
         if not subprofile_decision.allowed:
             if str(subprofile_decision.reason).startswith("sniper_research_micro_fallback_not_matched"):
                 _record_sniper_research_micro_fallback_event(
@@ -6019,8 +6056,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 token["entry_subprofile"] = "paper_exploration_quota"
                 token["sniper_research_subprofile_failures"] = ""
                 require_jup_for_buy = False
-                vec = build_feature_vector(token)
-                vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+                vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
                 rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
             else:
                 paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
@@ -6036,8 +6072,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                     token["entry_subprofile"] = POLICY_PAPER_BOOTSTRAP
                     token["sniper_research_subprofile_failures"] = ""
                     require_jup_for_buy = False
-                    vec = build_feature_vector(token)
-                    vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+                    vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
                     rank_info = research_runtime.score_candidate(vec_payload, proba=proba, threshold=ai_threshold_eff)
             if not paper_bootstrap_fast_path and not paper_exploration_fast_path:
                 _stats["filtered_out"] += 1
@@ -6180,8 +6215,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             if paper_bootstrap_fast_path:
                 require_jup_for_buy = bool(getattr(CFG, "PAPER_BOOTSTRAP_REQUIRE_ROUTE", True))
                 token["require_jupiter_for_buy"] = int(require_jup_for_buy)
-                vec = build_feature_vector(token)
-                vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+                vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
                 rank_info = research_runtime.score_candidate(
                     vec_payload,
                     proba=proba,
@@ -6190,7 +6224,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             else:
                 _stats["filtered_out"] += 1
                 apply_untagged_buy_shadow_context(token, untagged_decision)
-                vec = build_feature_vector(token)
+                vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
                 _store_policy_reject(vec, already_vector=True, reason=REASON_UNTAGGED_BLOCKED)
                 _research_decision(
                     token,
@@ -6224,7 +6258,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     pump_entry_decision = select_pump_entry_lane(token)
     if not pump_entry_decision.allowed:
         _stats["filtered_out"] += 1
-        vec = build_feature_vector(token)
+        vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
         _store_policy_reject(vec, already_vector=True, reason=pump_entry_decision.reason)
         _research_decision(
             token,
@@ -6255,6 +6289,13 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         return
     token["pump_entry_selected_lane"] = pump_entry_decision.selected_lane
     token["pump_entry_lane_selector_reason"] = pump_entry_decision.reason
+
+    # Late lane selection must not retain a previous lane's forecasts or sizing.
+    vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
+    size_decision, green_size_decision = _refresh_entry_sizing(token, proba,
+        ai_threshold_eff, risk_proba, ev_pred_pct, queue_attempts=queue_attempts,
+        strategy_cap=strategy_decision.size_cap_multiplier,
+        paper_shadow_probe=paper_shadow_probe_live)
 
     # IMPORTANTE: no etiquetar 1 en T0; guardamos el vector para el cierre
     _pending_ai_vectors[addr] = vec
@@ -6793,9 +6834,43 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
     # Re-evaluate from the start if any decision input expired/changed during
     # async risk/capacity/provider work. No rate-limit slot or buy intent yet.
+    vec, vec_payload, proba, risk_proba, ev_pred_pct, ai_threshold_eff, rank_info, ml_decision = _score_entry_inputs(token, captured_at=entry_model_at)
+    final_size, final_green_size = _refresh_entry_sizing(token, proba,
+        ai_threshold_eff, risk_proba, ev_pred_pct, queue_attempts=queue_attempts,
+        strategy_cap=strategy_decision.size_cap_multiplier,
+        paper_shadow_probe=paper_shadow_probe_live)
+    final_quality_ok, final_quality_reason = _entry_quality_gate(token,
+        final_size.regime, quality_points=final_size.quality_points, rank_info=rank_info,
+        paper_cold_start_active=_paper_cold_start_active(closed_trades_for_gate))
+    final_ml_bypass = bool(moonshot_fast_path or shadow_followup_fast_path
+        or paper_exploration_fast_path or paper_bootstrap_fast_path
+        or sniper_micro_fallback_probe or sniper_micro_fallback_fast_path)
+    final_model_reason = None
+    if not _entry_ml_allowed(ml_decision, paper=bool(DRY_RUN), bypass=final_ml_bypass):
+        final_model_reason = f"ml_policy:{ml_decision.reason}"
+    elif strategy_decision.action == "live" and not final_quality_ok and not paper_bootstrap_fast_path:
+        final_model_reason = str(final_quality_reason or "entry_quality")
+    elif not DRY_RUN and (
+        _compute_trade_amount(final_size.multiplier) + 1e-9 < amount_sol
+        or (not bool(getattr(CFG, "LANE_SIZING_FIXED_TRADE_AMOUNT_ENABLED", True))
+            and final_green_size is not None
+            and float(final_green_size.amount_sol) + 1e-9 < amount_sol)
+    ):
+        # Do not alter an amount after its risk/capacity/route checks; retry with
+        # the lower current sizing through the complete execution pipeline.
+        final_model_reason = "ml_policy:current_sizing_requires_revalidation"
+    if final_model_reason is not None:
+        _defer_entry_model(token, decision=ml_decision, proba=proba,
+            threshold=ai_threshold_eff, rank_info=rank_info, reason=final_model_reason)
+        return
+    size_decision = final_size
     final_vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
     if not _entry_observation_is_current(token, entry_observation, stage="pre_buy", vector=final_vec_payload):
         return
+    _pending_ai_vectors[addr] = vec
+    log_ml_policy_decision_event(addr, ml_decision, base_rules_passed=True,
+        stage="pre_buy", rank_score=rank_info.get("rank_score"),
+        prediction_status="unknown" if proba is None else "observed")
 
     # 12.5) — Rate limiter de BUY (no bloqueante): cooldown si no permite —
     if not _BUY_LIMITER.allow():
@@ -7054,9 +7129,10 @@ async def _evaluate_and_buy_guarded(token: dict, ses: SessionLocal, *, source: s
         from research_loop.entry_gate_policy import selected_scope
         from research_loop.entry_gate_forward import capture_scope
         from runtime.paper_entry_policy import snapshot
+        from analytics.inference_scope import inference_scope
         # One immutable, verified paper snapshot for this entire async decision.
         # No global mutation: simultaneous evaluations and the exit monitor are isolated.
-        with selected_scope(CFG, root=PROJECT_ROOT), capture_scope(CFG, root=PROJECT_ROOT), _BUY_RECOVERY.scope():
+        with selected_scope(CFG, root=PROJECT_ROOT), capture_scope(CFG, root=PROJECT_ROOT), _BUY_RECOVERY.scope(), inference_scope():
             token.pop("paper_entry_policy", None)
             if (selected := snapshot()) is not None:
                 token["paper_entry_policy"] = selected

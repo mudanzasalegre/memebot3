@@ -293,7 +293,9 @@ def score_candidate(
     proba: float | None = None,
     threshold: float | None = None,
 ) -> dict[str, Any]:
-    proba_f = max(0.0, min(1.0, float(_to_float(proba, 0.0) or 0.0)))
+    proba_f = _to_float(proba)
+    if isinstance(proba, bool) or proba_f is None or not 0 <= proba_f <= 1:
+        proba_f = None
     threshold_f = _to_float(threshold)
     score_total = max(0.0, min(100.0, float(_to_float(token.get("score_total"), 0.0) or 0.0)))
     age = max(0.0, float(_to_float(token.get("age_minutes") or token.get("age_min"), 0.0) or 0.0))
@@ -307,12 +309,9 @@ def score_candidate(
     txns_5m = max(0.0, float(_to_int(token.get("txns_last_5m"), 0) or 0))
     price_pct_5m = _to_float(token.get("price_pct_5m"))
 
-    if threshold_f is None:
-        proba_edge = proba_f - 0.50
-    else:
-        proba_edge = proba_f - float(threshold_f)
-
-    ml_component = max(0.0, min(1.0, (proba_edge + 0.25) / 0.50)) * 15.0
+    proba_edge = None if proba_f is None else proba_f - (0.50 if threshold_f is None else threshold_f)
+    ml_component = (0.0 if proba_edge is None else
+                    max(0.0, min(1.0, (proba_edge + 0.25) / 0.50)) * 15.0)
     score_component = (score_total / 100.0) * 20.0
     liq_component = min(liq / 20_000.0, 1.0) * 10.0
     vol_component = min(vol / 100_000.0, 1.0) * 10.0
@@ -353,6 +352,7 @@ def score_candidate(
 
     return {
         "rank_score": float(rank_score),
+        "ml_prediction_status": "unknown" if proba_f is None else "observed",
         "components": {
             "ml": float(ml_component),
             "score": float(score_component),

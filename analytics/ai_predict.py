@@ -34,6 +34,7 @@ from config.config import CFG, PROJECT_ROOT
 from ml.feature_matrix import coerce_feature_frame
 from ml.financial_targets import supported_financial_training
 from features.builder import ALLOWED_FEATURES
+from analytics.inference_scope import scoped_snapshot, scoped_prediction
 
 # Logger del módulo
 log = logging.getLogger("ai_predict")
@@ -149,7 +150,7 @@ def _effective_model_paths() -> tuple[Path, Path, bool]:
     return _MODEL_PATH, _META_PATH, False
 
 
-def _load_model():
+def _load_model_unscoped():
     """One checksum-checked net-model snapshot; absence is neutral/unknown."""
     global _model, _model_mtime, _model_path_loaded, _FEATURES, _model_signature, _loaded_meta
     model_path, meta_path, _candidate_fallback = _effective_model_paths()
@@ -191,6 +192,10 @@ def _load_model():
             _model, _FEATURES = None, None
             log.warning("Entry model unavailable: %s", type(exc).__name__)
         return _model, list(_FEATURES or []), copy.deepcopy(_loaded_meta)
+
+
+def _load_model():
+    return scoped_snapshot(("primary_entry", str(_MODEL_PATH)), _load_model_unscoped)
 
 
 def _load_meta() -> dict[str, Any]:
@@ -309,14 +314,24 @@ def should_buy(vec: Any) -> float | None:
             classes = list(model.classes_)
             if classes != [0, 1]:
                 return None
-            proba = model.predict_proba(X)[0, 1]
+            proba = scoped_prediction(("entry_probability", id(model), _metadata.get("model_sha256")),
+                                      X, lambda: model.predict_proba(X)[0, 1])
         else:
-            proba = model.predict(X)[0]
+            proba = scoped_prediction(("entry_prediction", id(model), _metadata.get("model_sha256")),
+                                      X, lambda: model.predict(X)[0])
         value = float(proba)
         return value if np.isfinite(value) and 0 <= value <= 1 else None
     except Exception as exc:
         log.debug("Entry prediction unknown: %s", type(exc).__name__)
         return None
+
+
+def entry_prediction_state() -> dict[str, Any]:
+    """Acceptance and thresholds from the same model snapshot as should_buy."""
+    model, _features, metadata = _load_model()
+    checked = model is not None and supported_financial_training(metadata, entry=True)
+    return {"activation_ready": bool(checked and metadata.get("activation_ready") is True),
+            "metadata": copy.deepcopy(metadata) if checked else {}}
 
 
 def reload_model() -> None:
@@ -460,4 +475,4 @@ def threshold_runtime_metadata() -> dict[str, Any]:
     }
 
 
-__all__ = ["should_buy", "reload_model", "model_runtime_status", "threshold_runtime_metadata"]
+__all__ = ["should_buy", "entry_prediction_state", "reload_model", "model_runtime_status", "threshold_runtime_metadata"]

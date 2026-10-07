@@ -93,6 +93,33 @@ def _threshold_payload(lane: str) -> tuple[float | None, bool, str, str]:
     return threshold_f, bool(legacy.get("activation_ready", False)), str(legacy.get("activation_reason") or "legacy_threshold"), "legacy"
 
 
+def _snapshot_threshold_payload(metadata: dict[str, Any], lane: str) -> tuple[float | None, bool, str, str]:
+    """Never combine a current model with another promotion's threshold files."""
+    by_lane = metadata.get("thresholds_by_lane")
+    lanes = by_lane.get("by_lane") if isinstance(by_lane, dict) else None
+    payload = lanes.get(lane) if isinstance(lanes, dict) else None
+    if isinstance(payload, dict) and payload:
+        value = payload.get("threshold")
+        if value is None:
+            value = payload.get("picked")
+        ready = payload.get("activation_ready") is True
+        reason = str(payload.get("reason") or "snapshot_by_lane")
+    else:
+        result = metadata.get("threshold_result")
+        value = metadata.get("ai_threshold_recommended")
+        if value is None and isinstance(result, dict):
+            value = result.get("picked")
+        ready = metadata.get("activation_ready") is True
+        reason = "snapshot_global"
+    try:
+        threshold = float(value)
+        if isinstance(value, bool) or not math.isfinite(threshold) or not 0 <= threshold <= 1:
+            raise ValueError("invalid model threshold")
+    except (TypeError, ValueError, OverflowError):
+        return None, False, "snapshot_threshold_unknown", "checked_model_snapshot"
+    return threshold, ready, reason, "checked_model_snapshot"
+
+
 def _resolve_lane(token: dict[str, Any], feature_row: Any) -> str:
     row: dict[str, Any] = {}
     if hasattr(feature_row, "to_dict"):
@@ -165,21 +192,25 @@ def decide_ml_action(
     risk_proba: float | None = None,
     ev_pred_pct: float | None = None,
     entry_model_activation_ready: bool = False,
+    entry_model_metadata: dict[str, Any] | None = None,
 ) -> MlPolicyDecision:
     lane = _resolve_lane(token, feature_row)
     global_mode = _mode_cfg("ML_GATE_MODE", "shadow")
     if global_mode not in {"off", "shadow", "legacy", "enforce", "lane_aware", "sizing_only", "risk_veto_only"}:
         global_mode = "legacy"
-    threshold, activation_ready, threshold_reason, source = _threshold_payload(lane)
+    threshold, activation_ready, threshold_reason, source = (
+        _snapshot_threshold_payload(entry_model_metadata, lane) if entry_model_metadata is not None
+        else _threshold_payload(lane))
     # A stale threshold file cannot activate an unavailable or legacy model.
     # Unknown inference stays advisory, without a blanket ML buy rejection.
     try:
-        observed_proba = proba is not None and math.isfinite(float(proba)) and 0 <= float(proba) <= 1
+        observed_proba = proba is not None and not isinstance(proba, bool) and math.isfinite(float(proba)) and 0 <= float(proba) <= 1
     except (TypeError, ValueError, OverflowError):
         observed_proba = False
     if not observed_proba:
         proba = None
-    activation_ready = bool(activation_ready and entry_model_activation_ready is True and observed_proba)
+    activation_ready = bool(activation_ready and entry_model_activation_ready is True and observed_proba
+                            and threshold is not None and math.isfinite(threshold) and 0 <= threshold <= 1)
     proba_pass = bool(proba is not None and threshold is not None and float(proba) >= float(threshold))
     risk_veto = _risk_veto_signal(risk_proba)
     risk_veto_enforced = _risk_veto_can_enforce(risk_proba, activation_ready=activation_ready)

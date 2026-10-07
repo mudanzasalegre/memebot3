@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Iterable
+import math
 
 from analytics.filters import effective_ai_threshold, effective_soft_score_min, effective_thresholds
 from config.config import (
@@ -123,17 +124,26 @@ class EntrySizingDecision:
     notes: tuple[str, ...]
 
 
-def _quality_points(token: dict[str, Any], ai_proba: float) -> tuple[int, list[str]]:
+def _quality_points(token: dict[str, Any], ai_proba: float | None,
+                    ai_threshold: float | None = None) -> tuple[int, list[str]]:
     thresholds = effective_thresholds(token)
     soft_floor = int(effective_soft_score_min(token, BUY_SOFT_SCORE_MIN))
-    ai_floor = float(effective_ai_threshold(token, 0.0)) if AI_SIZING_ENABLED else 0.0
+    ai_floor = (float(ai_threshold) if ai_threshold is not None
+                else float(effective_ai_threshold(token, 0.0))) if AI_SIZING_ENABLED else 0.0
 
     score_total = _to_int(token.get("score_total"))
     liq = _to_float(token.get("liquidity_usd"))
     vol = _to_float(token.get("volume_24h_usd"))
     mcap = _to_float(token.get("market_cap_usd"))
     price_impact = _to_float(token.get("price_impact_pct"))
-    ai_edge = float(ai_proba) - ai_floor
+    ai_edge = None
+    if ai_proba is not None and not isinstance(ai_proba, bool):
+        try:
+            value = float(ai_proba)
+            if math.isfinite(value) and 0 <= value <= 1:
+                ai_edge = value - ai_floor
+        except (TypeError, ValueError, OverflowError):
+            pass
 
     points = 0
     notes: list[str] = []
@@ -145,7 +155,7 @@ def _quality_points(token: dict[str, Any], ai_proba: float) -> tuple[int, list[s
         points += 1
         notes.append("score_ok")
 
-    if AI_SIZING_ENABLED:
+    if AI_SIZING_ENABLED and ai_edge is not None:
         if ai_edge >= 0.10:
             points += 2
             notes.append("ai_edge_strong")
@@ -175,14 +185,13 @@ def _quality_points(token: dict[str, Any], ai_proba: float) -> tuple[int, list[s
 def compute_entry_sizing(
     *,
     token: dict[str, Any],
-    ai_proba: float,
+    ai_proba: float | None,
     base_amount_sol: float,
     queue_attempts: int = 0,
     ai_threshold: float | None = None,
 ) -> EntrySizingDecision:
     regime = classify_entry_regime(token, queue_attempts=queue_attempts)
-    points, notes = _quality_points(token, ai_proba)
-    _ = ai_threshold
+    points, notes = _quality_points(token, ai_proba, ai_threshold)
 
     if not DYNAMIC_SIZING_ENABLED:
         multiplier = float(SIZE_MID_MULTIPLIER)

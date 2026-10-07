@@ -25,6 +25,7 @@ def _load_entry_lane_guard(*, bootstrap_allowed: bool):
         "async def exercise(token, ses):\n"
         "    addr = token['address']\n"
         "    proba = 0.75\n"
+        "    entry_model_at = None\n"
         "    ai_threshold_eff = 0.5\n"
         "    rank_info = {'source': 'before'}\n"
         "    size_decision = SimpleNamespace(regime='pump_early')\n"
@@ -57,6 +58,11 @@ def _load_entry_lane_guard(*, bootstrap_allowed: bool):
 
         return inner
 
+    def score_inputs(token, *, captured_at):
+        payload = dict(token)
+        calls.append(("score_inputs", token.get("entry_lane")))
+        return payload, payload, .75, None, None, .5, {"source": "after"}, None
+
     namespace = {
         "CFG": SimpleNamespace(
             REQUIRE_ENTRY_LANE_FOR_BUY=True,
@@ -74,6 +80,7 @@ def _load_entry_lane_guard(*, bootstrap_allowed: bool):
         "apply_untagged_buy_shadow_context": record("shadow_context"),
         "_maybe_apply_paper_bootstrap": maybe_apply,
         "build_feature_vector": lambda token: dict(token),
+        "_score_entry_inputs": score_inputs,
         "research_runtime": SimpleNamespace(
             score_candidate=lambda payload, **kwargs: calls.append(("score", payload["entry_lane"]))
             or {"source": "after"}

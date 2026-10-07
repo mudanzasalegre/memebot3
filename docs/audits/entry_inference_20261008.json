@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "stage": "Per-entry model snapshots, current-vector forecasts and final admission coherence",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "working_checkout": "D:/Dev/Python/memebot3",
+  "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
+  "findings": [
+    "Lane, route and proxy changes rebuilt the entry vector while retaining primary, risk and EV forecasts calculated from earlier inputs",
+    "Primary model activation was read separately after inference and awaits, allowing a concurrently promoted artifact to provide the activation state for an older prediction",
+    "Recommended threshold files were read independently of the checked model metadata; the admitted model and enforced lane threshold could belong to different promotions",
+    "Unknown entry probability was converted to zero before ranking, sizing, telemetry and the SQL entry snapshot",
+    "The final lane selector and late paper-bootstrap checks could change model inputs after earlier ML, rank and size decisions; the final saved learning vector could omit that context",
+    "Paper exploration bypass flags did not explicitly preserve an enforced ML risk veto or exclude live decisions"
+  ],
+  "implementation": {
+    "entry_scope": "The actual guarded evaluator owns a task-local inference scope. Each consumed checked primary or specialized head, metadata and feature schema is pinned lazily on first use until this candidate finishes. Family manifest paths and unavailable heads are also pinned. Concurrent and nested candidates remain isolated; exceptions/cancellation clear all retained references. Late inherited background contexts cannot retain a closed scope",
+    "bounded_prediction_cache": "A maximum of 256 scalar predictions per candidate is keyed by model/head and the exact ordered float32 matrix consumed by inference. Changed consumed values trigger prediction; unrelated token metadata and equivalent numeric representations do not. Unknown results may be cached; exceptions are not. Existing checksum, causal net-population, temporal and OOS skill checks remain required",
+    "current_vector": "One helper builds the current lane/route/proxy vector at a fixed entry clock, refreshes the lane-dependent runner exit profile and config identity, and uses that same vector for primary probability, risk, EV, policy and heuristic ranking. Every vector-only rebuild in the ML-to-buy path was replaced. Exit/profile context is present before model evaluation, not introduced only after admission",
+    "bound_thresholds": "Actual runtime policy reads lane/global thresholds from the same checked primary model snapshot used by inference, not independent recommendation files. Missing, invalid, boolean, nonfinite or out-of-range thresholds cannot activate an ML rejection. The sizing quality calculation now consumes the same provided threshold instead of ignoring it",
+    "final_guard": "After final lane selection, current sizing and green risk/EV sizing are recomputed with earlier strategy and paper cold-start caps retained. Immediately before the buy limiter/intents, current forecasts and quality are checked again. An enforced risk veto cannot be bypassed; optional probability bypass is limited to explicit paper exploration. If lower live sizing requires a different amount, the complete risk/capacity/route pipeline is retried rather than silently changing an already-checked order. The actual current vector replaces the pending learning vector only after final fresh-market validation",
+    "unknown_semantics": "Unknown probability remains null in telemetry and nullable SQL entry state. It generates no AI quality points and no probability-derived heuristic-rank component; rank metadata explicitly distinguishes unknown from an observed zero. A final changed decision records a wait and clears pending features, not a realized losing financial label",
+    "preserved_contracts": "No new profit, observed-peak, momentum or take-profit ceiling; synthetic +25000 percent momentum remains in the current scored vector. Requested exact 0.1 SOL paper sizing, quote/fill identity, paper-only adaptation, independent monitor and stopped-runtime contracts remain unchanged"
+  },
+  "verification": {
+    "status": "SOFTWARE_VALIDATED_OFF_NO_PROFITABILITY_CLAIM",
+    "new_cases": 54,
+    "focused_final": "146 passed in 15.19s",
+    "full_working": "1670 passed; actual full pytest from working checkout",
+    "full_publishing": "1670 passed; actual full pytest without personal .env or local .venv, using existing working-checkout Python",
+    "parallel_full_suite_durations_seconds": [185.02, 193.94],
+    "duration_note": "Both parallel commands completed successfully; completion output recorded these timings without per-checkout labels, so no individual timing assignment is claimed",
+    "preflight_both": {"ok": true, "compile_errors": 0, "configuration_import_returncode": 0, "paper_profile_ok": true, "empty_data_report_builders": 7, "all_report_builders_ok": true},
+    "source_sync": {"source_paths_before_evidence": 11, "deleted": 0, "initial_applied_plan_sha256": "5b0ddbf4ce7e1fc8b3d361513526621f1a8e44583c0718ce9b828c591a90cce0", "personal_env_data_logs_models_excluded": true},
+    "scope": "Synthetic forecasts, isolated checked artifact and manifest replacements, real primary/specialized inference readers, complete production scoring/sizing/position helpers, AST-extracted actual final pre-buy guard and scope ownership, task/thread/nested/cancellation/cache-bound cases, threshold validity, nullable unknown semantics and previous full-regression contracts. Tests train only isolated synthetic temporary artifacts, never active runtime models"
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "runtime_model_training_started": false,
+    "final_shutdown_verified_at_utc": "2026-10-07T22:37:09.4294804Z",
+    "remaining_bot_processes_both_checkouts": 0,
+    "root_and_data_bot_locks_both_checkouts": false,
+    "sqlite_process_state": {"bot_id": "main", "process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"},
+    "artifact_snapshot_verified_at_utc": "2026-10-07T22:36:06.8244509Z",
+    "artifact_change_window_start_utc": "2026-10-07T22:10:03Z",
+    "financial_and_forward_json_cells_both_checkouts": 0,
+    "active_policy_json_both_checkouts": 0,
+    "changed_model_artifacts_under_models_and_ml_both_checkouts": 0,
+    "changed_feature_parquet_csv_both_checkouts": 0,
+    "personal_env_preserved_in_working_and_absent_from_publishing": true,
+    "stop_stack": {"completed_at_utc": "2026-10-07T22:36:44Z", "requested_by": "user", "exit_code": 0, "killed": 0, "remaining": 0, "runtime_finalizer": "ok"}
+  },
+  "limitations_and_next_work": [
+    "Pinning consumed models and recomputing their inputs does not certify a complete atomic multi-head training generation or a profitable strategy",
+    "Heuristic opportunity ranks are not calibrated event probabilities. Text lane/profile features retain their existing numeric-coercion contract; richer categorical encoding and train/inference feature-schema acceptance remain separate architecture work",
+    "Auxiliary social/rug/cluster age contracts, durable full-strategy decision provenance, all lane/capital/admission/execution invariants and production first-launch acceptance remain separate work",
+    "Live wallet/raw quantity/finality reconciliation, provider market-as-of/depth and production response integrity are not established by synthetic software tests",
+    "No prospective financial observations or new trading run were produced. Costed complete full-strategy closed-trade evidence is still required before a profitability claim or live activation"
+  ],
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO"
+}
