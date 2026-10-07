@@ -251,6 +251,7 @@ from utils.lista_pares import (  # noqa: E402
     agregar_si_nuevo,
     eliminar_par,
     obtener_pares,
+    next_ready_pair,
     requeue,
     stats as queue_stats,
 )
@@ -7003,10 +7004,18 @@ async def _evaluate_and_buy_guarded(token: dict, ses: SessionLocal, *, source: s
             token.pop("paper_entry_policy", None)
             if (selected := snapshot()) is not None:
                 token["paper_entry_policy"] = selected
-            if EVALUATE_TOKEN_TIMEOUT_S > 0:
-                await asyncio.wait_for(_evaluate_and_buy(token, ses), timeout=EVALUATE_TOKEN_TIMEOUT_S)
+            async def dispatch(session):
+                if EVALUATE_TOKEN_TIMEOUT_S > 0:
+                    await asyncio.wait_for(_evaluate_and_buy(token, session), timeout=EVALUATE_TOKEN_TIMEOUT_S)
+                else:
+                    await _evaluate_and_buy(token, session)
+            if ses is None:
+                # Production entries own their transaction/session. A timeout
+                # or failed commit cannot poison later entries or the monitor.
+                async with SessionLocal() as owned_session:
+                    await dispatch(owned_session)
             else:
-                await _evaluate_and_buy(token, ses)
+                await dispatch(ses)  # Explicit caller-owned compatibility.
     except asyncio.TimeoutError:
         _note_runtime_error(f"eval_timeout:{source}[{addr[:8]}]", f">{EVALUATE_TOKEN_TIMEOUT_S:.0f}s")
         log.error("Eval %s %s timeout >%.0fs", source, addr[:6], EVALUATE_TOKEN_TIMEOUT_S)
@@ -7807,7 +7816,12 @@ async def _prefetch_batch_prices(addrs: List[str]) -> Dict[str, float]:
         for m in addrs:
             if not _looks_like_mint(m):
                 log.warning("Monitor: ID no parece mint SPL → %r", m)
-        prices = await jupiter_price.get_many_usd_prices(addrs)
+        # Exit protection must not interpret a 120-second entry-cache hit as
+        # a new market observation. Existing provider throttling still applies.
+        prices = await jupiter_price.get_many_usd_prices(addrs, force_refresh=True)
+        prices = {mint: float(price) for mint, price in prices.items()
+                  if mint in addrs and isinstance(price, (int, float)) and not isinstance(price, bool)
+                  and math.isfinite(price) and price > 0}
         log.debug("Jupiter batch: %d/%d precios disponibles", len(prices), len(addrs))
         return prices
     except Exception as exc:
@@ -9241,12 +9255,27 @@ async def retrain_loop() -> None:
 
 
 # ╭─────────────────────── Main loop ─────────────────────────────────────────╮
-async def main_loop() -> None:
+async def _position_monitor_loop(ready: asyncio.Event) -> None:
+    from runtime.loop_scheduler import monitor_positions
+
+    def succeeded():
+        global _last_monitor_ok_at
+        _last_monitor_ok_at = utc_now()
+
+    def failed(exc):
+        _note_runtime_error("check_positions", exc)
+        log.error("Check positions -> %s", exc)
+
+    await monitor_positions(ready=ready, session_factory=SessionLocal, check=_check_positions,
+        interval=lambda: runner_turbo_monitor.target_sleep_seconds(SLEEP_SECONDS, dry_run=DRY_RUN),
+        on_success=succeeded, on_error=failed)
+
+
+async def main_loop(*, positions_ready: asyncio.Event | None = None) -> None:
     global _runtime_started_at, _runtime_process_state
     global _last_discovery_ok_at, _last_monitor_ok_at, _runtime_reports_refresh_state
     global _wallet_sol_balance, _last_stats_print, _last_csv_export, _last_wallet_checked_at
     global _BOOT_AUDIT_EMITTED
-    ses             = SessionLocal()
     last_discovery  = 0.0
     if _runtime_started_at is None:
         _runtime_started_at = utc_now()
@@ -9533,10 +9562,13 @@ async def main_loop() -> None:
                 log.info("Backfill paper_portfolio entry_notional_usd aplicado a %d posiciones", repaired)
         except Exception as exc:
             log.debug("paper_portfolio backfill → %s", exc)
-    await _repair_position_entry_notionals(ses)
-    await _bootstrap_strategy_runtime(ses)
+    async with SessionLocal() as startup_session:
+        await _repair_position_entry_notionals(startup_session)
+        await _bootstrap_strategy_runtime(startup_session)
     _log_strategy_health_snapshot()
     _runtime_process_state = "running"
+    if positions_ready is not None:
+        positions_ready.set()
     _schedule_background_task(
         _refresh_reports_once(source="research_scorecard_init", force=True, include=("research",)),
         name="research-scorecard-init",
@@ -9568,7 +9600,7 @@ async def main_loop() -> None:
                     if bool(getattr(CFG, "HOT_QUEUE_ENABLED", True)):
                         GLOBAL_HOT_QUEUE.add(tok, source=str(tok.get("source") or tok.get("discovered_via") or "pumpfun"))
                     else:
-                        await _evaluate_and_buy_guarded(tok, ses, source="pumpfun")
+                        await _evaluate_and_buy_guarded(tok, None, source="pumpfun")
             except Exception as exc:
                 _note_runtime_error("pumpfun_stream", exc)
                 log.error("PumpFun stream → %s", exc)
@@ -9576,39 +9608,34 @@ async def main_loop() -> None:
         # 3) Validación cola
         if bool(getattr(CFG, "HOT_QUEUE_ENABLED", True)):
             try:
-                for tok in GLOBAL_HOT_QUEUE.pop_batch(int(getattr(CFG, "HOT_QUEUE_BATCH_SIZE", 12) or 12)):
-                    await _evaluate_and_buy_guarded(tok, ses, source="hot_queue")
+                from runtime.loop_scheduler import evaluate_hot_queue
+                async def evaluate_hot(token):
+                    await _evaluate_and_buy_guarded(token, None, source="hot_queue")
+                await evaluate_hot_queue(GLOBAL_HOT_QUEUE, evaluate_hot,
+                    max_items=int(getattr(CFG, "HOT_QUEUE_BATCH_SIZE", 12) or 12), budget_s=SLEEP_SECONDS)
             except Exception as exc:
                 _note_runtime_error("hot_queue", exc)
                 log.error("Hot queue -> %s", exc)
 
-        validation_addresses = obtener_pares()[:VALIDATION_BATCH_SIZE]
-        for addr in validation_addresses:
+        async def validate_address(addr):
             try:
                 meta    = lista_pares.meta(addr) or {}
                 queue_age_s = max(0.0, time.time() - float(meta.get("first_seen", time.time()) or time.time()))
                 attempts = int(meta.get("attempts", 0) or 0)
                 use_gt  = attempts >= _GECKO_MIN_QUEUE_ATTEMPTS and queue_age_s >= _GECKO_MIN_QUEUE_AGE_S
                 tok     = await price_service.get_price(addr, use_gt=use_gt, allow_partial=True)
-                if tok is None and not use_gt and attempts >= _GECKO_MIN_QUEUE_ATTEMPTS and queue_age_s >= _GECKO_MIN_QUEUE_AGE_S:
-                    # Un primer fallback con Gecko reduce requeues "dex_nil"
-                    # cuando Jupiter/Birdeye/DexScreener no completan liquidez.
-                    tok = await price_service.get_price(addr, use_gt=True, allow_partial=True)
                 if tok:
-                    await _evaluate_and_buy_guarded(tok, ses, source="queue")
+                    await _evaluate_and_buy_guarded(tok, None, source="queue")
                 else:
                     _requeue_with_stats(addr, reason="dex_nil")
             except Exception as exc:
                 log.error("get_price %s → %s", addr[:6], exc)
+        from runtime.loop_scheduler import evaluate_ready_queue
+        await evaluate_ready_queue(next_ready_pair, validate_address,
+            max_items=VALIDATION_BATCH_SIZE, budget_s=SLEEP_SECONDS)
 
-        # 4) Posiciones abiertas. El monitor se ejecuta exactamente una vez por
-        # ciclo y no depende del tamaño de la cola legacy de validación.
-        try:
-            await _check_positions(ses)
-            _last_monitor_ok_at = utc_now()
-        except Exception as exc:
-            _note_runtime_error("check_positions", exc)
-            log.error("Check positions → %s", exc)
+        # Position protection has one independently supervised, serial owner.
+        # Discovery, entry timeouts and reporting cannot postpone its next tick.
 
         # 4.5) Shadows (modo real o estrategia shadow en paper/live)
         if DRY_RUN and (bool(getattr(CFG, "PAPER_RUNNER_RESEARCH_ENABLED", False))
@@ -9657,7 +9684,7 @@ async def main_loop() -> None:
             _last_csv_export = now_mono
 
         await _maybe_regenerate_core_reports(source="loop")
-        await asyncio.sleep(runner_turbo_monitor.target_sleep_seconds(SLEEP_SECONDS, dry_run=DRY_RUN))
+        await asyncio.sleep(SLEEP_SECONDS)
 
 
 # ╭─────────────────────── Entrypoint ───────────────────────────────────────╮
@@ -9671,17 +9698,20 @@ async def _runner() -> None:
         # observe stale rows.
         async with SessionLocal() as recovery_session:
             await _recover_close_persistence_outbox(recovery_session, force=True)
+        from runtime.loop_scheduler import supervise
+        positions_ready = asyncio.Event()
         tasks = [
-            main_loop(),
-            _periodic_labeler(),
-            control_command_loop(),
-            runtime_state_loop(),
+            ("discovery-entry", main_loop(positions_ready=positions_ready)),
+            ("position-monitor", _position_monitor_loop(positions_ready)),
+            ("periodic-labeler", _periodic_labeler()),
+            ("control-commands", control_command_loop()),
+            ("runtime-state", runtime_state_loop()),
         ]
         if bool(getattr(CFG, "ML_RETRAIN_IN_MAIN_LOOP", False)):
-            tasks.append(retrain_loop())
+            tasks.append(("retrain", retrain_loop()))
         else:
             log.info("Retrain-loop omitido: ML_RETRAIN_IN_MAIN_LOOP=false")
-        await asyncio.gather(*tasks)
+        await supervise(tasks)
     except Exception as exc:
         _note_runtime_error("runner", exc)
         raise
@@ -9689,9 +9719,16 @@ async def _runner() -> None:
         # Normal cancellation/KeyboardInterrupt must clear the persisted state
         # just like an exception; otherwise the API can retain a stale
         # ``running`` row after the process has already exited.
-        _runtime_process_state = "stopped"
+        pending = list(_background_tasks)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        from runtime.social_enrichment_queue import stop_background_tasks as stop_social_tasks
+        await stop_social_tasks()
         from research_loop.entry_gate_forward import stop_background_tasks
         await stop_background_tasks()
+        _runtime_process_state = "stopped"
         try:
             await _publish_runtime_state_once()
         except Exception as publish_exc:

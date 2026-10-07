@@ -57,3 +57,23 @@ def test_social_queue_does_not_schedule_without_loop(monkeypatch) -> None:
 
     assert q.schedule({"address": "abc"}, lane="green") is False
     assert events == []  # no false scheduled event and no production-file write
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_inflight_and_semaphore_waiters_without_false_completion(monkeypatch):
+    started = asyncio.Event()
+    events = []
+    async def pending(address):
+        started.set()
+        await asyncio.Event().wait()
+    monkeypatch.setattr(queue_mod, "CFG", SimpleNamespace(SOCIALS_ENABLED=True, SOCIALS_MAX_CONCURRENT=1))
+    monkeypatch.setattr(queue_mod, "fetch_social_profile", pending)
+    monkeypatch.setattr(queue_mod, "record_runtime_event", lambda event, *args, **kw: events.append(event))
+    q = queue_mod.SocialEnrichmentQueue()
+    assert q.schedule({"address": "A"}) and q.schedule({"address": "B"})
+    await started.wait()
+    tasks = list(q._tasks)
+    await q.stop()
+    assert all(task.done() and task.cancelled() for task in tasks)
+    assert not q._inflight and not q._tasks and q._semaphore is None
+    assert "social_enrichment_completed" not in events and "social_enrichment_failed" not in events

@@ -19,6 +19,14 @@ from research_loop import entry_gate_forward as collector
 from runtime import paper_entry_policy as policy
 
 
+class _GuardSession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+
 def config(**changes):
     return replace(CFG, DRY_RUN=True, RESEARCH_RANK_CANARY_MIN_SCORE=65,
         RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_RANK_SCORE=60,
@@ -313,7 +321,7 @@ def test_guarded_real_call_path_binds_snapshot_and_restores_it(tmp_path, monkeyp
         calls.append((policy.entry_config(cfg).RESEARCH_RANK_CANARY_MIN_SCORE, token["paper_entry_policy"]))
     source = ast.parse((Path(__file__).parents[1] / "run_bot.py").read_text(encoding="utf-8"))
     node = next(n for n in source.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_evaluate_and_buy_guarded")
-    namespace = {"asyncio": asyncio, "CFG": cfg, "PROJECT_ROOT": tmp_path, "SessionLocal": object,
+    namespace = {"asyncio": asyncio, "CFG": cfg, "PROJECT_ROOT": tmp_path, "SessionLocal": _GuardSession,
         "EVALUATE_TOKEN_TIMEOUT_S": .1, "_evaluate_and_buy": evaluate,
         "_note_runtime_error": lambda *args: pytest.fail(str(args)), "log": SimpleNamespace(error=lambda *args: None)}
     exec(compile(ast.Module(body=[node], type_ignores=[]), "run_bot.py", "exec"), namespace)
@@ -489,7 +497,7 @@ def test_actual_guard_holds_one_checked_composition_through_network_await(tmp_pa
         calls.append(before)
     source = ast.parse((Path(__file__).parents[1] / "run_bot.py").read_text(encoding="utf-8"))
     node = next(n for n in source.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_evaluate_and_buy_guarded")
-    namespace = {"asyncio": asyncio, "CFG": cfg, "PROJECT_ROOT": tmp_path, "SessionLocal": object,
+    namespace = {"asyncio": asyncio, "CFG": cfg, "PROJECT_ROOT": tmp_path, "SessionLocal": _GuardSession,
         "EVALUATE_TOKEN_TIMEOUT_S": .1, "_evaluate_and_buy": evaluate,
         "_note_runtime_error": lambda *args: pytest.fail(str(args)), "log": SimpleNamespace(error=lambda *args: None)}
     exec(compile(ast.Module(body=[node], type_ignores=[]), "run_bot.py", "exec"), namespace)

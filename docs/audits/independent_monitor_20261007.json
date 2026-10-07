@@ -1,0 +1,50 @@
+{
+  "status": "SOFTWARE_VALIDATED_RUNTIME_OFF",
+  "full_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Actual runtime discovery/entry/position scheduling, session ownership, primary Jupiter batch freshness and task shutdown; not market profitability or comprehensive provider acceptance",
+  "source_findings": {
+    "position_monitor_starvation": "main_loop previously finished discovery, PumpFun, a complete hot batch and the legacy validation batch before its one _check_positions call. Per-token awaits and timeouts accumulated before any position protection. Runner turbo changed only the final sleep, not that accumulated queue latency",
+    "stale_hot_batch": "HotQueue.pop_batch removed and age-checked a whole batch before serial async evaluation. The untouched tail could become stale or miss a newer snapshot while no longer being pending; evaluated-at timestamps reflected bulk extraction rather than actual service",
+    "legacy_fairness": "obtener_pares returned the same insertion-order eligible prefix. A timeout or no-op at its head could repeatedly delay peers; there was no incremental cycle service budget or independent monitor",
+    "unused_retry": "The legacy fallback condition required use_gt=false and the exact conjunction that had just set use_gt=true, so it could never run. The actual first-call Gecko eligibility remains; the misleading unreachable retry was removed",
+    "primary_batch_cache": "_prefetch_batch_prices used ordinary Jupiter OK/NIL caches, whose default OK TTL is 120 seconds. A one-second runner turbo target could repeatedly consume an old entry price as a new observation",
+    "task_lifetime": "asyncio.gather did not itself cancel and drain sibling loops after one failed. Social enrichment tasks had no explicit owned shutdown or terminal-error consumer. Persisted stopped state could be published before owned work was drained",
+    "buy_outcome_boundary_remaining": "The evaluation timeout spans buyer execution and the later SQL position commit. No buy-side durable intent/replay currently proves recovery across that boundary. Paper portfolio persistence is best-effort direct JSON writing; the live buyer also catches a managed-swap exception and can fall back/retry without proving the earlier execution absent. These distinct integrity paths remain unimplemented in this scheduling stage"
+  },
+  "implemented": {
+    "independent_position_owner": "One separately supervised serial position-monitor loop waits for initial reconciliation/bootstrap readiness, then owns a fresh SQLAlchemy session per tick. Entry/provider/report awaits no longer postpone the monitor merely by being ahead of it in main_loop. Slow monitor ticks never overlap or create catch-up bursts. Health advances only after a completed session/tick",
+    "entry_and_startup_session_isolation": "The startup session is scoped and closed on success/failure. Production entry decisions own separate scoped sessions; exceptions and timeouts dispose/rollback that session without poisoning the next entry or sharing it with the monitor. Explicit caller-owned session compatibility remains for controlled callers",
+    "incremental_opportunity_service": "The hot queue is popped one candidate just before actual evaluation with dynamic expansion disabled only for that single pop; untouched candidates remain pending and can receive fresh updates. Both hot and legacy queue cycles admit new work up to the existing item limits and a SLEEP_SECONDS scheduling budget. In-flight evaluations are not cancelled to satisfy this budget. Legacy eligible addresses rotate without spending retries or changing absolute expiry/cooldown metadata and are evaluated at most once per cycle. New same-address hot snapshots remain eligible; configured item limits above 100 are preserved",
+    "primary_price_freshness": "The actual position prefetch calls get_many_usd_prices(force_refresh=True), bypassing both Jupiter OK and NIL entry caches. Returned prices must be positive finite nonboolean numbers for an explicitly requested mint. Existing Jupiter throttle remains; no synthetic price or quote is introduced. Cached fallback-provider paths are not certified fresh by this change",
+    "owned_shutdown": "The critical-loop supervisor propagates a failed/ended/cancelled loop and cancels/drains its siblings. _runner also cancels/drains retained report/wallet tasks, tracked social enrichment and entry-research tasks before marking/publishing stopped. Social cancellation clears semaphore waiters/inflight ownership without recording a fabricated completed request; terminal errors are consumed",
+    "preserved_trading_contracts": "Exact 0.1 SOL paper orders, learned admission allowlists, security/route/impact guards, capital and lane limits, estimated-cost quoted accounting and uncapped runner percentage upside remain. No live flag, active model, runtime selection or market cohort was activated"
+  },
+  "verification": {
+    "focused_suite": "98 passed in 27.54s: scheduler/monitor, startup, hot and legacy queues, social shutdown, turbo monitor and checked entry transport",
+    "synthetic_test_repair": "One new expiry test looked for a reason key in priority-class drop counters. Existing queue semantics store that reason in drop events; corrected only the assertion to inspect the two actual max_age events",
+    "integration_scope": "Actual AST-extracted runtime monitor/guard/supervisor/prefetch functions, controlled async stalls, cancellation, mock providers and real isolated SQLite rollback/commit. No bot execution, external quote request or realized gain",
+    "intermediate_full_suites": "1231 passed in 252.83s working and 214.82s publishing before the final fast-cycle duplicate and configured-limit regressions",
+    "review_repairs": "Incremental legacy rotation initially revisited fast no-op candidates inside one cycle; added per-cycle identity checking, disabled it for popping hot updates, and removed an arbitrary generic 100-item cap. Three new regressions are included in both final full suites. One focused invocation referenced a nonexistent startup filename and ran zero tests; corrected to the two actual startup test files before the 98-test successful run",
+    "full_working_checkout": "1234 passed in 186.50s",
+    "full_publishing_checkout": "1234 passed in 180.56s without personal .env or local .venv, using the existing working-checkout Python runtime",
+    "preflight_both_checkouts": "PASS: zero compilation errors, configuration import rc=0, paper profile OK and all seven empty-data report builders OK",
+    "source_sync": "13 reviewed source/test/audit files synchronized; private .env, runtime data, logs and model weights excluded; final clean-checkout dry comparison required after commit",
+    "ui_build": "Not rerun: UI is unchanged; earlier UI build evidence is retained separately"
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "active_runtime_models_changed": false,
+    "runtime_model_training_started": false,
+    "runtime_cohort_created": false,
+    "active_entry_policy_created": false,
+    "shutdown_verification": "VERIFIED_OFF_2026-10-07T16:52:13.3593754Z: zero scoped bot/API/UI/training/research processes and no root/data bot locks in either checkout. SQLite main=stopped, retrain=idle, reports=idle. No active entry policies or collection plans; zero runtime model weights changed since 16:14:11Z",
+    "stop_stack": "2026-10-07T16:51:20Z stop_stack done killed=0 remaining=0; requested_by=user"
+  },
+  "remaining_full_goal_requirements": [
+    "Reconcile or quarantine uncertain entry outcomes across timeout/cancellation after execution and before SQL position persistence; close-recovery protection does not establish buy-side recovery",
+    "Complete fallback market/liquidity freshness, scanner feed continuity, still-cached core configuration and full-strategy admission/capital/execution coverage. An independent monitor cannot guarantee provider or synchronous-work latency",
+    "Complete fresh rare-runner/risk/continuation and whole-strategy costed closed-forward validation under separately authorized execution; no historical score or green test suite proves future profitability"
+  ]
+}

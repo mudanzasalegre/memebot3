@@ -288,7 +288,7 @@ def build_runner_turbo_monitor_report(root: Path | None = None, *, include_test_
         "include_test_events": bool(include_test_events),
         "event_counts": dict(sorted(event_counts.items())),
         "events": deduped[-100:],
-        "best_effort_note": "The main loop uses the turbo interval as a target sleep while active; provider latency can make real polling slower.",
+        "best_effort_note": "The independent position monitor uses the turbo interval as a start-to-start target while active; provider latency, database latency and synchronous work can make real polling slower. Slow ticks never overlap.",
     }
 
 

@@ -130,6 +130,21 @@ def obtener_pares() -> list[str]:
     return ready
 
 
+def next_ready_pair() -> str | None:
+    """Serve one eligible address and rotate it without spending retries.
+
+    A timeout/no-op cannot keep the same address at the front indefinitely.
+    Existing absolute expiry, cooldown, metadata and requeue rules still apply.
+    """
+    ready = obtener_pares()
+    if not ready:
+        return None
+    address = ready[0]
+    item = _pair_watch.pop(address)
+    _pair_watch[address] = item
+    return address
+
+
 def _preserve_retry_budget(reason: str) -> bool:
     """Temporary waits should not consume the scarce queue retry budget."""
     normalized = str(reason or "").strip()

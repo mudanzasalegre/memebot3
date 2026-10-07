@@ -1,11 +1,57 @@
 from __future__ import annotations
 
 from utils import lista_pares
+from runtime import loop_scheduler
+import asyncio
 
 
 def _reset_queue_state() -> None:
     lista_pares._pair_watch.clear()
     lista_pares._processed.clear()
+
+
+def test_incremental_legacy_service_rotates_without_spending_retries_or_dropping_tail(monkeypatch):
+    _reset_queue_state()
+    now = [1_000.]
+    monkeypatch.setattr(lista_pares.time, "time", lambda: now[0])
+    monkeypatch.setattr(lista_pares, "MAX_INCOMPLETE_SEC", 600)
+    for address in ("A", "B", "C"):
+        lista_pares._pair_watch[address] = {"retries": 3, "first_seen": now[0], "next_try": now[0], "attempts": 0}
+    calls = []
+    async def evaluate(address):
+        calls.append(address)
+        now[0] += 20
+    for _ in range(3):
+        assert asyncio.run(loop_scheduler.evaluate_ready_queue(lista_pares.next_ready_pair, evaluate,
+            max_items=10, budget_s=3, clock=lambda: now[0])) == 1
+    assert calls == ["A", "B", "C"] and len(lista_pares._pair_watch) == 3
+    assert all(meta["retries"] == 3 and meta["attempts"] == 0 for meta in lista_pares._pair_watch.values())
+
+
+def test_fast_legacy_cycle_evaluates_each_ready_address_only_once(monkeypatch):
+    _reset_queue_state()
+    monkeypatch.setattr(lista_pares.time, "time", lambda: 1_000.)
+    monkeypatch.setattr(lista_pares, "MAX_INCOMPLETE_SEC", 600)
+    for address in ("A", "B", "C"):
+        lista_pares._pair_watch[address] = {"retries": 3, "first_seen": 1_000., "next_try": 1_000., "attempts": 0}
+    calls = []
+    async def evaluate(address):
+        calls.append(address)
+    assert asyncio.run(loop_scheduler.evaluate_ready_queue(lista_pares.next_ready_pair,
+        evaluate, max_items=10, budget_s=3, clock=lambda: 1_000.)) == 3
+    assert calls == ["A", "B", "C"]
+    assert set(lista_pares._pair_watch) == {"A", "B", "C"}
+    assert all(meta["retries"] == 3 and meta["attempts"] == 0 for meta in lista_pares._pair_watch.values())
+
+
+def test_incremental_service_preserves_configured_limits_above_one_hundred():
+    pending = iter(range(150))
+    calls = []
+    async def evaluate(item):
+        calls.append(item)
+    assert asyncio.run(loop_scheduler.evaluate_ready_queue(lambda: next(pending, None),
+        evaluate, max_items=150, budget_s=3, clock=lambda: 1_000.)) == 150
+    assert calls == list(range(150))
 
 
 def test_temporary_strategy_requeues_preserve_retry_budget(monkeypatch) -> None:

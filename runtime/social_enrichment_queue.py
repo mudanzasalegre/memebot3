@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -15,6 +16,8 @@ from analytics.social_signal import (
 from config.config import CFG
 from fetcher.socials import fetch_social_profile
 from utils.runtime_telemetry import record_runtime_event
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,7 @@ class SocialEnrichmentQueue:
     def __init__(self) -> None:
         self._cache: dict[str, tuple[float, SocialSignal]] = {}
         self._inflight: set[str] = set()
+        self._tasks: set[asyncio.Task] = set()
         self._semaphore: asyncio.Semaphore | None = None
 
     def _cache_ttl_s(self) -> float:
@@ -79,11 +83,32 @@ class SocialEnrichmentQueue:
         except RuntimeError:
             return False
         self._inflight.add(address)
-        loop.create_task(self._run(request))
+        task = loop.create_task(self._run(request), name=f"social-enrichment:{address[:8]}")
+        self._tasks.add(task)
+        task.add_done_callback(lambda done: self._finish(done, address))
         record_runtime_event(
             "social_enrichment_scheduled", address, lane=request.lane, symbol=request.symbol,
         )
         return True
+
+    def _finish(self, task: asyncio.Task, address: str) -> None:
+        self._tasks.discard(task)
+        self._inflight.discard(address)
+        if not task.cancelled():
+            try:
+                task.result()
+            except Exception as exc:
+                log.warning("Social enrichment task failed: %s", type(exc).__name__)
+
+    async def stop(self) -> None:
+        tasks = list(self._tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._tasks.clear()
+        self._inflight.clear()
+        self._semaphore = None
 
     async def _run(self, request: SocialEnrichmentRequest) -> SocialSignal:
         address = request.address
@@ -132,9 +157,14 @@ def schedule_social_enrichment(token: dict[str, Any], *, lane: str | None = None
     return GLOBAL_SOCIAL_ENRICHMENT_QUEUE.schedule(token, lane=lane)
 
 
+async def stop_background_tasks() -> None:
+    await GLOBAL_SOCIAL_ENRICHMENT_QUEUE.stop()
+
+
 __all__ = [
     "GLOBAL_SOCIAL_ENRICHMENT_QUEUE",
     "SocialEnrichmentQueue",
     "SocialEnrichmentRequest",
     "schedule_social_enrichment",
+    "stop_background_tasks",
 ]

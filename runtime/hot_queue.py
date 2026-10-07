@@ -147,10 +147,10 @@ class HotQueue:
             self._compact_heap()
         return True
 
-    def pop_batch(self, limit: int | None = None) -> list[dict[str, Any]]:
+    def pop_batch(self, limit: int | None = None, *, expand: bool = True) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         max_items = max(1, int(limit or getattr(CFG, "HOT_QUEUE_BATCH_SIZE", 12) or 12))
-        if bool(getattr(CFG, "HOT_QUEUE_DYNAMIC_BATCH_ENABLED", True)) and len(self._pending) > max_items * 2:
+        if expand and bool(getattr(CFG, "HOT_QUEUE_DYNAMIC_BATCH_ENABLED", True)) and len(self._pending) > max_items * 2:
             max_items = min(max_items * 3, len(self._pending), 100)
         now = dt.datetime.fromtimestamp(self._now(), dt.timezone.utc)
         while self._heap and len(out) < max_items:
