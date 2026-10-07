@@ -466,6 +466,11 @@ async def repair_paper_archives(*, force: bool = False, limit: int = 8) -> dict:
     return {"status": "pending" if failed else "ok", "attempted": attempted, "failed": failed}
 
 
+async def repair_runner_research(*, force: bool = False) -> dict:
+    from runtime.runner_enrollment import repair_sources
+    return repair_sources(root=_research_root(), portfolio=_PORTFOLIO, cfg=CFG, force=force)
+
+
 # ───────────────────── utilidades locales ──────────────────────
 def _is_solana_address(addr: str) -> bool:
     """Filtro defensivo: descarta EVM (0x…) y longitudes extrañas."""
@@ -873,6 +878,17 @@ def _persist_sell_fill(key, original, entry, response, total_qty):
         "intent_id": response["exit_intent_id"], "qty_before": total_qty,
         "response": copy.deepcopy(response),
     })
+    if (response["partial"] and entry.get("partial_fill_events") == 1
+            and entry.get("dry_run") is True and getattr(CFG, "PAPER_RUNNER_RESEARCH_ENABLED", False) is True
+            and "runner_research_source" not in entry):
+        entry["first_partial_exit_intent_id"] = response["exit_intent_id"]
+        try:
+            from runtime.runner_enrollment import capture_source
+            entry["runner_research_source"] = capture_source(entry, captured_at=dt.datetime.fromisoformat(response["filled_at"]))
+        except Exception as exc:
+            entry["runner_research_capture_failed"] = {"captured_at": response["filled_at"],
+                "runner_trailing_policy": entry.get("runner_trailing_policy")}
+            log.error("[runner_forward] original first-partial capture failed: %s", type(exc).__name__)
     _PORTFOLIO[key] = entry
     try:
         _save(strict=True)
@@ -1048,7 +1064,9 @@ async def _sell_owned(
         _update_net_costs(entry, closing=False)
         _persist_sell_fill(key, original_entry, entry, response, total_qty)
         try:
-            runner_forward.register_partial(entry, root=_research_root(), cfg=CFG)
+            if entry.get("runner_research_source"):
+                from runtime.runner_enrollment import register_source
+                register_source(entry["runner_research_source"], root=_research_root(), cfg=CFG)
         except Exception as exc:
             # A research failure cannot turn a completed fill into a failed sell.
             log.warning("[runner_forward] enrollment unavailable: %s", type(exc).__name__)

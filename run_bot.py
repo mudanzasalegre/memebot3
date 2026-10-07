@@ -7662,10 +7662,13 @@ async def _commit_close_persistence(
 async def _repair_paper_archive_evidence(*, force: bool = False) -> dict:
     if not DRY_RUN:
         return {"status": "disabled", "attempted": 0, "failed": 0}
-    from trader.papertrading import repair_paper_archives
+    from trader.papertrading import repair_paper_archives, repair_runner_research
     result = await repair_paper_archives(force=force)
     if result["failed"]:
         log.warning("Paper outcome archive remains pending for %d attempted closes", result["failed"])
+    research = await repair_runner_research(force=force)
+    if research["failed"]:
+        log.warning("Original runner-research intake maintenance incomplete (%d errors)", research["failed"])
     return result
 
 

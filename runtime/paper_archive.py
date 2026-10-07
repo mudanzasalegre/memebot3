@@ -30,6 +30,7 @@ effective_exit_price_usd total_pnl_usd total_pnl_pct net_total_pnl_usd net_total
 total_proceeds_sol first_partial_at last_partial_at last_partial_qty last_partial_price_usd
 exit_reason exit_reason_full close_price_usd price_source price_confidence price_source_close
 price_confidence_close require_jupiter_for_buy exact_paper_trade_size_sol pnl_pct exit_fill_events
+runner_research_source first_partial_exit_intent_id runner_research_capture_failed
 time_to_partial_sec time_to_peak_sec peak_after_partial_pct exit_from_peak_giveback_pct outcome
 """.split())
 
@@ -82,7 +83,7 @@ def _validate_trade(trade):
         _time(trade["opened_at"]).isoformat(), trade.get("buy_signature") or trade.get("buy_tx_sig")])
 
 
-def _snapshot(entry, token):
+def paper_snapshot(entry, token):
     if not isinstance(entry, Mapping):
         raise PaperArchiveError("Paper outcome must be an object")
     trade = {key: copy.deepcopy(value) for key, value in entry.items() if key in FIELDS}
@@ -124,7 +125,7 @@ def _validate_record(row, filename=None):
 def archive_closed_trade(data_directory: Path, entry: Mapping, *, token: str) -> str:
     """Confirm an immutable snapshot before the portfolio can replace this buy."""
     try:
-        trade = _snapshot(entry, token)
+        trade = paper_snapshot(entry, token)
         key = _validate_trade(trade)
         record = {"version": VERSION, "trade_id": key, "payload_sha256": _digest(trade), "trade": trade}
         path = Path(data_directory) / "paper_closed_trades" / (key + ".json")
@@ -170,3 +171,9 @@ def read_closed_evidence(data_directory: Path) -> tuple[list[dict], list[dict]]:
         except (ValueError, TypeError) as exc:
             issues.append({"source": legacy.name, "line": index + 1, "error_type": type(exc).__name__})
     return rows, issues
+
+
+def read_closed_trade(path: Path) -> dict:
+    record = read_json_strict(path)
+    _validate_record(record, path.name)
+    return dict(record["trade"])

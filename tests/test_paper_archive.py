@@ -318,6 +318,8 @@ async def test_runtime_repair_helper_is_paper_only_and_propagates_force(monkeypa
     from trader import papertrading as paper
     called = AsyncMock(return_value={"status": "ok", "attempted": 1, "failed": 0})
     monkeypatch.setattr(paper, "repair_paper_archives", called)
+    research = AsyncMock(return_value={"status": "ok", "attempted": 0, "failed": 0})
+    monkeypatch.setattr(paper, "repair_runner_research", research)
     module = ast.parse(Path("run_bot.py").read_text(encoding="utf-8"))
     function = next(node for node in module.body if isinstance(node, ast.AsyncFunctionDef)
         and node.name == "_repair_paper_archive_evidence")
@@ -325,6 +327,8 @@ async def test_runtime_repair_helper_is_paper_only_and_propagates_force(monkeypa
     exec(compile(ast.Module(body=[function], type_ignores=[]), "run_bot.py", "exec"), namespace)
     assert (await namespace[function.name](force=True))["status"] == "disabled"
     called.assert_not_awaited()
+    research.assert_not_awaited()
     namespace["DRY_RUN"] = True
     assert (await namespace[function.name](force=True))["attempted"] == 1
     called.assert_awaited_once_with(force=True)
+    research.assert_awaited_once_with(force=True)

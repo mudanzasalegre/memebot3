@@ -1,0 +1,55 @@
+{
+  "stage": "Durable first-partial research intake, original-prefix recovery and population verification",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "requested_trade_size_sol": 0.1,
+  "runtime_requirement": "Both checkout runtimes remain OFF. This stage uses isolated synthetic fills and sources; it does not authorize a new bot run, a wallet transaction or runtime policy/model activation.",
+  "finding": "Runner research previously attempted enrollment only after the first partial and logged failures without retaining a retryable original prefix. A later partial changed the eligible snapshot, making the first prefix unrecoverable. Looking only at surviving cases could also omit a captured but unenrolled trade from a seemingly complete cohort.",
+  "implemented": {
+    "primary_capture": "The actual paper fill writer captures a detached checksummed first-partial source together with its unique exit receipt in the same strict atomic portfolio write. It records original quantities, costs, peak, policy, entry intent and fill timestamp before any later observation. A failed primary write creates neither a completed partial nor a research intake",
+    "secondary_intake": "After the completed fill, the immutable source is copied to an atomic fsynced intake cell. Secondary case or receipt failures retain the original source and never turn a completed sale into a failed sale. An existing intake cannot be overwritten with a later or contradictory snapshot",
+    "closed_history": "The canonical closed-trade archive retains the original source. Recovery can therefore find it after later partials, full closure, restart or a new buy of the same mint. No historical prefix is reconstructed from final quantities or future peaks",
+    "causal_validation": "Checked entry-intent UUIDs distinguish repeated entries even at the same mint/time. Native integer quantity and first-fill-count checks refuse truncation/coercion. Actual captured first-partial receipts are checked against original entry quantity, sold/remaining quantity, paper venue, signature and timestamp. Existing case/intake/receipt conflicts remain errors rather than replacements",
+    "bounded_recovery": "Startup and existing paper maintenance rotate across current portfolios, pending intakes and canonical closed cells, examining at most 128 candidates and attempting at most eight recoveries per call with a 30-second throttle and bounded per-root state. Recovery does not call a price/quote provider or submit an order",
+    "coverage": "Enrollment keeps the original capture timestamp and day/policy cohort. Delays beyond 300 seconds mark missing observation coverage; missed settlement deadlines produce invalid unresolved cases, not fabricated fills. Capacity gaps remain explicit and never veto an actual trade",
+    "acknowledgement": "Receipt repair confirms the matching immutable intake and its extant case without rewinding later observed arm state. Missing/corrupt acknowledged cases are not silently recreated as unobserved originals. Source/case/receipt corruption is preserved and surfaced as pending",
+    "population": "Selection and selected-policy consumption verify the entire captured eligible population from intakes, primary portfolio and checked canonical archives. A captured but unenrolled trade prevents survivor-only selection. Source metadata participates in cache invalidation, so a newly discovered omitted source invalidates a previously cached selection",
+    "source_failure": "An unreadable source directory is not treated as empty first-launch storage; source enumeration/stat failures prevent complete-population claims. A known capture failure invalidates its original day/policy cohort while later genuinely complete cohorts can still qualify. Unclassifiable source corruption remains an explicit verification failure",
+    "disabled_controls": "Disabled research stops intake maintenance, consumption of earlier selections and selection writes even when auto-apply remains enabled. Live mode cannot enroll these paper cases",
+    "preserved": "Exact 0.1 SOL paper buys, existing financial and safety gates, immutable open-position exit policies, uncapped percentage upside, shared paired quote budgets and the OFF requirement are unchanged"
+  },
+  "verification": {
+    "status": "SOFTWARE_VALIDATED_OFF_NO_PROFITABILITY_CLAIM",
+    "focused_intake_suite": "36 passed in 7.01s after final source enumeration/schema checks",
+    "prior_focused_intake_and_runner": "73 passed in 17.38s before the final explicit empty-list portfolio assertion",
+    "prior_focused_existing_integration": "230 passed in 23.58s before final receipt/source enumeration hardening",
+    "intermediate_full_working": "1415 passed in 156.86s before final research-disabled and source-read failure checks",
+    "intermediate_full_publishing": "1415 passed in 144.67s before final research-disabled and source-read failure checks",
+    "full_working_checkout": "1417 passed in 150.66s after final intake, disabled-control and source-enumeration/schema checks",
+    "full_publishing_checkout": "1417 passed in 143.61s after the same final changes, without personal .env or local .venv using the existing working-checkout Python runtime",
+    "preflight_both": {"ok": true, "compile_errors": 0, "configuration_import_returncode": 0, "paper_profile_ok": true, "empty_data_report_builders": 7, "all_report_builders_ok": true},
+    "source_sync": "Seven reviewed implementation/test files synchronized into the initially clean publishing checkout; zero deletion; same-stage reviewed updates followed. Personal .env, data, logs and active model artifacts excluded",
+    "scope": "Actual paper buy/sell/fill and archive functions, original source and receipt storage, runtime maintenance helper, checked cohort/manifest consumers, mocked providers, isolated files and synthetic complete-cadence cohorts. Synthetic policy selections stay in temporary test directories and are not profitability evidence"
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "runtime_model_training_started": false,
+    "shutdown_verified_at_utc": "2026-10-07T20:00:06.2729636Z",
+    "remaining_bot_processes_both_checkouts": 0,
+    "root_and_data_bot_locks_both_checkouts": false,
+    "real_buy_sell_journal_and_closed_archive_cells_created": 0,
+    "real_runner_intake_sources_receipts_cases_and_policies_created": 0,
+    "runtime_model_artifacts_changed_since_191947_utc": 0,
+    "sqlite_state": {"bot_id": "main", "process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"},
+    "stop_stack": {"completed_at_utc": "2026-10-07T19:59:03Z", "requested_by": "user", "killed": 0, "remaining": 0, "runtime_finalizer": "ok"}
+  },
+  "remaining_full_goal_requirements": [
+    "Complete full-strategy forward-source integrity, cost-checked model-label propagation and other research/export error paths; this stage protects first-partial runner intake, not every remaining dataset reader",
+    "Complete fallback provider price/liquidity freshness, still-cached scanner/core-entry consumers, feed/opportunity follow-up and full-strategy capital/admission constraints",
+    "Independently reconcile real wallet balances, signatures, actual quantities/proceeds and chain finality before a live fill or safe retry can be certified",
+    "Validate rare-runner models and the complete strategy on separately authorized fresh, complete and costed closed evidence before claiming profitability",
+    "Keep further reviewed implementation synchronized and all runtime services OFF"
+  ],
+  "evidence": ["runtime/runner_enrollment.py", "research_loop/runner_forward.py", "runtime/paper_archive.py", "trader/papertrading.py", "run_bot.py", "tests/test_runner_enrollment.py", "tests/test_runner_forward.py", "tests/test_paper_archive.py"]
+}

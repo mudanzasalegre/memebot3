@@ -24,6 +24,8 @@ from typing import Any
 
 from analytics import exit_policy, runner_ladder, runner_price_policy
 from config.config import CFG, PROJECT_ROOT
+from utils.atomic_json import read_json_strict, write_json_atomic
+from runtime.paper_archive import entry_identity
 
 VERSION = "paired_paper_runner_forward_v1"
 MIN_TOKENS = 50
@@ -74,20 +76,14 @@ def _hash(value: Any) -> str:
 
 def _read(path: Path) -> dict[str, Any] | None:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = read_json_strict(path)
         return value if isinstance(value, dict) else None
     except (OSError, ValueError):
         return None
 
 
 def _write(path: Path, value: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        temporary.write_text(json.dumps(value, sort_keys=True, indent=2, allow_nan=False), encoding="utf-8")
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    write_json_atomic(path, value)
 
 
 def _directory(root: Path | str | None) -> Path:
@@ -128,30 +124,38 @@ def policy_variants(policy: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return variants
 
 
-def register_partial(entry: dict[str, Any], *, root: Path | str | None = None,
-                     cfg: Any = None, now: dt.datetime | None = None) -> bool:
-    """Register an immutable common prefix once; later partials never reset it."""
+def case_identity(prefix: dict[str, Any]) -> str:
+    identity = entry_identity(prefix)
+    return _hash(["paper_entry", identity]) if identity else _hash(
+        [prefix["run_id"], prefix["token_address"], prefix["opened_at"]])
+
+
+def prepare_partial_case(entry: dict[str, Any], *,
+                     cfg: Any = None, now: dt.datetime | None = None) -> dict[str, Any] | None:
+    """Pure preparation: original first-partial state, never a later snapshot."""
     cfg = CFG if cfg is None else cfg
     if getattr(cfg, "PAPER_RUNNER_RESEARCH_ENABLED", False) is not True or entry.get("dry_run") is not True:
-        return False
+        return None
     policy = runner_price_policy.parse_policy(entry.get("runner_trailing_policy"))
     stamp = now or _now()
     opened, run_start = _time(entry.get("opened_at")), _time(entry.get("run_started_at"))
     if (policy is None or entry.get("closed") or entry.get("test_event") or not entry.get("run_id")
             or opened is None or run_start is None or not run_start <= opened <= stamp
             or entry.get("partial_taken") is not True or entry.get("partial_fill_events") != 1):
-        return False
+        return None
     if exit_policy.runner_price_protection_floor_pct(entry, peak=policy["activation_peak_pct"]) is None:
-        return False  # Excludes short-lived probes and reversal scalps.
+        return None  # Excludes short-lived probes and reversal scalps.
     model = entry.get("execution_cost_model") or {}
     route = entry.get("entry_route_quote") or {}
     if (model.get("version") != "estimated-v1" or model.get("observed_execution") is not False
             or not _positive(entry.get("entry_notional_usd")) or not _positive(entry.get("buy_price_usd"))
             or _number(entry.get("amount_sol")) != .1 or route.get("in_amount") != 100000000
             or not _positive(route.get("out_amount")) or not _positive(route.get("max_impact_pct"))
-            or not isinstance(route.get("route_count"), int) or route["route_count"] <= 0
+            or type(route.get("route_count")) is not int or route["route_count"] <= 0
+            or type(route.get("out_amount")) is not int
+            or any(type(entry.get(key)) is not int for key in ("entry_qty", "qty_lamports", "realized_qty"))
             or entry.get("quantity_basis") != "quoted_raw_spl_units"):
-        return False
+        return None
     try:
         entry_qty, remaining, realized = (int(entry[k]) for k in ("entry_qty", "qty_lamports", "realized_qty"))
         numeric_fields = ("realized_proceeds_usd", "realized_proceeds_sol", "estimated_fees_usd", "estimated_fees_sol")
@@ -160,27 +164,17 @@ def register_partial(entry: dict[str, Any], *, root: Path | str | None = None,
                 or any(_number(entry.get(k)) is None or float(entry[k]) < 0 for k in numeric_fields)
                 or not 0 <= float(model["slippage_bps"]) < 10000
                 or not math.isfinite(float(model["fee_sol_per_fill"])) or float(model["fee_sol_per_fill"]) < 0):
-            return False
+            return None
     except (KeyError, ValueError, TypeError, OverflowError):
-        return False
+        return None
     token = str(entry.get("token_address") or "").strip()
     from utils.solana_addr import is_valid_base58_32
-    if not is_valid_base58_32(token) or not isinstance(entry.get("execution_fill_count"), int) or entry["execution_fill_count"] < 2:
-        return False
-    directory = _directory(root)
-    case_id = _hash([entry["run_id"], token, entry["opened_at"]])
-    if any((directory / state / f"{case_id}.json").exists() for state in ("active", "closed", "invalid")):
-        return False
+    if not is_valid_base58_32(token) or type(entry.get("execution_fill_count")) is not int or entry["execution_fill_count"] != 2:
+        return None
+    case_id = case_identity(entry)
     base_id = _policy_id(policy)
     day = stamp.replace(hour=0, minute=0, second=0, microsecond=0)
     cohort = f"{day.strftime('%Y%m%d')}_{base_id}"
-    from research_loop import entry_gate_forward
-    combined_tokens = active_tokens(root) | entry_gate_forward.active_tokens(root)
-    if (len(list((directory / "active").glob("*.json"))) >= MAX_ACTIVE
-            or (token not in combined_tokens and len(combined_tokens) >= MAX_ACTIVE)):
-        _write(directory / "coverage_gaps" / f"{cohort}_{case_id}.json",
-               {"cohort_id": cohort, "case_id": case_id, "reason": "research_capacity_exceeded"})
-        return False  # No trade is vetoed, but this cohort cannot select a policy.
     # Whitelist portfolio fields; no arbitrary payload or credentials are copied.
     keys = {"run_id", "run_started_at", "opened_at", "token_address", "entry_regime", "entry_lane",
             "gate_profile", "runner_exit_profile", "exit_profile", "discovered_via", "buy_price_usd",
@@ -189,7 +183,8 @@ def register_partial(entry: dict[str, Any], *, root: Path | str | None = None,
             "estimated_fees_sol", "execution_fill_count", "partial_taken", "partial_count", "partial_fill_events",
             "highest_pnl_pct", "max_pnl_pct_seen", "max_adverse_pnl_pct", "partial_ladder_state",
             "first_partial_at", "last_partial_at", "buy_liquidity_usd", "dry_run", "entry_route_quote",
-            "quantity_basis", "runner_trailing_policy"}
+            "quantity_basis", "runner_trailing_policy", "entry_intent_id", "buy_signature",
+            "source_position_key", "paper_entry_policy", "first_partial_exit_intent_id"}
     prefix = {key: copy.deepcopy(entry[key]) for key in keys if key in entry}
     variants = policy_variants(policy)
     arms = {}
@@ -202,11 +197,21 @@ def register_partial(entry: dict[str, Any], *, root: Path | str | None = None,
             "registered_at": stamp.isoformat(), "baseline_id": base_id, "token": token,
             "prefix": prefix, "arms": arms, "last_observed_at": stamp.isoformat(), "quote_failures": 0,
             "observation_count": 0, "observation_gap_limit_exceeded": False}
-    path = directory / "active" / f"{case_id}.json"
-    _write(path, case)
-    # Rebuild lazily; avoid a duplicate index entry on first enrollment.
-    _ACTIVE_INDEX.pop(str(directory), None)
-    return True
+    return case
+
+
+def register_partial(entry: dict[str, Any], *, root: Path | str | None = None,
+                     cfg: Any = None, now: dt.datetime | None = None) -> bool:
+    """Compatibility entry point; durable production sources are captured with the fill."""
+    cfg = CFG if cfg is None else cfg
+    stamp = now or _now()
+    if prepare_partial_case(entry, cfg=cfg, now=stamp) is None:
+        return False
+    directory, identity = _directory(root), case_identity(entry)
+    if any((directory / state / (identity + ".json")).exists() for state in ("active", "closed", "invalid")):
+        return False
+    from runtime.runner_enrollment import capture_source, register_source
+    return register_source(capture_source(entry, captured_at=stamp), root=root, cfg=cfg, now=stamp)["created"]
 
 
 def _request(arm: dict[str, Any], price: Any, now: dt.datetime, *, liq_now: float | None = None) -> None:
@@ -602,7 +607,7 @@ def _compare_cohort(cases: list[dict[str, Any]], *, now: dt.datetime | None = No
         if (started is None or ended is None or not started <= registered < ended
                 or case.get("cohort_started_at") != first.get("cohort_started_at")
                 or case.get("cohort_ends_at") != first.get("cohort_ends_at")
-                or case["case_id"] != _hash([prefix["run_id"], case["token"], prefix["opened_at"]])):
+                or case["case_id"] != case_identity(prefix)):
             reasons.append("case_identity_or_enrollment_window_mismatch")
         if case.get("observation_gap_limit_exceeded") is not False or case.get("observation_count", 0) <= 0:
             reasons.append("incomplete_observation_coverage")
@@ -693,6 +698,7 @@ def entry_policy(cfg: Any, *, root: Path | str | None = None, now: dt.datetime |
 def _entry_policy(cfg: Any, *, root: Path | str | None = None, now: dt.datetime | None = None) -> str:
     base = runner_price_policy.freeze_policy(cfg, dry_run=getattr(cfg, "DRY_RUN", False) is True)
     if (getattr(cfg, "DRY_RUN", False) is not True
+            or getattr(cfg, "PAPER_RUNNER_RESEARCH_ENABLED", False) is not True
             or getattr(cfg, "PAPER_RUNNER_RESEARCH_AUTO_APPLY", False) is not True):
         return base
     directory = _directory(root)
@@ -725,7 +731,9 @@ def _entry_policy(cfg: Any, *, root: Path | str | None = None, now: dt.datetime 
         path = directory / "closed" / f"{record['case_id']}.json"
         metadata = path.stat()
         paths.append((path, record, metadata.st_mtime_ns, metadata.st_size))
-    signature = _hash([manifest, evidence, [(str(p), mtime, size) for p, _, mtime, size in paths]])
+    from runtime.runner_enrollment import population_matches, source_paths, source_metadata
+    source_stats = [source_metadata(path) for path in source_paths(Path(root or PROJECT_ROOT).resolve())]
+    signature = _hash([manifest, evidence, [(str(p), mtime, size) for p, _, mtime, size in paths], source_stats])
     if _VERIFIED_CACHE.get(str(directory)) == signature:
         return json.dumps({**policy, "selection_revision": manifest.get("revision"),
                            "selection_evidence_sha256": manifest["evidence_sha256"]}, sort_keys=True)
@@ -736,7 +744,8 @@ def _entry_policy(cfg: Any, *, root: Path | str | None = None, now: dt.datetime 
             return base
         cases.append(case)
     verified = compare_cohort(cases, now=selected_at)
-    if not verified.get("accepted") or verified.get("selected") != evidence.get("selected"):
+    if (not verified.get("accepted") or verified.get("selected") != evidence.get("selected")
+            or not population_matches(Path(root or PROJECT_ROOT).resolve(), evidence["cohort_id"], cases)):
         return base
     if len(_VERIFIED_CACHE) >= 32:
         _VERIFIED_CACHE.pop(next(iter(_VERIFIED_CACHE)))
@@ -751,7 +760,8 @@ def evaluate_completed_cohorts(*, root: Path | str | None = None, cfg: Any = Non
     stamp = now or _now()
     directory = _directory(root)
     current = runner_price_policy.parse_policy(entry_policy(cfg, root=root, now=stamp))
-    if current is None or getattr(cfg, "DRY_RUN", False) is not True:
+    if (current is None or getattr(cfg, "DRY_RUN", False) is not True
+            or getattr(cfg, "PAPER_RUNNER_RESEARCH_ENABLED", False) is not True):
         return {"status": "disabled"}
     grouped: dict[str, list[dict[str, Any]]] = {}
     incomplete_files = False
@@ -768,6 +778,11 @@ def evaluate_completed_cohorts(*, root: Path | str | None = None, cfg: Any = Non
         if incomplete_files or list((directory / "coverage_gaps").glob(f"{cohort}_*.json")):
             report["accepted"] = False
             report["reasons"] = sorted(set(report["reasons"] + ["incomplete_enrollment_coverage"]))
+        if report["accepted"]:
+            from runtime.runner_enrollment import population_matches
+            if not population_matches(Path(root or PROJECT_ROOT).resolve(), cohort, cases):
+                report["accepted"] = False
+                report["reasons"] = sorted(set(report["reasons"] + ["incomplete_first_partial_population"]))
         _write(directory / "evaluations" / f"{cohort}.json", report)
         if report["accepted"]:
             selected = report
