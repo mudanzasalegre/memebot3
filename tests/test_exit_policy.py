@@ -21,12 +21,40 @@ sys.modules[_SPEC.name] = exit_policy
 _SPEC.loader.exec_module(exit_policy)
 
 
+@pytest.fixture(autouse=True)
+def _explicit_paper_exit_profile(monkeypatch):
+    # Tests specify their paper policy, not the developer's private .env.
+    monkeypatch.setattr(exit_policy, "CFG", dataclasses.replace(
+        exit_policy.CFG, DRY_RUN=True, EXIT_PROFILE_BY_REGIME=True,
+        PUMP_EARLY_TAKE_PROFIT_PCT=8.0,
+        PUMP_EARLY_PRE_PARTIAL_TIME_STOP_MIN=3.0,
+        PUMP_EARLY_PRE_PARTIAL_TIME_STOP_MAX_PNL_PCT=-2.0,
+        PUMP_EARLY_PRE_PARTIAL_TIME_STOP_MIN_PEAK_PCT=3.0,
+        PUMP_EARLY_PRE_PARTIAL_RETRACE_TRIGGER_PCT=5.0,
+        PUMP_EARLY_PRE_PARTIAL_RETRACE_GIVEBACK_PCT=6.0,
+        PUMP_EARLY_PRE_PARTIAL_RETRACE_FLOOR_PCT=-1.5,
+    ))
+
+
 def test_pump_early_partial_trigger_uses_regime_override() -> None:
     subject = {"entry_regime": "pump_early", "partial_taken": False}
     policy = exit_policy.effective_exit_policy(subject)
 
     assert exit_policy.should_take_partial(subject, float(policy.tp_partial_trigger_pct)) is True
     assert exit_policy.should_take_partial(subject, float(policy.tp_partial_trigger_pct) - 0.1) is False
+
+
+def test_regime_profile_reads_current_configuration_not_import_cache(monkeypatch) -> None:
+    subject = {"entry_regime": "pump_early", "partial_taken": False}
+    monkeypatch.setattr(exit_policy, "CFG", dataclasses.replace(
+        exit_policy.CFG, TP_PARTIAL_TRIGGER_PCT=22.0,
+        PUMP_EARLY_TP_PARTIAL_TRIGGER_PCT=41.0,
+    ))
+    assert exit_policy.effective_exit_policy(subject).tp_partial_trigger_pct == 41.0
+    monkeypatch.setattr(exit_policy, "CFG", dataclasses.replace(
+        exit_policy.CFG, PUMP_EARLY_TP_PARTIAL_TRIGGER_PCT=None,
+    ))
+    assert exit_policy.effective_exit_policy(subject).tp_partial_trigger_pct == 22.0
 
 
 def test_pump_early_pre_partial_time_stop_triggers() -> None:

@@ -343,10 +343,12 @@ def test_moonshot_report_outputs_core_metrics(tmp_path) -> None:
     (metrics / "candidate_outcomes.jsonl").write_text(
         (
             '{"address":"A","entry_lane":"pump_early_moonshot_micro_lottery",'
-            '"reason":"confirmed_moonshot_buy","route_proxy":1,"highest_pnl_pct":700,"total_pnl_pct":40}\n'
+            '"reason":"confirmed_moonshot_buy","route_proxy":1,"highest_pnl_pct":700,"total_pnl_pct":40,'
+            '"source":"pumpfun","age_minutes":2,"txns_last_5m":320,"market_cap_usd":80000,'
+            '"price_pct_5m":650,"has_jupiter_route":false}\n'
             '{"address":"B","source":"pumpfun","action":"shadow","reason":"moonshot_micro_lottery_shadow:cluster_bad",'
             '"price_pct_5m":350,"txns_last_5m":90,"market_cap_usd":50000,'
-            '"age_minutes":4,"cluster_bad":true}\n'
+            '"age_minutes":4,"cluster_bad":true,"time_to_peak_sec":600,"max_pnl_pct":350}\n'
         ),
         encoding="utf-8",
     )
@@ -366,3 +368,11 @@ def test_moonshot_report_outputs_core_metrics(tmp_path) -> None:
     assert report["confirmed_moonshot_buy"] == 1
     assert report["route_proxy_buys"] == 1
     assert report["risky_cluster_shadow"] == 1
+    assert report["theoretical_moonshot_candidates"] == 2
+    assert report["executable_moonshot_candidates"] == 1
+    assert report["missed_moonshot_count"] == 1
+    assert report["missed_peak100"] == 1
+    assert report["moonshot_blockers"]["cluster_bad"] == 1
+    assert report["moonshot_viability"]["theoretical_only"] == 1
+    assert report["missed_moonshots"][0]["address"] == "B"
+    assert report["missed_moonshots"][0]["time_to_peak_min"] == 10.0

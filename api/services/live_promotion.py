@@ -6,12 +6,17 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from config.config import CFG
+from runtime.live_canary_guard import (
+    LIVE_CANARY_PROTOCOL_ID,
+    latest_accepted_candidate,
+    validate_live_canary_profile_values,
+    validate_paper_sample,
+)
 
 if TYPE_CHECKING:
     from api.settings import APISettings
 
 
-ACCEPTED_REPLAY_STATUSES = {"accepted_replay", "accepted_paper"}
 LIVE_PROFILE_NAME = "ui_live_start_profile.env"
 RUNTIME_FRESH_S = 15
 RUNTIME_STALE_S = 60
@@ -90,26 +95,88 @@ def _gate(gate_id: str, label: str, passed: bool, detail: str, *, value: Any = N
     }
 
 
+def _gate_from_guard(raw: dict[str, Any]) -> dict[str, Any]:
+    gate_id = str(raw.get("id") or "live_canary_guard")
+    label = gate_id.replace(".", " ").replace("_", " ").title()
+    return {
+        "id": gate_id,
+        "label": label,
+        "status": raw.get("status") or ("pass" if raw.get("passed") else "block"),
+        "detail": raw.get("detail") or label,
+        "value": raw.get("value"),
+        "required": raw.get("required"),
+    }
+
+
 def _latest_accepted_candidate(settings: APISettings) -> dict[str, Any] | None:
     path = settings.data_dir / "research_runs" / "scoreboard.json"
-    payload = _read_json(path)
-    rows = payload if isinstance(payload, list) else []
-    accepted = [
-        row
-        for row in rows
-        if isinstance(row, dict)
-        and str(row.get("status") or "").strip().lower() in ACCEPTED_REPLAY_STATUSES
-        and _float(row.get("objective_score"), 0.0) > 0.0
-    ]
-    if not accepted:
-        return None
-    return sorted(accepted, key=lambda row: str(row.get("evaluated_at_utc") or row.get("created_at_utc") or ""), reverse=True)[0]
+    return latest_accepted_candidate(_read_json(path))
+
+
+def build_live_start_profile_values(
+    *,
+    approved_by: str | None = None,
+    approval_id: str | None = None,
+    template: bool = False,
+) -> dict[str, str]:
+    now = _utc_now()
+    live_canary_size = min(_float(getattr(CFG, "LIVE_CANARY_SIZE_SOL", 0.01), 0.01), 0.01)
+    rank_priority_size = min(_float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_SIZE_SOL", 0.02), 0.02), 0.02)
+    manual_approval = bool(approved_by and not template)
+    values = {
+        "LIVE_CANARY_PROTOCOL": LIVE_CANARY_PROTOCOL_ID,
+        "LIVE_CANARY_PROFILE_TEMPLATE": "true" if template else "false",
+        "DRY_RUN": "0",
+        "STRATEGY_OPTIMIZATION_LOCK": "false",
+        "REQUIRE_ENTRY_LANE_FOR_BUY": "true",
+        "ALLOW_UNTAGGED_STANDARD_BUY": "false",
+        "DEX_MATURE_STANDARD_BUY_ENABLED": "false",
+        "PUMPFUN_STANDARD_BUY_ENABLED": "false",
+        "LIVE_CANARY_ENABLED": "true",
+        "LIVE_CANARY_MANUAL_APPROVAL": "true" if manual_approval else "false",
+        "LIVE_CANARY_APPROVED_BY": str(approved_by or ""),
+        "LIVE_CANARY_APPROVED_AT_UTC": now if manual_approval else "",
+        "LIVE_CANARY_APPROVAL_ID": str(approval_id or f"ui-live-{now}") if manual_approval else "",
+        "LIVE_REQUIRE_ROUTE": "true",
+        "LIVE_REQUIRE_PROVIDER_HEALTH": "true",
+        "LIVE_CANARY_ROLLBACK_ON_LIQUIDITY_CRUSH": "true",
+        "LIVE_CANARY_ROLLBACK_ON_DAILY_LOSS_CAP": "true",
+        "LIVE_CANARY_ROLLBACK_ON_PROVIDER_CRITICAL": "true",
+        "LIVE_CANARY_MAX_OPEN": "1",
+        "LIVE_CANARY_MAX_DAILY_BUYS": "3",
+        "LIVE_CANARY_DAILY_LOSS_CAP_SOL": "0.05",
+        "LIVE_CANARY_SIZE_SOL": f"{live_canary_size:.6f}",
+        "GREEN_SNIPER_LIVE_ENABLED": "true",
+        "GREEN_SNIPER_LIVE_SIZE_SOL": f"{live_canary_size:.6f}",
+        "GREEN_SNIPER_LIVE_MAX_OPEN": "1",
+        "GREEN_SNIPER_LIVE_MAX_DAILY_BUYS": "3",
+        "GREEN_SNIPER_LIVE_MAX_DAILY_LOSS_SOL": "0.05",
+        "GREEN_SNIPER_REQUIRE_ROUTE_LIVE": "true",
+        "RESEARCH_RANK_CANARY_LIVE_ENABLED": "true",
+        "RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED": "false",
+        "RESEARCH_RANK_CANARY_PRIORITY_ONLY": "true",
+        "RESEARCH_RANK_CANARY_PRIORITY_SIZE_SOL": f"{rank_priority_size:.6f}",
+        "RESEARCH_RANK_CANARY_MAX_OPEN": "1",
+        "RESEARCH_RANK_CANARY_MAX_DAILY_BUYS": "3",
+        "AUTO_PROMOTE_LIVE": "false",
+        "MODEL_AUTO_PROMOTE": "false",
+        "ML_AUTO_PROMOTE_LANES": "false",
+        "AUTORESEARCH_LIVE_PROMOTION_ENABLED": "false",
+        "AUTORESEARCH_AUTO_LIVE_PROMOTE": "false",
+        "AUTORESEARCH_LLM_CAN_TOUCH_LIVE": "false",
+        "LLM_TRADING_ENABLED": "false",
+        "ALLOW_LIVE_POLICY_ENFORCE": "false",
+        "ML_GATE_MODE": "shadow",
+    }
+    return values
 
 
 def build_live_promotion_preflight(
     settings: APISettings,
     *,
     runtime_snapshot: dict[str, Any] | None = None,
+    manual_approval: bool = False,
+    approved_by: str | None = None,
 ) -> dict[str, Any]:
     metrics_dir = settings.metrics_dir
     current_summary = _read_json(metrics_dir / "current_run_summary.json")
@@ -149,11 +216,26 @@ def build_live_promotion_preflight(
     )
     max_api_429 = _int(getattr(CFG, "LIVE_PROMOTION_MAX_API_429_COUNT", 50), 50)
     max_provider_degraded = _int(getattr(CFG, "LIVE_PROMOTION_MAX_PROVIDER_DEGRADED_MINUTES", 0), 0)
-    closed_trades = _int(current_summary.get("closed_trades") or current_summary.get("closed_positions"))
-    min_closed_trades = _int(getattr(CFG, "LIVE_PROMOTION_MIN_PAPER_CLOSED_TRADES", 25), 25)
-    buys = _int(current_summary.get("buys") or current_summary.get("buy_count"))
     accepted_candidate = _latest_accepted_candidate(settings)
     freshness = _runtime_snapshot_freshness(runtime_snapshot)
+    min_closed_trades = _int(getattr(CFG, "LIVE_PROMOTION_MIN_PAPER_CLOSED_TRADES", 25), 25)
+    min_net_pnl = _float(getattr(CFG, "LIVE_PROMOTION_MIN_NET_PNL_USD", 0.0), 0.0)
+    min_profit_factor = _float(getattr(CFG, "LIVE_PROMOTION_MIN_PROFIT_FACTOR", 1.0), 1.0)
+    sample_result = validate_paper_sample(
+        current_summary,
+        min_closed_trades=min_closed_trades,
+        min_net_pnl_usd=min_net_pnl,
+        min_profit_factor=min_profit_factor,
+    )
+    proposed_profile = build_live_start_profile_values(
+        approved_by=approved_by if manual_approval else None,
+        template=not manual_approval,
+    )
+    profile_result = validate_live_canary_profile_values(
+        proposed_profile,
+        label="generated_live_start_profile",
+        require_approval=manual_approval,
+    )
 
     gates = [
         _gate(
@@ -175,16 +257,6 @@ def build_live_promotion_preflight(
             else "Provider/API health is too degraded for live promotion.",
             value={"api_429_count": api_429_count, "provider_degraded_minutes": provider_degraded_minutes},
             required={"api_429_count_max": max_api_429, "provider_degraded_minutes_max": max_provider_degraded},
-        ),
-        _gate(
-            "paper_sample",
-            "Paper sample",
-            closed_trades >= min_closed_trades or buys >= min_closed_trades,
-            "Paper mode has enough closed/bought samples."
-            if closed_trades >= min_closed_trades or buys >= min_closed_trades
-            else "Paper mode has not collected enough buy/outcome samples yet.",
-            value={"buys": buys, "closed_trades": closed_trades},
-            required={"min_closed_trades_or_buys": min_closed_trades},
         ),
         _gate(
             "accepted_research",
@@ -211,7 +283,19 @@ def build_live_promotion_preflight(
             value={"dry_run": (runtime_snapshot or {}).get("dry_run"), "freshness": freshness},
             required="no_active_live_runtime",
         ),
+        _gate(
+            "manual_approval",
+            "Manual approval",
+            bool(manual_approval and str(approved_by or "").strip()),
+            "A named operator has explicitly confirmed this live canary start."
+            if bool(manual_approval and str(approved_by or "").strip())
+            else "Live canary requires a fresh named manual approval.",
+            value={"manual_approval": bool(manual_approval), "approved_by": approved_by},
+            required="confirm_live=true and authenticated operator",
+        ),
     ]
+    gates.extend(_gate_from_guard(gate.to_dict()) for gate in sample_result.gates)
+    gates.extend(_gate_from_guard(gate.to_dict()) for gate in profile_result.gates)
     passed = all(str(gate["status"]) == "pass" for gate in gates)
     return {
         "generated_at_utc": _utc_now(),
@@ -223,35 +307,24 @@ def build_live_promotion_preflight(
     }
 
 
-def write_live_start_profile(settings: APISettings, preflight: dict[str, Any]) -> Path:
+def write_live_start_profile(
+    settings: APISettings,
+    preflight: dict[str, Any],
+    *,
+    approved_by: str | None = None,
+    approval_id: str | None = None,
+) -> Path:
     if not bool(preflight.get("passed")):
         raise RuntimeError("live_preflight_not_passed")
     path = settings.runtime_dir / LIVE_PROFILE_NAME
     path.parent.mkdir(parents=True, exist_ok=True)
-    live_canary_size = min(_float(getattr(CFG, "LIVE_CANARY_SIZE_SOL", 0.01), 0.01), 0.01)
-    rank_priority_size = min(_float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_SIZE_SOL", 0.02), 0.02), 0.02)
-    values = {
-        "DRY_RUN": "0",
-        "STRATEGY_OPTIMIZATION_LOCK": "false",
-        "REQUIRE_ENTRY_LANE_FOR_BUY": "true",
-        "ALLOW_UNTAGGED_STANDARD_BUY": "false",
-        "DEX_MATURE_STANDARD_BUY_ENABLED": "false",
-        "PUMPFUN_STANDARD_BUY_ENABLED": "false",
-        "LIVE_CANARY_ENABLED": "true",
-        "LIVE_REQUIRE_ROUTE": "true",
-        "LIVE_REQUIRE_PROVIDER_HEALTH": "true",
-        "LIVE_CANARY_MAX_OPEN": "0",
-        "LIVE_CANARY_MAX_DAILY_BUYS": "0",
-        "LIVE_CANARY_SIZE_SOL": f"{live_canary_size:.6f}",
-        "RESEARCH_RANK_CANARY_LIVE_ENABLED": "true",
-        "RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED": "false",
-        "RESEARCH_RANK_CANARY_PRIORITY_ONLY": "true",
-        "RESEARCH_RANK_CANARY_PRIORITY_SIZE_SOL": f"{rank_priority_size:.6f}",
-        "RESEARCH_RANK_CANARY_MAX_OPEN": "0",
-        "RESEARCH_RANK_CANARY_MAX_DAILY_BUYS": "0",
-    }
+    values = build_live_start_profile_values(
+        approved_by=approved_by or "ui",
+        approval_id=approval_id,
+        template=False,
+    )
     lines = [
-        "# Generated by UI live promotion preflight.",
+        "# Generated by UI live promotion preflight. Do not store secrets here.",
         f"# generated_at_utc={_utc_now()}",
     ]
     for key, value in values.items():
@@ -262,6 +335,7 @@ def write_live_start_profile(settings: APISettings, preflight: dict[str, Any]) -
 
 __all__ = [
     "LIVE_PROFILE_NAME",
+    "build_live_start_profile_values",
     "build_live_promotion_preflight",
     "write_live_start_profile",
 ]

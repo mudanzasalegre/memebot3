@@ -53,10 +53,17 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $ScriptsRoot = Join-Path $RepoRoot "scripts"
 $PowerShellExe = "powershell.exe"
 $Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
-$DefaultConfigProfile = "paper_hotfix_runner_v2"
+$DefaultConfigProfile = "paper_hotfix_0707"
 $StackConfigProfile = if ([string]::IsNullOrWhiteSpace($env:CONFIG_PROFILE)) { $DefaultConfigProfile } else { $env:CONFIG_PROFILE.Trim() }
+$InheritedConfigProfilePath = [string]$env:CONFIG_PROFILE_PATH
+if (-not [string]::IsNullOrWhiteSpace($InheritedConfigProfilePath)) {
+    Write-Warning "[start_stack] clearing inherited CONFIG_PROFILE_PATH because the launcher selected named profile '$StackConfigProfile'"
+}
+[Environment]::SetEnvironmentVariable("CONFIG_PROFILE_PATH", $null, "Process")
 $env:CONFIG_PROFILE = $StackConfigProfile
 $CoreReportsPrepared = $false
+
+Write-Host "[start_stack] config_profile=$StackConfigProfile"
 
 $ResolvedAutoResearchIntervalHours = if ($AutoResearchIntervalHours -gt 0) {
     $AutoResearchIntervalHours
@@ -80,14 +87,36 @@ function Invoke-ProjectPython {
     param(
         [string]$Root,
         [string[]]$PythonArgs,
-        [string]$Label
+        [string]$Label,
+        [string[]]$UnsetEnv = @()
     )
 
     $ResolvedPython = Assert-ProjectPython -Root $Root
     Write-Host "[start_stack] preflight: $Label"
-    & $ResolvedPython @PythonArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Label failed with exit_code=$LASTEXITCODE"
+    $SavedEnv = @{}
+    foreach ($Name in $UnsetEnv) {
+        if ([string]::IsNullOrWhiteSpace($Name)) {
+            continue
+        }
+        $SavedEnv[$Name] = [Environment]::GetEnvironmentVariable($Name, "Process")
+        [Environment]::SetEnvironmentVariable($Name, $null, "Process")
+    }
+
+    $ExitCode = 0
+    try {
+        & $ResolvedPython @PythonArgs
+        $ExitCode = $LASTEXITCODE
+    } finally {
+        foreach ($Name in $UnsetEnv) {
+            if ([string]::IsNullOrWhiteSpace($Name)) {
+                continue
+            }
+            [Environment]::SetEnvironmentVariable($Name, $SavedEnv[$Name], "Process")
+        }
+    }
+
+    if ($ExitCode -ne 0) {
+        throw "$Label failed with exit_code=$ExitCode"
     }
 }
 
@@ -104,10 +133,12 @@ function Start-RepoWindow {
     }
 
     $Args = @(
-        "-NoExit",
         "-ExecutionPolicy", "Bypass",
         "-File", $ScriptPath
     ) + $ScriptArgs
+    if ($Visible) {
+        $Args = @("-NoExit") + $Args
+    }
 
     $StartArgs = @{
         FilePath = $PowerShellExe
@@ -121,6 +152,27 @@ function Start-RepoWindow {
 
     $Process = Start-Process @StartArgs
     Write-Host "[start_stack] started $ScriptName pid=$($Process.Id)"
+    return $Process
+}
+
+function Stop-StartedProcessTree {
+    param(
+        [System.Diagnostics.Process]$Process,
+        [string]$Reason
+    )
+
+    if ($null -eq $Process) {
+        return
+    }
+
+    try {
+        if (-not $Process.HasExited) {
+            Write-Warning "[start_stack] stopping pid=$($Process.Id) reason=$Reason"
+            & taskkill.exe /PID "$($Process.Id)" /T /F 2>$null | Out-Null
+        }
+    } catch {
+        Write-Warning "[start_stack] could not stop pid=$($Process.Id): $($_.Exception.Message)"
+    }
 }
 
 function Wait-ApiReady {
@@ -216,6 +268,25 @@ function Test-ProcessIdRunning {
     }
 }
 
+function Invoke-StaleBotLockReconciliation {
+    param(
+        [string]$Root
+    )
+
+    $ResolvedPython = Assert-ProjectPython -Root $Root
+    $Finalizer = Join-Path $Root "scripts\finalize_stack_stop.py"
+    if (-not (Test-Path $Finalizer)) {
+        throw "Runtime finalizer not found at $Finalizer"
+    }
+
+    Write-Host "[start_stack] reconciling persisted runtime state before removing stale bot lock"
+    & $ResolvedPython $Finalizer --requested-by "start_stack_stale_lock" --require-runtime-state
+    $ExitCode = $LASTEXITCODE
+    if ($ExitCode -ne 0) {
+        throw "Stale bot lock runtime reconciliation failed with exit_code=$ExitCode; lock was preserved"
+    }
+}
+
 function Clear-StaleBotLock {
     param(
         [string]$Root
@@ -241,11 +312,16 @@ function Clear-StaleBotLock {
         return
     }
 
+    Invoke-StaleBotLockReconciliation -Root $Root
+
     try {
         Remove-Item -LiteralPath $LockPath -Force
         Write-Host "[start_stack] removed stale bot lock: $LockPath"
     } catch {
-        Write-Warning "[start_stack] could not remove stale bot lock: $($_.Exception.Message)"
+        throw "Could not remove stale bot lock after runtime reconciliation: $($_.Exception.Message)"
+    }
+    if (Test-Path $LockPath) {
+        throw "Stale bot lock still exists after runtime reconciliation: $LockPath"
     }
 }
 
@@ -290,7 +366,7 @@ function Invoke-StartupPreflight {
 
     Write-Host "[start_stack] startup preflight starting"
     if ($RunTests) {
-        Invoke-ProjectPython -Root $Root -PythonArgs @("-m", "pytest", "-q") -Label "pytest"
+        Invoke-ProjectPython -Root $Root -PythonArgs @("-m", "pytest", "-q") -Label "pytest" -UnsetEnv @("CONFIG_PROFILE", "CONFIG_PROFILE_PATH")
     } else {
         Write-Host "[start_stack] preflight: pytest skipped"
     }
@@ -336,17 +412,31 @@ if ($AutoResearchShouldPrepareReports -and -not $CoreReportsPrepared) {
     Invoke-CoreReportRegeneration -Root $RepoRoot
 }
 
+$ApiProcess = $null
 if (-not $SkipApi) {
-    Start-RepoWindow -ScriptName "start_api.ps1" -ScriptArgs @("-BindHost", $ApiHost, "-Port", "$ApiPort") -Visible:$VisibleWindows
+    $ApiProcess = Start-RepoWindow -ScriptName "start_api.ps1" -ScriptArgs @("-BindHost", $ApiHost, "-Port", "$ApiPort") -Visible:$VisibleWindows
+    $ApiReadinessHost = if ($ApiHost -in @("0.0.0.0", "::", "[::]")) { "127.0.0.1" } else { $ApiHost }
+    $ApiReadinessBaseUrl = "http://$ApiReadinessHost`:$ApiPort"
+    $ApiReady = Wait-ApiReady -ApiBaseUrl $ApiReadinessBaseUrl -TimeoutSeconds $ApiReadyTimeoutSeconds
+    if (-not $ApiReady) {
+        Stop-StartedProcessTree -Process $ApiProcess -Reason "api_readiness_failed"
+        throw "API readiness failed; UI and remaining stack services were not started"
+    }
 }
 
 if (-not $SkipUi) {
-    $null = Wait-ApiReady -ApiBaseUrl $UiApiProxyTarget -TimeoutSeconds $ApiReadyTimeoutSeconds
+    if ($SkipApi -or $UiApiProxyTarget.TrimEnd("/") -ne $ApiReadinessBaseUrl.TrimEnd("/")) {
+        $UiApiReady = Wait-ApiReady -ApiBaseUrl $UiApiProxyTarget -TimeoutSeconds $ApiReadyTimeoutSeconds
+        if (-not $UiApiReady) {
+            Stop-StartedProcessTree -Process $ApiProcess -Reason "ui_api_proxy_readiness_failed"
+            throw "API readiness failed; UI and remaining stack services were not started"
+        }
+    }
     $UiArgs = @("-ApiProxyTarget", $UiApiProxyTarget)
     if ($UiInstallIfMissing) {
         $UiArgs += "-InstallIfMissing"
     }
-    Start-RepoWindow -ScriptName "start_ui.ps1" -ScriptArgs $UiArgs -Visible:$VisibleWindows
+    $null = Start-RepoWindow -ScriptName "start_ui.ps1" -ScriptArgs $UiArgs -Visible:$VisibleWindows
 }
 
 if ($StackIncludesBot) {
@@ -354,11 +444,11 @@ if ($StackIncludesBot) {
     if ($BotRealMode) {
         $BotArgs += "-RealMode"
     }
-    Start-RepoWindow -ScriptName "start_bot.ps1" -ScriptArgs $BotArgs -Visible:$VisibleWindows
+    $null = Start-RepoWindow -ScriptName "start_bot.ps1" -ScriptArgs $BotArgs -Visible:$VisibleWindows
 }
 
 if ($StackIncludesTrainingDaemon) {
-    Start-RepoWindow -ScriptName "start_training_daemon.ps1" -ScriptArgs @("-IntervalSeconds", "$TrainingDaemonIntervalSeconds") -Visible:$VisibleWindows
+    $null = Start-RepoWindow -ScriptName "start_training_daemon.ps1" -ScriptArgs @("-IntervalSeconds", "$TrainingDaemonIntervalSeconds") -Visible:$VisibleWindows
 }
 
 if ($StackIncludesAutoResearch) {
@@ -399,7 +489,7 @@ if ($StackIncludesAutoResearch) {
             throw "AutoResearch once failed with exit_code=$LASTEXITCODE"
         }
     } else {
-        Start-RepoWindow -ScriptName "start_autoresearch.ps1" -ScriptArgs $AutoResearchArgs -Visible:$VisibleWindows
+        $null = Start-RepoWindow -ScriptName "start_autoresearch.ps1" -ScriptArgs $AutoResearchArgs -Visible:$VisibleWindows
     }
 }
 

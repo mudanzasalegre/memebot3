@@ -75,6 +75,8 @@ def initial_ladder_state() -> dict[str, Any]:
         "version": LADDER_VERSION,
         "executed_steps": [],
         "sold_fraction": 0.0,
+        "last_pnl_pct": None,
+        "last_pending_step_count": 0,
         "last_updated_at_utc": None,
     }
 
@@ -100,6 +102,14 @@ def _state_from_any(value: Any) -> dict[str, Any]:
         out["sold_fraction"] = max(0.0, min(1.0, float(out.get("sold_fraction") or 0.0)))
     except Exception:
         out["sold_fraction"] = 0.0
+    try:
+        out["last_pnl_pct"] = None if out.get("last_pnl_pct") is None else float(out.get("last_pnl_pct"))
+    except Exception:
+        out["last_pnl_pct"] = None
+    try:
+        out["last_pending_step_count"] = max(0, int(out.get("last_pending_step_count") or 0))
+    except Exception:
+        out["last_pending_step_count"] = 0
     return out
 
 
@@ -195,14 +205,20 @@ def plan_ladder_partials(
                 next_executed.append(step.step_id)
         next_state["executed_steps"] = next_executed
         next_state["sold_fraction"] = round(max(already_secured, target_fraction), 6)
+        next_state["last_pnl_pct"] = round(float(pnl_pct), 6)
+        next_state["last_pending_step_count"] = len(pending_steps)
         next_state["last_updated_at_utc"] = dt.datetime.now(dt.timezone.utc).isoformat()
     else:
         next_state["executed_steps"] = next_executed
         next_state["sold_fraction"] = round(already_secured, 6)
+        next_state["last_pnl_pct"] = round(float(pnl_pct), 6)
+        next_state["last_pending_step_count"] = 0
 
     return {
         "enabled": True,
         "version": LADDER_VERSION,
+        "moonbag_fraction": round(active_moonbag, 6),
+        "runner_fraction": round(max(0.0, 1.0 - target_fraction), 6),
         "target_secured_fraction": round(target_fraction, 6),
         "already_secured_fraction": round(already_secured, 6),
         "pending_entry_fraction": round(pending_entry_fraction, 6),

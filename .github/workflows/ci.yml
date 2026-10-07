@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  strategy-regression:
+    runs-on: ubuntu-latest
+    env:
+      DRY_RUN: "1"
+      STRATEGY_OPTIMIZATION_LOCK: "true"
+      LIVE_CANARY_ENABLED: "false"
+      GREEN_SNIPER_LIVE_ENABLED: "false"
+      RESEARCH_RANK_CANARY_LIVE_ENABLED: "false"
+      LATE_MOMENTUM_WATCH_LIVE_ENABLED: "false"
+      LIVE_AGGRESSIVE_TRADING_ENABLED: "false"
+      AUTO_PROMOTE_LIVE: "false"
+      MODEL_AUTO_PROMOTE: "false"
+      ML_AUTO_PROMOTE_LANES: "false"
+      ALLOW_LIVE_POLICY_ENFORCE: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - name: Strategy regression pytest suite
+        run: >
+          python -m pytest -q
+          tests/test_pr15_ci_strategy_regression.py
+          tests/test_lane_sizing_micro_guard.py
+          tests/test_trade_ledger_pr01.py
+          tests/test_threshold_precision_floor_strict.py
+          tests/test_no_future_leakage.py
+          tests/test_policy_replay.py
+          tests/test_strategy_quality_gate.py
+      - name: Golden 0707 strategy gate
+        run: python scripts/strategy_quality_gate.py --golden-0707-only

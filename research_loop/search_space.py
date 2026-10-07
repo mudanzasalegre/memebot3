@@ -97,7 +97,7 @@ SPACE_METADATA: dict[str, dict[str, Any]] = {
             "reduce_severe_losses": False,
         },
         "optimization_targets": ["idle_no_buy_hours", "total_pnl_usd", "moonshot_peak100_capture"],
-        "risk_notes": ["paper only", "idle exploration quality gates enforced; buy quotas remain unlimited"],
+        "risk_notes": ["paper only", "idle exploration quality gates enforced; buy quotas bounded"],
     },
     "paper_bootstrap": {
         "target_lanes": ["paper_bootstrap", "pump_early_paper_bootstrap_micro"],
@@ -109,7 +109,7 @@ SPACE_METADATA: dict[str, dict[str, Any]] = {
             "reduce_severe_losses": False,
         },
         "optimization_targets": ["idle_no_buy_hours", "total_pnl_usd", "overtrading_count", "severe_loss_count"],
-        "risk_notes": ["paper only", "bootstrap amount cap enforced; buy quotas remain unlimited"],
+        "risk_notes": ["paper only", "bootstrap amount cap enforced; buy quotas bounded"],
     },
 }
 
@@ -286,6 +286,7 @@ def validate_search_space(space: SearchSpace) -> SearchSpaceValidationResult:
         for value in values:
             sample_policy = {
                 "live_allowed": False,
+                "target_lanes": list(space.target_lanes),
                 "changes": {key: value},
             }
             safety = validate_candidate_safety(sample_policy)

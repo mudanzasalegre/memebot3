@@ -6,7 +6,7 @@ Pump.fun (nuevos tokens) vía **PumpPortal** WebSocket (FREE).
 - Suscribe:    {"method": "subscribeNewToken"}
 - Mantiene UNA única conexión WS (evita ban), con backoff y keepalive.
 - Normaliza eventos al esquema DexScreener-like (address/symbol/name/created_at…).
-- Buffer circular en memoria + cache suave para no sobrecargar la UI/pipeline.
+- Cola FIFO acotada en memoria: cada evento se entrega una sola vez al pipeline.
 
 Requisitos: aiohttp (ya presente en el proyecto).
 Docs: ver PumpPortal → Data API → Real-time Updates.
@@ -31,7 +31,6 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import aiohttp
 
 from utils.data_utils import sanitize_token_data
-from utils.simple_cache import cache_get, cache_set
 from utils.time import utc_now, parse_iso_utc
 from utils.solana_addr import normalize_mint
 
@@ -114,12 +113,10 @@ _API_KEY_FOR_REDACTION = (os.getenv("PUMPPORTAL_API_KEY") or os.getenv("PUMPFUN_
 # nº máx. de tokens a devolver en cada llamada pública
 _LIMIT_RETURN = int(os.getenv("PUMPFUN_LIMIT_RETURN", "75"))
 
-# cache “suave” de la lista (segundos)
-_CACHE_TTL = int(os.getenv("PUMPFUN_CACHE_TTL", "1"))
-
-# buffer circular y ventana de frescura (minutos)
+# cola acotada, ventana de frescura y TTL de deduplicación (minutos)
 _BUFFER_MAX = int(os.getenv("PUMPFUN_BUFFER_MAX", "1500"))
 _WINDOW_MIN = float(os.getenv("PUMPFUN_WINDOW_MIN", "60"))
+_SEEN_TTL_MIN = float(os.getenv("PUMPFUN_SEEN_TTL_MIN", str(max(_WINDOW_MIN, 60.0))))
 
 # backoff de reconexión (segundos)
 _BACKOFFS = [2, 4, 8, 16, 30, 60, 90]
@@ -127,8 +124,8 @@ _MAX_CONSECUTIVE_5XX = int(os.getenv("PUMPFUN_WS_MAX_CONSECUTIVE_5XX", "1"))
 _CIRCUIT_BREAK_S = int(os.getenv("PUMPFUN_WS_CIRCUIT_BREAK_S", "3600"))
 
 # ─────────────────────────── Estado global ─────────────────────
-_buffer: deque[Dict[str, Any]] = deque(maxlen=_BUFFER_MAX)
-_seen: set[str] = set()
+_buffer: deque[Dict[str, Any]] = deque()
+_seen: Dict[str, dt.datetime] = {}
 _ws_task: Optional[asyncio.Task] = None
 _ws_lock = asyncio.Lock()     # garantiza una sola conexión viva
 _started = asyncio.Event()    # para esperar a que arranque la suscripción
@@ -177,6 +174,56 @@ def _within_window(d: Dict[str, Any]) -> bool:
     except Exception:
         return True
     return True
+
+
+def _prune_queue_state() -> tuple[int, int]:
+    """Purga eventos caducados y mints cuyo TTL de deduplicación terminó."""
+    now = utc_now()
+    seen_cutoff = now - dt.timedelta(minutes=max(_SEEN_TTL_MIN, 0.0))
+    expired_seen = [address for address, seen_at in _seen.items() if seen_at < seen_cutoff]
+    for address in expired_seen:
+        _seen.pop(address, None)
+
+    if not _buffer:
+        return 0, len(expired_seen)
+
+    fresh = [token for token in _buffer if _within_window(token)]
+    expired_events = len(_buffer) - len(fresh)
+    if expired_events:
+        _buffer.clear()
+        _buffer.extend(fresh)
+    return expired_events, len(expired_seen)
+
+
+def _enqueue_event(token: Dict[str, Any]) -> bool:
+    """Añade un evento al final de la cola respetando deduplicación y capacidad."""
+    _prune_queue_state()
+    address = str(token.get("address") or "").strip()
+    if not address or address in _seen:
+        return False
+
+    _seen[address] = utc_now()
+    capacity = max(_BUFFER_MAX, 1)
+    if len(_buffer) >= capacity:
+        dropped = _buffer.popleft()
+        log.warning(
+            "[PumpFun] cola llena (capacidad=%d); descartado el evento FIFO más antiguo: %s",
+            capacity,
+            dropped.get("address"),
+        )
+    _buffer.append(token)
+    return True
+
+
+def _drain_events(limit: int) -> List[Dict[str, Any]]:
+    """Consume en orden FIFO hasta ``limit`` eventos frescos, sin repetirlos."""
+    _prune_queue_state()
+    out: List[Dict[str, Any]] = []
+    for _ in range(max(int(limit), 0)):
+        if not _buffer:
+            break
+        out.append(_buffer.popleft())
+    return out
 
 
 def _extract_first(d: Dict[str, Any], *keys: str) -> Any:
@@ -294,15 +341,7 @@ async def _ws_consumer() -> None:
 
                             parsed = _parse_event(data)
                             if parsed:
-                                addr = parsed["address"]
-                                if addr not in _seen:
-                                    _seen.add(addr)
-                                    _buffer.appendleft(parsed)
-
-                                # purga por ventana
-                                while _buffer and not _within_window(_buffer[-1]):
-                                    old = _buffer.pop()
-                                    _seen.discard(old["address"])
+                                _enqueue_event(parsed)
 
                         elif msg.type == aiohttp.WSMsgType.PING:
                             await ws.pong()
@@ -371,17 +410,9 @@ async def get_latest_pumpfun() -> List[Dict[str, Any]]:
     Devuelve hasta `_LIMIT_RETURN` tokens recientes descubiertos en Pump.fun.
     No realiza llamadas HTTP por petición; lee de un buffer alimentado por WS.
     """
-    # cache suave
-    if (res := cache_get("pumpfun:latest")) is not None:
-        return res
-
     # inicia el stream si hace falta
     await _ensure_started()
 
-    # filtra por ventana y limita
-    fresh = [d for d in list(_buffer) if _within_window(d)]
-    out = fresh[:_LIMIT_RETURN]
-
-    cache_set("pumpfun:latest", out, ttl=_CACHE_TTL)
-    log.debug("[PumpFun] entregados %d (buffer=%d)", len(out), len(_buffer))
+    out = _drain_events(_LIMIT_RETURN)
+    log.debug("[PumpFun] consumidos %d (pendientes=%d)", len(out), len(_buffer))
     return out

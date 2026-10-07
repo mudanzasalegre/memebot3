@@ -18,6 +18,7 @@ def _metrics() -> dict:
         "avg_pnl_pct": 1.0,
         "median_pnl_pct": 1.0,
         "win_rate_pct": 50.0,
+        "closed_trades": 10,
         "runner_capture_ratio": 0.1,
         "moonshot_peak100_capture": 0.0,
         "moonshot_peak500_capture": 0.0,
@@ -30,6 +31,7 @@ def _metrics() -> dict:
         "provider_degraded_minutes": 0,
         "overtrading_count": 0,
         "idle_no_buy_hours": 0,
+        "event_replay_used_for_acceptance": True,
     }
 
 

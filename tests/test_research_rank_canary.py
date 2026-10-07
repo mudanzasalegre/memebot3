@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from analytics.research_rank_canary import (
     apply_research_rank_canary_context,
     apply_research_rank_canary_shadow_context,
@@ -340,6 +342,27 @@ def test_research_rank_priority_report_outputs_priority_vs_normal(tmp_path) -> N
         ),
         encoding="utf-8",
     )
+    (tmp_path / "data" / "paper_portfolio.json").write_text(
+        json.dumps(
+            {
+                "positions": [
+                    {
+                        "address": "A",
+                        "entry_lane": "pump_early_research_rank_canary",
+                        "reason": "research_rank_canary_priority",
+                        "opened_at": "2026-05-22T10:00:00+00:00",
+                    },
+                    {
+                        "address": "B",
+                        "entry_lane": "pump_early_research_rank_canary",
+                        "reason": "research_rank_canary_paper_normal",
+                        "opened_at": "2026-05-22T10:01:00+00:00",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
 
     report = write_research_rank_priority_report(tmp_path)
 
@@ -353,6 +376,33 @@ def test_research_rank_priority_report_outputs_priority_vs_normal(tmp_path) -> N
     assert report["priority_shadow"] == 0
     assert "elite_consolidation" in report["historical"]
     assert "pullback_tail_micro" in report["historical"]
+
+
+def test_research_rank_reports_do_not_treat_shadow_pnl_as_buys(tmp_path) -> None:
+    metrics = tmp_path / "data" / "metrics"
+    metrics.mkdir(parents=True)
+    (metrics / "runtime_events.jsonl").write_text(
+        '{"event_type":"heartbeat","run_id":"rank-run","run_started_at":"2026-05-22T10:00:00+00:00","ts_utc":"2026-05-22T10:01:00+00:00"}\n',
+        encoding="utf-8",
+    )
+    (metrics / "candidate_outcomes.jsonl").write_text(
+        "\n".join(
+            [
+                '{"event_type":"candidate_outcome","run_id":"rank-run","address":"A","entry_lane":"pump_early_research_rank_canary","reason":"research_rank_canary_priority","pnl_pct":12,"outcome":"closed"}',
+                '{"event_type":"candidate_outcome","run_id":"rank-run","address":"B","entry_lane":"pump_early_research_rank_canary","reason":"research_rank_canary_paper_normal","pnl_pct":4,"outcome":"closed"}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    priority = write_research_rank_priority_report(tmp_path)
+    current = write_research_rank_current_run_report(tmp_path)
+    audit = write_research_rank_canary_audit_report(tmp_path)
+
+    for report in (priority, current, audit):
+        assert report["priority_bought"] == 0
+        assert report["normal_micro_bought"] == 0
+    assert current["current_run_rank_trades"]["rows"] == 0
 
 
 def test_research_rank_reports_expose_pr06_counters(tmp_path) -> None:

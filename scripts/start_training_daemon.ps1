@@ -19,7 +19,7 @@ if ($MaxRestarts -lt 0) {
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $DaemonTool = Join-Path $RepoRoot "scripts\run_training_daemon.py"
-$DefaultConfigProfile = "paper_hotfix_runner_v2"
+$DefaultConfigProfile = "paper_hotfix_0707"
 $StackConfigProfile = if ([string]::IsNullOrWhiteSpace($env:CONFIG_PROFILE)) { $DefaultConfigProfile } else { $env:CONFIG_PROFILE.Trim() }
 
 if (-not (Test-Path $Python)) {

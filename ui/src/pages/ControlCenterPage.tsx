@@ -25,10 +25,12 @@ import {
   type ControlCommandsData,
   type ControlStateData,
   type LivePromotionPreflightData,
+  type RiskControlData,
+  type RiskLaneControlRow,
   type SourceStatus,
   type StackStopRequest,
 } from "../lib/api";
-import { formatCount, formatRelative, formatTimestamp, humanizeKey } from "../lib/format";
+import { formatCount, formatDecimal, formatRelative, formatSignedPct, formatTimestamp, formatUsd, humanizeKey } from "../lib/format";
 
 
 const statusOptions: Array<ControlCommandStatus | "all"> = ["all", "pending", "running", "done", "failed", "rejected", "cancelled"];
@@ -52,6 +54,8 @@ const commandOrder: ControlCommandType[] = [
   "resume_discovery",
   "pause_buys",
   "resume_buys",
+  "disable_lane",
+  "enable_lane",
   "reload_model",
   "trigger_retrain",
   "refresh_reports",
@@ -88,6 +92,18 @@ const commandCatalog: Array<{
     label: "Resume buys",
     summary: "Restores buy execution after an operator pause.",
     confirmation: "This re-enables real buy attempts for candidates that pass the funnel and execution guards.",
+  },
+  {
+    type: "disable_lane",
+    label: "Disable lane",
+    summary: "Adds a manual lane kill switch to the runtime policy overlay.",
+    confirmation: "This blocks new dry-run buys for the selected lane while preserving audit history and open position monitoring.",
+  },
+  {
+    type: "enable_lane",
+    label: "Enable lane",
+    summary: "Clears the manual lane kill switch for a selected lane.",
+    confirmation: "This removes only the manual lane block. AutoTune or cap blocks can still keep the lane constrained.",
   },
   {
     type: "reload_model",
@@ -262,6 +278,8 @@ export function ControlCenterPage() {
   const [autoresearchMode, setAutoresearchMode] = useState<(typeof autoresearchModeOptions)[number]>("seeded_random");
   const [autoresearchMaxCandidates, setAutoresearchMaxCandidates] = useState(25);
   const [autoresearchMaxParallel, setAutoresearchMaxParallel] = useState(1);
+  const [laneCommandLane, setLaneCommandLane] = useState("");
+  const [laneCommandReason, setLaneCommandReason] = useState("manual_operator_control");
   const [logLevel, setLogLevel] = useState<(typeof logLevelOptions)[number]>("INFO");
   const [loggerName, setLoggerName] = useState("root");
   const [processDryRun, setProcessDryRun] = useState(true);
@@ -283,6 +301,7 @@ export function ControlCenterPage() {
 
   const controlStateQuery = usePollEnvelope<ControlStateData>("/api/v1/control/state", 3000);
   const livePreflightQuery = usePollEnvelope<LivePromotionPreflightData>("/api/v1/control/live-preflight", 5000);
+  const riskQuery = usePollEnvelope<RiskControlData>("/api/v1/control/risk", 5000);
   const historyQuery = usePollEnvelope<ControlCommandsData>(
     buildPath("/api/v1/control/commands", {
       limit: 50,
@@ -305,6 +324,8 @@ export function ControlCenterPage() {
     autoresearchMode,
     autoresearchMaxCandidates,
     autoresearchMaxParallel,
+    laneCommandLane,
+    laneCommandReason,
     logLevel,
     loggerName,
   ]);
@@ -314,10 +335,14 @@ export function ControlCenterPage() {
   }, [processDryRun]);
 
   const controlState = controlStateQuery.envelope?.data;
+  const riskData = riskQuery.envelope?.data;
+  const riskLanes = riskData?.lanes || [];
+  const riskSummary = riskData?.summary || null;
   const history = historyQuery.envelope?.data.items || [];
   const sourceStatus = uniqueSources(
     controlStateQuery.envelope?.meta.source_status || [],
     livePreflightQuery.envelope?.meta.source_status || [],
+    riskQuery.envelope?.meta.source_status || [],
     historyQuery.envelope?.meta.source_status || [],
   );
   const lastCommand = controlState?.commands.last_command || history[0] || null;
@@ -325,7 +350,7 @@ export function ControlCenterPage() {
   const processState = controlState?.process;
   const livePreflight = livePreflightQuery.envelope?.data || null;
   const commandDefinition = commandCatalog.find((item) => item.type === selectedCommand) || commandCatalog[0];
-  const queryError = controlStateQuery.error || historyQuery.error || livePreflightQuery.error;
+  const queryError = controlStateQuery.error || historyQuery.error || livePreflightQuery.error || riskQuery.error;
   const currentUser = session?.user || null;
   const canQueueSelectedCommand = hasPermission(commandPermission(selectedCommand));
   const canStartProcess = hasPermission("control.process.start");
@@ -362,6 +387,12 @@ export function ControlCenterPage() {
           mode: autoresearchMode,
           regenerate_reports: autoresearchRegenerateReports,
         };
+      case "disable_lane":
+      case "enable_lane":
+        return {
+          lane: laneCommandLane,
+          reason: laneCommandReason.trim() || "manual_operator_control",
+        };
       case "set_log_level":
         return { level: logLevel, logger: loggerName.trim() || "root" };
       default:
@@ -394,6 +425,16 @@ export function ControlCenterPage() {
     if (selectedCommand === "run_autoresearch" && autoresearchMaxParallel < 1) {
       return "AutoResearch needs at least one execution lane.";
     }
+    if ((selectedCommand === "disable_lane" || selectedCommand === "enable_lane") && !laneCommandLane) {
+      return "Select a lane.";
+    }
+    const selectedLane = riskLanes.find((item) => item.lane === laneCommandLane);
+    if (selectedCommand === "disable_lane" && selectedLane?.manual_disabled) {
+      return "Lane is already manually disabled.";
+    }
+    if (selectedCommand === "enable_lane" && selectedLane && !selectedLane.manual_disabled) {
+      return "Lane is not manually disabled.";
+    }
     return null;
   }
 
@@ -416,6 +457,9 @@ export function ControlCenterPage() {
     if (commandType === "resume_buys") {
       return runtime.buys_paused ? "ready" : "already live";
     }
+    if (commandType === "disable_lane" || commandType === "enable_lane") {
+      return riskLanes.length ? "lane scoped" : "awaiting lanes";
+    }
     return "ready";
   }
 
@@ -434,6 +478,8 @@ export function ControlCenterPage() {
     setAutoresearchMode(typeof filters.autoresearchMode === "string" && autoresearchModeOptions.includes(filters.autoresearchMode as (typeof autoresearchModeOptions)[number]) ? (filters.autoresearchMode as (typeof autoresearchModeOptions)[number]) : "seeded_random");
     setAutoresearchMaxCandidates(typeof filters.autoresearchMaxCandidates === "number" ? Math.max(1, Math.round(filters.autoresearchMaxCandidates)) : 25);
     setAutoresearchMaxParallel(typeof filters.autoresearchMaxParallel === "number" ? Math.max(1, Math.round(filters.autoresearchMaxParallel)) : 1);
+    setLaneCommandLane(typeof filters.laneCommandLane === "string" ? filters.laneCommandLane : "");
+    setLaneCommandReason(typeof filters.laneCommandReason === "string" ? filters.laneCommandReason : "manual_operator_control");
     setLogLevel(typeof filters.logLevel === "string" && logLevelOptions.includes(filters.logLevel as (typeof logLevelOptions)[number]) ? (filters.logLevel as (typeof logLevelOptions)[number]) : "INFO");
     setLoggerName(typeof filters.loggerName === "string" ? filters.loggerName : "root");
     setProcessDryRun(typeof filters.processDryRun === "boolean" ? filters.processDryRun : true);
@@ -481,6 +527,7 @@ export function ControlCenterPage() {
       });
       setIsConfirmed(false);
       controlStateQuery.refetch();
+      riskQuery.refetch();
       historyQuery.refetch();
     } catch (error) {
       setSubmitFeedback({
@@ -542,6 +589,7 @@ export function ControlCenterPage() {
         });
       }
       controlStateQuery.refetch();
+      riskQuery.refetch();
       historyQuery.refetch();
     } catch (error) {
       setProcessFeedback({
@@ -587,6 +635,58 @@ export function ControlCenterPage() {
     } finally {
       setIsStackStopSubmitting(false);
       setConfirmStackStop(false);
+    }
+  }
+
+  async function submitLaneCommand(row: RiskLaneControlRow, disable: boolean) {
+    const commandType: ControlCommandType = disable ? "disable_lane" : "enable_lane";
+    if (!currentUser) {
+      setSubmitFeedback({ tone: "danger", message: "Authenticated user is required." });
+      return;
+    }
+    if (!hasPermission(commandPermission(commandType))) {
+      setSubmitFeedback({ tone: "danger", message: "Your current role cannot change lane kill switches." });
+      return;
+    }
+    if (disable && row.manual_disabled) {
+      setSubmitFeedback({ tone: "danger", message: `${row.lane} is already manually disabled.` });
+      return;
+    }
+    if (!disable && !row.manual_disabled) {
+      setSubmitFeedback({ tone: "danger", message: `${row.lane} is not manually disabled.` });
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmitFeedback(null);
+    try {
+      const envelope = await postEnvelope<ControlCommandCreateData, ControlCommandCreateRequest>(
+        "/api/v1/control/commands",
+        {
+          bot_id: "main",
+          command_type: commandType,
+          payload: {
+            lane: row.lane,
+            reason: disable ? "operator_lane_kill_switch" : "operator_lane_reenable",
+          },
+          requested_from: "ui",
+          idempotency_key: `ui-${commandType}-${row.lane}-${Date.now()}`,
+        },
+      );
+      setSubmitFeedback({
+        tone: "success",
+        message: `Queued ${commandLabel(commandType)} for ${row.lane} as command #${envelope.data.id}.`,
+      });
+      controlStateQuery.refetch();
+      riskQuery.refetch();
+      historyQuery.refetch();
+    } catch (error) {
+      setSubmitFeedback({
+        tone: "danger",
+        message: error instanceof Error ? error.message : "Unknown lane command failure",
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -696,6 +796,93 @@ export function ControlCenterPage() {
         id: "result",
         header: "Result",
         render: (row) => resultSummary(row),
+      },
+    ];
+  }
+
+  function riskLaneColumns(): DataColumn<RiskLaneControlRow>[] {
+    return [
+      {
+        id: "lane",
+        header: "Lane",
+        render: (row) => (
+          <div className="table-primary-cell">
+            <strong>{row.lane}</strong>
+            <small>{row.policy_category || row.group}</small>
+          </div>
+        ),
+      },
+      {
+        id: "status",
+        header: "Status",
+        render: (row) => (
+          <div className="table-primary-cell">
+            <StatusChip
+              compact
+              label={row.disabled ? `${row.disabled_source || "blocked"} block` : "enabled"}
+              tone={row.disabled ? "danger" : "success"}
+            />
+            <small>{row.disable_reason || "no active lane block"}</small>
+          </div>
+        ),
+      },
+      {
+        id: "cap",
+        align: "right",
+        header: "Cap / open",
+        render: (row) => (
+          <div className="table-primary-cell table-primary-cell--right">
+            <strong>{formatCount(row.open_count)} / {formatCount(row.cap)}</strong>
+            <small>{row.cap_warning === "cap_zero" ? "cap=0 warning" : row.cap_warning || "cap active"}</small>
+          </div>
+        ),
+      },
+      {
+        id: "pnl",
+        align: "right",
+        header: "PnL / severe",
+        render: (row) => (
+          <div className="table-primary-cell table-primary-cell--right">
+            <strong>{formatSignedPct(row.avg_pnl_pct)}</strong>
+            <small>{formatCount(row.severe_losses)} severe | {formatCount(row.pnl_rows)} pnl rows</small>
+          </div>
+        ),
+      },
+      {
+        id: "missed",
+        align: "right",
+        header: "Missed / flow",
+        render: (row) => (
+          <div className="table-primary-cell table-primary-cell--right">
+            <strong>{formatCount(row.missed_100)}</strong>
+            <small>{formatCount(row.buys)} buys | {formatCount(row.shadows)} shadows</small>
+          </div>
+        ),
+      },
+      {
+        id: "actions",
+        align: "right",
+        header: "Action",
+        render: (row) => (
+          <div className="page-hero__actions-inline">
+            <button
+              className="ui-button ui-button--ghost"
+              disabled={isSubmitting || row.manual_disabled || !hasPermission(commandPermission("disable_lane"))}
+              onClick={() => void submitLaneCommand(row, true)}
+              type="button"
+            >
+              Disable
+            </button>
+            <button
+              className="ui-button ui-button--ghost"
+              disabled={isSubmitting || !row.manual_disabled || !hasPermission(commandPermission("enable_lane"))}
+              onClick={() => void submitLaneCommand(row, false)}
+              type="button"
+            >
+              Enable
+            </button>
+          </div>
+        ),
       },
     ];
   }
@@ -1053,6 +1240,85 @@ export function ControlCenterPage() {
           <SourceHealthStrip sources={sourceStatus} />
         </Surface>
 
+        <Surface
+          className="grid-span-12"
+          eyebrow="Risk controls"
+          title="Lane kill switches"
+          subtitle="Lane posture combines current-run PnL, caps, provider health, missed moonshots, AutoTune blocks, and manual operator controls."
+        >
+          <div className="metric-ribbon">
+            <div className="metric-ribbon__item">
+              <span>Gross spot closed PnL</span>
+              <strong>
+                {formatUsd(riskSummary?.gross_spot_closed_pnl_usd ?? riskSummary?.net_closed_pnl_usd)}
+              </strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Profit factor</span>
+              <strong>{formatDecimal(riskSummary?.profit_factor)}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Severe losses</span>
+              <strong>{formatCount(riskSummary?.severe_loss_count)}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Manual blocks</span>
+              <strong>{formatCount(riskSummary?.manual_disabled_lanes)}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>cap=0 lanes</span>
+              <strong>{formatCount(riskSummary?.cap_zero_lanes)}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Providers</span>
+              <strong>{riskSummary?.provider_overall_status || "n/a"}</strong>
+            </div>
+          </div>
+
+          {riskSummary?.cap_zero_lanes ? (
+            <Banner
+              detail={`${formatCount(riskSummary.cap_zero_lanes)} lanes currently report cap=0. Review each row before treating a zero cap as intentionally unlimited or blocked.`}
+              title="cap=0 warning"
+              tone="warn"
+            />
+          ) : null}
+
+          <DataTable
+            columns={riskLaneColumns()}
+            emptyMessage="No lane risk posture available."
+            rowKey={(row) => row.lane}
+            rows={riskLanes}
+          />
+        </Surface>
+
+        <Surface className="grid-span-6" eyebrow="Loss pressure" title="Top loss reasons">
+          <div className="breakdown-list">
+            {(riskData?.top_loss_reasons || []).map((row) => (
+              <div className="breakdown-list__item" key={row.reason}>
+                <div className="breakdown-list__label">
+                  <strong>{row.reason}</strong>
+                  <span>{formatUsd(row.total_pnl_usd ?? null)} | {formatCount(row.count)}</span>
+                </div>
+              </div>
+            ))}
+            {!(riskData?.top_loss_reasons || []).length ? <p className="empty-note">No loss reasons available.</p> : null}
+          </div>
+        </Surface>
+
+        <Surface className="grid-span-6" eyebrow="Missed moonshots" title="Top missed reasons">
+          <div className="breakdown-list">
+            {(riskData?.top_missed_moonshot_reasons || []).map((row) => (
+              <div className="breakdown-list__item" key={row.reason}>
+                <div className="breakdown-list__label">
+                  <strong>{row.reason}</strong>
+                  <span>{formatCount(row.count)}</span>
+                </div>
+              </div>
+            ))}
+            {!(riskData?.top_missed_moonshot_reasons || []).length ? <p className="empty-note">No missed moonshot reasons available.</p> : null}
+          </div>
+        </Surface>
+
         <Surface className="grid-span-12" eyebrow="Command set" title="Supported actions" subtitle="Every action below maps directly to a persisted command type in the backend.">
           <div className="command-grid">
             {commandCatalog.map((item) => {
@@ -1180,6 +1446,32 @@ export function ControlCenterPage() {
               </>
             ) : null}
 
+            {selectedCommand === "disable_lane" || selectedCommand === "enable_lane" ? (
+              <div className="filter-row">
+                <label className="filter-field">
+                  <span>Lane</span>
+                  <select className="ui-field" onChange={(event) => setLaneCommandLane(event.target.value)} value={laneCommandLane}>
+                    <option value="">select lane</option>
+                    {riskLanes.map((row) => (
+                      <option key={row.lane} value={row.lane}>
+                        {row.lane}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="filter-field">
+                  <span>Reason</span>
+                  <input
+                    className="ui-field"
+                    onChange={(event) => setLaneCommandReason(event.target.value)}
+                    placeholder="manual_operator_control"
+                    type="text"
+                    value={laneCommandReason}
+                  />
+                </label>
+              </div>
+            ) : null}
+
             {selectedCommand === "set_log_level" ? (
               <div className="filter-row">
                 <label className="filter-field">
@@ -1205,7 +1497,7 @@ export function ControlCenterPage() {
               </div>
             ) : null}
 
-            {!["trigger_retrain", "refresh_reports", "run_autoresearch", "set_log_level"].includes(selectedCommand) ? (
+            {!["trigger_retrain", "refresh_reports", "run_autoresearch", "disable_lane", "enable_lane", "set_log_level"].includes(selectedCommand) ? (
               <p className="empty-note">This command has no additional payload fields in v1.</p>
             ) : null}
           </div>
@@ -1314,6 +1606,8 @@ export function ControlCenterPage() {
                 autoresearchMode,
                 autoresearchMaxCandidates,
                 autoresearchMaxParallel,
+                laneCommandLane,
+                laneCommandReason,
                 logLevel,
                 loggerName,
                 processDryRun,

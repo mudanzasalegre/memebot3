@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+import numpy as np
 
 
 def temporal_windows(frame: pd.DataFrame, *, timestamp_col: str = "timestamp", splits: int = 3) -> list[tuple[pd.DataFrame, pd.DataFrame]]:
@@ -13,7 +14,7 @@ def temporal_windows(frame: pd.DataFrame, *, timestamp_col: str = "timestamp", s
     df = df.dropna(subset=[timestamp_col]).sort_values(timestamp_col)
     if len(df) < max(2, splits + 1):
         return []
-    chunks = [chunk for chunk in pd.array_split(df, max(2, splits + 1)) if not chunk.empty]
+    chunks = [df.iloc[indices].copy() for indices in np.array_split(np.arange(len(df)), max(2, splits + 1)) if len(indices)]
     windows = []
     for idx in range(1, len(chunks)):
         train = pd.concat(chunks[:idx], ignore_index=True)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import collections
 import datetime as dt
+import math
 import statistics
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,19 @@ from ml.lane_taxonomy import (
 
 EXPERIMENTAL_MAX_SOL = 0.03
 WARNING_SAMPLE_LIMIT = 100
+MICRO_LANES = {
+    LANE_BIRTH_PROBE_MICRO_CANARY,
+    LANE_MOONSHOT_MICRO_LOTTERY,
+    LANE_PAPER_BOOTSTRAP_MICRO,
+    LANE_PAPER_EXPLORATION_MICRO,
+    LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH,
+    LANE_SHADOW_FOLLOWUP_MICRO,
+    LANE_SNIPER_RESEARCH_MICRO_FALLBACK,
+}
+MICRO_HARD_CAP_EXEMPT_LANES = {
+    LANE_PAPER_BOOTSTRAP_MICRO,
+    LANE_PAPER_EXPLORATION_MICRO,
+}
 
 
 @dataclass(frozen=True)
@@ -93,6 +107,16 @@ def _cfg_bool(cfg: Any, name: str, default: bool) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "y", "on"}
     return bool(value)
+
+
+def _is_micro_lane(lane: Any) -> bool:
+    lane_key = normalize_entry_lane(lane)
+    return lane_key in MICRO_LANES or lane_key.endswith("_micro") or "micro" in lane_key
+
+
+def _uses_micro_hard_cap(lane: Any) -> bool:
+    lane_key = normalize_entry_lane(lane)
+    return _is_micro_lane(lane_key) and lane_key not in MICRO_HARD_CAP_EXEMPT_LANES
 
 
 def _lane_cap(
@@ -162,10 +186,35 @@ def resolve_lane_buy_amount(
     cfg: Any = CFG,
 ) -> LaneSizingDecision:
     lane = _lane(row)
-    input_amount = max(0.0, float(computed_amount_sol or 0.0))
+    try:
+        input_amount = float(computed_amount_sol)
+    except (TypeError, ValueError, OverflowError):
+        input_amount = 0.0
+    if not math.isfinite(input_amount) or input_amount <= 0:
+        return LaneSizingDecision(0.0, lane, "invalid_computed_trade_amount", 0.0, 0.0)
+    if dry_run and not live and _cfg_bool(cfg, "PAPER_EXACT_TRADE_SIZE_ENABLED", False):
+        try:
+            requested = float(getattr(cfg, "PAPER_EXACT_TRADE_SIZE_SOL", 0.1))
+            cap = float(getattr(cfg, "PAPER_MAX_TRADE_AMOUNT_SOL", requested))
+        except (TypeError, ValueError, OverflowError):
+            requested, cap = 0.0, 0.0
+        if (not math.isfinite(requested) or requested <= 0 or not math.isfinite(cap)
+                or cap < 0 or (cap > 0 and cap + 1e-9 < requested)):
+            return LaneSizingDecision(0.0, lane, "exact_paper_size_invalid_or_exceeds_cap", input_amount, cap if math.isfinite(cap) else 0.0,
+                                      fallback_blocked=True)
+        return LaneSizingDecision(requested, lane, "exact_paper_trade_amount", input_amount, cap)
     if not bool(getattr(cfg, "LANE_SIZING_ENABLED", True)):
         return LaneSizingDecision(input_amount, lane, "lane_sizing_disabled", input_amount, input_amount)
     if _cfg_bool(cfg, "LANE_SIZING_FIXED_TRADE_AMOUNT_ENABLED", True):
+        allowlist = _csv(getattr(cfg, "LANE_SIZING_TRADE_AMOUNT_ALLOWLIST", ""))
+        lane_key = str(lane or "").lower()
+        fixed_allowed_for_lane = not _is_micro_lane(lane_key) or lane_key in allowlist
+    else:
+        allowlist = _csv(getattr(cfg, "LANE_SIZING_TRADE_AMOUNT_ALLOWLIST", ""))
+        lane_key = str(lane or "").lower()
+        fixed_allowed_for_lane = False
+
+    if fixed_allowed_for_lane:
         if dry_run and not live:
             trade_amount = _cfg_float(
                 cfg,
@@ -195,8 +244,6 @@ def resolve_lane_buy_amount(
                 input_amount,
                 cap,
             )
-    allowlist = _csv(getattr(cfg, "LANE_SIZING_TRADE_AMOUNT_ALLOWLIST", ""))
-    lane_key = str(lane or "").lower()
     if lane_key in allowlist:
         cap_name = "PAPER_MAX_TRADE_AMOUNT_SOL" if dry_run and not live else "MAX_TRADE_AMOUNT_SOL"
         cap = _cfg_float(cfg, cap_name, _cfg_float(cfg, "MAX_TRADE_AMOUNT_SOL", input_amount))
@@ -220,6 +267,11 @@ def resolve_lane_buy_amount(
         and lane not in {LANE_PAPER_BOOTSTRAP_MICRO, LANE_PAPER_EXPLORATION_MICRO}
         else ""
     )
+    micro_hard_cap = _cfg_float(cfg, "MICRO_LANE_HARD_CAP_SOL", 0.01)
+    if _uses_micro_hard_cap(lane_key) and micro_hard_cap > 0.0 and amount > micro_hard_cap:
+        cap = min(cap, micro_hard_cap) if cap > 0 else micro_hard_cap
+        amount = min(amount, micro_hard_cap)
+        warning = "micro_lane_hard_cap"
     return LaneSizingDecision(
         amount_sol=amount,
         lane=lane,
@@ -276,6 +328,7 @@ def build_lane_sizing_report(root: Path | None = None) -> dict[str, Any]:
             "paper_max_trade_amount_sol": _cfg_float(CFG, "PAPER_MAX_TRADE_AMOUNT_SOL", 0.1),
             "max_trade_amount_sol": _cfg_float(CFG, "MAX_TRADE_AMOUNT_SOL", 0.1),
             "trade_amount_allowlist": sorted(_csv(getattr(CFG, "LANE_SIZING_TRADE_AMOUNT_ALLOWLIST", ""))),
+            "micro_lane_hard_cap_sol": _cfg_float(CFG, "MICRO_LANE_HARD_CAP_SOL", 0.01),
             "experimental_max_sol": EXPERIMENTAL_MAX_SOL,
         },
         "lanes": lanes,

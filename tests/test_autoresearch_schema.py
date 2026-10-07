@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
-from research_loop.experiment_schema import CandidatePolicyValidationError, validate_candidate_policy
+from research_loop.experiment_schema import REQUIRED_FIELDS, CandidatePolicyValidationError, validate_candidate_policy
 
 
 def _candidate() -> dict:
@@ -37,6 +38,14 @@ def test_valid_candidate_policy_passes() -> None:
     assert candidate.live_allowed is False
     assert candidate.changes["MOONSHOT_MICRO_LOTTERY_CONFIRMATION_PNL"] == "75"
     assert candidate.optimized_metric == "moonshot_peak100_capture"
+
+
+def test_repository_json_schema_matches_runtime_required_fields() -> None:
+    schema = json.loads(Path("strategy_proposals/schema.autoresearch.json").read_text(encoding="utf-8"))
+
+    assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert set(schema["required"]) == REQUIRED_FIELDS
+    assert schema["properties"]["live_allowed"]["const"] is False
 
 
 def test_valid_candidate_policy_can_load_from_path(tmp_path) -> None:

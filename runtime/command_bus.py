@@ -35,6 +35,8 @@ CONTROL_COMMAND_TYPES = (
     "resume_discovery",
     "pause_buys",
     "resume_buys",
+    "disable_lane",
+    "enable_lane",
     "reload_model",
     "trigger_retrain",
     "refresh_reports",
@@ -177,6 +179,17 @@ def validate_command_payload(command_type: Any, payload: Any) -> tuple[str, dict
     }:
         _reject_extra_keys(raw, allowed=())
         return normalized_type, {}
+
+    if normalized_type in {"disable_lane", "enable_lane"}:
+        _reject_extra_keys(raw, allowed=("lane", "reason"))
+        lane = str(raw.get("lane") or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if not lane:
+            raise ValueError(f"{normalized_type}.lane is required")
+        reason = str(raw.get("reason") or "manual_operator_control").strip()
+        return normalized_type, {
+            "lane": lane,
+            "reason": reason[:240] or "manual_operator_control",
+        }
 
     if normalized_type == "trigger_retrain":
         _reject_extra_keys(raw, allowed=("force",))

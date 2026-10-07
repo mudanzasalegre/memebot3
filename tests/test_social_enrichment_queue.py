@@ -46,6 +46,8 @@ async def test_social_queue_schedules_without_blocking_hot_path(monkeypatch) -> 
 
 
 def test_social_queue_does_not_schedule_without_loop(monkeypatch) -> None:
+    events = []
+    monkeypatch.setattr(queue_mod, "record_runtime_event", lambda *args, **kwargs: events.append(args))
     monkeypatch.setattr(
         queue_mod,
         "CFG",
@@ -54,3 +56,4 @@ def test_social_queue_does_not_schedule_without_loop(monkeypatch) -> None:
     q = queue_mod.SocialEnrichmentQueue()
 
     assert q.schedule({"address": "abc"}, lane="green") is False
+    assert events == []  # no false scheduled event and no production-file write

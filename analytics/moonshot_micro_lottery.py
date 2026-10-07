@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import statistics
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ from analytics.report_utils import (
 )
 from config.config import CFG, PROJECT_ROOT
 from ml.lane_taxonomy import LANE_MOONSHOT_MICRO_LOTTERY
+from ml.labels import moonshot_execution_label
 
 
 REPORT_JSON = "moonshot_micro_lottery_report.json"
@@ -469,6 +471,54 @@ def _dedupe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _dedupe_rows_by_peak(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    passthrough: list[dict[str, Any]] = []
+    for row in rows:
+        key = address_of(row).strip().lower()
+        if not key:
+            passthrough.append(row)
+            continue
+        grouped.setdefault(key, []).append(row)
+
+    out: list[dict[str, Any]] = []
+    for group in grouped.values():
+        winner = max(
+            group,
+            key=lambda item: (
+                _peak(item),
+                _field_float(item, "price_pct_5m", "buy_price_pct_5m", "price5m"),
+                1 if boolish(item.get("moonshot_micro_lottery"), False) else 0,
+            ),
+        )
+        merged = dict(winner)
+        for row in group:
+            for key, value in row.items():
+                if merged.get(key) is None or (isinstance(merged.get(key), str) and not str(merged.get(key)).strip()):
+                    merged[key] = value
+        out.append(merged)
+    return out + passthrough
+
+
+def _bought_address_set(runtime_rows: list[dict[str, Any]], position_rows: list[dict[str, Any]]) -> set[str]:
+    bought: set[str] = set()
+    buy_events = {"actual_paper_buy", "buy", "bought", "buy_ok", "paper_buy"}
+    for row in runtime_rows:
+        if _event(row) in buy_events:
+            addr = address_of(row)
+            if addr:
+                bought.add(addr.lower())
+    for row in position_rows:
+        addr = address_of(row)
+        if addr and _position_opened(row):
+            bought.add(addr.lower())
+    return bought
+
+
+def _count_label_field(labels: list[dict[str, Any]], field: str) -> dict[str, int]:
+    return dict(sorted(Counter(str(label.get(field) or "unknown") for label in labels).items()))
+
+
 def build_moonshot_micro_lottery_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
     runtime_rows = load_runtime_events(root)
@@ -490,6 +540,20 @@ def build_moonshot_micro_lottery_report(root: Path | None = None) -> dict[str, A
             )
         )
     ]
+    deduped_candidates = _dedupe_rows_by_peak(candidates)
+    bought = _bought_address_set(runtime_rows, position_rows)
+    labeled_candidates = [(row, moonshot_execution_label(row)) for row in deduped_candidates]
+    theoretical_labels = [label for _, label in labeled_candidates if label.get("theoretical_moonshot")]
+    executable_labels = [label for _, label in labeled_candidates if label.get("executable_moonshot")]
+    missed_moonshot_pairs = [
+        (row, label)
+        for row, label in labeled_candidates
+        if label.get("theoretical_moonshot") and address_of(row).lower() not in bought
+    ]
+    missed_moonshot_labels = [label for _, label in missed_moonshot_pairs]
+    missed_peak100 = [label for label in missed_moonshot_labels if fnum(label.get("moonshot_peak_pct"), 0.0) >= 100.0]
+    missed_peak500 = [label for label in missed_moonshot_labels if fnum(label.get("moonshot_peak_pct"), 0.0) >= 500.0]
+    missed_peak1000 = [label for label in missed_moonshot_labels if fnum(label.get("moonshot_peak_pct"), 0.0) >= 1000.0]
     moonshot_rows = [row for row in rows if _is_moonshot_row(row)]
     moonshot_position_rows = [row for row in position_rows if _is_moonshot_row(row) and _position_opened(row)]
     moonshot_actual_buy_events = [row for row in runtime_rows if _is_moonshot_row(row) and _event(row) == "actual_paper_buy"]
@@ -622,8 +686,21 @@ def build_moonshot_micro_lottery_report(root: Path | None = None) -> dict[str, A
                 getattr(CFG, "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_MIN_VOLUME_24H", 20_000.0)
                 or 20_000.0
             ),
+            "paper_only": bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_PAPER_ENABLED", True))
+            and not bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED", False)),
         },
         "candidates_seen": len(candidates),
+        "deduped_candidates_seen": len(deduped_candidates),
+        "theoretical_moonshot_candidates": len(theoretical_labels),
+        "executable_moonshot_candidates": len(executable_labels),
+        "missed_moonshot_count": len(missed_moonshot_pairs),
+        "missed_peak100": len(missed_peak100),
+        "missed_peak500": len(missed_peak500),
+        "missed_peak1000": len(missed_peak1000),
+        "moonshot_blockers": _count_label_field(missed_moonshot_labels, "moonshot_blocker"),
+        "moonshot_viability": _count_label_field(missed_moonshot_labels, "moonshot_viability"),
+        "moonshot_route_viability": _count_label_field(missed_moonshot_labels, "moonshot_route_viability"),
+        "moonshot_cluster_viability": _count_label_field(missed_moonshot_labels, "moonshot_cluster_viability"),
         "buys": buy_count,
         "shadows": len(shadows),
         "birth_velocity_candidates": sum(1 for row in candidates if _birth_velocity_probe(row)),
@@ -652,6 +729,28 @@ def build_moonshot_micro_lottery_report(root: Path | None = None) -> dict[str, A
                 "reason": _first(row, "reason", "green_sniper_reason"),
             }
             for row in moonshot_rows[:50]
+        ],
+        "missed_moonshots": [
+            {
+                "address": address_of(row),
+                "peak_pct": fnum(label.get("moonshot_peak_pct"), 0.0),
+                "executable_moonshot": bool(label.get("executable_moonshot")),
+                "viability": label.get("moonshot_viability"),
+                "blocker": label.get("moonshot_blocker") or "unknown",
+                "decision_reason": label.get("moonshot_decision_reason"),
+                "route_viability": label.get("moonshot_route_viability"),
+                "liquidity_viability": label.get("moonshot_liquidity_viability"),
+                "cluster_viability": label.get("moonshot_cluster_viability"),
+                "time_to_peak_min": label.get("moonshot_time_to_peak_min"),
+                "time_to_peak_source": label.get("moonshot_time_to_peak_source"),
+                "amount_sol": label.get("moonshot_amount_sol"),
+                "paper_only": bool(label.get("moonshot_paper_only")),
+            }
+            for row, label in sorted(
+                missed_moonshot_pairs,
+                key=lambda item: fnum(item[1].get("moonshot_peak_pct"), 0.0),
+                reverse=True,
+            )[:100]
         ],
     }
 

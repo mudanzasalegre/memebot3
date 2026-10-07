@@ -13,7 +13,7 @@ def coerce_feature_frame(frame: pd.DataFrame, feature_names: Sequence[str]) -> p
     """
     cols = list(feature_names)
     X = frame.reindex(columns=cols).copy()
-    X = X.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    X = X.apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0.0)
     return X.astype(np.float32)
 
 

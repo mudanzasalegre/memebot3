@@ -6,8 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from analytics.current_run import current_run_identity, filter_current_run_rows
+from analytics.forward_evidence import _costed_close
 from analytics.report_utils import (
     address_of,
+    boolish,
+    fnum,
     load_candidate_outcomes,
     load_deduped_positions,
     load_runtime_events,
@@ -26,6 +29,18 @@ def _event(row: dict[str, Any]) -> str:
 
 def _reason(row: dict[str, Any]) -> str:
     return str(row.get("reason") or row.get("reject_reason") or row.get("blocked_reason") or "").strip()
+
+
+def _closed(row: dict[str, Any]) -> bool:
+    return boolish(row.get("closed"), False) or row.get("closed_at") is not None
+
+
+def _pnl_usd(row: dict[str, Any]) -> float:
+    for key in ("total_pnl_usd", "realized_pnl_usd", "pnl_usd"):
+        value = row.get(key)
+        if value is not None and not (isinstance(value, str) and not value.strip()):
+            return fnum(value, 0.0)
+    return 0.0
 
 
 def build_current_run_summary(root: Path | None = None) -> dict[str, Any]:
@@ -55,8 +70,9 @@ def build_current_run_summary(root: Path | None = None) -> dict[str, Any]:
     blockers = collections.Counter(
         reason for reason in (_reason(row) for row in runtime_rows + outcome_rows) if reason
     )
-    open_positions = [row for row in position_rows if not bool(row.get("closed"))]
-    closed_positions = [row for row in position_rows if bool(row.get("closed"))]
+    open_positions = [row for row in position_rows if not _closed(row)]
+    closed_positions = [row for row in position_rows if _closed(row)]
+    costed = [result for row in closed_positions if (result := _costed_close(row)) is not None]
     ts_values = [str(row.get("ts_utc") or row.get("created_at") or "").strip() for row in runtime_rows if row.get("ts_utc")]
     started_at = min(ts_values) if ts_values else None
     return {
@@ -77,6 +93,11 @@ def build_current_run_summary(root: Path | None = None) -> dict[str, Any]:
         "top_blockers": dict(blockers.most_common(20)),
         "open_positions": len(open_positions),
         "closed_positions": len(closed_positions),
+        "closed_trades": len(closed_positions),
+        "total_pnl_usd": round(sum(_pnl_usd(row) for row in closed_positions), 8),
+        "costed_closed_trades": len(costed),
+        "net_total_pnl_usd": round(sum(value[0] for value in costed), 8) if closed_positions and len(costed) == len(closed_positions) else None,
+        "cost_basis": "validated_estimated_paper_fills" if closed_positions and len(costed) == len(closed_positions) else "unknown_or_incomplete",
     }
 
 

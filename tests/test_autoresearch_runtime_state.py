@@ -223,7 +223,9 @@ def test_scheduler_emits_runtime_cycle_events(tmp_path) -> None:
         batch_runner_func=fake_batch_runner,
     )
 
-    assert result.status == "completed"
+    assert result.status == "degraded"
+    assert len(result.failures) == 1
+    assert result.failures[0].startswith("batch_candidate_failures:moonshot_micro:")
     event_names = [event["event"] for event in read_events(tmp_path)]
     for required in {
         EVENT_AUTORESEARCH_CYCLE_START,

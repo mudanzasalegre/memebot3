@@ -44,6 +44,12 @@ def evaluate_live_canary_v2(
         return LiveCanaryDecision(False, "manual_approval_required", max_open, max_daily, size_sol)
     if not provider_health_ok:
         return LiveCanaryDecision(False, "provider_health_bad", max_open, max_daily, size_sol)
+    if max_open <= 0:
+        return LiveCanaryDecision(False, "max_open_cap_required", max_open, max_daily, size_sol)
+    if max_daily <= 0:
+        return LiveCanaryDecision(False, "max_daily_buys_cap_required", max_open, max_daily, size_sol)
+    if loss_cap <= 0:
+        return LiveCanaryDecision(False, "daily_loss_cap_required", max_open, max_daily, size_sol)
     if bool(getattr(CFG, "LIVE_REQUIRE_ROUTE", True)) and not bool(token.get("has_jupiter_route")):
         return LiveCanaryDecision(False, "route_required", max_open, max_daily, size_sol)
     if str(token.get("risk_level") or token.get("green_sniper_risk_level") or "low").lower() in {"high", "lethal"}:

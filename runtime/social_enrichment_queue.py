@@ -74,18 +74,15 @@ class SocialEnrichmentQueue:
             lane=lane or str(token.get("entry_lane") or token.get("gate_profile") or "") or None,
             requested_at_s=time.time(),
         )
-        record_runtime_event(
-            "social_enrichment_scheduled",
-            address,
-            lane=request.lane,
-            symbol=request.symbol,
-        )
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return False
         self._inflight.add(address)
         loop.create_task(self._run(request))
+        record_runtime_event(
+            "social_enrichment_scheduled", address, lane=request.lane, symbol=request.symbol,
+        )
         return True
 
     async def _run(self, request: SocialEnrichmentRequest) -> SocialSignal:

@@ -11,6 +11,7 @@ from runtime.command_bus import (
     json_dumps,
     json_loads,
     normalize_bot_id,
+    normalize_command_type,
     normalize_command_status,
     normalize_idempotency_key,
     normalize_requested_from,
@@ -91,9 +92,8 @@ def list_control_commands(
         params.append(normalize_command_status(status))
 
     if command_type:
-        normalized_type, _ = validate_command_payload(command_type, {})
         query.append("AND command_type = ?")
-        params.append(normalized_type)
+        params.append(normalize_command_type(command_type))
 
     query.append("ORDER BY requested_at DESC, id DESC LIMIT ?")
     params.append(int(limit))

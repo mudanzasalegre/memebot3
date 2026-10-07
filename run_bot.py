@@ -48,6 +48,7 @@ import math
 import os
 import random
 import socket
+import subprocess
 import sys
 import time
 from collections import deque
@@ -114,8 +115,17 @@ MAX_MARKET_CAP_USD = CFG.MAX_MARKET_CAP_USD
 BUY_SOFT_SCORE_MIN = CFG.BUY_SOFT_SCORE_MIN  # nuevo
 
 # ───────── DB & modelos ─────────────────────────────────────────────────────
-from db.database import SessionLocal, async_init_db  # noqa: E402
+from db.database import add_trade_event, set_position_exit_reason, SessionLocal, async_init_db  # noqa: E402
 from db.models import Position, Token  # noqa: E402
+from runtime.close_recovery import (  # noqa: E402
+    CloseRecoveryError,
+    append_pending as append_close_recovery_pending,
+    append_prepared as prepare_close_recovery,
+    append_status as append_close_recovery_status,
+    build_recovery_record,
+    pending_addresses as load_close_recovery_pending_addresses,
+    recover_pending as replay_close_recovery_pending,
+)
 from runtime.command_bus import (  # noqa: E402
     DEFAULT_BOT_ID as CONTROL_DEFAULT_BOT_ID,
     STATUS_DONE as COMMAND_STATUS_DONE,
@@ -130,7 +140,9 @@ from runtime.single_instance import SingleInstanceLock, SingleInstanceLockError 
 from runtime.fast_enrichment import enrich_fast  # noqa: E402
 from runtime.hot_queue import GLOBAL_HOT_QUEUE  # noqa: E402
 from runtime import live_canary  # noqa: E402
+from runtime.live_canary_guard import LiveCanaryGuardError, ensure_live_start_allowed  # noqa: E402
 from runtime.position_limits import evaluate_lane_position_limit  # noqa: E402
+from runtime.policy_overlay import evaluate_policy_overlay, set_manual_lane_control  # noqa: E402
 from runtime.social_enrichment_queue import schedule_social_enrichment  # noqa: E402
 
 # ───────── Fetchers / analytics ─────────────────────────────────────────────
@@ -153,12 +165,13 @@ except Exception:
     _JUP_ROUTER_AVAILABLE = False
 
 from analytics import filters, insider, trend, requeue_policy  # noqa: E402
+import analytics.api_budget as api_budget  # noqa: E402
 import analytics.sizing as entry_sizing  # noqa: E402
 import analytics.exit_policy as exit_policy  # noqa: E402
 from analytics import runner_ladder, runner_turbo_monitor  # noqa: E402
 from analytics.core_report_scheduler import (  # noqa: E402
+    REQUIRED_CORE_REPORTS,
     ensure_core_report_placeholders,
-    regenerate_core_reports,
     report_freshness,
 )
 import analytics.strategy_runtime as strategy_runtime  # noqa: E402
@@ -187,6 +200,12 @@ from analytics.paper_bootstrap import (  # noqa: E402
     POLICY_PAPER_BOOTSTRAP,
     apply_paper_bootstrap_context,
     should_allow_paper_bootstrap,
+)
+from analytics.risk_guards import (  # noqa: E402
+    ACTION_DOWNSIZE,
+    ACTION_SHADOW,
+    apply_pre_entry_risk_context,
+    evaluate_pre_entry_risk,
 )
 from analytics.sniper_research_subprofiles import (  # noqa: E402
     apply_sniper_research_subprofile_context,
@@ -421,6 +440,11 @@ args = parser.parse_args()
 DRY_RUN = args.dry_run or CFG.DRY_RUN
 if bool(getattr(CFG, "STRATEGY_OPTIMIZATION_LOCK", True)) and not DRY_RUN:
     raise SystemExit("STRATEGY_OPTIMIZATION_LOCK=true blocks live runtime; start in DRY_RUN/paper mode")
+if not DRY_RUN:
+    try:
+        ensure_live_start_allowed(root=PROJECT_ROOT, cfg=CFG)
+    except LiveCanaryGuardError as exc:
+        raise SystemExit(str(exc)) from exc
 exit_policy.set_runtime_dry_run(DRY_RUN)
 _PROCESS_LOCK: SingleInstanceLock | None = None
 
@@ -568,6 +592,21 @@ def _emit_post_partial_activation_audit() -> dict[str, object]:
         pass
     return payload
 
+
+def _emit_paper_safe_risk_banner() -> None:
+    profile = str(getattr(CFG, "CONFIG_PROFILE", "") or os.getenv("CONFIG_PROFILE") or "(none)")
+    profile_path = str(os.getenv("CONFIG_PROFILE_PATH") or "")
+    message = (
+        "PR-00 PAPER-SAFE FREEZE: mode=%s profile=%s profile_path=%s. "
+        "2026-07-07 audit net_pnl_usd=-81.33 profit_factor=0.629 "
+        "LIQUIDITY_CRUSH=-138.99 NO_PUMP_EXIT=-55.26 no_partial=-215.67. "
+        "Keep DRY_RUN enabled and live promotion disabled."
+    )
+    if DRY_RUN:
+        log.warning(message, "DRY_RUN", profile, profile_path or "-")
+    else:
+        log.critical(message, "LIVE", profile, profile_path or "-")
+
 if DRY_RUN:
     from trader import papertrading as buyer  # type: ignore
     from trader import papertrading as seller  # type: ignore
@@ -586,6 +625,8 @@ if args.log:
     log.info("📂 File-logging activo (run_id %s)", run_id)
 else:
     set_runtime_context(started_at=dt.datetime.now(dt.timezone.utc), test_event=False)
+
+_emit_paper_safe_risk_banner()
 
 # ╭─────────────────────── Constantes de configuración ───────────────────────╮
 DISCOVERY_INTERVAL     = CFG.DISCOVERY_INTERVAL
@@ -790,10 +831,24 @@ _runtime_retrain_state: str = "idle"
 _runtime_reports_refresh_state: str = "idle"
 _runtime_discovery_paused: bool = False
 _runtime_buys_paused: bool = False
+_CLOSE_RECOVERY_OUTBOX_PATH = PROJECT_ROOT / "data" / "metrics" / "close_recovery_outbox.jsonl"
+_CLOSE_RECOVERY_PENDING: set[str] = load_close_recovery_pending_addresses(_CLOSE_RECOVERY_OUTBOX_PATH)
+_close_recovery_pause_active: bool = bool(_CLOSE_RECOVERY_PENDING)
+_close_recovery_prior_buys_paused: bool = False
+_close_recovery_prior_discovery_paused: bool = False
+_last_close_recovery_retry_monotonic: float = 0.0
+_CLOSE_RECOVERY_RETRY_INTERVAL_S: float = 30.0
+if _close_recovery_pause_active:
+    # Fail closed from the first instruction after import.  Startup replay may
+    # release these flags, but discovery/buys must never race an unresolved sell.
+    _runtime_buys_paused = True
+    _runtime_discovery_paused = True
 _retrain_lock = asyncio.Lock()
 _reports_refresh_lock = asyncio.Lock()
 _autoresearch_lock = asyncio.Lock()
 _core_reports_regen_lock = asyncio.Lock()
+_background_tasks: set[asyncio.Task[object]] = set()
+_initial_paper_wallet_refresh_task: Optional[asyncio.Task[object]] = None
 _last_core_reports_regen_at: Optional[dt.datetime] = None
 _last_core_reports_regen_sold: int = 0
 _CONTROL_COMMAND_POLL_INTERVAL_S = 1.0
@@ -820,7 +875,56 @@ def _record_sell_stat(at: Optional[dt.datetime] = None) -> None:
     _last_sell_at = at or utc_now()
 
 
-async def _maybe_regenerate_core_reports(*, source: str, force: bool = False) -> None:
+def _oldest_core_report_timestamp(freshness: dict[str, object]) -> Optional[dt.datetime]:
+    """Return the oldest required report timestamp, or ``None`` if incomplete."""
+    if freshness.get("missing"):
+        return None
+    reports = freshness.get("reports")
+    if not isinstance(reports, dict):
+        return None
+
+    timestamps: list[dt.datetime] = []
+    for name in REQUIRED_CORE_REPORTS:
+        report = reports.get(name)
+        if not isinstance(report, dict) or not bool(report.get("exists")):
+            return None
+        timestamp = parse_iso_utc(report.get("mtime_utc") or report.get("generated_at_utc"))
+        if timestamp is None:
+            return None
+        timestamps.append(timestamp)
+    return min(timestamps) if timestamps else None
+
+
+async def _run_core_reports_regeneration_isolated() -> dict[str, object]:
+    """Regenerate analytical reports outside the latency-sensitive bot process."""
+    tool = PROJECT_ROOT / "tools" / "regenerate_core_reports.py"
+    creationflags = subprocess.BELOW_NORMAL_PRIORITY_CLASS if os.name == "nt" else 0
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(tool),
+        cwd=str(PROJECT_ROOT),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        creationflags=creationflags,
+    )
+    stdout, stderr = await process.communicate()
+    if process.returncode != 0:
+        detail = stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"core report subprocess exit={process.returncode}: {detail[:500]}")
+
+    summary = _read_json_file(PROJECT_ROOT / "data" / "metrics" / "core_reports_regeneration.json")
+    if isinstance(summary, dict):
+        return summary
+    output = stdout.decode("utf-8", errors="replace").strip()
+    return {"warnings": {"summary_missing": output[-500:] or "no subprocess summary"}}
+
+
+async def _maybe_regenerate_core_reports(
+    *,
+    source: str,
+    force: bool = False,
+    freshness_snapshot: dict[str, object] | None = None,
+) -> None:
     global _last_core_reports_regen_at, _last_core_reports_regen_sold
 
     if not bool(getattr(CFG, "CORE_REPORTS_AUTO_REGEN_ENABLED", True)):
@@ -832,6 +936,11 @@ async def _maybe_regenerate_core_reports(*, source: str, force: bool = False) ->
     interval_min = max(1, int(getattr(CFG, "CORE_REPORTS_REGEN_INTERVAL_MIN", 30) or 30))
     close_step = max(0, int(getattr(CFG, "CORE_REPORTS_REGEN_ON_CLOSES", 25) or 25))
     sold_now = int(_stats.get("sold", 0) or 0)
+    if _last_core_reports_regen_at is None and not force:
+        freshness = freshness_snapshot or report_freshness(PROJECT_ROOT)
+        oldest_timestamp = _oldest_core_report_timestamp(freshness)
+        if oldest_timestamp is not None:
+            _last_core_reports_regen_at = oldest_timestamp
     due_time = (
         _last_core_reports_regen_at is None
         or (now - _last_core_reports_regen_at).total_seconds() >= interval_min * 60
@@ -842,7 +951,7 @@ async def _maybe_regenerate_core_reports(*, source: str, force: bool = False) ->
 
     async with _core_reports_regen_lock:
         try:
-            result = await asyncio.to_thread(regenerate_core_reports, PROJECT_ROOT)
+            result = await _run_core_reports_regeneration_isolated()
             _last_core_reports_regen_at = now
             _last_core_reports_regen_sold = sold_now
             warnings = result.get("warnings") if isinstance(result, dict) else {}
@@ -860,6 +969,31 @@ def _note_runtime_error(context: str, exc: Exception | str) -> None:
     detail = str(exc)
     _runtime_last_error = f"{context}: {detail}"[:1000]
     _runtime_last_error_at = utc_now()
+
+
+def _schedule_background_task(
+    coro,
+    *,
+    name: str,
+    error_context: str,
+) -> asyncio.Task[object]:
+    """Retain a background task and consume/log its terminal exception."""
+    task = asyncio.create_task(coro, name=name)
+    _background_tasks.add(task)
+
+    def _consume_result(done: asyncio.Task[object]) -> None:
+        _background_tasks.discard(done)
+        if done.cancelled():
+            log.debug("Background task cancelled: %s", name)
+            return
+        try:
+            done.result()
+        except Exception as exc:
+            _note_runtime_error(error_context, exc)
+            log.warning("Background task failed (%s): %s", name, exc)
+
+    task.add_done_callback(_consume_result)
+    return task
 
 
 def _effective_runtime_process_state(now: Optional[dt.datetime] = None) -> str:
@@ -1769,10 +1903,11 @@ async def _maybe_apply_paper_bootstrap(
     *,
     trigger_stage: str,
     trigger_reason: str,
+    revalidate_existing: bool = False,
 ) -> object:
     if not DRY_RUN:
         return SimpleNamespace(allowed=False, reason="paper_bootstrap_paper_only", amount_sol=0.0)
-    if _paper_bootstrap_active(token):
+    if _paper_bootstrap_active(token) and not revalidate_existing:
         return SimpleNamespace(
             allowed=True,
             reason="paper_bootstrap_existing",
@@ -1811,6 +1946,7 @@ async def _maybe_apply_paper_bootstrap(
         model_rows=model_rows,
         trigger_stage=trigger_stage,
         trigger_reason=trigger_reason,
+        require_observed_route=bool(revalidate_existing),
     )
     _record_paper_bootstrap_event(
         "paper_bootstrap_eval",
@@ -1827,7 +1963,6 @@ async def _maybe_apply_paper_bootstrap(
     )
     if getattr(decision, "allowed", False):
         apply_paper_bootstrap_context(token, decision)
-        token["require_jupiter_for_buy"] = 0
         _record_paper_bootstrap_event(
             "paper_bootstrap_allowed",
             addr,
@@ -3299,6 +3434,12 @@ async def _refresh_balance(now_mono: float) -> None:
     """Actualiza el balance de la wallet cada ``WALLET_POLL_INTERVAL`` seg."""
     global _wallet_sol_balance, _last_wallet_check, _last_wallet_checked_at
 
+    if (
+        DRY_RUN
+        and _initial_paper_wallet_refresh_task is not None
+        and not _initial_paper_wallet_refresh_task.done()
+    ):
+        return
     if now_mono - _last_wallet_check < WALLET_POLL_INTERVAL:
         return
     try:
@@ -3309,6 +3450,35 @@ async def _refresh_balance(now_mono: float) -> None:
     except Exception as exc:  # noqa: BLE001
         _note_runtime_error("refresh_balance", exc)
         log.warning("get_sol_balance → %s", exc)
+
+
+async def _load_initial_wallet_balance(*, mark_poll_time: bool) -> None:
+    """Load the startup balance while preserving the existing failure state."""
+    global _wallet_sol_balance, _last_wallet_check, _last_wallet_checked_at
+
+    try:
+        _wallet_sol_balance = await get_sol_balance()
+        if mark_poll_time:
+            _last_wallet_check = time.monotonic()
+        _last_wallet_checked_at = utc_now()
+        log.info("Balance inicial: %.3f SOL", _wallet_sol_balance)
+    except Exception as exc:
+        _wallet_sol_balance = 0.0
+        _note_runtime_error("initial_balance", exc)
+        log.warning("Balance inicial no disponible: %s", exc)
+
+
+def _schedule_initial_paper_wallet_refresh() -> asyncio.Task[object]:
+    global _initial_paper_wallet_refresh_task
+
+    task = _schedule_background_task(
+        _load_initial_wallet_balance(mark_poll_time=True),
+        name="initial-paper-wallet-refresh",
+        error_context="initial_balance",
+    )
+    _initial_paper_wallet_refresh_task = task
+    return task
+
 
 async def _refresh_balance_force(tag: str = "") -> None:
     """Refresco inmediato (post-trade). Evita el bug del 'fake update'."""
@@ -3322,6 +3492,7 @@ async def _refresh_balance_force(tag: str = "") -> None:
     except Exception as exc:
         _note_runtime_error(f"refresh_balance_force[{tag or 'untagged'}]", exc)
         log.debug("refresh_balance_force(%s) → %s", tag, exc)
+
 
 def _compute_trade_amount(size_multiplier: float = 1.0) -> float:
     """
@@ -3782,6 +3953,12 @@ async def _execute_control_command(command: dict[str, object]) -> tuple[str, dic
         return COMMAND_STATUS_DONE, {"discovery_paused": True}, None
 
     if command_type == "resume_discovery":
+        if _CLOSE_RECOVERY_PENDING:
+            return (
+                COMMAND_STATUS_REJECTED,
+                {"discovery_paused": True, "reason": "close_recovery_pending"},
+                "close_recovery_pending",
+            )
         if not _runtime_discovery_paused:
             return COMMAND_STATUS_REJECTED, {"discovery_paused": False, "reason": "already_live"}, "already_live"
         _runtime_discovery_paused = False
@@ -3796,11 +3973,38 @@ async def _execute_control_command(command: dict[str, object]) -> tuple[str, dic
         return COMMAND_STATUS_DONE, {"buys_paused": True}, None
 
     if command_type == "resume_buys":
+        if _CLOSE_RECOVERY_PENDING:
+            return (
+                COMMAND_STATUS_REJECTED,
+                {"buys_paused": True, "reason": "close_recovery_pending"},
+                "close_recovery_pending",
+            )
         if not _runtime_buys_paused:
             return COMMAND_STATUS_REJECTED, {"buys_paused": False, "reason": "already_live"}, "already_live"
         _runtime_buys_paused = False
         log.info("Control command: buys resumed")
         return COMMAND_STATUS_DONE, {"buys_paused": False}, None
+
+    if command_type in {"disable_lane", "enable_lane"}:
+        disable = command_type == "disable_lane"
+        result = set_manual_lane_control(
+            payload.get("lane"),
+            disabled=disable,
+            root=PROJECT_ROOT,
+            reason=payload.get("reason") or ("manual_disable_lane" if disable else "manual_enable_lane"),
+            requested_by=command.get("requested_by") or "control_command",
+            command_id=command.get("id"),
+        )
+        if not result.get("changed"):
+            reason = "already_disabled" if disable else "already_enabled"
+            return COMMAND_STATUS_REJECTED, {**result, "reason": reason}, reason
+        log.info(
+            "Control command: lane %s %s reason=%s",
+            result.get("lane"),
+            "disabled" if disable else "enabled",
+            payload.get("reason"),
+        )
+        return COMMAND_STATUS_DONE, result, None
 
     if command_type == "reload_model":
         try:
@@ -4139,6 +4343,7 @@ async def _tick_shadows() -> None:
                     label,
                     target_total_pnl_pct=pnl_pct_total,
                     sample_type="shadow_close",
+                    outcome_targets={"max_pnl_pct_seen": sd.get("max_pnl_pct_seen"), "outcome_closed_at": now},
                 )
                 _stats["appended_shadow"] += 1
             except Exception as exc:
@@ -4194,6 +4399,7 @@ async def _probe_jupiter_route(output_mint: str, amount_sol: float) -> Dict[str,
         "has_route": None,
         "price_impact_bps": None,
         "price_impact_pct": None,
+        "price_available": None,
     }
     try:
         if _JUP_ROUTER_AVAILABLE and jupiter is not None:
@@ -4208,9 +4414,15 @@ async def _probe_jupiter_route(output_mint: str, amount_sol: float) -> Dict[str,
                 "has_route": bool(getattr(q, "ok", False)),
                 "price_impact_bps": float(impact_bps) if isinstance(impact_bps, (int, float)) else None,
                 "price_impact_pct": impact_pct,
+                "price_available": None,
             }
     except Exception:
-        probe = {"has_route": None, "price_impact_bps": None, "price_impact_pct": None}
+        probe = {
+            "has_route": None,
+            "price_impact_bps": None,
+            "price_impact_pct": None,
+            "price_available": None,
+        }
 
     try:
         jpi = await jupiter_price.get_price(output_mint)
@@ -4218,10 +4430,7 @@ async def _probe_jupiter_route(output_mint: str, amount_sol: float) -> Dict[str,
         jpi = None
 
     if jpi is not None:
-        if jpi.status == "OK":
-            probe["has_route"] = True
-        elif jpi.status == "NIL" and probe.get("has_route") is None:
-            probe["has_route"] = False
+        probe["price_available"] = bool(jpi.status == "OK")
 
     return probe
 
@@ -4759,6 +4968,43 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         moonshot_decision = evaluate_moonshot_micro_lottery(token, dry_run=DRY_RUN, live=not DRY_RUN)
         if moonshot_decision.allowed:
             apply_moonshot_micro_lottery_context(token, moonshot_decision)
+    if paper_bootstrap_fast_path:
+        paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
+            token,
+            ses,
+            addr,
+            trigger_stage="post_risk_enrichment",
+            trigger_reason="rug_cluster_route_probe_complete",
+            revalidate_existing=True,
+        )
+        if not bool(getattr(paper_bootstrap_decision, "allowed", False)):
+            _stats["filtered_out"] += 1
+            reason = str(getattr(paper_bootstrap_decision, "reason", "paper_bootstrap_post_risk_blocked"))
+            vec_shadow = build_feature_vector(token)
+            _store_policy_reject(vec_shadow, already_vector=True, reason=reason)
+            _research_decision(
+                token,
+                action="shadow",
+                reason=reason,
+                stage="paper_bootstrap_post_risk",
+                shadow_kind="paper_bootstrap_post_risk",
+                dedup_ttl_s=300,
+            )
+            await _open_shadow(
+                addr,
+                vec_shadow,
+                price_hint=token.get("price_usd"),
+                force=True,
+                regime="pump_early",
+                reason=reason,
+                stage="paper_bootstrap_post_risk",
+                shadow_kind="paper_bootstrap_post_risk",
+            )
+            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+            _remove_from_queue_if_present(addr)
+            return
+        require_jup_for_buy = bool(getattr(CFG, "PAPER_BOOTSTRAP_REQUIRE_ROUTE", True))
+        token["require_jupiter_for_buy"] = int(require_jup_for_buy)
     if (
         shadow_followup_fast_path
         or _shadow_followup_micro_probe_allowed(
@@ -5427,6 +5673,36 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             _remove_from_queue_if_present(addr)
             return
 
+    overlay_decision = evaluate_policy_overlay(
+        token,
+        dry_run=DRY_RUN,
+        live=not DRY_RUN,
+        root=PROJECT_ROOT,
+        cooldown_min=float(getattr(CFG, "CURRENT_RUN_AUTOTUNE_COOLDOWN_MIN", 60.0) or 60.0),
+        enabled=bool(getattr(CFG, "CURRENT_RUN_AUTOTUNE_RUNTIME_OVERLAY_ENABLED", True)),
+    )
+    if not overlay_decision.allowed:
+        backoff_s = max(60, min(int(overlay_decision.backoff_s or 300), 24 * 3600))
+        log.info(
+            "Policy overlay gate: %s lane=%s reason=%s cooldown_until=%s",
+            addr[:6],
+            overlay_decision.lane,
+            overlay_decision.reason,
+            overlay_decision.cooldown_until,
+        )
+        _research_decision(
+            token,
+            action="wait",
+            reason=overlay_decision.reason,
+            stage="policy_overlay",
+            proba=proba,
+            threshold=ai_threshold_eff,
+            rank_info=rank_info,
+            dedup_ttl_s=backoff_s,
+        )
+        _requeue_with_stats(addr, reason=overlay_decision.reason, backoff=backoff_s, token=token)
+        return
+
     capacity_ok, regime_open, regime_cap = await _regime_capacity(ses, size_decision.regime)
     if not capacity_ok:
         log.info(
@@ -5755,38 +6031,57 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         if untagged_decision.allowed and untagged_decision.reason == "untagged_real_liquidity_breakout":
             apply_untagged_breakout_context(token, untagged_decision)
         elif not untagged_decision.allowed:
-            _stats["filtered_out"] += 1
-            apply_untagged_buy_shadow_context(token, untagged_decision)
-            vec = build_feature_vector(token)
-            _store_policy_reject(vec, already_vector=True, reason=REASON_UNTAGGED_BLOCKED)
-            _research_decision(
+            paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
                 token,
-                action="shadow",
-                reason=REASON_UNTAGGED_BLOCKED,
-                stage="entry_lane_guard",
-                proba=proba,
-                threshold=ai_threshold_eff,
-                rank_info=rank_info,
-                shadow_kind="execution",
-                dedup_ttl_s=300,
+                ses,
+                addr,
+                trigger_stage="entry_lane_guard",
+                trigger_reason=REASON_UNTAGGED_BLOCKED,
             )
-            if bool(getattr(CFG, "UNTAGGED_BUY_SHADOW_ENABLED", True)):
-                await _open_shadow(
-                    addr,
-                    vec,
-                    price_hint=token.get("price_usd"),
-                    force=True,
-                    regime=size_decision.regime,
+            paper_bootstrap_fast_path = bool(getattr(paper_bootstrap_decision, "allowed", False))
+            if paper_bootstrap_fast_path:
+                require_jup_for_buy = bool(getattr(CFG, "PAPER_BOOTSTRAP_REQUIRE_ROUTE", True))
+                token["require_jupiter_for_buy"] = int(require_jup_for_buy)
+                vec = build_feature_vector(token)
+                vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+                rank_info = research_runtime.score_candidate(
+                    vec_payload,
+                    proba=proba,
+                    threshold=ai_threshold_eff,
+                )
+            else:
+                _stats["filtered_out"] += 1
+                apply_untagged_buy_shadow_context(token, untagged_decision)
+                vec = build_feature_vector(token)
+                _store_policy_reject(vec, already_vector=True, reason=REASON_UNTAGGED_BLOCKED)
+                _research_decision(
+                    token,
+                    action="shadow",
                     reason=REASON_UNTAGGED_BLOCKED,
                     stage="entry_lane_guard",
                     proba=proba,
                     threshold=ai_threshold_eff,
                     rank_info=rank_info,
                     shadow_kind="execution",
+                    dedup_ttl_s=300,
                 )
-            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
-            _remove_from_queue_if_present(addr)
-            return
+                if bool(getattr(CFG, "UNTAGGED_BUY_SHADOW_ENABLED", True)):
+                    await _open_shadow(
+                        addr,
+                        vec,
+                        price_hint=token.get("price_usd"),
+                        force=True,
+                        regime=size_decision.regime,
+                        reason=REASON_UNTAGGED_BLOCKED,
+                        stage="entry_lane_guard",
+                        proba=proba,
+                        threshold=ai_threshold_eff,
+                        rank_info=rank_info,
+                        shadow_kind="execution",
+                    )
+                _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+                _remove_from_queue_if_present(addr)
+                return
 
     pump_entry_decision = select_pump_entry_lane(token)
     if not pump_entry_decision.allowed:
@@ -5880,6 +6175,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         computed_amount_sol=float(amount_sol),
         dry_run=DRY_RUN,
         live=not DRY_RUN,
+        cfg=CFG,
     )
     amount_sol = float(lane_size_decision.amount_sol)
     token["lane_sizing_amount_sol"] = amount_sol
@@ -5887,6 +6183,111 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["lane_sizing_fallback_blocked"] = int(bool(lane_size_decision.fallback_blocked))
     if lane_size_decision.warning:
         token["lane_sizing_warning"] = lane_size_decision.warning
+    pre_entry_risk_decision = evaluate_pre_entry_risk(
+        token,
+        amount_sol=amount_sol,
+        dry_run=DRY_RUN,
+        live=not DRY_RUN,
+        cfg=CFG,
+    )
+    apply_pre_entry_risk_context(token, pre_entry_risk_decision)
+    if pre_entry_risk_decision.action == ACTION_DOWNSIZE:
+        original_amount_sol = float(amount_sol)
+        amount_sol = float(pre_entry_risk_decision.amount_sol)
+        token["pre_entry_risk_adjusted_amount_sol"] = amount_sol
+        log.info(
+            "Pre-entry risk downsize %s %.3f -> %.3f SOL reason=%s",
+            addr[:6],
+            original_amount_sol,
+            amount_sol,
+            pre_entry_risk_decision.reason,
+        )
+        record_runtime_event(
+            "pre_entry_risk_guard",
+            addr,
+            action=pre_entry_risk_decision.action,
+            reason=pre_entry_risk_decision.reason,
+            failures=list(pre_entry_risk_decision.failures),
+            risk_flags=list(pre_entry_risk_decision.risk_flags),
+            original_amount_sol=float(pre_entry_risk_decision.original_amount_sol),
+            amount_sol=float(pre_entry_risk_decision.amount_sol),
+            entry_regime=str(size_decision.regime),
+            entry_lane=str(token.get("entry_lane") or ""),
+        )
+    if not pre_entry_risk_decision.allowed:
+        _stats["filtered_out"] += 1
+        _pending_ai_vectors.pop(addr, None)
+        _store_policy_reject(vec, already_vector=True, reason=pre_entry_risk_decision.reason)
+        record_runtime_event(
+            "pre_entry_risk_guard",
+            addr,
+            action=pre_entry_risk_decision.action,
+            reason=pre_entry_risk_decision.reason,
+            failures=list(pre_entry_risk_decision.failures),
+            risk_flags=list(pre_entry_risk_decision.risk_flags),
+            original_amount_sol=float(pre_entry_risk_decision.original_amount_sol),
+            amount_sol=float(pre_entry_risk_decision.amount_sol),
+            entry_regime=str(size_decision.regime),
+            entry_lane=str(token.get("entry_lane") or ""),
+        )
+        if pre_entry_risk_decision.action == ACTION_SHADOW or pre_entry_risk_decision.force_shadow:
+            _research_decision(
+                token,
+                action="shadow",
+                reason=pre_entry_risk_decision.reason,
+                stage="pre_entry_risk",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="pre_entry_risk",
+                dedup_ttl_s=600,
+            )
+            risk_vec = vec
+            try:
+                risk_vec = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+                for key in (
+                    "pre_entry_risk_action",
+                    "pre_entry_risk_reason",
+                    "pre_entry_risk_failures",
+                    "pre_entry_risk_flags",
+                    "pre_entry_risk_original_amount_sol",
+                    "pre_entry_risk_max_amount_sol",
+                    "entry_lane",
+                    "gate_profile",
+                    "profit_lane_tier",
+                ):
+                    if token.get(key) is not None:
+                        risk_vec[key] = token.get(key)
+            except Exception:
+                risk_vec = vec
+            await _open_shadow(
+                addr,
+                risk_vec,
+                price_hint=token.get("price_usd"),
+                force=True,
+                regime=size_decision.regime,
+                reason=pre_entry_risk_decision.reason,
+                stage="pre_entry_risk",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                shadow_kind="pre_entry_risk",
+            )
+            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+            _remove_from_queue_if_present(addr)
+            return
+        _research_decision(
+            token,
+            action="rejected",
+            reason=pre_entry_risk_decision.reason,
+            stage="pre_entry_risk",
+            proba=proba,
+            threshold=ai_threshold_eff,
+            rank_info=rank_info,
+            dedup_ttl_s=600,
+        )
+        _remove_from_queue_if_present(addr)
+        return
     paper_micro_entry = bool(
         DRY_RUN
         and (
@@ -5912,7 +6313,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         if green_fast_path
         else float(MIN_BUY_SOL)
     )
-    if amount_sol < effective_min_buy_sol:
+    if not math.isfinite(amount_sol) or amount_sol <= 0 or amount_sol < effective_min_buy_sol:
         # Shadow si pasa IA pero no se compra por importe
         _research_decision(
             token,
@@ -5939,6 +6340,95 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         )
         _remove_from_queue_if_present(addr)
         return
+
+    # Bootstrap can be selected at several later policy gates. Revalidate once
+    # more immediately before any persistence/execution so every path sees the
+    # expensive rug/cluster data and an executable router quote.
+    if _paper_bootstrap_active(token):
+        paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
+            token,
+            ses,
+            addr,
+            trigger_stage="final_execution_guard",
+            trigger_reason="all_entry_enrichment_complete",
+            revalidate_existing=True,
+        )
+        if not bool(getattr(paper_bootstrap_decision, "allowed", False)):
+            _stats["filtered_out"] += 1
+            reason = str(getattr(paper_bootstrap_decision, "reason", "paper_bootstrap_final_blocked"))
+            vec_shadow = build_feature_vector(token)
+            _store_policy_reject(vec_shadow, already_vector=True, reason=reason)
+            _research_decision(
+                token,
+                action="shadow",
+                reason=reason,
+                stage="paper_bootstrap_final_guard",
+                shadow_kind="paper_bootstrap_final_guard",
+                dedup_ttl_s=300,
+            )
+            await _open_shadow(
+                addr,
+                vec_shadow,
+                price_hint=token.get("price_usd"),
+                force=True,
+                regime="pump_early",
+                reason=reason,
+                stage="paper_bootstrap_final_guard",
+                shadow_kind="paper_bootstrap_final_guard",
+            )
+            _remember_stream_candidate_cooldown(addr, _stream_candidate_cooldown_s(token, "shadow"))
+            _remove_from_queue_if_present(addr)
+            return
+        paper_bootstrap_fast_path = True
+        require_jup_for_buy = bool(getattr(CFG, "PAPER_BOOTSTRAP_REQUIRE_ROUTE", True))
+        token["require_jupiter_for_buy"] = int(require_jup_for_buy)
+        final_overlay = evaluate_policy_overlay(
+            token,
+            dry_run=DRY_RUN,
+            live=not DRY_RUN,
+            root=PROJECT_ROOT,
+            cooldown_min=float(getattr(CFG, "CURRENT_RUN_AUTOTUNE_COOLDOWN_MIN", 60.0) or 60.0),
+            enabled=bool(getattr(CFG, "CURRENT_RUN_AUTOTUNE_RUNTIME_OVERLAY_ENABLED", True)),
+        )
+        if not final_overlay.allowed:
+            backoff_s = max(60, min(int(final_overlay.backoff_s or 300), 24 * 3600))
+            _research_decision(
+                token,
+                action="wait",
+                reason=final_overlay.reason,
+                stage="paper_bootstrap_final_overlay",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                dedup_ttl_s=backoff_s,
+            )
+            _requeue_with_stats(addr, reason=final_overlay.reason, backoff=backoff_s, token=token)
+            return
+        final_lane_ok, final_lane_open, final_lane_cap = await _lane_capacity(ses, token.get("entry_lane"))
+        if not final_lane_ok:
+            lane = str(token.get("entry_lane") or _PAPER_BOOTSTRAP_LANE)
+            reason = f"lane_cap:{lane}"
+            _research_decision(
+                token,
+                action="wait",
+                reason=reason,
+                stage="paper_bootstrap_final_capacity",
+                proba=proba,
+                threshold=ai_threshold_eff,
+                rank_info=rank_info,
+                dedup_ttl_s=600,
+            )
+            _record_paper_bootstrap_event(
+                "paper_bootstrap_blocked",
+                addr,
+                token,
+                paper_bootstrap_decision,
+                reason=reason,
+                open_count=int(final_lane_open),
+                cap=int(final_lane_cap),
+            )
+            _requeue_with_stats(addr, reason=reason, backoff=180, token=token)
+            return
 
     # 11) — Persistir TOKEN (NaN→0.0 saneados) —
     # Paper exposure guard runs before token persistence and buy execution.
@@ -6039,6 +6529,24 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         return
 
     # 11.5) — Guard de pool (DEX whitelist) + ruta Jupiter (si router) —
+    entries_allowed, provider_reason, provider_snapshot = api_budget.provider_entries_allowed()
+    if not entries_allowed:
+        log.info("BUY aplazado por proveedor degradado %s reason=%s", addr[:6], provider_reason)
+        _pending_ai_vectors.pop(addr, None)
+        _research_decision(
+            token,
+            action="wait",
+            reason=provider_reason or "provider_degraded",
+            stage="execution_guard",
+            proba=proba,
+            threshold=ai_threshold_eff,
+            rank_info=rank_info,
+            dedup_ttl_s=300,
+        )
+        token["provider_budget_snapshot"] = provider_snapshot
+        _requeue_with_stats(addr, reason=provider_reason or "provider_degraded", backoff=120, token=token)
+        return
+
     if REQUIRE_POOL_INITIALIZED:
         dex_id_norm = _norm_dex_id(token.get("dex_id") or token.get("dexId"))
         if dex_id_norm and DEX_WHITELIST and dex_id_norm not in DEX_WHITELIST:
@@ -6063,20 +6571,21 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
         # ⚠️ Cambio clave: solo BLOQUEAMOS si la política exige Jupiter.
         if require_jup_for_buy:
-            if has_route is False:
-                log.info("🛑 BUY bloqueado: sin ruta Jupiter (mint=%s, reason=no_route)", addr[:6])
+            if has_route is not True:
+                route_reason = "no_route" if has_route is False else "route_unverified"
+                log.info("🛑 BUY bloqueado: ruta Jupiter no ejecutable (mint=%s, reason=%s)", addr[:6], route_reason)
                 _pending_ai_vectors.pop(addr, None)
                 _research_decision(
                     token,
                     action="wait",
-                    reason="no_route",
+                    reason=route_reason,
                     stage="execution_guard",
                     proba=proba,
                     threshold=ai_threshold_eff,
                     rank_info=rank_info,
                     dedup_ttl_s=900,
                 )
-                _requeue_with_stats(addr, reason="no_route", backoff=90, token=token)
+                _requeue_with_stats(addr, reason=route_reason, backoff=90, token=token)
                 return
         else:
             # Data acquisition / DRY-RUN: seguimos aunque Jupiter aún no tenga ruta
@@ -6110,6 +6619,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 backoff=max(90, _DEX_MATURE_QUALITY_BACKOFF_S),
             )
             return
+        token["price_confidence"] = jtok.get("price_confidence")
+        token["price_confidence_reason"] = jtok.get("price_confidence_reason")
+        token["price_provider_degraded"] = bool(jtok.get("price_provider_degraded"))
 
     if _runtime_buys_paused:
         log.info("BUY omitido por pause flag %s", addr[:6])
@@ -6245,6 +6757,11 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     qty_lp = int(buy_resp.get("qty_lamports", 0) or 0)
     price_usd = buy_resp.get("buy_price_usd") or token.get("price_usd") or 0.0
     price_src = buy_resp.get("price_source")
+    price_confidence = (
+        buy_resp.get("price_confidence")
+        or token.get("price_confidence")
+        or price_service.price_confidence_from_source(price_src, price_usd)
+    )
     buy_sig = str(buy_resp.get("signature") or "")
     buy_venue = str(buy_resp.get("venue") or "")
 
@@ -6395,7 +6912,10 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         peak_after_partial_pct=None,
         exit_from_peak_giveback_pct=None,
         partial_count=0,
+        max_adverse_pnl_pct=0.0,
+        exit_state="pre_partial",
         partial_ladder_state=runner_ladder.encode_ladder_state(runner_ladder.initial_ladder_state()),
+        runner_trailing_policy=buy_resp.get("runner_trailing_policy") if DRY_RUN else None,
         buy_liquidity_usd=token.get("liquidity_usd"),
         buy_market_cap_usd=token.get("market_cap_usd"),
         buy_volume_24h_usd=token.get("volume_24h_usd"),
@@ -6404,6 +6924,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         pos.token_mint = token.get("address") or addr
     if hasattr(pos, "price_source_at_buy"):
         pos.price_source_at_buy = price_src
+    if hasattr(pos, "price_confidence_at_buy"):
+        pos.price_confidence_at_buy = price_confidence
     if hasattr(pos, "buy_tx_sig"):
         pos.buy_tx_sig = buy_sig or None
 
@@ -6834,14 +7356,292 @@ def _position_health_metadata(pos: Position) -> dict[str, object]:
 def _position_research_metrics(pos: Position) -> dict[str, object]:
     return {
         "runner_exit_profile": getattr(pos, "runner_exit_profile", None),
+        "runner_trailing_policy": getattr(pos, "runner_trailing_policy", None),
         "entry_subprofile": getattr(pos, "entry_subprofile", None),
         "entry_reason": getattr(pos, "entry_reason", None),
         "max_pnl_pct_seen": getattr(pos, "max_pnl_pct_seen", getattr(pos, "highest_pnl_pct", None)),
+        "max_adverse_pnl_pct": getattr(pos, "max_adverse_pnl_pct", None),
+        "exit_state": getattr(pos, "exit_state", None),
         "time_to_partial_sec": getattr(pos, "time_to_partial_sec", None),
         "time_to_peak_sec": getattr(pos, "time_to_peak_sec", None),
         "peak_after_partial_pct": getattr(pos, "peak_after_partial_pct", None),
         "exit_from_peak_giveback_pct": getattr(pos, "exit_from_peak_giveback_pct", None),
     }
+
+
+def _record_position_close_telemetry(pos: Position, *, regime: str, exit_reason: str) -> None:
+    """Publish close telemetry without letting one sink abort position handling."""
+    try:
+        research_runtime.record_live_trade_close(
+            pos.address,
+            regime=regime,
+            pnl_pct=getattr(pos, "total_pnl_pct", None),
+            exit_reason=str(exit_reason),
+            extra={
+                "price_source_at_close": getattr(pos, "price_source_at_close", None),
+                "price_confidence_at_close": getattr(pos, "price_confidence_at_close", None),
+                "close_price_usd": getattr(pos, "close_price_usd", None),
+                **_position_health_metadata(pos),
+                **_position_research_metrics(pos),
+            },
+        )
+    except Exception as exc:
+        _note_runtime_error("research_trade_close", exc)
+        log.error("Research close telemetry %s → %s", str(pos.address)[:6], exc)
+
+    try:
+        strategy_runtime.record_trade_close(
+            regime,
+            getattr(pos, "total_pnl_pct", None),
+            exit_reason=str(exit_reason),
+            execution_state=_position_execution_state(pos),
+            **_position_health_metadata(pos),
+        )
+    except Exception as exc:
+        _note_runtime_error("strategy_trade_close", exc)
+        log.error("Strategy close telemetry %s → %s", str(pos.address)[:6], exc)
+
+
+def _activate_close_recovery_pause() -> None:
+    global _runtime_buys_paused, _runtime_discovery_paused
+    global _close_recovery_pause_active
+    global _close_recovery_prior_buys_paused, _close_recovery_prior_discovery_paused
+
+    if not _close_recovery_pause_active:
+        _close_recovery_prior_buys_paused = bool(_runtime_buys_paused)
+        _close_recovery_prior_discovery_paused = bool(_runtime_discovery_paused)
+    _close_recovery_pause_active = True
+    _runtime_buys_paused = True
+    _runtime_discovery_paused = True
+
+
+def _release_close_recovery_pause_if_safe() -> None:
+    global _runtime_buys_paused, _runtime_discovery_paused
+    global _close_recovery_pause_active
+
+    if _CLOSE_RECOVERY_PENDING or not _close_recovery_pause_active:
+        return
+    _runtime_buys_paused = bool(_close_recovery_prior_buys_paused)
+    _runtime_discovery_paused = bool(_close_recovery_prior_discovery_paused)
+    _close_recovery_pause_active = False
+
+
+def _build_close_persistence_recovery(
+    pos: Position,
+    *,
+    event_type: str,
+    ts_utc: dt.datetime,
+    qty: int | None,
+    price_usd: float | None,
+    notional_usd: float | None = None,
+    pnl_usd: float | None = None,
+    pnl_pct: float | None = None,
+    reason: str,
+    price_source: str | None,
+    price_confidence: str | None,
+    sell_response: dict | None,
+    regime: str,
+) -> dict[str, object]:
+    """Capture the replay payload while ``pos`` is still attached and loaded."""
+
+    return build_recovery_record(
+        pos,
+        event_type=event_type,
+        reason=reason,
+        sell_response=sell_response,
+        trade_event={
+            "event_type": event_type,
+            "ts_utc": ts_utc,
+            "qty": qty,
+            "price_usd": price_usd,
+            "notional_usd": notional_usd,
+            "pnl_usd": pnl_usd,
+            "pnl_pct": pnl_pct,
+            "reason": reason,
+            "price_source": price_source,
+            "price_confidence": price_confidence,
+        },
+        telemetry={"regime": regime, "exit_reason": reason},
+    )
+
+
+def _arm_close_persistence_recovery(recovery_record: dict[str, object]) -> None:
+    """Write-ahead the post-sell state before yielding to the DB commit."""
+
+    address = str(recovery_record.get("address") or "").strip()
+    if not address:
+        raise ValueError("close recovery record has no address")
+    prepare_close_recovery(_CLOSE_RECOVERY_OUTBOX_PATH, recovery_record)
+    _CLOSE_RECOVERY_PENDING.add(address)
+    _activate_close_recovery_pause()
+
+
+def _resolve_close_persistence_recovery(recovery_record: dict[str, object]) -> None:
+    """Resolve the write-ahead row only after the database commit returned."""
+
+    append_close_recovery_status(
+        _CLOSE_RECOVERY_OUTBOX_PATH,
+        recovery_record,
+        status="resolved",
+    )
+    _CLOSE_RECOVERY_PENDING.clear()
+    _CLOSE_RECOVERY_PENDING.update(
+        load_close_recovery_pending_addresses(_CLOSE_RECOVERY_OUTBOX_PATH)
+    )
+    _release_close_recovery_pause_if_safe()
+
+
+def _record_close_persistence_recovery(
+    recovery_record: dict[str, object],
+    *,
+    error: Exception,
+) -> None:
+    """Fsync and quarantine a pre-rollback snapshot after an uncertain commit."""
+
+    address = str(recovery_record.get("address") or "").strip()
+    if not address:
+        raise ValueError("close recovery record has no address")
+    _CLOSE_RECOVERY_PENDING.add(address)
+    _activate_close_recovery_pause()
+    try:
+        append_close_recovery_pending(
+            _CLOSE_RECOVERY_OUTBOX_PATH,
+            recovery_record,
+            error=error,
+        )
+    except CloseRecoveryError:
+        # The wallet side effect already happened. Continuing without a durable
+        # snapshot would make a restart silently forget the sold quantity.
+        log.critical("Close recovery outbox write failed %s", address[:6], exc_info=True)
+        raise
+    try:
+        record_runtime_event(
+            "close_persistence_recovery_required",
+            address,
+            recovery_id=recovery_record.get("recovery_id"),
+            position_id=recovery_record.get("position_id"),
+            run_id=recovery_record.get("run_id"),
+            reason=recovery_record.get("reason"),
+            sell_signature=recovery_record.get("sell_signature"),
+            sell_venue=recovery_record.get("sell_venue"),
+            error=f"{type(error).__name__}:{error}",
+        )
+    except Exception:
+        pass
+    _note_runtime_error("close_commit_after_sell", error)
+    log.critical(
+        "SELL ejecutado pero cierre DB no persistido %s; compras/descubrimiento pausados y posición en recovery outbox",
+        address[:6],
+    )
+
+
+async def _commit_close_persistence(
+    ses: SessionLocal,
+    recovery_record: dict[str, object],
+) -> bool:
+    """Commit a post-sell mutation with a durable, idempotent write-ahead row."""
+
+    journal_armed = False
+    try:
+        _arm_close_persistence_recovery(recovery_record)
+        journal_armed = True
+    except CloseRecoveryError as exc:
+        # The DB may still be healthy (for example only data/metrics is
+        # read-only), so make the authoritative commit attempt before failing.
+        _note_runtime_error("close_recovery_prepare", exc)
+        log.critical("Close recovery prepare failed; attempting DB commit", exc_info=True)
+
+    try:
+        await ses.commit()
+    except Exception as exc:
+        try:
+            await ses.rollback()
+        finally:
+            # Retry the durable write even when the pre-commit append failed; a
+            # transient filesystem error must not make the executed sell vanish.
+            _record_close_persistence_recovery(recovery_record, error=exc)
+        return False
+
+    if journal_armed:
+        # A failure here deliberately propagates.  The committed DB mutation and
+        # pending journal row make the next startup replay safe and idempotent.
+        _resolve_close_persistence_recovery(recovery_record)
+    return True
+
+
+async def _recover_close_persistence_outbox(ses: SessionLocal, *, force: bool = False) -> int:
+    """Replay durable post-sell snapshots before allowing new risk."""
+
+    global _last_close_recovery_retry_monotonic
+
+    if not _CLOSE_RECOVERY_PENDING:
+        _release_close_recovery_pause_if_safe()
+        return 0
+    _activate_close_recovery_pause()
+
+    now_mono = time.monotonic()
+    if (
+        not force
+        and _last_close_recovery_retry_monotonic > 0.0
+        and now_mono - _last_close_recovery_retry_monotonic < _CLOSE_RECOVERY_RETRY_INTERVAL_S
+    ):
+        return 0
+    _last_close_recovery_retry_monotonic = now_mono
+
+    result = await replay_close_recovery_pending(ses, _CLOSE_RECOVERY_OUTBOX_PATH)
+    _CLOSE_RECOVERY_PENDING.clear()
+    _CLOSE_RECOVERY_PENDING.update(result.pending_addresses)
+
+    for recovered in result.resolved:
+        address = str(recovered.get("address") or "").strip()
+        log.warning(
+            "Close recovery resuelto %s position_id=%s event=%s",
+            address[:6],
+            recovered.get("position_id"),
+            recovered.get("event_type"),
+        )
+        try:
+            # The committed ledger is authoritative telemetry.  On startup the
+            # strategy bootstrap reads it; replaying normal close telemetry here
+            # could duplicate an outcome after a crash between commit and status.
+            record_runtime_event(
+                "close_persistence_recovery_resolved",
+                address,
+                recovery_id=recovered.get("recovery_id"),
+                position_id=recovered.get("position_id"),
+                run_id=recovered.get("run_id"),
+                recovered_event_type=recovered.get("event_type"),
+                reason=recovered.get("reason"),
+                telemetry_source="committed_trade_ledger",
+            )
+        except Exception:
+            pass
+
+    for failure in result.failed:
+        error_text = str(failure.get("error") or "close_recovery_retry_failed")
+        _note_runtime_error("close_recovery_retry", RuntimeError(error_text))
+        log.critical(
+            "Close recovery pendiente %s position_id=%s error=%s",
+            str(failure.get("address") or "")[:6],
+            failure.get("position_id"),
+            error_text,
+        )
+
+    if result.resolved and not force:
+        # Rebuild the in-memory strategy view from the committed ledger.  This
+        # avoids emitting a second close outcome while keeping a long-running
+        # process consistent after an in-process recovery.
+        try:
+            await _bootstrap_strategy_runtime(ses)
+        except Exception as exc:
+            _note_runtime_error("close_recovery_strategy_bootstrap", exc)
+            log.error("Close recovery strategy bootstrap failed: %s", exc)
+
+    if _CLOSE_RECOVERY_PENDING:
+        _activate_close_recovery_pause()
+    else:
+        _release_close_recovery_pause_if_safe()
+    return len(result.resolved)
 
 
 def _entry_vector_for_close(vec: object, pos: Position) -> dict[str, object]:
@@ -6916,31 +7716,53 @@ def _update_position_peak_metrics(
     observed_at: dt.datetime,
 ) -> bool:
     changed = False
-    peak_before = float(getattr(pos, "highest_pnl_pct", 0.0) or 0.0)
-    if float(pnl_pct) <= peak_before:
-        if hasattr(pos, "max_pnl_pct_seen"):
-            pos.max_pnl_pct_seen = peak_before
-        return False
+    peak_before = max(
+        float(getattr(pos, "highest_pnl_pct", 0.0) or 0.0),
+        float(getattr(pos, "max_pnl_pct_seen", 0.0) or 0.0),
+    )
+    state_before = (
+        float(getattr(pos, "highest_pnl_pct", 0.0) or 0.0),
+        float(getattr(pos, "max_pnl_pct_seen", 0.0) or 0.0),
+        float(getattr(pos, "max_adverse_pnl_pct", 0.0) or 0.0),
+        str(getattr(pos, "exit_state", "") or ""),
+    )
+    try:
+        exit_policy.update_exit_state(pos, pnl_pct=float(pnl_pct), peak=peak_before)
+    except Exception:
+        if float(pnl_pct) > peak_before:
+            pos.highest_pnl_pct = float(pnl_pct)
+            if hasattr(pos, "max_pnl_pct_seen"):
+                pos.max_pnl_pct_seen = float(pnl_pct)
 
-    pos.highest_pnl_pct = float(pnl_pct)
-    if hasattr(pos, "max_pnl_pct_seen"):
-        pos.max_pnl_pct_seen = float(pnl_pct)
-    if price_usd is not None:
+    peak_after = float(getattr(pos, "highest_pnl_pct", 0.0) or 0.0)
+    state_after = (
+        peak_after,
+        float(getattr(pos, "max_pnl_pct_seen", 0.0) or 0.0),
+        float(getattr(pos, "max_adverse_pnl_pct", 0.0) or 0.0),
+        str(getattr(pos, "exit_state", "") or ""),
+    )
+    if state_after != state_before:
+        changed = True
+
+    if peak_after > peak_before and price_usd is not None:
         if hasattr(pos, "peak_price_usd"):
             pos.peak_price_usd = float(price_usd)
         if hasattr(pos, "peak_price"):
             pos.peak_price = float(price_usd)
-    peak_age_s = _seconds_from_opened_at(getattr(pos, "opened_at", None), observed_at)
-    if peak_age_s is not None and hasattr(pos, "time_to_peak_sec"):
-        current_peak_s = getattr(pos, "time_to_peak_sec", None)
-        if current_peak_s is None or peak_age_s < int(current_peak_s):
-            pos.time_to_peak_sec = peak_age_s
-    if bool(getattr(pos, "partial_taken", False)) and hasattr(pos, "peak_after_partial_pct"):
-        prev_peak_after_partial = getattr(pos, "peak_after_partial_pct", None)
-        prev_peak_after_partial_f = float(prev_peak_after_partial or 0.0) if prev_peak_after_partial is not None else 0.0
-        if float(pnl_pct) > prev_peak_after_partial_f:
-            pos.peak_after_partial_pct = float(pnl_pct)
-    changed = True
+        changed = True
+    if peak_after > peak_before:
+        peak_age_s = _seconds_from_opened_at(getattr(pos, "opened_at", None), observed_at)
+        if peak_age_s is not None and hasattr(pos, "time_to_peak_sec"):
+            current_peak_s = getattr(pos, "time_to_peak_sec", None)
+            if current_peak_s is None or peak_age_s < int(current_peak_s):
+                pos.time_to_peak_sec = peak_age_s
+                changed = True
+        if bool(getattr(pos, "partial_taken", False)) and hasattr(pos, "peak_after_partial_pct"):
+            prev_peak_after_partial = getattr(pos, "peak_after_partial_pct", None)
+            prev_peak_after_partial_f = float(prev_peak_after_partial or 0.0) if prev_peak_after_partial is not None else 0.0
+            if peak_after > prev_peak_after_partial_f:
+                pos.peak_after_partial_pct = peak_after
+                changed = True
     return changed
 
 
@@ -6999,6 +7821,10 @@ def _persist_dataset_at_close(pos: Position, price_used: Optional[float]) -> Non
             label,
             target_total_pnl_pct=float(pnl_ratio * 100.0),
             sample_type="trade_close",
+            outcome_targets={
+                "max_pnl_pct_seen": getattr(pos, "max_pnl_pct_seen", None),
+                "outcome_closed_at": getattr(pos, "closed_at", None) or dt.datetime.now(dt.timezone.utc),
+            },
         )
         _stats["appended_at_close"] += 1
     except Exception as exc:
@@ -7045,6 +7871,8 @@ def _record_partial_trade_fill(
         pos.partial_taken = True
     if hasattr(pos, "partial_count"):
         pos.partial_count = int(getattr(pos, "partial_count", 0) or 0) + max(1, int(partial_increment or 1))
+    if hasattr(pos, "exit_state"):
+        pos.exit_state = "post_partial"
     if partial_ladder_state is not None and hasattr(pos, "partial_ladder_state"):
         try:
             pos.partial_ladder_state = runner_ladder.encode_ladder_state(partial_ladder_state)
@@ -7133,6 +7961,8 @@ async def _check_positions(ses: SessionLocal) -> None:
 
     global _wallet_sol_balance
 
+    if _CLOSE_RECOVERY_PENDING:
+        await _recover_close_persistence_outbox(ses)
     positions = await _load_open_positions(ses)
     if not positions:
         return
@@ -7202,6 +8032,12 @@ async def _check_positions(ses: SessionLocal) -> None:
     close_source_counts   = {"jup_batch": 0, "jup_single": 0, "jup_critical": 0, "dex_full": 0, "fallback_buy": 0, "none": 0}
 
     for pos in positions:
+        if str(getattr(pos, "address", "") or "").strip() in _CLOSE_RECOVERY_PENDING:
+            log.critical(
+                "Position %s quarantined: pending close persistence recovery; sell retry suppressed",
+                str(getattr(pos, "address", ""))[:6],
+            )
+            continue
         now = utc_now()
         await _ensure_position_entry_notional(pos, ses)
         mint_key = getattr(pos, "token_mint", None) or pos.address
@@ -7415,10 +8251,14 @@ async def _check_positions(ses: SessionLocal) -> None:
 
             pos.closed = True
             pos.closed_at = now
-            pos.exit_reason = "LIQUIDITY_CRUSH"
+            set_position_exit_reason(pos, "LIQUIDITY_CRUSH")
 
             used_close  = (sell_resp or {}).get("price_used_usd")
             used_source = (sell_resp or {}).get("price_source_close")
+            used_confidence = (
+                (sell_resp or {}).get("price_confidence_close")
+                or price_service.price_confidence_from_source(used_source or price_src, used_close or price)
+            )
 
             if used_close is not None:
                 try:
@@ -7430,37 +8270,47 @@ async def _check_positions(ses: SessionLocal) -> None:
 
             if hasattr(pos, "price_source_at_close"):
                 pos.price_source_at_close = used_source or price_src or None
+            if hasattr(pos, "price_confidence_at_close"):
+                pos.price_confidence_at_close = used_confidence
             if hasattr(pos, "exit_tx_sig"):
                 pos.exit_tx_sig = (sell_resp or {}).get("signature")
 
+            close_qty = int(getattr(pos, "qty", 0) or 0)
             _seal_closed_trade_metrics(pos, pos.close_price_usd)
+            add_trade_event(
+                ses,
+                pos,
+                event_type="close",
+                ts_utc=now,
+                qty=close_qty,
+                price_usd=getattr(pos, "close_price_usd", None),
+                pnl_usd=getattr(pos, "total_pnl_usd", None),
+                pnl_pct=getattr(pos, "total_pnl_pct", None),
+                reason="LIQUIDITY_CRUSH",
+                price_source=getattr(pos, "price_source_at_close", None),
+                price_confidence=getattr(pos, "price_confidence_at_close", None),
+            )
+            close_recovery_record = _build_close_persistence_recovery(
+                pos,
+                event_type="close",
+                ts_utc=now,
+                qty=close_qty,
+                price_usd=getattr(pos, "close_price_usd", None),
+                pnl_usd=getattr(pos, "total_pnl_usd", None),
+                pnl_pct=getattr(pos, "total_pnl_pct", None),
+                reason="LIQUIDITY_CRUSH",
+                price_source=getattr(pos, "price_source_at_close", None),
+                price_confidence=getattr(pos, "price_confidence_at_close", None),
+                sell_response=sell_resp,
+                regime=pos_regime,
+            )
 
-            try:
-                await ses.commit()
-            except SQLAlchemyError:
-                await ses.rollback()
+            if not await _commit_close_persistence(ses, close_recovery_record):
+                return
 
             # Persistencia dataset al cierre
             _persist_dataset_at_close(pos, used_close if used_close is not None else price)
-            research_runtime.record_live_trade_close(
-                pos.address,
-                regime=pos_regime,
-                pnl_pct=getattr(pos, "total_pnl_pct", None),
-                exit_reason="LIQUIDITY_CRUSH",
-                extra={
-                    "price_source_at_close": getattr(pos, "price_source_at_close", None),
-                    "close_price_usd": getattr(pos, "close_price_usd", None),
-                    **_position_health_metadata(pos),
-                    **_position_research_metrics(pos),
-                },
-            )
-            strategy_runtime.record_trade_close(
-                pos_regime,
-                getattr(pos, "total_pnl_pct", None),
-                exit_reason="LIQUIDITY_CRUSH",
-                execution_state=_position_execution_state(pos),
-                **_position_health_metadata(pos),
-            )
+            _record_position_close_telemetry(pos, regime=pos_regime, exit_reason="LIQUIDITY_CRUSH")
 
             # ✅ Fix: NO sumar “a ojo”. Refresco balance real tras trade.
             if not DRY_RUN:
@@ -7540,7 +8390,16 @@ async def _check_positions(ses: SessionLocal) -> None:
                     )
 
                     part_price_used = (part_resp or {}).get("price_used_usd")
+                    part_confidence = (
+                        (part_resp or {}).get("price_confidence_close")
+                        or price_service.price_confidence_from_source(
+                            (part_resp or {}).get("price_source_close") or price_src,
+                            part_price_used if part_price_used is not None else price,
+                        )
+                    )
                     part_qty_sold = int((part_resp or {}).get("qty_sold") or qty_to_sell)
+                    realized_proceeds_before = float(getattr(pos, "realized_proceeds_usd", 0.0) or 0.0)
+                    realized_pnl_before = float(getattr(pos, "realized_pnl_usd", 0.0) or 0.0)
                     _record_partial_trade_fill(
                         pos,
                         qty_sold=part_qty_sold,
@@ -7551,14 +8410,40 @@ async def _check_positions(ses: SessionLocal) -> None:
                         if isinstance(ladder_plan.get("next_state"), dict)
                         else None,
                     )
+                    add_trade_event(
+                        ses,
+                        pos,
+                        event_type="partial_fill",
+                        ts_utc=now,
+                        qty=part_qty_sold,
+                        price_usd=part_price_used if part_price_used is not None else price,
+                        notional_usd=float(getattr(pos, "realized_proceeds_usd", 0.0) or 0.0)
+                        - realized_proceeds_before,
+                        pnl_usd=float(getattr(pos, "realized_pnl_usd", 0.0) or 0.0) - realized_pnl_before,
+                        pnl_pct=getattr(pos, "total_pnl_pct", None),
+                        reason="partial_fill",
+                        price_source=(part_resp or {}).get("price_source_close") or price_src or None,
+                        price_confidence=part_confidence,
+                    )
+                    partial_recovery_record = _build_close_persistence_recovery(
+                        pos,
+                        event_type="partial_fill",
+                        ts_utc=now,
+                        qty=part_qty_sold,
+                        price_usd=part_price_used if part_price_used is not None else price,
+                        notional_usd=float(getattr(pos, "realized_proceeds_usd", 0.0) or 0.0)
+                        - realized_proceeds_before,
+                        pnl_usd=float(getattr(pos, "realized_pnl_usd", 0.0) or 0.0) - realized_pnl_before,
+                        pnl_pct=getattr(pos, "total_pnl_pct", None),
+                        reason="partial_fill",
+                        price_source=(part_resp or {}).get("price_source_close") or price_src or None,
+                        price_confidence=part_confidence,
+                        sell_response=part_resp,
+                        regime=pos_regime,
+                    )
 
-                    try:
-                        await ses.commit()
-                    except Exception:
-                        try:
-                            await ses.rollback()
-                        except Exception:
-                            pass
+                    if not await _commit_close_persistence(ses, partial_recovery_record):
+                        return
 
                     # refresco real (solo modo real)
                     if not DRY_RUN:
@@ -7568,48 +8453,55 @@ async def _check_positions(ses: SessionLocal) -> None:
                     if int(getattr(pos, "qty", 0) or 0) <= 0:
                         pos.closed = True
                         pos.closed_at = now
-                        pos.exit_reason = "TAKE_PROFIT"
+                        set_position_exit_reason(pos, "TAKE_PROFIT")
                         try:
                             pos.close_price_usd = float(part_price_used) if part_price_used is not None else (float(price) if price is not None else pos.buy_price_usd)
                         except Exception:
                             pos.close_price_usd = pos.buy_price_usd
                         if hasattr(pos, "price_source_at_close"):
                             pos.price_source_at_close = (part_resp or {}).get("price_source_close") or price_src or None
+                        if hasattr(pos, "price_confidence_at_close"):
+                            pos.price_confidence_at_close = part_confidence
                         if hasattr(pos, "exit_tx_sig"):
                             pos.exit_tx_sig = (part_resp or {}).get("signature")
+                        close_qty = int(getattr(pos, "qty", 0) or 0)
                         _seal_closed_trade_metrics(pos, pos.close_price_usd)
-                        try:
-                            await ses.commit()
-                        except Exception:
-                            try:
-                                await ses.rollback()
-                            except Exception:
-                                pass
+                        add_trade_event(
+                            ses,
+                            pos,
+                            event_type="close",
+                            ts_utc=now,
+                            qty=close_qty,
+                            price_usd=getattr(pos, "close_price_usd", None),
+                            pnl_usd=getattr(pos, "total_pnl_usd", None),
+                            pnl_pct=getattr(pos, "total_pnl_pct", None),
+                            reason="TAKE_PROFIT",
+                            price_source=getattr(pos, "price_source_at_close", None),
+                            price_confidence=getattr(pos, "price_confidence_at_close", None),
+                        )
+                        close_recovery_record = _build_close_persistence_recovery(
+                            pos,
+                            event_type="close",
+                            ts_utc=now,
+                            qty=close_qty,
+                            price_usd=getattr(pos, "close_price_usd", None),
+                            pnl_usd=getattr(pos, "total_pnl_usd", None),
+                            pnl_pct=getattr(pos, "total_pnl_pct", None),
+                            reason="TAKE_PROFIT",
+                            price_source=getattr(pos, "price_source_at_close", None),
+                            price_confidence=getattr(pos, "price_confidence_at_close", None),
+                            sell_response=part_resp,
+                            regime=pos_regime,
+                        )
+                        if not await _commit_close_persistence(ses, close_recovery_record):
+                            return
                         if DRY_RUN:
                             try:
                                 refresh_post_partial_experiment_snapshot()
                             except Exception:
                                 log.exception("post-partial experiment snapshot refresh failed")
                         _persist_dataset_at_close(pos, price)
-                        research_runtime.record_live_trade_close(
-                            pos.address,
-                            regime=pos_regime,
-                            pnl_pct=getattr(pos, "total_pnl_pct", None),
-                            exit_reason="TAKE_PROFIT",
-                            extra={
-                                "price_source_at_close": getattr(pos, "price_source_at_close", None),
-                                "close_price_usd": getattr(pos, "close_price_usd", None),
-                                **_position_health_metadata(pos),
-                                **_position_research_metrics(pos),
-                            },
-                        )
-                        strategy_runtime.record_trade_close(
-                            pos_regime,
-                            getattr(pos, "total_pnl_pct", None),
-                            exit_reason="TAKE_PROFIT",
-                            execution_state=_position_execution_state(pos),
-                            **_position_health_metadata(pos),
-                        )
+                        _record_position_close_telemetry(pos, regime=pos_regime, exit_reason="TAKE_PROFIT")
                         runner_turbo_monitor.mark_closed(pos.address, now=now)
                         _record_sell_stat(now)
                         sells_done += 1
@@ -7730,11 +8622,18 @@ async def _check_positions(ses: SessionLocal) -> None:
 
         pos.closed = True
         pos.closed_at = now
-        pos.exit_reason = str(exit_reason)[:24]
+        set_position_exit_reason(pos, exit_reason)
 
         # Precio realmente usado para cerrar (si seller lo resolvió)
         used_close  = (sell_resp or {}).get("price_used_usd")
         used_source = (sell_resp or {}).get("price_source_close")
+        used_confidence = (
+            (sell_resp or {}).get("price_confidence_close")
+            or price_service.price_confidence_from_source(
+                used_source or sell_price_source_hint,
+                used_close if used_close is not None else sell_price_hint,
+            )
+        )
 
         # Persistencia de precio de cierre y fuente
         if used_close is not None:
@@ -7747,46 +8646,55 @@ async def _check_positions(ses: SessionLocal) -> None:
 
         if hasattr(pos, "price_source_at_close"):
             pos.price_source_at_close = used_source or sell_price_source_hint or None
+        if hasattr(pos, "price_confidence_at_close"):
+            pos.price_confidence_at_close = used_confidence
 
         pos.exit_tx_sig = (sell_resp or {}).get("signature")
+        close_qty = int(getattr(pos, "qty", 0) or 0)
         _seal_closed_trade_metrics(pos, pos.close_price_usd)
+        add_trade_event(
+            ses,
+            pos,
+            event_type="close",
+            ts_utc=now,
+            qty=close_qty,
+            price_usd=getattr(pos, "close_price_usd", None),
+            pnl_usd=getattr(pos, "total_pnl_usd", None),
+            pnl_pct=getattr(pos, "total_pnl_pct", None),
+            reason=str(exit_reason),
+            price_source=getattr(pos, "price_source_at_close", None),
+            price_confidence=getattr(pos, "price_confidence_at_close", None),
+        )
+        close_recovery_record = _build_close_persistence_recovery(
+            pos,
+            event_type="close",
+            ts_utc=now,
+            qty=close_qty,
+            price_usd=getattr(pos, "close_price_usd", None),
+            pnl_usd=getattr(pos, "total_pnl_usd", None),
+            pnl_pct=getattr(pos, "total_pnl_pct", None),
+            reason=str(exit_reason),
+            price_source=getattr(pos, "price_source_at_close", None),
+            price_confidence=getattr(pos, "price_confidence_at_close", None),
+            sell_response=sell_resp,
+            regime=pos_regime,
+        )
+
+        if not await _commit_close_persistence(ses, close_recovery_record):
+            return
+        if DRY_RUN:
+            try:
+                refresh_post_partial_experiment_snapshot()
+            except Exception:
+                log.exception("post-partial experiment snapshot refresh failed")
 
         runner_turbo_monitor.mark_closed(pos.address, now=now)
         _record_sell_stat(now)
         sells_done += 1
 
-        try:
-            await ses.commit()
-        except SQLAlchemyError:
-            await ses.rollback()
-        else:
-            if DRY_RUN:
-                try:
-                    refresh_post_partial_experiment_snapshot()
-                except Exception:
-                    log.exception("post-partial experiment snapshot refresh failed")
-
         # Persistencia dataset al cierre
         _persist_dataset_at_close(pos, used_close if used_close is not None else sell_price_hint)
-        research_runtime.record_live_trade_close(
-            pos.address,
-            regime=pos_regime,
-            pnl_pct=getattr(pos, "total_pnl_pct", None),
-            exit_reason=str(exit_reason),
-            extra={
-                "price_source_at_close": getattr(pos, "price_source_at_close", None),
-                "close_price_usd": getattr(pos, "close_price_usd", None),
-                **_position_health_metadata(pos),
-                **_position_research_metrics(pos),
-            },
-        )
-        strategy_runtime.record_trade_close(
-            pos_regime,
-            getattr(pos, "total_pnl_pct", None),
-            exit_reason=str(exit_reason),
-            execution_state=_position_execution_state(pos),
-            **_position_health_metadata(pos),
-        )
+        _record_position_close_telemetry(pos, regime=pos_regime, exit_reason=str(exit_reason))
         if (not DRY_RUN) and str(getattr(pos, "entry_lane", "") or "").strip().lower() == "pump_early_green_candle_sniper":
             try:
                 sol_usd = float(await get_sol_usd())
@@ -8107,18 +9015,39 @@ async def _bootstrap_strategy_runtime(ses: SessionLocal) -> None:
 
 
 async def _repair_position_entry_notionals(ses: SessionLocal) -> int:
-    sol_usd = await get_sol_usd()
-    if sol_usd is None or sol_usd <= 0:
-        return 0
-
     stmt = select(Position).where(Position.buy_amount_sol.is_not(None))
     rows = (await ses.execute(stmt)).scalars().all()
+    if not rows:
+        return 0
+
+    needs_notional = any(
+        float(getattr(pos, "buy_amount_sol", 0.0) or 0.0) > 0.0
+        and float(getattr(pos, "entry_notional_usd", 0.0) or 0.0) <= 0.0
+        for pos in rows
+    )
+    needs_metrics = any(
+        bool(getattr(pos, "closed", False)) or int(getattr(pos, "realized_qty", 0) or 0) > 0
+        for pos in rows
+    )
+    if not needs_notional and not needs_metrics:
+        return 0
+
+    sol_usd: float | None = None
+    if needs_notional:
+        price = await get_sol_usd()
+        if price is not None and price > 0:
+            sol_usd = float(price)
+
     updated = 0
     for pos in rows:
         changed = False
         amount_sol = float(getattr(pos, "buy_amount_sol", 0.0) or 0.0)
-        if amount_sol > 0.0 and float(getattr(pos, "entry_notional_usd", 0.0) or 0.0) <= 0.0:
-            pos.entry_notional_usd = float(amount_sol * float(sol_usd))
+        if (
+            sol_usd is not None
+            and amount_sol > 0.0
+            and float(getattr(pos, "entry_notional_usd", 0.0) or 0.0) <= 0.0
+        ):
+            pos.entry_notional_usd = float(amount_sol * sol_usd)
             changed = True
         if bool(getattr(pos, "closed", False)):
             _seal_closed_trade_metrics(pos, getattr(pos, "close_price_usd", None))
@@ -8331,12 +9260,21 @@ async def main_loop() -> None:
         _emit_post_partial_activation_audit()
         if bool(getattr(CFG, "CORE_REPORTS_AUTO_REGEN_ENABLED", True)):
             try:
+                startup_freshness = report_freshness(PROJECT_ROOT)
                 placeholder_result = ensure_core_report_placeholders(PROJECT_ROOT)
                 created = placeholder_result.get("created") if isinstance(placeholder_result, dict) else []
                 if created:
                     log.warning("Core reports missing on startup, placeholders created: %s", ",".join(created))
                 if bool(getattr(CFG, "CORE_REPORTS_REGEN_ON_STARTUP", True)):
-                    asyncio.create_task(_maybe_regenerate_core_reports(source="startup", force=True))
+                    _schedule_background_task(
+                        _maybe_regenerate_core_reports(
+                            source="startup",
+                            force=False,
+                            freshness_snapshot=startup_freshness,
+                        ),
+                        name="core-reports-startup",
+                        error_context="core_reports_regen:startup",
+                    )
             except Exception as exc:
                 _note_runtime_error("core_reports_startup", exc)
                 log.warning("Core reports startup check failed: %s", exc)
@@ -8566,14 +9504,10 @@ async def main_loop() -> None:
         int(getattr(CFG, "RESEARCH_SCORECARD_INTERVAL_MIN", 60) or 60),
     )
 
-    try:
-        _wallet_sol_balance = await get_sol_balance()
-        _last_wallet_checked_at = utc_now()
-        log.info("Balance inicial: %.3f SOL", _wallet_sol_balance)
-    except Exception as exc:
-        _wallet_sol_balance = 0.0
-        _note_runtime_error("initial_balance", exc)
-        log.warning("Balance inicial no disponible: %s", exc)
+    if DRY_RUN:
+        _schedule_initial_paper_wallet_refresh()
+    else:
+        await _load_initial_wallet_balance(mark_poll_time=False)
     if DRY_RUN and hasattr(buyer, "backfill_entry_notionals"):
         try:
             repaired = await buyer.backfill_entry_notionals()
@@ -8584,11 +9518,12 @@ async def main_loop() -> None:
     await _repair_position_entry_notionals(ses)
     await _bootstrap_strategy_runtime(ses)
     _log_strategy_health_snapshot()
-    try:
-        await _refresh_reports_once(source="research_scorecard_init", force=True, include=("research",))
-    except Exception as exc:
-        log.debug("research scorecard init → %s", exc)
     _runtime_process_state = "running"
+    _schedule_background_task(
+        _refresh_reports_once(source="research_scorecard_init", force=True, include=("research",)),
+        name="research-scorecard-init",
+        error_context="research_scorecard_init",
+    )
 
     while True:
         now_mono = time.monotonic()
@@ -8629,7 +9564,8 @@ async def main_loop() -> None:
                 _note_runtime_error("hot_queue", exc)
                 log.error("Hot queue -> %s", exc)
 
-        for addr in obtener_pares()[:VALIDATION_BATCH_SIZE]:
+        validation_addresses = obtener_pares()[:VALIDATION_BATCH_SIZE]
+        for addr in validation_addresses:
             try:
                 meta    = lista_pares.meta(addr) or {}
                 queue_age_s = max(0.0, time.time() - float(meta.get("first_seen", time.time()) or time.time()))
@@ -8647,13 +9583,14 @@ async def main_loop() -> None:
             except Exception as exc:
                 log.error("get_price %s → %s", addr[:6], exc)
 
-        # 4) Posiciones abiertas
-            try:
-                await _check_positions(ses)
-                _last_monitor_ok_at = utc_now()
-            except Exception as exc:
-                _note_runtime_error("check_positions", exc)
-                log.error("Check positions → %s", exc)
+        # 4) Posiciones abiertas. El monitor se ejecuta exactamente una vez por
+        # ciclo y no depende del tamaño de la cola legacy de validación.
+        try:
+            await _check_positions(ses)
+            _last_monitor_ok_at = utc_now()
+        except Exception as exc:
+            _note_runtime_error("check_positions", exc)
+            log.error("Check positions → %s", exc)
 
         # 4.5) Shadows (modo real o estrategia shadow en paper/live)
         if _shadow_positions or (not DRY_RUN and REAL_SHADOW_SIM):
@@ -8700,9 +9637,14 @@ async def main_loop() -> None:
 # ╭─────────────────────── Entrypoint ───────────────────────────────────────╮
 async def _runner() -> None:
     global _runtime_process_state
-    await async_init_db()
     _runtime_process_state = "starting"
     try:
+        await async_init_db()
+        # Reconcile wallet-confirmed sells before discovery, buying,
+        # runtime-state publication, or the strategy-history bootstrap can
+        # observe stale rows.
+        async with SessionLocal() as recovery_session:
+            await _recover_close_persistence_outbox(recovery_session, force=True)
         tasks = [
             main_loop(),
             _periodic_labeler(),
@@ -8715,13 +9657,17 @@ async def _runner() -> None:
             log.info("Retrain-loop omitido: ML_RETRAIN_IN_MAIN_LOOP=false")
         await asyncio.gather(*tasks)
     except Exception as exc:
-        _runtime_process_state = "stopped"
         _note_runtime_error("runner", exc)
+        raise
+    finally:
+        # Normal cancellation/KeyboardInterrupt must clear the persisted state
+        # just like an exception; otherwise the API can retain a stale
+        # ``running`` row after the process has already exited.
+        _runtime_process_state = "stopped"
         try:
             await _publish_runtime_state_once()
         except Exception as publish_exc:
             log.error("runtime state final publish → %s", publish_exc)
-        raise
 
 if __name__ == "__main__":
     try:

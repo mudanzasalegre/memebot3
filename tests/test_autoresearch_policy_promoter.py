@@ -27,7 +27,7 @@ def _candidate(proposal_id: str = "ar_promote_001", changes: dict | None = None)
 def _source_profile(tmp_path) -> None:
     profiles = tmp_path / "config" / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
-    (profiles / "paper_hotfix_runner_v2.env").write_text(
+    (profiles / "paper_hotfix_0707.env").write_text(
         "\n".join(
             [
                 "PAPER_SNIPER_MODE=true",
@@ -60,6 +60,8 @@ def test_promoter_creates_safe_paper_profile_without_secrets(tmp_path) -> None:
     assert "AUTORESEARCH_PAPER_STATUS=needs_paper" in text
     assert "LIVE_CANARY_ENABLED=false" in text
     assert "AUTORESEARCH_AUTO_LIVE_PROMOTE=false" in text
+    assert "MOONSHOT_MICRO_LOTTERY_MAX_DAILY_BUYS=1" in text
+    assert "SHADOW_FOLLOWUP_MICRO_MAX_OPEN=1" in text
     assert "BIRDEYE_API_KEY" not in text
     assert "RPC_URL" not in text
 

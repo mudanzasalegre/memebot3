@@ -18,6 +18,8 @@ backups/
 ml/*.pkl
 ml/*.meta.json
 ml/*.bkup.*
+ml/models/*/versions/
+ml/models/*/advisory_manifest.json
 data/**/*.db
 data/**/*.db-*
 data/**/*.sqlite

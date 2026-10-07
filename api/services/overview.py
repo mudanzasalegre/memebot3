@@ -80,6 +80,34 @@ def _overview_research_summary(
     )
 
 
+def _overview_policy_overlay(settings: APISettings) -> tuple[dict[str, Any], list[SourceStatus]]:
+    path = settings.metrics_dir / "current_run_autotune_state.json"
+    payload = read_json_file(path)
+    status = json_status(
+        source_key="metrics.current_run_autotune_state",
+        path=path,
+        generated_field="generated_at_utc",
+        optional=True,
+        empty_when_missing=False,
+    )
+    if not isinstance(payload, dict):
+        return ({}, [status])
+    overlay = payload.get("runtime_overlay")
+    if not isinstance(overlay, dict):
+        overlay = {}
+    return (
+        {
+            "enabled": overlay.get("enabled"),
+            "mode": overlay.get("mode"),
+            "cooldown_min": overlay.get("cooldown_min"),
+            "blocked_lanes": overlay.get("blocked_lanes") if isinstance(overlay.get("blocked_lanes"), list) else [],
+            "live_guarded": overlay.get("live_guarded"),
+            "generated_at_utc": overlay.get("generated_at_utc") or payload.get("generated_at_utc"),
+        },
+        [status],
+    )
+
+
 def get_overview_envelope(settings: APISettings, *, bot_id: str = DEFAULT_BOT_ID) -> Envelope:
     snapshot = get_runtime_snapshot(settings, bot_id=bot_id)
     freshness = runtime_snapshot_freshness(snapshot)
@@ -94,6 +122,7 @@ def get_overview_envelope(settings: APISettings, *, bot_id: str = DEFAULT_BOT_ID
     }
     ml_summary, ml_statuses = _overview_ml_summary(settings, snapshot)
     research_summary, research_statuses = _overview_research_summary(settings, snapshot)
+    policy_overlay, policy_overlay_statuses = _overview_policy_overlay(settings)
 
     statuses: list[SourceStatus] = [
         runtime_status,
@@ -101,6 +130,7 @@ def get_overview_envelope(settings: APISettings, *, bot_id: str = DEFAULT_BOT_ID
         sqlite_main_status(settings),
         *ml_statuses,
         *research_statuses,
+        *policy_overlay_statuses,
     ]
 
     data = {
@@ -134,6 +164,7 @@ def get_overview_envelope(settings: APISettings, *, bot_id: str = DEFAULT_BOT_ID
         "positions": positions_summary,
         "ml": ml_summary,
         "research": research_summary,
+        "policy_overlay": policy_overlay,
     }
 
     empty = bool(

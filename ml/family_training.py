@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from hashlib import sha256
+import json
+import os
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import joblib
 import numpy as np
@@ -10,11 +14,18 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import mean_absolute_error
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.base import clone
+from sklearn.metrics import brier_score_loss
 
 from config.config import CFG, PROJECT_ROOT
 from ml.feature_matrix import coerce_feature_frame
 from ml.feature_sets import feature_set, feature_set_hash
 from ml.label_builder import attach_labels
+from ml.outcome_targets import enrich_outcome_targets
+from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
+from ml.calibrated_ranker import fit_calibrated_ranker, reliability_bins
 from ml.train import _filter_outcome_training_rows, _load_dataset
 from ml.model_validation_warnings import (
     WARNING_IN_SAMPLE_ONLY,
@@ -27,6 +38,23 @@ from ml.model_validation_warnings import (
     precision_at_k,
     target_validation_payload,
 )
+
+
+def _recall_at_k(y_true: Any, scores: Any, *, k_pct: float | None = None) -> float | None:
+    truth = np.asarray(y_true, dtype=int)
+    pred = np.asarray(scores, dtype=float)
+    if truth.size == 0 or pred.size == 0 or truth.size != pred.size:
+        return None
+    finite = np.isfinite(pred)
+    truth = truth[finite]
+    pred = pred[finite]
+    positives = int((truth > 0).sum())
+    if truth.size == 0 or positives <= 0:
+        return None
+    pct = float(k_pct if k_pct is not None else getattr(CFG, "PRECISION_AT_K_PCT", 0.10))
+    k = max(1, int(round(truth.size * max(min(pct, 1.0), 0.0))))
+    order = np.argsort(pred)[::-1][:k]
+    return float((truth[order] > 0).sum() / positives)
 
 
 def _json_safe(value: Any) -> Any:
@@ -49,7 +77,73 @@ def load_training_frame(frame: pd.DataFrame | None = None) -> pd.DataFrame:
         return attach_labels(frame.copy())
     df = _load_dataset()
     df, _meta = _filter_outcome_training_rows(df)
-    return attach_labels(df)
+    return attach_labels(enrich_outcome_targets(df, PROJECT_ROOT))
+
+
+def _settled_training_frame(df: pd.DataFrame) -> pd.DataFrame:
+    valid, *_ = temporal_eligibility(df)
+    # Legacy untimed fixtures can produce diagnostic models, but no temporal
+    # validation or runtime role. A partially timed dataset must not contaminate
+    # a validated final artifact with unobserved/future labels.
+    if valid.any():
+        df = df.loc[valid].copy()
+    return df.reset_index(drop=True)
+
+
+def _forward_predictions(df, X, y, model, *, min_rows: int, classifier: bool):
+    windows, details = purged_temporal_windows(df, min_train_rows=min_rows)
+    truths, predictions, positions = [], [], []
+    evaluated_folds = []
+    probability_truth, probability_predictions, baseline_predictions = [], [], []
+    for train, test in windows:
+        if classifier and y.iloc[train].nunique() < 2:
+            continue
+        calibration = None
+        if classifier:
+            candidate, calibration = fit_calibrated_ranker(model, X.iloc[train].reset_index(drop=True), y.iloc[train].reset_index(drop=True),
+                                                          df.iloc[train].reset_index(drop=True), min_rows=min_rows)
+            pred = candidate.rank_score(X.iloc[test])
+            if calibration["calibrated"]:
+                probability_truth.extend(y.iloc[test].tolist())
+                probability_predictions.extend(candidate.predict_proba(X.iloc[test])[:, 1].tolist())
+                baseline_predictions.extend([float(y.iloc[train].mean())] * len(test))
+        else:
+            candidate = clone(model).fit(X.iloc[train], y.iloc[train])
+            pred = candidate.predict(X.iloc[test])
+        truths.extend(y.iloc[test].tolist())
+        predictions.extend(pred.tolist())
+        positions.extend(test.tolist())
+        evaluated_folds.append({"train_rows": len(train), "test_rows": len(test), "calibration": calibration})
+    details["evaluated_folds"] = evaluated_folds
+    details["out_of_sample_rows"] = len(truths)
+    if classifier:
+        brier = float(brier_score_loss(probability_truth, probability_predictions)) if probability_truth else None
+        baseline_brier = float(brier_score_loss(probability_truth, baseline_predictions)) if probability_truth else None
+        details["probability_evaluation"] = {
+            "rows": len(probability_truth), "positives": int(sum(probability_truth)),
+            "brier_score": brier, "baseline_brier_score": baseline_brier,
+            "brier_skill_score": 1 - brier / baseline_brier if baseline_brier is not None and baseline_brier > 0 else None,
+            "baseline": "Each outer fold's mature training prevalence, not the future test prevalence",
+            "reliability_bins": reliability_bins(probability_truth, probability_predictions),
+        }
+    return np.asarray(truths), np.asarray(predictions), np.asarray(positions, dtype=int), details
+
+
+def _save_family_model(model, path: Path, metadata: dict[str, Any]) -> None:
+    """Atomic files plus checksum let readers reject a mixed model/meta pair."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    meta_path = path.with_suffix(".meta.json")
+    meta_tmp = meta_path.with_name(f".{meta_path.name}.{uuid4().hex}.tmp")
+    try:
+        joblib.dump(model, temporary)
+        payload = {**metadata, "model_sha256": sha256(temporary.read_bytes()).hexdigest()}
+        meta_tmp.write_text(json.dumps(_json_safe(payload), indent=2, allow_nan=False), encoding="utf-8")
+        os.replace(temporary, path)
+        os.replace(meta_tmp, meta_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+        meta_tmp.unlink(missing_ok=True)
 
 
 def train_classifier_family(
@@ -61,8 +155,8 @@ def train_classifier_family(
     output_dir: Path | None = None,
     min_rows: int = 20,
 ) -> dict[str, Any]:
-    df = load_training_frame(frame)
-    features = [column for column in feature_set(feature_set_name) if column in df.columns]
+    df = _settled_training_frame(load_training_frame(frame))
+    features = list(dict.fromkeys(column for column in feature_set(feature_set_name) if column in df.columns))
     report: dict[str, Any] = {
         "family": family,
         "trained_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -96,7 +190,18 @@ def train_classifier_family(
                 ),
             }
             continue
-        y = pd.to_numeric(df[target], errors="coerce").fillna(0).astype(int)
+        observed = pd.to_numeric(df[target], errors="coerce")
+        mask = observed.isin([0, 1])
+        target_df = df.loc[mask].reset_index(drop=True)
+        target_X = X.loc[mask].reset_index(drop=True)
+        y = observed.loc[mask].astype(int).reset_index(drop=True)
+        if len(y) < min_rows:
+            report["targets"][target] = {
+                "status": "skipped", "reason": "not_enough_observed_target_rows",
+                "target_rows": len(y), "unlabelled_rows": int((~mask).sum()),
+                "validation": target_validation_payload(warnings=[WARNING_NOT_ENOUGH_ROWS]),
+            }
+            continue
         if y.nunique() < 2:
             report["targets"][target] = {
                 "status": "skipped",
@@ -108,37 +213,71 @@ def train_classifier_family(
                 ),
             }
             continue
-        model = LogisticRegression(max_iter=1000, class_weight="balanced")
-        model.fit(X, y)
-        pred = model.predict_proba(X)[:, 1]
-        p_at_k = precision_at_k(y.values, pred)
-        target_warnings = [WARNING_IN_SAMPLE_ONLY, WARNING_NOT_READY_FOR_ENFORCEMENT]
+        model = Pipeline(
+            steps=[
+                ("scaler", StandardScaler()),
+                ("clf", LogisticRegression(max_iter=2000, class_weight="balanced")),
+            ]
+        )
+        truth, pred, positions, temporal = _forward_predictions(target_df, target_X, y, model, min_rows=min_rows, classifier=True)
+        model, calibration = fit_calibrated_ranker(model, target_X, y, target_df, min_rows=min_rows)
+        p_at_k = precision_at_k(truth, pred)
+        r_at_k = _recall_at_k(truth, pred)
+        target_warnings = [WARNING_NOT_READY_FOR_ENFORCEMENT]
+        if not len(pred):
+            target_warnings.append(WARNING_IN_SAMPLE_ONLY)
         precision_floor = float(getattr(CFG, "ML_TUNE_PRECISION_FLOOR", 0.60) or 0.60)
         if p_at_k is None or float(p_at_k) < precision_floor:
             target_warnings.append(WARNING_LOW_PRECISION_AT_K)
-        unstable, lane_details = lane_stability_warning(df, target)
+        unstable, lane_details = lane_stability_warning(target_df.iloc[positions] if len(positions) else target_df, target)
         if unstable:
             target_warnings.append(WARNING_UNSTABLE_BY_LANE)
         model_path = target_dir / f"{target}.pkl"
-        joblib.dump(model, model_path)
+        probability_eval = temporal["probability_evaluation"]
+        skill = probability_eval.get("brier_skill_score")
+        probability_ready = bool(calibration["calibrated"] and probability_eval["rows"] >= 30
+                                 and probability_eval["positives"] >= 5 and skill is not None and skill > 0)
+        lift = p_at_k / float(np.mean(truth)) if p_at_k is not None and len(truth) and np.mean(truth) > 0 else None
+        ranking_ready = bool(len(truth) >= 30 and int(np.sum(truth)) >= 5 and lift is not None and lift >= 1.25)
         report["targets"][target] = {
             "status": "trained",
             "model_path": str(model_path),
             "positives": int(y.sum()),
-            "avg_pred": float(np.mean(pred)),
+            "target_rows": len(y),
+            "unlabelled_rows": int((~mask).sum()),
+            "avg_pred": float(np.mean(pred)) if len(pred) else None,
+            "base_rate": float(np.mean(truth)) if len(truth) else None,
+            "precision_lift_at_k": lift,
+            "brier_score": probability_eval["brier_score"],
+            "baseline_brier_score": probability_eval["baseline_brier_score"],
+            "brier_skill_score": skill,
+            "probabilities_calibrated": bool(calibration["calibrated"]),
+            "probability_validation_ready": probability_ready,
+            "ranking_validation_ready": ranking_ready,
+            "calibration": calibration,
+            "rank_reference_quantiles": np.quantile(model.rank_score(target_X), np.linspace(0, 1, 101)).tolist(),
+            "probability_caveat": "Ranking scores are separate from held-out calibrated event probabilities. Neither proves executable or costed profit, and prospective validation is required before sizing or exits change.",
             "precision_at_k": p_at_k,
+            "recall_at_k": r_at_k,
             "precision_at_k_pct": float(getattr(CFG, "PRECISION_AT_K_PCT", 0.10) or 0.10),
             "features": features,
             "validation": target_validation_payload(
                 warnings=target_warnings,
                 details={
-                    "mode": "in_sample_only",
+                    "mode": "purged_token_walk_forward" if len(pred) else "in_sample_only",
+                    "temporal": temporal,
                     "precision_floor": precision_floor,
                     "lane_stability": lane_details,
                 },
             ),
         }
+        _save_family_model(model, model_path, {**report["targets"][target], "family": family, "target": target,
+                           "trained_at_utc": report["trained_at_utc"], "feature_set_hash": report["feature_set_hash"],
+                           "use": "advisory_only", "automatic_live_activation": False})
     report["status"] = "ok"
+    report["data_quality"] = df.attrs.get("outcome_target_join", {})
+    target_warnings = [warning for item in report["targets"].values() for warning in item.get("validation", {}).get("warnings", [])]
+    report["validation"] = target_validation_payload(warnings=target_warnings, details={"mode": "target_specific"})
     return _json_safe(report)
 
 
@@ -151,8 +290,8 @@ def train_regressor_family(
     output_dir: Path | None = None,
     min_rows: int = 20,
 ) -> dict[str, Any]:
-    df = load_training_frame(frame)
-    features = [column for column in feature_set(feature_set_name) if column in df.columns]
+    df = _settled_training_frame(load_training_frame(frame))
+    features = list(dict.fromkeys(column for column in feature_set(feature_set_name) if column in df.columns))
     report: dict[str, Any] = {
         "family": family,
         "trained_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -187,7 +326,7 @@ def train_regressor_family(
             }
             continue
         y = pd.to_numeric(df[target], errors="coerce")
-        mask = y.notna()
+        mask = y.notna() & np.isfinite(y)
         if int(mask.sum()) < min_rows:
             report["targets"][target] = {
                 "status": "skipped",
@@ -199,25 +338,36 @@ def train_regressor_family(
             }
             continue
         model = RandomForestRegressor(n_estimators=50, max_depth=5, random_state=42, min_samples_leaf=5)
-        model.fit(X.loc[mask], y.loc[mask])
-        pred = model.predict(X.loc[mask])
+        target_df = df.loc[mask].reset_index(drop=True)
+        target_X = X.loc[mask].reset_index(drop=True)
+        target_y = y.loc[mask].reset_index(drop=True)
+        truth, pred, positions, temporal = _forward_predictions(target_df, target_X, target_y, model, min_rows=min_rows, classifier=False)
+        model.fit(target_X, target_y)
         model_path = target_dir / f"{target}.pkl"
-        joblib.dump(model, model_path)
-        unstable, lane_details = lane_stability_warning(df.loc[mask], None)
-        target_warnings = [WARNING_IN_SAMPLE_ONLY, WARNING_NOT_READY_FOR_ENFORCEMENT]
+        unstable, lane_details = lane_stability_warning(target_df.iloc[positions] if len(positions) else target_df, None)
+        target_warnings = [WARNING_NOT_READY_FOR_ENFORCEMENT]
+        if not len(pred):
+            target_warnings.append(WARNING_IN_SAMPLE_ONLY)
         if unstable:
             target_warnings.append(WARNING_UNSTABLE_BY_LANE)
         report["targets"][target] = {
             "status": "trained",
             "model_path": str(model_path),
-            "mae": float(mean_absolute_error(y.loc[mask], pred)),
+            "mae": float(mean_absolute_error(truth, pred)) if len(pred) else None,
+            "target_rows": len(target_y), "unlabelled_rows": int((~mask).sum()),
             "features": features,
             "validation": target_validation_payload(
                 warnings=target_warnings,
-                details={"mode": "in_sample_only", "lane_stability": lane_details},
+                details={"mode": "purged_token_walk_forward" if len(pred) else "in_sample_only", "temporal": temporal, "lane_stability": lane_details},
             ),
         }
+        _save_family_model(model, model_path, {**report["targets"][target], "family": family, "target": target,
+                           "trained_at_utc": report["trained_at_utc"], "feature_set_hash": report["feature_set_hash"],
+                           "use": "advisory_only", "automatic_live_activation": False})
     report["status"] = "ok"
+    report["data_quality"] = df.attrs.get("outcome_target_join", {})
+    target_warnings = [warning for item in report["targets"].values() for warning in item.get("validation", {}).get("warnings", [])]
+    report["validation"] = target_validation_payload(warnings=target_warnings, details={"mode": "target_specific"})
     return _json_safe(report)
 
 

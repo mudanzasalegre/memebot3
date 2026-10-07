@@ -21,6 +21,53 @@ def _int(name: str, default: int) -> int:
         return int(default)
 
 
+def _threshold_gate(segment: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    tune = segment.get("threshold_result")
+    if not isinstance(tune, dict) or not tune:
+        return ["threshold_result_missing"], {
+            "threshold_activation_ready": False,
+            "precision_at_picked": None,
+            "avg_realized_pnl_pct_at_picked": None,
+            "realized_selected_rows_at_picked": None,
+        }
+
+    blockers: list[str] = []
+    precision = tune.get("precision_at_picked")
+    avg_realized = tune.get("avg_realized_pnl_pct_at_picked")
+    realized_selected = tune.get("realized_selected_rows_at_picked")
+    precision_floor = _num("ML_TUNE_PRECISION_FLOOR", 0.60)
+    min_realized = _int("ML_TUNE_MIN_REALIZED_SELECTED", 5)
+
+    if not bool(tune.get("activation_ready")):
+        blockers.append(str(tune.get("activation_reason") or "threshold_not_activation_ready"))
+    try:
+        if precision is None or float(precision) < precision_floor:
+            blockers.append("precision_floor")
+    except Exception:
+        blockers.append("precision_floor")
+    try:
+        if avg_realized is None or float(avg_realized) <= 0.0:
+            blockers.append("ev_non_positive")
+    except Exception:
+        blockers.append("ev_non_positive")
+    try:
+        if realized_selected is None or int(realized_selected) < min_realized:
+            blockers.append("realized_selected_rows")
+    except Exception:
+        blockers.append("realized_selected_rows")
+
+    return blockers, {
+        "threshold_activation_ready": bool(tune.get("activation_ready")),
+        "threshold_activation_reason": tune.get("activation_reason"),
+        "threshold_objective": tune.get("objective_applied"),
+        "precision_floor": precision_floor,
+        "precision_at_picked": precision,
+        "min_realized_selected": min_realized,
+        "realized_selected_rows_at_picked": realized_selected,
+        "avg_realized_pnl_pct_at_picked": avg_realized,
+    }
+
+
 def lane_activation_decision(segment: dict[str, Any], *, lane: str, threshold: float | None) -> dict[str, Any]:
     rows = int(segment.get("rows") or 0)
     positives = int(segment.get("positives") or 0)
@@ -49,6 +96,8 @@ def lane_activation_decision(segment: dict[str, Any], *, lane: str, threshold: f
         blockers.append("model_reduces_total_pnl")
     if jackpot_capture_f < _num("ML_MIN_JACKPOT_CAPTURE_RATE", 0.80):
         blockers.append("jackpot_capture")
+    threshold_blockers, threshold_checks = _threshold_gate(segment)
+    blockers.extend(threshold_blockers)
 
     lane_norm = normalize_entry_lane(lane)
     activation_ready = not blockers
@@ -77,6 +126,7 @@ def lane_activation_decision(segment: dict[str, Any], *, lane: str, threshold: f
             "selected_total_pnl": selected_total,
             "baseline_total_pnl": baseline_total,
             "jackpot_capture_rate": jackpot_capture,
+            **threshold_checks,
         },
     }
 

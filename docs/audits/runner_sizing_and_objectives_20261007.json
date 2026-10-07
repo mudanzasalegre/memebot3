@@ -1,0 +1,69 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "scope": "Exact paper sizing and AutoResearch accounting/objective integrity; not the complete autonomous trading-policy transport",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "runtime_started": false,
+  "live_policy_activated": false,
+  "exact_paper_size": {
+    "requested_sol": 0.1,
+    "all_paper_lanes": true,
+    "incompatible_cap_behavior": "Reject, never shrink the requested order",
+    "risk_caution_behavior": "Shadow an incompatible 0.1 SOL opportunity instead of executing a smaller order; hard safety gates remain",
+    "execution": "Reject other amounts before quote or portfolio writes; require actual exact-size Jupiter quote proof even when the legacy price gate is disabled",
+    "research": "Remove inert amount/size dimensions from candidate generation, disable pure lane-sizing experiments and exclude them from automatic bandit selection",
+    "contract_protection": "Chosen exact-size settings cannot be changed by AutoResearch; exported paper profiles force the 0.1 SOL contract",
+    "live_behavior": "No automatic change or live activation"
+  },
+  "accounting_repairs": [
+    "Offline threshold hypotheses are explicitly unscored; no arbitrary threshold arithmetic is presented as expected performance",
+    "Never reinterpret percentage-point sums as USD profit",
+    "Legacy replay monetary objectives require finite net USD rather than uncosted gross PnL; gross USD and percentage-point diagnostics remain separately labelled",
+    "Current-run metrics do not borrow global historical paper returns or decision-row performance; companion health/position diagnostics require matching run identity",
+    "Current-run and historical paper reports expose net USD only when every terminal trade has validated finite estimated cash accounting",
+    "Missing hard-gate metrics reject an objective instead of producing only a warning; unknown API error sources are not imputed zero",
+    "Invalid weights, penalties, gate limits and nonfinite score arithmetic cannot accept a challenger",
+    "Estimated execution models must explicitly state observed_execution=false"
+  ],
+  "verification": {
+    "full_pytest": "1031 passed in 78.41s in the working checkout",
+    "publication_scope_pytest": "19 passed in 0.23s",
+    "dependency_check": "No broken requirements found",
+    "focused_exact_size_event_replay_and_objective_suite": "63 passed in 14.83s",
+    "publishing_checkout_validation": "1031 passed in 71.96s, without a personal .env; UI TypeScript/Vite build passed; local preflight passed with no compile, config, paper-profile, empty-report or live-template errors",
+    "qualification": "Automated software checks and read-only provider queries, not profitable forward evidence or live fills"
+  },
+  "first_launch_repairs": [
+    "Paper imports no longer eagerly load the live transaction signer or demand a private wallet key",
+    "Locate the structural project root even without .env or data and ignore incidental nested data folders",
+    "Default a fresh checkout to DRY_RUN=true rather than accidental live mode",
+    "Read current exit-regime configuration rather than stale import-time parameter values",
+    "Make policy tests specify their own configuration instead of depending on the developer's private .env"
+  ],
+  "scanner_feed_review": {
+    "pumpportal_subscription": "subscribeNewToken only",
+    "upstream_dedup_scope": "Repeated birth notifications, not a subscribed stream of trade or liquidity updates",
+    "followup_transport": "Materially changed enriched snapshots are handled by bounded HotQueue replacement/reconsideration; no broad per-token trade subscription was enabled"
+  },
+  "read_only_provider_checks": {
+    "date": "2026-10-07",
+    "keyless_api_price_http": 200,
+    "keyless_api_quote_http": 200,
+    "exact_quote_input_lamports": 100000000,
+    "quote_output_and_route_present": true,
+    "configured_lite_price_http": 200,
+    "transactions_signed_or_sent": 0,
+    "limits": "SOL/USDC diagnostics only; this does not validate memecoin routes, first-launch trading, future provider availability or live profitability"
+  },
+  "provider_references": [
+    "https://developers.jup.ag/docs/portal/rate-limits",
+    "https://developers.jup.ag/docs/guides/how-to-get-token-price",
+    "https://developers.jup.ag/docs/guides/how-to-build-a-custom-swap-with-metis"
+  ],
+  "remaining_goal_requirements": [
+    "Finish scanner/feed reconsideration and complete architecture/integration failure-path audit",
+    "Implement actual bounded paper trading-policy champion/challenger transport with comparable prospective costed evidence and active-policy rollback",
+    "Complete rare-runner risk/continuation uncertainty and fresh financial-evidence validation",
+    "Validate the synchronized publishing checkout, commit and push reviewed changes without secrets or runtime artifacts",
+    "Leave all runtime services stopped and verify final process/database state"
+  ]
+}

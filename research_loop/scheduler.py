@@ -11,10 +11,11 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from research_loop.bandit import DEFAULT_SPACES, suggest_spaces
+from research_loop.candidate_generator import applicable_generation_spaces
 from research_loop.batch_runner import BatchRunResult, run_research_batch
 from research_loop.evaluator import EvaluationResult, STATUS_ACCEPTED_REPLAY, STATUS_NEEDS_PAPER
 from research_loop.objectives import ObjectiveResult, calculate_objective_score
-from research_loop.paper_forward import STATUS_ACCEPTED_PAPER, STATUS_PAPER_FORWARD_STARTED, STATUS_REJECTED_PAPER, start_paper_forward
+from research_loop.paper_forward import STATUS_ACCEPTED_PAPER, STATUS_PAPER_FORWARD_STARTED, STATUS_REJECTED_PAPER, start_paper_forward, _load_current_paper_metrics
 from research_loop.paths import project_root, research_runs_dir
 from research_loop.policy_promoter import PromotionResult, promote_to_paper_candidate
 from research_loop.report_bundle import build_report_bundle
@@ -321,6 +322,8 @@ def validate_scheduler_config(config: AutoResearchConfig) -> None:
     errors: list[str] = []
     if config.live_promotion_enabled:
         errors.append("AUTORESEARCH_LIVE_PROMOTION_ENABLED_must_be_false")
+    if config.auto_paper_promote:
+        errors.append("AUTORESEARCH_AUTO_PAPER_PROMOTE_must_be_false")
     if config.auto_live_promote:
         errors.append("AUTORESEARCH_AUTO_LIVE_PROMOTE_must_be_false")
     if config.mode not in {"paper_replay", "replay", "paper"}:
@@ -436,20 +439,23 @@ def select_research_spaces(
     idle = detect_idle_trigger(report_bundle, idle_threshold_hours=config.idle_threshold_hours)
     space_count = max(1, min(config.max_parallel, config.max_candidates_per_cycle))
     if config.space:
+        if not applicable_generation_spaces((config.space,)):
+            raise AutoResearchSchedulerError(f"search_space_inapplicable_to_exact_paper_size:{config.space}")
         return SpaceSelection(spaces=[config.space], idle_trigger=idle, mode="override")
+    available_spaces = applicable_generation_spaces(DEFAULT_SPACES)
     moonshot_reasons = moonshot_pressure_reasons(report_bundle)
     if moonshot_reasons:
         preferred = ["moonshot_micro", "shadow_followup_micro", "runner_exit"]
         if idle.active:
             selected = _prepend_unique(list(IDLE_FOCUS_SPACES), preferred)[:space_count]
             return SpaceSelection(spaces=selected, idle_trigger=idle, mode="idle_moonshot_pressure")
-        suggestion = suggest_spaces(scoreboard_entries, n=space_count, seed=seed)
+        suggestion = suggest_spaces(scoreboard_entries, n=space_count, seed=seed, spaces=available_spaces)
         selected = _prepend_unique(suggestion.spaces, preferred)[:space_count]
         return SpaceSelection(spaces=selected, idle_trigger=idle, mode="moonshot_pressure")
     if idle.active:
         selected = list(IDLE_FOCUS_SPACES[:space_count])
         return SpaceSelection(spaces=selected, idle_trigger=idle, mode="idle_focus")
-    suggestion = suggest_spaces(scoreboard_entries, n=space_count, seed=seed)
+    suggestion = suggest_spaces(scoreboard_entries, n=space_count, seed=seed, spaces=available_spaces)
     return SpaceSelection(spaces=suggestion.spaces, idle_trigger=idle, mode=suggestion.mode)
 
 
@@ -605,8 +611,72 @@ def _result_field(result: Any, key: str, default: Any = None) -> Any:
     return getattr(result, key, default)
 
 
-def _best_accepted_replay(batch_results: list[Any]) -> Any | None:
+def _batch_health(batch: Any, *, planned_candidates: int = 0) -> dict[str, int | str]:
+    results = _batch_results(batch)
+    derived_completed = 0
+    derived_skipped = 0
+    derived_failed = 0
+    for result in results:
+        if bool(_result_field(result, "skipped", False)):
+            derived_skipped += 1
+        elif str(_result_field(result, "status") or "") == "failed":
+            derived_failed += 1
+        else:
+            derived_completed += 1
+
+    completed = max(derived_completed, _int_value(_result_field(batch, "completed"), derived_completed))
+    skipped = max(derived_skipped, _int_value(_result_field(batch, "skipped"), derived_skipped))
+    failed = max(derived_failed, _int_value(_result_field(batch, "failed"), derived_failed))
+    generated = max(
+        len(results),
+        completed + skipped + failed,
+        _int_value(_result_field(batch, "candidates_generated"), max(len(results), planned_candidates)),
+    )
+    status = "completed"
+    if failed > 0:
+        status = "degraded" if completed > 0 else "failed"
+    return {
+        "status": status,
+        "generated": generated,
+        "completed": completed,
+        "skipped": skipped,
+        "failed": failed,
+    }
+
+
+def _batch_failure_message(space: str, batch_id: str, health: Mapping[str, int | str]) -> str:
+    return (
+        f"batch_candidate_failures:{space}:{batch_id}:"
+        f"failed={health['failed']}:completed={health['completed']}:skipped={health['skipped']}"
+    )
+
+
+def _result_event_replay_used(root: Path, result: Any) -> bool:
+    run_id = str(_result_field(result, "run_id") or "")
+    if not run_id:
+        return False
+    metrics = _read_json(research_runs_dir(root) / "runs" / run_id / "replay_metrics.json")
+    if not isinstance(metrics, dict):
+        return False
+    value = metrics.get("event_replay_used_for_acceptance")
+    if value is True:
+        return True
+    if str(value or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    for key in ("current_run_metrics", "historical_metrics", "combined_metrics"):
+        nested = metrics.get(key)
+        if not isinstance(nested, dict):
+            continue
+        nested_value = nested.get("event_replay_used_for_acceptance")
+        if nested_value is True or str(nested_value or "").strip().lower() in {"1", "true", "yes", "on"}:
+            return True
+    return False
+
+
+def _best_accepted_replay(batch_results: list[Any], *, root: Path | None = None) -> Any | None:
     accepted = [result for result in batch_results if _result_field(result, "status") == STATUS_ACCEPTED_REPLAY]
+    if root is not None:
+        accepted = [result for result in accepted if _result_event_replay_used(root, result)]
     if not accepted:
         return None
     return max(accepted, key=lambda result: float(_result_field(result, "objective_score", 0.0) or 0.0))
@@ -797,6 +867,7 @@ def run_autoresearch_cycle(
 ) -> AutoResearchCycleResult:
     resolved_root = project_root(root)
     resolved_config = config if isinstance(config, AutoResearchConfig) else load_scheduler_config(overrides=config)
+    validate_scheduler_config(resolved_config)
     cycle = _cycle_id()
     effective_seed = int(seed) if seed is not None else _cycle_seed(cycle)
     warnings: list[str] = []
@@ -925,6 +996,7 @@ def run_autoresearch_cycle(
     counts = _candidates_for_spaces(resolved_config.max_candidates_per_cycle, selection.spaces)
     batch_func = batch_runner_func or run_research_batch
     batches: list[Any] = []
+    completed_candidates = 0
 
     for index, space in enumerate(selection.spaces):
         batch_id = f"{cycle}_{space}"
@@ -950,31 +1022,46 @@ def run_autoresearch_cycle(
                 regenerate_func=regenerate_func,
             )
             batches.append(batch)
+            resolved_batch_id = str(_result_field(batch, "batch_id") or batch_id)
+            health = _batch_health(batch, planned_candidates=planned_candidates)
+            completed_candidates += int(health["completed"])
+            if int(health["failed"]) > 0:
+                failure = _batch_failure_message(space, resolved_batch_id, health)
+                failures.append(failure)
+                _runtime_event(
+                    resolved_root,
+                    EVENT_AUTORESEARCH_ERROR,
+                    cycle_id=cycle,
+                    space=space,
+                    batch_id=resolved_batch_id,
+                    status=str(health["status"]),
+                    error=failure,
+                )
             _runtime_event(
                 resolved_root,
                 EVENT_AUTORESEARCH_CANDIDATES_GENERATED,
                 cycle_id=cycle,
                 space=space,
-                batch_id=str(_result_field(batch, "batch_id") or batch_id),
-                candidates_generated=int(_result_field(batch, "candidates_generated", planned_candidates) or 0),
+                batch_id=resolved_batch_id,
+                candidates_generated=int(health["generated"]),
             )
             _runtime_event(
                 resolved_root,
                 EVENT_AUTORESEARCH_REPLAY_DONE,
                 cycle_id=cycle,
                 space=space,
-                batch_id=str(_result_field(batch, "batch_id") or batch_id),
-                status="completed",
-                completed=int(_result_field(batch, "completed", 0) or 0),
-                skipped=int(_result_field(batch, "skipped", 0) or 0),
-                failed=int(_result_field(batch, "failed", 0) or 0),
+                batch_id=resolved_batch_id,
+                status=str(health["status"]),
+                completed=int(health["completed"]),
+                skipped=int(health["skipped"]),
+                failed=int(health["failed"]),
             )
             _runtime_event(
                 resolved_root,
                 EVENT_AUTORESEARCH_SCOREBOARD_UPDATED,
                 cycle_id=cycle,
                 space=space,
-                batch_id=str(_result_field(batch, "batch_id") or batch_id),
+                batch_id=resolved_batch_id,
                 scoreboard_path=str(_result_field(batch, "scoreboard_path") or research_runs_dir(resolved_root) / "scoreboard.json"),
                 result_count=len(_batch_results(batch)),
             )
@@ -1002,14 +1089,19 @@ def run_autoresearch_cycle(
     paper_candidate: dict[str, Any] | None = None
     paper_forward_start: dict[str, Any] | None = None
     all_results = [result for batch in batches for result in _batch_results(batch)]
-    best = _best_accepted_replay(all_results)
+    best = _best_accepted_replay(all_results, root=resolved_root)
     candidate_path = _candidate_policy_path(resolved_root, str(_result_field(best, "run_id") or "")) if best else None
     if best is None:
+        accepted_without_event_replay = any(
+            _result_field(result, "status") == STATUS_ACCEPTED_REPLAY for result in all_results
+        )
         _runtime_event(
             resolved_root,
             EVENT_AUTORESEARCH_PAPER_PROMOTION_SKIPPED,
             cycle_id=cycle,
-            reason="no_accepted_replay_candidate",
+            reason="accepted_replay_missing_event_replay"
+            if accepted_without_event_replay
+            else "no_accepted_replay_candidate",
         )
     elif candidate_path is None:
         _runtime_event(
@@ -1109,7 +1201,9 @@ def run_autoresearch_cycle(
                 candidate_policy_path=str(paper_forward_start.get("candidate_policy_path") or ""),
             )
 
-    status = "failed" if failures else "completed"
+    status = "completed"
+    if failures:
+        status = "degraded" if completed_candidates > 0 else "failed"
     result = AutoResearchCycleResult(
         cycle_id=cycle,
         status=status,
@@ -1211,14 +1305,27 @@ def evaluate_paper_profitability_for_demotion(
         _write_demotion_reports(resolved_root, run_dir, result)
         return result
 
+    if paper_metrics is None and state.get("activation_status") != "applied":
+        result = PaperDemotionResult(
+            checked=False, run_id=str(state.get("run_id") or run_dir.name),
+            status="inactive_candidate_profile",
+            warnings=["exported_profile_is_not_an_applied_runtime_policy"],
+            demotion_report_path=run_dir / "demotion_report.json",
+        )
+        _write_demotion_reports(resolved_root, run_dir, result)
+        return result
+
     resolved_baseline = dict(baseline_metrics) if baseline_metrics is not None else {}
     if not resolved_baseline:
         payload = _read_json(run_dir / "baseline_metrics.json")
         if isinstance(payload, dict):
             resolved_baseline = payload
-    resolved_paper = dict(paper_metrics) if paper_metrics is not None else _paper_metrics_from_reports(resolved_root)
+    resolved_paper = dict(paper_metrics) if paper_metrics is not None else _load_current_paper_metrics(resolved_root, state)
 
-    if not resolved_baseline or not resolved_paper:
+    if (not resolved_baseline or not resolved_paper
+            or (paper_metrics is None and (resolved_paper.get("evidence_rejections")
+                                         or not resolved_paper.get("closed_trades")
+                                         or resolved_paper.get("uncosted_records")))):
         result = PaperDemotionResult(
             checked=True,
             run_id=str(state.get("run_id") or run_dir.name),

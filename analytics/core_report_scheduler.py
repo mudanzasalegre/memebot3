@@ -14,6 +14,7 @@ from config.config import PROJECT_ROOT
 REQUIRED_CORE_REPORTS = (
     "trade_diagnostics.json",
     "policy_replay.json",
+    "event_replay.json",
     "missed_pumps.json",
     "post_hotfix_strategy_preview.json",
     "runner_capture_ladder_report.json",
@@ -124,6 +125,7 @@ def _generators(root: Path, *, include_test_events: bool = False) -> dict[str, C
     return {
         "trade_diagnostics.json": call("analytics.trade_diagnostics", "write_trade_diagnostics_report", root),
         "policy_replay.json": call("backtest.policy_replay", "write_policy_replay", root),
+        "event_replay.json": call("backtest.event_replay", "write_event_replay", root),
         "missed_pumps.json": call("analytics.missed_pumps", "write_missed_pumps_report", root),
         "post_hotfix_strategy_preview.json": call(
             "analytics.post_hotfix_strategy_preview",

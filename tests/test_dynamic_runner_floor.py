@@ -42,6 +42,14 @@ def test_runner_floor_ladder_thresholds() -> None:
     assert exit_policy.dynamic_runner_floor_pct(subject, peak=2000.0) == 1200.0
 
 
+def test_lane_runner_floor_uses_jackpot_profile() -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    subject = _subject(runner_exit_profile="jackpot_runner", highest_pnl_pct=500.0)
+
+    assert exit_policy.dynamic_runner_floor_pct(subject, peak=500.0) == 380.0
+    assert exit_policy.should_exit(subject, price_now=4.6, now=now, pnl_pct=360.0) == "DYNAMIC_RUNNER_FLOOR"
+
+
 def test_floor_does_not_apply_before_runner() -> None:
     now = dt.datetime.now(dt.timezone.utc)
     reason = exit_policy.should_exit(_subject(highest_pnl_pct=50.0), price_now=1.2, now=now, pnl_pct=20.0)

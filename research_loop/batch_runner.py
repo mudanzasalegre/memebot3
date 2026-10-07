@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from research_loop.bandit import suggest_spaces
-from research_loop.candidate_generator import generate_candidate_policies, write_candidate_policies
+from research_loop.bandit import DEFAULT_SPACES, suggest_spaces
+from research_loop.candidate_generator import applicable_generation_spaces, generate_candidate_policies, write_candidate_policies
 from research_loop.checkpoint import (
     candidate_duplicate_check,
     checkpoint_path,
@@ -134,6 +134,13 @@ def build_batch_baseline(
         except Exception as exc:
             failures.append(f"baseline_regenerate_failed:{exc}")
 
+    try:
+        from backtest.event_replay import write_event_replay
+
+        write_event_replay(resolved_root)
+    except Exception as exc:
+        failures.append(f"baseline_event_replay_failed:{exc}")
+
     snapshot_dir = resolved_batch_dir / "baseline_snapshot"
     failures.extend(_copy_baseline_snapshot(resolved_root, snapshot_dir))
     api_budget = build_api_budget_report(resolved_root, write=True)
@@ -155,7 +162,7 @@ def build_batch_baseline(
 def _choose_space(space_name: str, root: Path, seed: int | None) -> str:
     if space_name not in {"auto", "bandit"}:
         return space_name
-    suggestion = suggest_spaces(load_scoreboard(root), n=1, seed=seed)
+    suggestion = suggest_spaces(load_scoreboard(root), n=1, seed=seed, spaces=applicable_generation_spaces(DEFAULT_SPACES))
     return suggestion.spaces[0] if suggestion.spaces else "moonshot_micro"
 
 

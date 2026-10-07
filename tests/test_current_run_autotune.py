@@ -68,6 +68,11 @@ def test_autotune_disables_paper_exploration_when_current_run_loss_exceeds_thres
     assert any(action["action"] == "disable_paper_exploration" for action in report["actions"])
     assert report["recommended_changes"]["PAPER_EXPLORATION_QUOTA_ENABLED"] is False
     assert report["recommended_changes"]["PAPER_IDLE_MICRO_EXPLORATION_ENABLED"] is False
+    assert any(
+        block["lane"] == "pump_early_paper_exploration_micro"
+        for block in report["runtime_overlay"]["blocked_lanes"]
+    )
+    assert report["runtime_overlay"]["live_guarded"] is True
 
 
 def test_autotune_rank_and_moonshot_three_loss_streaks(tmp_path) -> None:
@@ -117,6 +122,37 @@ def test_autotune_disables_lane_when_severe_loss_count_increases(tmp_path) -> No
 
     assert any(action["action"] == "disable_severe_loss_lane" for action in report["actions"])
     assert report["recommended_changes"]["SHADOW_FOLLOWUP_MICRO_ENABLED"] is False
+    assert any(
+        block["lane"] == "pump_early_shadow_followup_micro"
+        for block in report["runtime_overlay"]["blocked_lanes"]
+    )
+
+
+def test_autotune_runtime_overlay_cools_down_no_pump_loss_streak(tmp_path) -> None:
+    _write_portfolio(
+        tmp_path,
+        [
+            {
+                "entry_lane": "pump_early_moonshot_micro_lottery",
+                "closed": True,
+                "closed_at": f"2026-06-05T11:0{idx}:00+00:00",
+                "exit_reason": "NO_PUMP_EXIT",
+                "realized_pnl_pct": -4,
+                "realized_pnl_usd": -0.1,
+            }
+            for idx in range(3)
+        ],
+    )
+
+    report = write_current_run_autotune_state(tmp_path)
+
+    assert any(action["action"] == "cooldown_toxic_exit_lane" for action in report["actions"])
+    assert report["recommended_changes"]["MOONSHOT_MICRO_LOTTERY_ENABLED"] is False
+    assert any(
+        block["lane"] == "pump_early_moonshot_micro_lottery"
+        and block["action"] == "cooldown_toxic_exit_lane"
+        for block in report["runtime_overlay"]["blocked_lanes"]
+    )
 
 
 def test_autotune_guards_overactive_low_quality_bootstrap(tmp_path) -> None:
@@ -137,6 +173,7 @@ def test_autotune_guards_overactive_low_quality_bootstrap(tmp_path) -> None:
         [
             {
                 "entry_lane": "pump_early_paper_bootstrap_micro",
+                    "run_id": "run-bootstrap",
                 "closed": True,
                 "closed_at": (started + dt.timedelta(minutes=idx)).isoformat(),
                 "realized_pnl_pct": -1,
@@ -174,6 +211,162 @@ def test_autotune_keeps_winning_shadow_followup_micro(tmp_path) -> None:
 
     assert any(action["action"] == "keep_shadow_followup_micro" for action in report["actions"])
     assert report["lane_states"]["shadow_followup_micro"]["last_result"] == "win"
+
+
+def test_autotune_persistently_blocks_negative_expectancy_lane_even_after_last_win(tmp_path) -> None:
+    positions = []
+    for idx in range(10):
+        pnl = 5.0 if idx == 9 else -30.0
+        positions.append(
+            {
+                "entry_lane": "pump_early_shadow_followup_micro",
+                "closed": True,
+                "closed_at": f"2026-06-05T11:{idx:02}:00+00:00",
+                "total_pnl_pct": pnl,
+                "total_pnl_usd": 0.05 if pnl > 0 else -0.2,
+                "exit_reason": "DYNAMIC_RUNNER_FLOOR" if pnl > 0 else "MAX_ADVERSE_EXCURSION",
+            }
+        )
+    _write_portfolio(tmp_path, positions)
+
+    report = write_current_run_autotune_state(tmp_path)
+
+    assert report["lane_states"]["shadow_followup_micro"]["severe_loss_count"] == 9
+    assert any(action["action"] == "disable_negative_expectancy_lane" for action in report["actions"])
+    assert not any(action["action"] == "keep_shadow_followup_micro" for action in report["actions"])
+    assert report["recommended_changes"]["SHADOW_FOLLOWUP_MICRO_ENABLED"] is False
+    assert any(
+        block["lane"] == "pump_early_shadow_followup_micro"
+        and block["action"] == "disable_negative_expectancy_lane"
+        for block in report["runtime_overlay"]["blocked_lanes"]
+    )
+
+
+def test_autotune_carries_active_lane_cooldown_across_refreshes(tmp_path) -> None:
+    _write_portfolio(
+        tmp_path,
+        [
+            {
+                "entry_lane": "pump_early_shadow_followup_micro",
+                "closed": True,
+                "closed_at": "2026-06-05T11:00:00+00:00",
+                "total_pnl_pct": -30,
+                "total_pnl_usd": -0.1,
+            }
+        ],
+    )
+
+    first = write_current_run_autotune_state(tmp_path)
+    second = write_current_run_autotune_state(tmp_path)
+
+    assert any(action["action"] == "disable_severe_loss_lane" for action in first["actions"])
+    assert any(action["action"] == "carry_forward_lane_cooldown" for action in second["actions"])
+    assert any(block["lane"] == "pump_early_shadow_followup_micro" for block in second["runtime_overlay"]["blocked_lanes"])
+
+
+def test_autotune_severe_delta_blocks_lane_that_changed_not_historical_max(tmp_path) -> None:
+    metrics = tmp_path / "data" / "metrics"
+    metrics.mkdir(parents=True)
+    (metrics / "current_run_autotune_state.json").write_text(
+        json.dumps(
+            {
+                "current_run_id": "legacy",
+                "lane_states": {
+                    "paper_bootstrap": {"severe_loss_count": 5},
+                    "shadow_followup_micro": {"severe_loss_count": 0},
+                },
+                "snapshot": {"severe_loss_count": 5},
+            }
+        ),
+        encoding="utf-8",
+    )
+    positions = [
+        {
+            "entry_lane": "pump_early_paper_bootstrap_micro",
+            "closed": True,
+            "closed_at": f"2026-06-05T10:{idx:02}:00+00:00",
+            "total_pnl_pct": -30,
+            "total_pnl_usd": -0.1,
+        }
+        for idx in range(5)
+    ]
+    positions.append(
+        {
+            "entry_lane": "pump_early_shadow_followup_micro",
+            "closed": True,
+            "closed_at": "2026-06-05T11:00:00+00:00",
+            "total_pnl_pct": -30,
+            "total_pnl_usd": -0.1,
+        }
+    )
+    _write_portfolio(tmp_path, positions)
+
+    report = write_current_run_autotune_state(tmp_path)
+    severe_actions = [action for action in report["actions"] if action["action"] == "disable_severe_loss_lane"]
+
+    assert [action["lane"] for action in severe_actions] == ["shadow_followup_micro"]
+
+
+def test_autotune_resets_severe_baseline_when_run_changes(tmp_path) -> None:
+    metrics = tmp_path / "data" / "metrics"
+    metrics.mkdir(parents=True)
+    (metrics / "current_run_autotune_state.json").write_text(
+        json.dumps({"current_run_id": "old-run", "snapshot": {"severe_loss_count": 10}}),
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        metrics / "runtime_events.jsonl",
+        [
+            {
+                "event_type": "strategy_decision",
+                "run_id": "new-run",
+                "run_started_at": "2026-06-05T10:00:00+00:00",
+                "ts_utc": "2026-06-05T10:00:00+00:00",
+            }
+        ],
+    )
+    _write_portfolio(
+        tmp_path,
+        [
+            {
+                "run_id": "new-run",
+                "entry_lane": "pump_early_shadow_followup_micro",
+                "closed": True,
+                "closed_at": "2026-06-05T11:00:00+00:00",
+                "total_pnl_pct": -30,
+                "total_pnl_usd": -0.1,
+            }
+        ],
+    )
+
+    report = write_current_run_autotune_state(tmp_path)
+
+    assert any(action["action"] == "disable_severe_loss_lane" for action in report["actions"])
+    assert report["snapshot"]["previous_severe_loss_count"] == 0
+
+
+def test_autotune_toxic_exit_uses_exit_reason_not_entry_reason(tmp_path) -> None:
+    _write_portfolio(
+        tmp_path,
+        [
+            {
+                "entry_lane": "pump_early_shadow_followup_micro",
+                "entry_reason": "shadow_followup_micro:real_liquidity_breakout",
+                "exit_reason": "LIQUIDITY_CRUSH",
+                "closed": True,
+                "closed_at": f"2026-06-05T11:0{idx}:00+00:00",
+                "total_pnl_pct": -90,
+                "total_pnl_usd": -0.2,
+            }
+            for idx in range(3)
+        ],
+    )
+
+    report = write_current_run_autotune_state(tmp_path)
+
+    assert report["lane_states"]["shadow_followup_micro"]["toxic_exit_count"] == 3
+    assert report["lane_states"]["shadow_followup_micro"]["consecutive_toxic_exits"] == 3
+    assert any(action["action"] == "cooldown_toxic_exit_lane" for action in report["actions"])
 
 
 def test_report_bundle_includes_current_run_autotune(tmp_path) -> None:

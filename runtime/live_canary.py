@@ -50,9 +50,13 @@ def evaluate_green_live_canary(token: dict[str, Any]) -> tuple[bool, str]:
         return False, STATE.last_disable_reason or "green_live_canary_disabled"
     day = _today()
     max_buys = int(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_DAILY_BUYS", 0) or 0)
-    if max_buys > 0 and STATE.daily_buys.get(day, 0) >= max_buys:
+    if max_buys <= 0:
+        return False, "daily_buy_cap_required"
+    if STATE.daily_buys.get(day, 0) >= max_buys:
         return False, "daily_buy_cap"
     max_loss = float(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_DAILY_LOSS_SOL", 0.05) or 0.05)
+    if max_loss <= 0:
+        return False, "daily_loss_cap_required"
     if abs(float(STATE.daily_loss_sol.get(day, 0.0))) >= max_loss:
         return False, "daily_loss_cap"
     max_losses = int(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_CONSECUTIVE_LOSSES", 2) or 2)

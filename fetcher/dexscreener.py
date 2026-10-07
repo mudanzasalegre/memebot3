@@ -37,6 +37,7 @@ import os
 import asyncio
 import datetime as dt
 import logging
+import math
 from typing import Dict, Optional, List, Any
 
 import aiohttp
@@ -101,7 +102,8 @@ def _safe_float(val) -> float | None:
         # strings tipo "1,234.56" → quitar separadores si vinieran
         if isinstance(val, str):
             val = val.replace(",", "")
-        return float(val)
+        number = float(val)
+        return number if math.isfinite(number) else None
     except Exception:
         return None
 
@@ -337,6 +339,12 @@ def _norm_from_pair(raw_pair: dict) -> dict:
     # (lo hacemos *después* del merge con raw_pair para que prevalezca)
     dex_raw = raw_pair.get("dexId") or (raw_pair.get("dex") or {}).get("id")
     tok["dexId"] = _normalize_dex_id(dex_raw)
+    direct_liq = any(_safe_float(value) is not None for value in (
+        (raw_pair.get("liquidity") or {}).get("usd") if isinstance(raw_pair.get("liquidity"), dict) else None,
+        *(raw_pair.get(key) for key in ("liquidityUsd", "liquidity_locked_usd", "liquidityLockedUsd", "liqLockedUsd")),
+    ))
+    tok["liquidity_usd_is_proxy"] = False if direct_liq else (True if liq_usd is not None else None)
+    tok["liquidity_is_proxy"] = tok["liquidity_usd_is_proxy"]
 
     tok = sanitize_token_data(tok)
     tok = _add_legacy_aliases(tok)

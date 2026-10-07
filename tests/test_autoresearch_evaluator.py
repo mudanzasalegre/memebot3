@@ -35,6 +35,7 @@ def _baseline() -> dict:
         "provider_degraded_minutes": 0,
         "overtrading_count": 0,
         "idle_no_buy_hours": 0,
+        "event_replay_used_for_acceptance": True,
     }
 
 
@@ -59,6 +60,17 @@ def test_candidate_with_small_sample_needs_paper() -> None:
     assert result.status == "needs_paper"
     assert result.needs_paper
     assert not result.accepted
+
+
+def test_candidate_without_event_replay_is_rejected() -> None:
+    baseline = _baseline()
+    candidate = {**baseline, "total_pnl_usd": 13.0, "median_pnl_pct": 2.0, "runner_capture_ratio": 0.25}
+    candidate.pop("event_replay_used_for_acceptance")
+
+    result = evaluate_replay_candidate(_candidate(), baseline, candidate)
+
+    assert result.status == "rejected"
+    assert "event_replay_required_for_acceptance" in result.rejection_reasons
 
 
 def test_candidate_with_worse_severe_losses_is_rejected() -> None:

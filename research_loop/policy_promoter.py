@@ -15,13 +15,30 @@ from research_loop.safety import UNLIMITED_BUY_QUOTA_KEYS, load_safety_config, v
 from research_loop.sandbox import SAFE_BASE_ENV, SECRET_MARKERS
 
 PAPER_PROFILE_PREFIX = "paper_research_candidate_"
-DEFAULT_SOURCE_PROFILE = "paper_hotfix_runner_v2"
+DEFAULT_SOURCE_PROFILE = "paper_hotfix_0707"
 PROFILE_STATUS = STATUS_NEEDS_PAPER
+PROFILE_QUOTA_CAP_MARKERS = (
+    "BUY_RATE_LIMIT_N",
+    "MAX_ACTIVE_POSITIONS",
+    "MAX_OPEN",
+    "MAX_DAILY_BUYS",
+    "MAX_HOURLY_BUYS",
+)
+
+
+def _safe_profile_quota_defaults() -> dict[str, str]:
+    return {
+        key: "1" if any(marker in key for marker in PROFILE_QUOTA_CAP_MARKERS) else "0"
+        for key in UNLIMITED_BUY_QUOTA_KEYS
+    }
 
 FORCED_SAFE_PROFILE_VALUES = {
     **SAFE_BASE_ENV,
-    **{key: "0" for key in UNLIMITED_BUY_QUOTA_KEYS},
+    **_safe_profile_quota_defaults(),
     "PAPER_SNIPER_MODE": "true",
+    "PAPER_EXACT_TRADE_SIZE_ENABLED": "true",
+    "PAPER_EXACT_TRADE_SIZE_SOL": "0.1",
+    "PAPER_MAX_TRADE_AMOUNT_SOL": "0.1",
     "AUTORESEARCH_PAPER_CANDIDATE": "true",
     "AUTORESEARCH_NEEDS_PAPER": "true",
     "AUTORESEARCH_PAPER_STATUS": STATUS_NEEDS_PAPER,

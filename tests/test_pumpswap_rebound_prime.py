@@ -163,6 +163,8 @@ def test_env_files_have_rebound_flags_once() -> None:
         "PUMPSWAP_REBOUND_CONFIRMATION_HARD_PRE_ENTRY_PEAK_PCT",
     }
     for name in (".env", ".env.example"):
+        if name == ".env" and not Path(name).exists():
+            continue  # Still validate the shipped template; do not require secrets in CI.
         keys = []
         for line in Path(name).read_text(encoding="utf-8").splitlines():
             stripped = line.strip()

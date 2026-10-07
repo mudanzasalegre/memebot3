@@ -20,6 +20,7 @@ from analytics.pumpswap_rebound_prime import evaluate_pumpswap_rebound_prime
 from analytics.report_utils import fnum, is_severe_exit, load_candidate_outcomes, load_paper_positions, load_sqlite_positions, metrics_dir, write_json, write_markdown
 from analytics.shadow_followup_micro import evaluate_shadow_followup_micro
 from config.config import PROJECT_ROOT
+from analytics.report_utils import is_closed_trade, load_deduped_positions
 
 
 POLICIES = (
@@ -384,7 +385,7 @@ def build_policy_replay(
     candidate_env_path: str | Path | None = None,
 ) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rows = [row for row in load_candidate_outcomes(root) + load_deduped_positions(root) if is_closed_trade(row)]
     report = {policy: _summarize(rows, policy) for policy in POLICIES}
     resolved_config, is_candidate = _resolve_candidate_inputs(
         candidate_config=candidate_config,
@@ -437,7 +438,7 @@ def _baseline_reference(root: Path) -> dict[str, Any]:
 
 def build_post_adjustment_policy_replay(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_candidate_outcomes(root) + load_paper_positions(root) + load_sqlite_positions(root)
+    rows = [row for row in load_candidate_outcomes(root) + load_deduped_positions(root) if is_closed_trade(row)]
     policies = {policy: _summarize_post_adjustment(rows, policy) for policy in POST_ADJUSTMENT_POLICIES}
     baseline_total = float((policies.get("baseline_48h") or {}).get("total_pnl") or 0.0)
     baseline_severe = int((policies.get("baseline_48h") or {}).get("severe_loss_count") or 0)

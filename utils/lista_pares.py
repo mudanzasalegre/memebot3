@@ -103,9 +103,31 @@ def agregar_si_nuevo(addr: str, retries: int | None = None) -> bool:
     return True
 
 def obtener_pares() -> list[str]:
-    """Devuelve los pares listos para procesar (sin cooldown)."""
+    """Devuelve pares listos y descarta los que superaron su vida máxima."""
     now = time.time()
-    return [a for a, meta in _pair_watch.items() if meta["next_try"] <= now]
+    ready: list[str] = []
+
+    # Iterar sobre una copia permite retirar expirados sin mutar el diccionario
+    # que se está recorriendo. El timeout es absoluto: también aplica durante
+    # cooldown y antes de que una dirección vuelva al consumidor.
+    for addr, meta in list(_pair_watch.items()):
+        first_seen = float(meta.get("first_seen", now) or now)
+        if now - first_seen > MAX_INCOMPLETE_SEC:
+            log.debug("[lista_pares] Timeout incompleto %s", addr[:6])
+            log_queue_drop(
+                addr,
+                reason="incomplete_timeout",
+                attempts=int(meta.get("attempts", 0) or 0),
+                retries_left=int(meta.get("retries", 0) or 0),
+                first_seen_epoch_s=first_seen,
+            )
+            eliminar_par(addr)
+            continue
+
+        if float(meta.get("next_try", now) or now) <= now:
+            ready.append(addr)
+
+    return ready
 
 
 def _preserve_retry_budget(reason: str) -> bool:

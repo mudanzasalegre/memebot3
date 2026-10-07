@@ -217,12 +217,23 @@ def render_segment_report_md(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def write_segment_outputs(report: dict[str, Any], *, json_path: Path = SEGMENT_JSON, md_path: Path = SEGMENT_MD, thresholds_path: Path = LANE_THRESHOLDS_JSON) -> dict[str, Any]:
+def write_segment_outputs(
+    report: dict[str, Any],
+    *,
+    json_path: Path = SEGMENT_JSON,
+    md_path: Path = SEGMENT_MD,
+    thresholds_path: Path = LANE_THRESHOLDS_JSON,
+    global_result: dict[str, Any] | None = None,
+    publish_thresholds: bool = True,
+) -> dict[str, Any]:
     json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(json.dumps(_json_safe(report), indent=2), encoding="utf-8")
     md_path.write_text(render_segment_report_md(report), encoding="utf-8")
-    thresholds = build_recommended_thresholds_by_lane(report, _read_json(RECOMMENDED_JSON))
-    thresholds_path.write_text(json.dumps(_json_safe(thresholds), indent=2), encoding="utf-8")
+    threshold_source = global_result if isinstance(global_result, dict) else _read_json(RECOMMENDED_JSON)
+    thresholds = build_recommended_thresholds_by_lane(report, threshold_source)
+    if publish_thresholds:
+        thresholds_path.parent.mkdir(parents=True, exist_ok=True)
+        thresholds_path.write_text(json.dumps(_json_safe(thresholds), indent=2), encoding="utf-8")
     return thresholds
 
 

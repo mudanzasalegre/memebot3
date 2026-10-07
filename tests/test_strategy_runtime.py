@@ -122,6 +122,7 @@ def _make_cfg(**overrides: object) -> SimpleNamespace:
         "PUMP_EARLY_SHADOW_RECOVERY_MAX_LIQ_CRUSH": 1,
         "PUMP_EARLY_SHADOW_RECOVERY_MAX_CONSECUTIVE_LOSSES": 3,
         "PUMP_EARLY_SHADOW_RECOVERY_MAX_AGE_H": 36.0,
+        "PUMP_EARLY_SHADOW_RECOVERY_SCAN_MAX_ROWS": 2_000,
         "PUMP_EARLY_SUBLANE_HEALTH_ENABLED": True,
         "PUMP_EARLY_SUBLANE_HEALTH_WINDOW_TRADES": 40,
         "PUMP_EARLY_SUBLANE_HEALTH_MIN_TRADES": 8,
@@ -164,6 +165,8 @@ def _reset_strategy_state() -> None:
     strategy_runtime._SHADOW_RECOVERY_CACHE = None
     strategy_runtime._SHADOW_RECOVERY_MTIME_NS = None
     strategy_runtime._SHADOW_RECOVERY_SIZE = None
+    strategy_runtime._SHADOW_RECOVERY_CACHE_LIMIT = None
+    strategy_runtime._SHADOW_RECOVERY_SCAN_TRUNCATED = False
     strategy_runtime._CANDIDATES.clear()
     strategy_runtime._BUCKET_HEALTH.clear()
     strategy_runtime._LANE_HEALTH.clear()
@@ -233,6 +236,26 @@ def _write_shadow_recovery_events(path: Path, *, now: dt.datetime, pnls: list[fl
             )
         )
     path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+def test_shadow_recovery_loader_reads_only_bounded_tail(monkeypatch, tmp_path: Path) -> None:
+    events_path = tmp_path / "candidate_outcomes.jsonl"
+    events_path.write_text(
+        "\n".join(json.dumps({"sequence": index}) for index in range(10)) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        strategy_runtime,
+        "CFG",
+        _make_cfg(PUMP_EARLY_SHADOW_RECOVERY_SCAN_MAX_ROWS=3),
+    )
+    monkeypatch.setattr(strategy_runtime, "_SHADOW_RECOVERY_EVENTS_PATH", events_path)
+    _reset_strategy_state()
+
+    rows = strategy_runtime._load_shadow_recovery_events()
+
+    assert [row["sequence"] for row in rows] == [7, 8, 9]
+    assert strategy_runtime._SHADOW_RECOVERY_SCAN_TRUNCATED is True
 
 
 def test_negative_scorecard_demotes_live_pump_to_shadow(tmp_path: Path, monkeypatch) -> None:

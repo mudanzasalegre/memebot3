@@ -29,7 +29,7 @@ def _candidate(proposal_id: str = "ar_rb", changes: dict | None = None) -> dict:
 def _source_profile(tmp_path) -> None:
     profiles = tmp_path / "config" / "profiles"
     profiles.mkdir(parents=True)
-    (profiles / "paper_hotfix_runner_v2.env").write_text(
+    (profiles / "paper_hotfix_0707.env").write_text(
         "DRY_RUN=1\nPAPER_SNIPER_MODE=true\nLIVE_CANARY_ENABLED=false\n",
         encoding="utf-8",
     )

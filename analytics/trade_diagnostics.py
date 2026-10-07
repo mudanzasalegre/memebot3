@@ -11,6 +11,8 @@ from analytics.report_utils import (
     fnum,
     is_severe_exit,
     load_candidate_outcomes,
+    load_deduped_positions,
+    is_closed_trade,
     load_paper_positions,
     load_sqlite_positions,
     mcap_bucket,
@@ -86,9 +88,8 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def build_trade_diagnostics(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
     rows: list[dict[str, Any]] = []
-    rows.extend(_normalize(row, "shadow_close") for row in load_candidate_outcomes(root))
-    rows.extend(_normalize(row, "trade_close") for row in load_paper_positions(root))
-    rows.extend(_normalize(row, "trade_close") for row in load_sqlite_positions(root))
+    rows.extend(_normalize(row, "shadow_close") for row in load_candidate_outcomes(root) if is_closed_trade(row))
+    rows.extend(_normalize(row, "trade_close") for row in load_deduped_positions(root) if is_closed_trade(row))
     rows = [row for row in rows if row.get("pnl_pct") is not None]
 
     groups: dict[str, list[dict[str, Any]]] = {}

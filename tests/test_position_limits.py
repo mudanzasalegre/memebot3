@@ -20,6 +20,7 @@ def test_cap_zero_is_unlimited(monkeypatch) -> None:
     )
     assert decision.allowed is True
     assert decision.cap == 0
+    assert decision.warning == "cap_zero_unlimited"
 
 
 def test_cap_minus_one_is_unlimited(monkeypatch) -> None:
@@ -33,6 +34,7 @@ def test_cap_minus_one_is_unlimited(monkeypatch) -> None:
     )
     assert decision.allowed is True
     assert decision.cap == -1
+    assert decision.warning == "cap_negative_unlimited"
 
 
 def test_cap_n_allows_until_count_reaches_n(monkeypatch) -> None:
@@ -76,6 +78,7 @@ def test_sniper_research_micro_fallback_live_zero_cap_unlimited(monkeypatch) -> 
 
     assert decision.allowed is True
     assert decision.cap == 0
+    assert decision.warning == "cap_zero_unlimited"
 
 
 def test_profit_and_breakout_caps_preserve_zero(monkeypatch) -> None:
@@ -84,5 +87,10 @@ def test_profit_and_breakout_caps_preserve_zero(monkeypatch) -> None:
         "CFG",
         SimpleNamespace(PUMP_EARLY_PROFIT_MAX_OPEN_LIVE_CANARY=0, PUMP_EARLY_BREAKOUT_MAX_OPEN_PAPER=0),
     )
-    assert limits.evaluate_lane_position_limit("pump_early_pumpswap_profit", [], dry_run=False, live=True).allowed
-    assert limits.evaluate_lane_position_limit("pumpswap_breakout", [], dry_run=True, live=False).allowed
+    profit = limits.evaluate_lane_position_limit("pump_early_pumpswap_profit", [], dry_run=False, live=True)
+    breakout = limits.evaluate_lane_position_limit("pumpswap_breakout", [], dry_run=True, live=False)
+
+    assert profit.allowed
+    assert profit.warning == "cap_zero_unlimited"
+    assert breakout.allowed
+    assert breakout.warning == "cap_zero_unlimited"

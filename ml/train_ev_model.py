@@ -10,7 +10,7 @@ def train_ev_models() -> dict:
     report = train_regressor_family(
         family="ev",
         targets=["ev_realized_clipped", "ev_peak_adjusted"],
-        feature_set_name="green_sniper_features",
+        feature_set_name="ev_features",
     )
     path = PROJECT_ROOT / "data" / "metrics" / "ev_model_report.json"
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -116,7 +116,8 @@ def write_model_training_bundle(
             "## Notes",
             "",
             "- These models are trained for reports only.",
-            "- Validation is marked in-sample unless a future holdout path is added.",
+            "- Target validation uses purged, token-disjoint temporal folds when observed label-availability times exist; otherwise metrics stay unavailable and in-sample warnings remain.",
+            "- Runner targets distinguish observed peaks from realized profits and cover 50% through 10,000%; rare or unknown labels do not become invented negative observations.",
             "- Critical warnings block enforcement in `strategy_quality_gate`.",
         ]
     )

@@ -30,3 +30,8 @@ hard_gates:
   median_pnl_pct_delta_min: -3.0
   max_drawdown_delta_max: 0.0
   live_allowed_default: false
+
+minimum_samples:
+  replay_closed_trades: 0
+  current_run_closed_trades: 1
+  event_replay_closed_trades: 5

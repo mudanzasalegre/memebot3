@@ -25,6 +25,8 @@ _SCORECARD_MTIME_NS: int | None = None
 _SHADOW_RECOVERY_CACHE: list[dict[str, Any]] | None = None
 _SHADOW_RECOVERY_MTIME_NS: int | None = None
 _SHADOW_RECOVERY_SIZE: int | None = None
+_SHADOW_RECOVERY_CACHE_LIMIT: int | None = None
+_SHADOW_RECOVERY_SCAN_TRUNCATED: bool = False
 
 
 def _to_float(value: Any) -> float | None:
@@ -163,6 +165,7 @@ def _scorecard_regime_signal(regime: str, now: dt.datetime | None = None) -> dic
 
 def _load_shadow_recovery_events() -> list[dict[str, Any]]:
     global _SHADOW_RECOVERY_CACHE, _SHADOW_RECOVERY_MTIME_NS, _SHADOW_RECOVERY_SIZE
+    global _SHADOW_RECOVERY_CACHE_LIMIT, _SHADOW_RECOVERY_SCAN_TRUNCATED
 
     try:
         stat = _SHADOW_RECOVERY_EVENTS_PATH.stat()
@@ -171,17 +174,35 @@ def _load_shadow_recovery_events() -> list[dict[str, Any]]:
 
     mtime_ns = int(getattr(stat, "st_mtime_ns", 0) or 0)
     size = int(getattr(stat, "st_size", 0) or 0)
+    limit = max(
+        1,
+        int(getattr(CFG, "PUMP_EARLY_SHADOW_RECOVERY_SCAN_MAX_ROWS", 2_000) or 2_000),
+    )
     if (
         _SHADOW_RECOVERY_CACHE is not None
         and _SHADOW_RECOVERY_MTIME_NS == mtime_ns
         and _SHADOW_RECOVERY_SIZE == size
+        and _SHADOW_RECOVERY_CACHE_LIMIT == limit
     ):
         return _SHADOW_RECOVERY_CACHE
 
     rows: list[dict[str, Any]] = []
     try:
-        with _SHADOW_RECOVERY_EVENTS_PATH.open("r", encoding="utf-8") as handle:
-            for line in handle:
+        chunk_size = 64 * 1024
+        data = bytearray()
+        line_breaks = 0
+        offset = size
+        with _SHADOW_RECOVERY_EVENTS_PATH.open("rb") as handle:
+            while offset > 0 and line_breaks <= limit:
+                read_size = min(chunk_size, offset)
+                offset -= read_size
+                handle.seek(offset)
+                chunk = handle.read(read_size)
+                data[:0] = chunk
+                line_breaks += chunk.count(b"\n")
+        lines = bytes(data).decode("utf-8", errors="ignore").splitlines()[-limit:]
+        for line in lines:
+            if line.strip():
                 try:
                     row = json.loads(line)
                 except Exception:
@@ -194,6 +215,8 @@ def _load_shadow_recovery_events() -> list[dict[str, Any]]:
     _SHADOW_RECOVERY_CACHE = rows
     _SHADOW_RECOVERY_MTIME_NS = mtime_ns
     _SHADOW_RECOVERY_SIZE = size
+    _SHADOW_RECOVERY_CACHE_LIMIT = limit
+    _SHADOW_RECOVERY_SCAN_TRUNCATED = offset > 0 or line_breaks > limit
     return rows
 
 
@@ -483,6 +506,8 @@ def _shadow_recovery_signal(regime: str, now: dt.datetime | None = None) -> dict
             "count": count,
             "min_trades": min_trades,
             "window": window,
+            "scan_rows": len(_SHADOW_RECOVERY_CACHE or ()),
+            "scan_truncated": _SHADOW_RECOVERY_SCAN_TRUNCATED,
         }
 
     pnls = [pnl for _, _, pnl in selected]
@@ -515,6 +540,8 @@ def _shadow_recovery_signal(regime: str, now: dt.datetime | None = None) -> dict
         "max_consecutive_losses_allowed": max_loss_streak,
         "first_event_at": selected[0][0],
         "last_event_at": selected[-1][0],
+        "scan_rows": len(_SHADOW_RECOVERY_CACHE or ()),
+        "scan_truncated": _SHADOW_RECOVERY_SCAN_TRUNCATED,
     }
 
 

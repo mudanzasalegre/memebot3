@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
+import os
 import re
+import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+from analytics.current_run import current_run_identity, parse_time, row_time
+from analytics.forward_evidence import collect_forward_evidence, forward_acceptance
+from analytics.report_utils import load_runtime_events, read_jsonl
 
 from research_loop.api_budget import build_api_budget_report, compare_api_budget, metrics_from_api_budget
 from research_loop.evaluator import STATUS_NEEDS_PAPER, EvaluationResult
@@ -77,6 +83,7 @@ class PaperForwardResult:
     api_budget: dict[str, Any] = field(default_factory=dict)
     result_path: Path | None = None
     rollback_report_path: Path | None = None
+    automation_eligible: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -84,6 +91,7 @@ class PaperForwardResult:
             "run_dir": str(self.run_dir),
             "status": self.status,
             "accepted": self.accepted,
+            "automation_eligible": self.automation_eligible,
             "objective": self.objective.as_dict() if self.objective else None,
             "rejection_reasons": list(self.rejection_reasons),
             "warnings": list(self.warnings),
@@ -131,7 +139,20 @@ def _read_json(path: Path) -> Any:
 
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
+    def clean(value):
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
+        if isinstance(value, dict):
+            return {key: clean(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        return value
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(json.dumps(clean(payload), indent=2, sort_keys=True, default=str, allow_nan=False), encoding="utf-8")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _float_metric(metrics: dict[str, Any], *keys: str) -> float:
@@ -139,8 +160,10 @@ def _float_metric(metrics: dict[str, Any], *keys: str) -> float:
         if key not in metrics:
             continue
         try:
-            return float(metrics.get(key) or 0.0)
-        except (TypeError, ValueError):
+            value = float(metrics.get(key) or 0.0)
+            if math.isfinite(value):
+                return value
+        except (TypeError, ValueError, OverflowError):
             continue
     return 0.0
 
@@ -150,8 +173,10 @@ def _int_metric(metrics: dict[str, Any], *keys: str) -> int:
         if key not in metrics:
             continue
         try:
-            return int(float(metrics.get(key) or 0))
-        except (TypeError, ValueError):
+            value = float(metrics.get(key) or 0)
+            if math.isfinite(value):
+                return int(value)
+        except (TypeError, ValueError, OverflowError):
             continue
     return 0
 
@@ -164,41 +189,32 @@ def _merge_budget(overrides: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def _load_current_paper_metrics(root: Path, state: dict[str, Any]) -> dict[str, Any]:
-    summary = _read_json(metrics_dir(root) / "current_run_summary.json")
-    diagnostics = _read_json(metrics_dir(root) / "current_run_trade_diagnostics.json")
-    lane_summary = _read_json(metrics_dir(root) / "current_run_lane_summary.json")
-
-    merged: dict[str, Any] = {}
-    for payload in (summary, diagnostics, lane_summary):
-        if isinstance(payload, dict):
-            merged.update(payload)
-
-    started_at = state.get("started_at_utc")
-    elapsed_hours = _float_metric(merged, "elapsed_hours", "run_hours", "hours")
-    if elapsed_hours <= 0 and isinstance(started_at, str):
-        try:
-            started = dt.datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-            elapsed_hours = max(0.0, (dt.datetime.now(dt.timezone.utc) - started).total_seconds() / 3600.0)
-        except ValueError:
-            elapsed_hours = 0.0
-
-    return {
-        **merged,
-        "elapsed_hours": elapsed_hours,
-        "closed_trades": _int_metric(merged, "closed_trades", "trades", "closed_positions"),
-        "decisions": _int_metric(merged, "decisions", "decision_count", "total_decisions"),
-        "daily_buys": _int_metric(merged, "daily_buys", "buy_count", "buys", "buys_today"),
-        "total_pnl_usd": _float_metric(merged, "total_pnl_usd", "total_pnl", "realized_pnl_usd"),
-        "avg_pnl_pct": _float_metric(merged, "avg_pnl_pct", "avg_pnl"),
-        "median_pnl_pct": _float_metric(merged, "median_pnl_pct", "median_pnl"),
-        "win_rate_pct": _float_metric(merged, "win_rate_pct", "win_rate"),
-        "runner_capture_ratio": _float_metric(merged, "runner_capture_ratio"),
-        "severe_loss_count": _int_metric(merged, "severe_loss_count"),
-        "liquidity_crush_count": _int_metric(merged, "liquidity_crush_count"),
-        "adverse_tick_count": _int_metric(merged, "adverse_tick_count"),
-        "no_pump_exit_count": _int_metric(merged, "no_pump_exit_count"),
-        "max_drawdown_proxy": _float_metric(merged, "max_drawdown_proxy", "max_drawdown"),
-    }
+    # Never accept cached summaries from another profile/run, or elapsed wall
+    # time while the bot is stopped, as prospective evidence.
+    events = load_runtime_events(root)
+    identity = current_run_identity(root, events)
+    evidence_run = state.get("runtime_run_id") or identity.get("run_id")
+    evidence = collect_forward_evidence(root, run_id=evidence_run,
+                                        started_at=state.get("started_at_utc"),
+                                        config_hash=state.get("config_hash"),
+                                        profile=state.get("paper_profile"))
+    started = parse_time(state.get("started_at_utc"))
+    decisions = read_jsonl(metrics_dir(root) / "decision_ledger.jsonl")
+    now = dt.datetime.now(dt.timezone.utc)
+    decisions = [row for row in decisions if row.get("run_id") == evidence_run
+                 and started is not None and row_time(row) is not None and row_time(row) >= started
+                 and row_time(row) <= now
+                 and (not state.get("paper_profile") or row.get("config_profile") == state.get("paper_profile"))
+                 and (not state.get("config_hash") or row.get("config_hash") == state.get("config_hash"))
+                 and not row.get("test_event")]
+    if evidence.get("closed_trades", 0) == 0:
+        evidence["evidence_rejections"].append("no_prospective_costed_paper_trades")
+    if evidence.get("open_positions", 0):
+        evidence["evidence_rejections"].append("unsettled_paper_positions")
+    # Count actual terminal evidence rather than fabricating zero buys. Quota
+    # enforcement at entry remains separate; this reports the observed cohort.
+    return {**evidence, "decisions": len(decisions),
+            "daily_buys": evidence.get("max_daily_buys_observed", 0)}
 
 
 def _load_baseline_metrics(run_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
@@ -209,7 +225,14 @@ def _load_baseline_metrics(run_dir: Path, state: dict[str, Any]) -> dict[str, An
 
 
 def _has_comparable_metrics(baseline_metrics: dict[str, Any], paper_metrics: dict[str, Any]) -> bool:
-    return all(key in baseline_metrics and key in paper_metrics for key in COMPARABLE_METRICS)
+    for metrics in (baseline_metrics, paper_metrics):
+        for key in COMPARABLE_METRICS:
+            try:
+                if isinstance(metrics.get(key), bool) or not math.isfinite(float(metrics[key])):
+                    return False
+            except (KeyError, TypeError, ValueError, OverflowError):
+                return False
+    return True
 
 
 def _api_budget_ok(
@@ -283,6 +306,8 @@ def start_paper_forward(
     promotion_report_path = run_dir / "promotion_report.json"
     budget_path = run_dir / "paper_budget.json"
     state_path = run_dir / "paper_forward_state.json"
+    if state_path.exists():
+        raise PaperForwardError("paper_forward_run_already_initialized")
     baseline_metrics_path = run_dir / "baseline_metrics.json"
     baseline_api_budget_path = run_dir / "baseline_api_budget.json"
     resolved_budget = _merge_budget(budget)
@@ -306,11 +331,13 @@ def start_paper_forward(
         _write_json(promotion_report_path, promotion.as_dict())
 
     started_at = utc_now()
-    initial_state = {
-        "run_id": resolved_run_id,
-        "started_at_utc": started_at,
+    baseline_identity = current_run_identity(resolved_root, load_runtime_events(resolved_root))
+    baseline_state = {
+        "runtime_run_id": baseline_identity.get("run_id"),
+        "started_at_utc": baseline_identity.get("run_started_at"),
+        "paper_profile": source_profile,
     }
-    baseline_metrics = _load_current_paper_metrics(resolved_root, initial_state)
+    baseline_metrics = _load_current_paper_metrics(resolved_root, baseline_state)
     baseline_api_budget = build_api_budget_report(resolved_root, write=True)
 
     _write_json(candidate_policy_path, policy.to_dict())
@@ -321,6 +348,10 @@ def start_paper_forward(
         "run_id": resolved_run_id,
         "status": STATUS_PAPER_FORWARD_STARTED,
         "started_at_utc": started_at,
+        "baseline_identity": baseline_identity,
+        "baseline_profile": source_profile,
+        "comparison_kind": "sequential_diagnostic_not_paired",
+        "activation_status": "profile_exported_not_applied",
         "candidate_policy_path": str(candidate_policy_path),
         "budget_path": str(budget_path),
         "baseline_metrics_path": str(baseline_metrics_path),
@@ -378,6 +409,17 @@ def finalize_paper_forward(
 
     warnings: list[str] = []
     rejection_reasons = _budget_rejections(resolved_paper_metrics, budget)
+    rejection_reasons.extend(resolved_paper_metrics.get("evidence_rejections") or [])
+    if _float_metric(resolved_paper_metrics, "total_pnl_usd") <= 0:
+        rejection_reasons.append("paper_forward:nonpositive_net_pnl")
+    if paper_metrics is None:
+        acceptance = forward_acceptance(resolved_paper_metrics,
+                                        min_closed=max(50, int(budget.get("min_closed_trades") or 0)),
+                                        min_hours=max(24, float(budget.get("min_hours") or 0)))
+        rejection_reasons.extend(acceptance["rejection_reasons"])
+    else:
+        warnings.append("supplied_metrics_are_diagnostic_not_automatic_policy_evidence")
+    warnings.append("sequential_baseline_is_not_a_paired_prospective_policy_comparison")
     objective: ObjectiveResult | None = None
 
     if bool(budget.get("api_budget_ok_required", True)):

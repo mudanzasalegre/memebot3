@@ -27,6 +27,17 @@ import aiohttp
 from urllib.parse import quote
 from utils.solana_addr import normalize_mint  # preserva mints válidos y sanea sufijos inválidos
 
+try:
+    from analytics.api_budget import (
+        provider_status as _provider_status,
+        record_provider_event as _record_provider_event,
+        reset_provider_circuits as _reset_provider_circuits,
+    )
+except Exception:  # pragma: no cover - keeps this fetcher importable in isolation
+    _provider_status = None  # type: ignore
+    _record_provider_event = None  # type: ignore
+    _reset_provider_circuits = None  # type: ignore
+
 logger = logging.getLogger("jupiter_price")
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -88,6 +99,8 @@ class PriceInfo:
     price_usd: Optional[float]
     has_route: bool          # True si hay precio real (asumimos ruta ejecutable)
     routes_count: int        # Sin quote real: 1 si OK, 0 si NIL/ERR
+    confidence: str = "none"
+    provider_degraded: bool = False
 
     @property
     def ok(self) -> bool:
@@ -231,11 +244,45 @@ def clear_caches():
     _ok_cache.clear()
     _nil_cache.clear()
     _nil_backoff.clear()
+    if _reset_provider_circuits is not None:
+        try:
+            _reset_provider_circuits()
+        except Exception:
+            pass
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("[jupiter_price] caches borradas")
 
 
 # ───────────────────────── normalización de entradas ─────────────────────────
+def _jupiter_degraded() -> bool:
+    if _provider_status is None:
+        return False
+    try:
+        return bool(_provider_status("jupiter").get("degraded"))
+    except Exception:
+        return False
+
+
+def _pi(status: Status, price_usd: Optional[float], has_route: bool, routes_count: int) -> PriceInfo:
+    return PriceInfo(
+        status=status,
+        price_usd=price_usd,
+        has_route=has_route,
+        routes_count=routes_count,
+        confidence="high" if status == "OK" and price_usd is not None else "none",
+        provider_degraded=_jupiter_degraded(),
+    )
+
+
+def _record_rate_limit() -> None:
+    if _record_provider_event is None:
+        return
+    try:
+        _record_provider_event("jupiter", "rate_limit")
+    except Exception:
+        pass
+
+
 def _normalize_incoming_list(mints: Iterable[str]) -> List[str]:
     """
     • Aplica normalize_mint (preserva mints válidos y sanea sufijos inválidos).
@@ -289,8 +336,8 @@ async def _fetch_batch(mints: List[str]) -> Dict[str, Optional[float]]:
         async with sess.get(url) as resp:
             if resp.status == 429:
                 logger.warning("[jupiter_price] 429 Too Many Requests; backing off…")
-                await asyncio.sleep(max(1.0, _MIN_DELAY_S * 2))
-                return await _fetch_batch(mints)
+                _record_rate_limit()
+                return {m: None for m in mints}
 
             if resp.status >= 500:
                 logger.warning("[jupiter_price] %s → %s", JUPITER_PRICE_URL, resp.status)
@@ -375,8 +422,8 @@ async def _fetch_batch_with_status(mints: List[str]) -> Dict[str, Tuple[Status, 
         async with sess.get(url) as resp:
             if resp.status == 429:
                 logger.warning("[jupiter_price] 429 Too Many Requests; backing off…")
-                await asyncio.sleep(max(1.0, _MIN_DELAY_S * 2))
-                return await _fetch_batch_with_status(mints)
+                _record_rate_limit()
+                return err_default
 
             if resp.status >= 500:
                 logger.warning("[jupiter_price] %s → %s", JUPITER_PRICE_URL, resp.status)
@@ -473,7 +520,7 @@ async def get_many_prices(mints: List[str]) -> Dict[str, PriceInfo]:
         if fp is not None:
             # Mete en caché OK y resultado enriquecido
             _cache_set_ok(m, float(fp))
-            result[m] = PriceInfo(status="OK", price_usd=float(fp), has_route=True, routes_count=1)
+            result[m] = _pi("OK", float(fp), True, 1)
             instant_ok += 1
             continue
         filtered.append(m)
@@ -495,11 +542,11 @@ async def get_many_prices(mints: List[str]) -> Dict[str, PriceInfo]:
     for m in mints:
         hit = _cache_get_ok(m)
         if hit is not None:
-            result[m] = PriceInfo(status="OK", price_usd=hit, has_route=True, routes_count=1)
+            result[m] = _pi("OK", hit, True, 1)
             cache_hits_ok += 1
             continue
         if _cache_get_nil(m):
-            result[m] = PriceInfo(status="NIL", price_usd=None, has_route=False, routes_count=0)
+            result[m] = _pi("NIL", None, False, 0)
             cache_hits_nil += 1
             continue
         misses.append(m)
@@ -521,15 +568,15 @@ async def get_many_prices(mints: List[str]) -> Dict[str, PriceInfo]:
         for mint, (st, price) in fetched.items():
             if st == "OK" and price is not None:
                 _cache_set_ok(mint, price)
-                result[mint] = PriceInfo(status="OK", price_usd=price, has_route=True, routes_count=1)
+                result[mint] = _pi("OK", price, True, 1)
                 fetched_ok += 1
             elif st == "NIL":
                 _cache_set_nil(mint)
-                result[mint] = PriceInfo(status="NIL", price_usd=None, has_route=False, routes_count=0)
+                result[mint] = _pi("NIL", None, False, 0)
                 nil_hits += 1
             else:  # "ERR"
                 # No cacheamos errores transitorios; devolvemos ERR
-                result[mint] = PriceInfo(status="ERR", price_usd=None, has_route=False, routes_count=0)
+                result[mint] = _pi("ERR", None, False, 0)
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(
@@ -557,29 +604,29 @@ async def get_price(mint: str) -> PriceInfo:
     _log_boot_if_needed()
 
     if not mint:
-        return PriceInfo(status="NIL", price_usd=None, has_route=False, routes_count=0)
+        return _pi("NIL", None, False, 0)
 
     nm = normalize_mint(mint)
     if not nm:
         logger.debug("[jupiter_price] descartado unitario (no mint SPL): %r", mint)
-        return PriceInfo(status="NIL", price_usd=None, has_route=False, routes_count=0)
+        return _pi("NIL", None, False, 0)
 
     # Atajo estables
     fp = _KNOWN_STABLES.get(nm)
     if fp is not None:
         _cache_set_ok(nm, float(fp))
-        return PriceInfo(status="OK", price_usd=float(fp), has_route=True, routes_count=1)
+        return _pi("OK", float(fp), True, 1)
 
     # WSOL → skip
     if nm == _WSPL_SOL_MINT:
-        return PriceInfo(status="NIL", price_usd=None, has_route=False, routes_count=0)
+        return _pi("NIL", None, False, 0)
 
     # 1) caché
     hit = _cache_get_ok(nm)
     if hit is not None:
-        return PriceInfo(status="OK", price_usd=hit, has_route=True, routes_count=1)
+        return _pi("OK", hit, True, 1)
     if _cache_get_nil(nm):
-        return PriceInfo(status="NIL", price_usd=None, has_route=False, routes_count=0)
+        return _pi("NIL", None, False, 0)
 
     # 2) fetch (vía batch enriquecido)
     if logger.isEnabledFor(logging.DEBUG):
@@ -589,7 +636,7 @@ async def get_price(mint: str) -> PriceInfo:
             logger.debug("[jupiter_price] miss unitario → solicitando %s vía batch", _fmt_id(nm))
 
     fetched = await get_many_prices([nm])
-    return fetched.get(nm, PriceInfo(status="ERR", price_usd=None, has_route=False, routes_count=0))
+    return fetched.get(nm, _pi("ERR", None, False, 0))
 
 
 async def get_price_status(mint: str) -> Dict[str, object]:
@@ -599,6 +646,8 @@ async def get_price_status(mint: str) -> Dict[str, object]:
         "price_usd": pi.price_usd,
         "has_route": pi.has_route,
         "routes_count": pi.routes_count,
+        "price_confidence": pi.confidence,
+        "provider_degraded": pi.provider_degraded,
     }
 
 

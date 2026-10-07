@@ -24,6 +24,7 @@ REPORT_FILES = {
     },
     "historical": {
         "bot_profitability_health": "bot_profitability_health.json",
+        "event_replay": "event_replay.json",
         "missed_pumps": "missed_pumps.json",
         "policy_replay": "policy_replay.json",
     },

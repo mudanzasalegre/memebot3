@@ -1,0 +1,84 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "scope": "Frozen paper runner exits and trustworthy prospective evidence; this stage does not implement the complete AutoResearch trading-policy activation transport",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "runtime_started": false,
+  "live_policy_changed": false,
+  "runner_exit": {
+    "version": "paper_runner_price_drawdown_v1",
+    "enabled_for": "New explicitly paper positions with a valid frozen entry snapshot, after an executed partial and observed peak at least the configured activation threshold",
+    "legacy_and_live_behavior": "Existing positions without the snapshot and all live positions retain existing exits",
+    "defaults": {"activation_peak_pct": 300, "max_price_drawdown_pct": 20, "max_holding_hours": 24},
+    "formula": "floor_pnl_pct = (100 + peak_pnl_pct) * (1 - price_drawdown_pct / 100) - 100",
+    "synthetic_verified_peaks_pct": [500, 1000, 5000, 10000, 100000],
+    "guards": [
+      "The proportional floor is shared by common trailing, dynamic-floor and emergency-giveback checks so a fixed profit-point rule cannot preempt it",
+      "Total-PnL protections, stop loss and liquidity protections remain active",
+      "Liquidity-crush checks remain active throughout an extended runner holding period",
+      "Missing or invalid prices do not extend the no-price timeout",
+      "Extension is bounded by the frozen timer; short-lived probes and deep-reversal scalps are excluded",
+      "Invalid settings disable the new policy without crashing a buy",
+      "Snapshot persists in paper portfolio, buy response, SQL Position and close telemetry; schema upgrade is idempotent and leaves old rows unchanged"
+    ],
+    "limitation": "These defaults are bounded paper experiment settings, not optimized or prospectively proven parameters. Price drawdown protection cannot guarantee net proceeds or a fill."
+  },
+  "forward_evidence": {
+    "schema": "cost_checked_terminal_trades_v2",
+    "cost_basis": "estimated_paper_fills_not_live",
+    "checks": [
+      "Finite positive committed notional and amount, finite estimated fees, integral fill counts and zero remaining quantity",
+      "Net USD equals gross USD minus fees; net percentage equals net USD divided by committed notional",
+      "Frozen fee per fill agrees with total estimated SOL fees; recorded total SOL proceeds agree with net SOL when present",
+      "Exact-size quote input, output quantity after entry slippage, observed impact bound, raw SPL quantity basis and reverse-quote close distinguish quote-backed estimates from synthetic prices",
+      "Terminal trades are keyed by case-sensitive mint and open time; repeat entries are preserved and duplicate copies do not count as additional trades",
+      "Terminal closes supersede stale open snapshots; contradictory costed copies are rejected",
+      "Run/profile/config identity and prospective open/close times exclude unrelated, future, test and live observations",
+      "Observed duration starts at the first selected trade, not wall time elapsed while stopped",
+      "Freshness and deterministic token-cluster bootstrap diagnostics supplement the existing normal-approximation diagnostic"
+    ],
+    "acceptance_defaults": {"closed_trades": 50, "observed_hours": 24, "distinct_closed_tokens": 20, "max_last_close_age_hours": 24},
+    "latest_runtime_read_only_check": {
+      "run_id": "20261004-1",
+      "run_started_at": "2026-10-04T10:42:23.164444+00:00",
+      "last_runtime_event_at": "2026-10-04T10:44:49.346529+00:00",
+      "profile_filter": "paper_hotfix_0707",
+      "cost_checked_closed_trades": 0,
+      "quote_backed_closed_trades": 0,
+      "passed": false,
+      "qualification": "This is the latest recorded runtime identity, not a replacement for the historical July trading-opportunity audit and not evidence of profitable execution"
+    },
+    "limitations": [
+      "Quote-backed paper estimates do not prove live fills, future liquidity or realized live fees",
+      "Both uncertainty bounds are diagnostics; token grouping does not remove market-regime or time dependence",
+      "Observed token peaks are not cash returns; runner capture uses the actual costed net return denominator"
+    ]
+  },
+  "autoresearch_integrity": {
+    "baseline_capture": "Pinned to the existing runtime start and source profile instead of the newly created experiment timestamp",
+    "profile_export_activation_status": "profile_exported_not_applied",
+    "comparison_kind": "sequential_diagnostic_not_paired",
+    "supplied_metric_qualification": "Diagnostic only, automation_eligible=false, with a mandatory finite positive net-PnL check",
+    "demotion": "Does not demote unapplied profiles based on unrelated cached reports; default applied-policy checks use scoped terminal evidence",
+    "state_writes": "Atomic replacement, nonfinite values normalized to null, existing forward experiment state cannot be overwritten",
+    "remaining": "Actual paper policy application, paired comparable prospective champion/challenger evidence, candidate objective correctness and active-policy rollback are not yet complete"
+  },
+  "verification": {
+    "focused_tests": "147 passed in 59.65s",
+    "intermediate_full_suite": "947 passed in 70.62s before the final baseline/demotion/observed-window regression additions",
+    "final_full_suite": "955 passed in 89.83s",
+    "first_launch_scope": "Isolated schema migration and offline integration regressions, not a newly launched trading stack or real provider certification",
+    "remaining_bot_processes_at_20261007_111705_utc": 0,
+    "final_shutdown_verified_at_utc": "2026-10-07T11:24:50.8739391Z",
+    "final_remaining_bot_processes": 0,
+    "bot_lock_present": false,
+    "sqlite_runtime_state": "stopped",
+    "publishing_checkout": "Clean main...origin/main; this stage has not synchronized, committed or pushed changes"
+  },
+  "remaining_goal_requirements": [
+    "Finish ingestion/scanner/sniper/execution/monitoring architecture and first-launch validation",
+    "Integrate requested exact 0.1 SOL sizing consistently with execution and risk constraints",
+    "Complete trading-policy AutoResearch adaptation with prospective comparable net-benefit objectives and active-policy rollback",
+    "Synchronize all authorized source changes into the publishing checkout, commit and push without secrets or runtime data",
+    "Leave all services stopped and verify final process and database state"
+  ]
+}

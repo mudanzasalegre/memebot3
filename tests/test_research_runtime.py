@@ -16,6 +16,7 @@ if str(_ROOT) not in sys.path:
 
 _ORIG_ANALYTICS = sys.modules.get("analytics")
 _ORIG_AUDIT = sys.modules.get("analytics.audit")
+_ORIG_DATA_CONTRACT = sys.modules.get("ml.data_contract")
 _ORIG_NUMPY = sys.modules.get("numpy")
 _ORIG_PANDAS = sys.modules.get("pandas")
 
@@ -36,6 +37,8 @@ _audit_stub = types.ModuleType("analytics.audit")
 _audit_stub.normalize_candidate_outcomes_frame = lambda frame: frame
 _audit_stub.write_normalized_candidate_outcomes = lambda *_args, **_kwargs: None
 _analytics_stub.audit = _audit_stub
+_data_contract_stub = types.ModuleType("ml.data_contract")
+_data_contract_stub.normalize_candidate_event_row = lambda row, **_kwargs: dict(row)
 _numpy_stub = types.ModuleType("numpy")
 _numpy_stub.floating = float
 _numpy_stub.integer = int
@@ -45,6 +48,7 @@ _pandas_stub.Timestamp = _Timestamp
 
 sys.modules["analytics"] = _analytics_stub
 sys.modules["analytics.audit"] = _audit_stub
+sys.modules["ml.data_contract"] = _data_contract_stub
 sys.modules["numpy"] = _numpy_stub
 sys.modules["pandas"] = _pandas_stub
 
@@ -63,6 +67,10 @@ if _ORIG_AUDIT is not None:
     sys.modules["analytics.audit"] = _ORIG_AUDIT
 else:
     sys.modules.pop("analytics.audit", None)
+if _ORIG_DATA_CONTRACT is not None:
+    sys.modules["ml.data_contract"] = _ORIG_DATA_CONTRACT
+else:
+    sys.modules.pop("ml.data_contract", None)
 if _ORIG_NUMPY is not None:
     sys.modules["numpy"] = _ORIG_NUMPY
 else:
@@ -164,6 +172,20 @@ def test_event_dedup_does_not_drop_first_event_on_low_uptime(monkeypatch) -> Non
     assert research_runtime._event_dedup("first-event", 600) is True
 
 
+def test_common_payload_preserves_explicit_zero_telemetry_flags() -> None:
+    payload = research_runtime._common_payload(
+        {
+            "pumpswap_rebound_confirmation": 0,
+            "recovery_confirmation": 1,
+            "liquidity_is_proxy": 0,
+            "liquidity_usd_is_proxy": 1,
+        }
+    )
+
+    assert payload["pumpswap_rebound_confirmation"] == 0
+    assert payload["liquidity_is_proxy"] == 0
+
+
 def test_record_candidate_stage_preserves_total_rank_score(monkeypatch, tmp_path: Path) -> None:
     events_path = tmp_path / "candidate_outcomes.jsonl"
     monkeypatch.setattr(research_runtime, "RESEARCH_EVENTS_PATH", events_path)
@@ -198,3 +220,54 @@ def test_record_candidate_stage_preserves_total_rank_score(monkeypatch, tmp_path
     assert row["rank_score"] == 52.7
     assert row["rank_score_component"] == 11.25
     assert row["rank_liq"] == 6.0
+
+
+def test_record_live_trade_close_preserves_entry_context_without_duplicate_identity(monkeypatch, tmp_path: Path) -> None:
+    events_path = tmp_path / "candidate_outcomes.jsonl"
+    monkeypatch.setattr(research_runtime, "RESEARCH_EVENTS_PATH", events_path)
+    monkeypatch.setattr(research_runtime, "append_decision", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        research_runtime,
+        "CFG",
+        SimpleNamespace(
+            RESEARCH_LANE_ENABLED=True,
+            RESEARCH_DECISION_DEDUP_TTL_S=0,
+            ML_POSITIVE_PNL_PCT=5.0,
+        ),
+    )
+    research_runtime._LIVE_CONTEXT.clear()
+    research_runtime._SEEN.clear()
+
+    research_runtime.record_candidate_decision(
+        {
+            "address": "addr-live-close",
+            "entry_lane": "pump_early_shadow_followup_micro",
+            "score_total": 55,
+        },
+        action="bought",
+        reason="buy_ok",
+        stage="execution",
+    )
+    research_runtime.record_live_trade_close(
+        "addr-live-close",
+        regime="pump_early",
+        pnl_pct=-42.5,
+        exit_reason="LIQUIDITY_CRUSH",
+        extra={
+            "event_type": "wrong_event",
+            "address": "wrong-address",
+            "source": "wrong-source",
+            "close_price_usd": 0.00001,
+        },
+    )
+
+    rows = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 2
+    outcome = rows[-1]
+    assert outcome["event_type"] == "candidate_outcome"
+    assert outcome["address"] == "addr-live-close"
+    assert outcome["source"] == "live_trade"
+    assert outcome["pnl_pct"] == -42.5
+    assert outcome["exit_reason"] == "LIQUIDITY_CRUSH"
+    assert outcome["entry_lane"] == "pump_early_shadow_followup_micro"
+    assert outcome["close_price_usd"] == 0.00001

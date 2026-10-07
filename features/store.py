@@ -26,9 +26,13 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
+import tempfile
+import time
 from collections import OrderedDict
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Mapping
+from typing import Iterator, Mapping
 
 import pandas as pd
 import pyarrow as pa
@@ -50,7 +54,8 @@ log = logging.getLogger("features")
 DATA_DIR: Path = CFG.FEATURES_DIR
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-_PARQUET_COLS = _FEAT_COLS + ["label", "target_total_pnl_pct", "sample_type", "ts"]
+_OUTCOME_COLS = ["max_pnl_pct_seen", "outcome_closed_at"]
+_PARQUET_COLS = _FEAT_COLS + ["label", "target_total_pnl_pct", "sample_type", "ts"] + _OUTCOME_COLS
 
 # —— esquema fijo ——————————————————————————————
 # Nota: Si añades nuevas columnas en builder.COLUMNS, debes reflejarlas aquí
@@ -146,6 +151,8 @@ _COL_TYPES = OrderedDict(
         ("target_total_pnl_pct", pa.float32()),
         ("sample_type", pa.string()),
         ("ts", pa.timestamp("us")),
+        ("max_pnl_pct_seen", pa.float64()),
+        ("outcome_closed_at", pa.timestamp("us")),
     ]
 )
 
@@ -208,23 +215,99 @@ def _normalize_scalar(val: object) -> object:
 # ─────────── contador in-memory ───────────────────────────────
 _ROW_COUNT = 0  # se incrementa en cada append()
 
+_LOCK_TIMEOUT_SECONDS = 30.0
+_LOCK_STALE_SECONDS = 300.0
+_LOCK_POLL_SECONDS = 0.05
+_REPLACE_TIMEOUT_SECONDS = 10.0
+
+
+@contextmanager
+def _exclusive_parquet_lock(path: Path) -> Iterator[None]:
+    """Serializa read-modify-write entre procesos sin dependencias externas."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f"{path.name}.lock")
+    deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
+    fd: int | None = None
+
+    while fd is None:
+        try:
+            fd = os.open(
+                lock_path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0),
+            )
+            os.write(fd, f"pid={os.getpid()} created_at={time.time()}\n".encode("ascii"))
+        except FileExistsError:
+            try:
+                lock_age = max(0.0, time.time() - lock_path.stat().st_mtime)
+                if lock_age >= _LOCK_STALE_SECONDS:
+                    lock_path.unlink()
+                    continue
+            except FileNotFoundError:
+                continue
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Timed out waiting for parquet lock: {lock_path}")
+            time.sleep(_LOCK_POLL_SECONDS)
+
+    try:
+        yield
+    finally:
+        os.close(fd)
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _replace_with_retry(source: Path, target: Path) -> None:
+    """Tolera lectores breves que mantienen abierto el destino en Windows."""
+    deadline = time.monotonic() + _REPLACE_TIMEOUT_SECONDS
+    while True:
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(_LOCK_POLL_SECONDS)
+
+
+def _atomic_write_table(table: pa.Table, path: Path) -> None:
+    """Escribe en el mismo directorio y publica con un replace atomico."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        pq.write_table(
+            table,
+            tmp_path,
+            compression="snappy",
+            use_deprecated_int96_timestamps=False,
+        )
+        _replace_with_retry(tmp_path, path)
+    finally:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+
 # ───────────────────── low-level IO ───────────────────────────
 def _write(table: pa.Table, path: Path) -> None:
     table = _enforce_schema(table)
 
-    if path.exists():
-        existing = _enforce_schema(pq.read_table(path))
-        table = pa.concat_tables(
-            [existing, table],
-            promote_options="default",  # sin FutureWarning desde pyarrow 20
-        )
+    with _exclusive_parquet_lock(path):
+        if path.exists():
+            existing = _enforce_schema(pq.read_table(path))
+            table = pa.concat_tables(
+                [existing, table],
+                promote_options="default",  # sin FutureWarning desde pyarrow 20
+            )
 
-    pq.write_table(
-        table,
-        path,
-        compression="snappy",
-        use_deprecated_int96_timestamps=False,
-    )
+        _atomic_write_table(table, path)
 
 
 # ───────────────────── API pública ─────────────────────────────
@@ -234,6 +317,7 @@ def append(
     *,
     target_total_pnl_pct: float | None = None,
     sample_type: str | None = None,
+    outcome_targets: Mapping[str, object] | None = None,
 ) -> None:
     """
     Añade una fila al Parquet mensual y muestra el total cada 100 filas.
@@ -258,6 +342,13 @@ def append(
     row["target_total_pnl_pct"] = _normalize_scalar(target_total_pnl_pct)
     row["sample_type"] = normalize_sample_type(sample_type)
     row["ts"] = dt.datetime.now(dt.timezone.utc)
+    # Outcome-only columns are absent from builder/ALLOWED_FEATURES.
+    targets = dict(outcome_targets or {})
+    unexpected = set(targets) - set(_OUTCOME_COLS)
+    if unexpected:
+        raise ValueError(f"Unknown outcome target columns: {sorted(unexpected)}")
+    for column in _OUTCOME_COLS:
+        row[column] = _normalize_scalar(targets.get(column))
 
     pa_table = pa.Table.from_pydict({k: [v] for k, v in row.items()})
 
@@ -273,38 +364,39 @@ def append(
 def update_pnl(address: str, pnl_pct: float) -> None:
     """Legacy helper: actualiza pnl_pct y target_total_pnl_pct en la última fila del token."""
     path = _file_for_now()
-    if not path.exists():
-        return
 
     try:
-        table = pq.read_table(path)
-        # Nota: 'address' es string(); .to_pylist sería costoso; iteramos columna
-        addrs_col = table.column("address")
-        idxs = [i for i in range(table.num_rows) if addrs_col[i].as_py() == address]
-        if not idxs:
-            return
-        last = idxs[-1]
+        with _exclusive_parquet_lock(path):
+            if not path.exists():
+                return
+            table = pq.read_table(path)
+            # Nota: 'address' es string(); .to_pylist sería costoso; iteramos columna
+            addrs_col = table.column("address")
+            idxs = [i for i in range(table.num_rows) if addrs_col[i].as_py() == address]
+            if not idxs:
+                return
+            last = idxs[-1]
 
-        for col in ("pnl_pct", "target_total_pnl_pct"):
-            if col not in table.schema.names:
-                table = table.append_column(col, pa.array([None] * table.num_rows))
+            for col in ("pnl_pct", "target_total_pnl_pct"):
+                if col not in table.schema.names:
+                    table = table.append_column(col, pa.array([None] * table.num_rows))
 
-        legacy_vals = [table.column("pnl_pct")[i].as_py() for i in range(table.num_rows)]
-        legacy_vals[last] = float(pnl_pct)
-        new_table = table.set_column(
-            table.schema.names.index("pnl_pct"),
-            "pnl_pct",
-            pa.array(legacy_vals),
-        )
+            legacy_vals = [table.column("pnl_pct")[i].as_py() for i in range(table.num_rows)]
+            legacy_vals[last] = float(pnl_pct)
+            new_table = table.set_column(
+                table.schema.names.index("pnl_pct"),
+                "pnl_pct",
+                pa.array(legacy_vals),
+            )
 
-        target_vals = [new_table.column("target_total_pnl_pct")[i].as_py() for i in range(new_table.num_rows)]
-        target_vals[last] = float(pnl_pct)
-        new_table = new_table.set_column(
-            new_table.schema.names.index("target_total_pnl_pct"),
-            "target_total_pnl_pct",
-            pa.array(target_vals),
-        )
-        pq.write_table(new_table, path, compression="snappy")
+            target_vals = [new_table.column("target_total_pnl_pct")[i].as_py() for i in range(new_table.num_rows)]
+            target_vals[last] = float(pnl_pct)
+            new_table = new_table.set_column(
+                new_table.schema.names.index("target_total_pnl_pct"),
+                "target_total_pnl_pct",
+                pa.array(target_vals),
+            )
+            _atomic_write_table(new_table, path)
     except Exception as exc:  # noqa: BLE001
         log.error("update_pnl error → %s", exc)
 

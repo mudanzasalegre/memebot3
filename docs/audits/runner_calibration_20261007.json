@@ -1,0 +1,2911 @@
+{
+  "generated_at_utc": "2026-10-07T10:37:59.086260+00:00",
+  "sources": [
+    {
+      "file": "data/features/features_202607.parquet",
+      "sha256": "18edc6f91c13e617e0ba8b9afa96106807353ba7887ac062840ab54cac589ab0",
+      "mtime_utc": "2026-07-15T18:18:25.193220+00:00"
+    },
+    {
+      "file": "data/features/features_202610.parquet",
+      "sha256": "9b5226d4284eedaa8d5e4cc1206128a04b13247f21e80d8ee26de67091a2c84c",
+      "mtime_utc": "2026-10-04T10:43:35.278763+00:00"
+    },
+    {
+      "file": "data/metrics/candidate_outcomes.jsonl",
+      "sha256": "3e6721a861f4bdf012b9a66c410fd17caa53ba29ff726b9b249eba616563c96f",
+      "mtime_utc": "2026-10-04T10:44:49.141558+00:00"
+    }
+  ],
+  "rows": 2147,
+  "target_join": {
+    "matched": 2147,
+    "ambiguous": 0,
+    "rows": 2147,
+    "max_lag_seconds": 30.0
+  },
+  "decision_period_utc": {
+    "start": "2026-07-13 12:06:34.183735+00:00",
+    "end": "2026-07-15 17:46:15.159836+00:00"
+  },
+  "target_counts": {
+    "runner_50": {
+      "observed": 2147,
+      "positive": 60
+    },
+    "runner_100": {
+      "observed": 2147,
+      "positive": 32
+    },
+    "runner_200": {
+      "observed": 2147,
+      "positive": 18
+    },
+    "runner_300": {
+      "observed": 2147,
+      "positive": 14
+    },
+    "runner_500": {
+      "observed": 2147,
+      "positive": 5
+    },
+    "runner_1000": {
+      "observed": 2147,
+      "positive": 4
+    },
+    "runner_2000": {
+      "observed": 2147,
+      "positive": 0
+    },
+    "runner_5000": {
+      "observed": 2147,
+      "positive": 0
+    },
+    "runner_10000": {
+      "observed": 2147,
+      "positive": 0
+    }
+  },
+  "classification": {
+    "family": "runner",
+    "trained_at_utc": "2026-10-07T10:37:56.714544+00:00",
+    "feature_set": "runner_features",
+    "feature_set_hash": "524f0912c4dcb1f8",
+    "rows": 2147,
+    "targets": {
+      "runner_50": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-103756/runner/runner_50.pkl",
+        "positives": 60,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "avg_pred": 0.23739716466858432,
+        "base_rate": 0.02857142857142857,
+        "precision_lift_at_k": 3.4782608695652173,
+        "brier_score": 0.02835207671474379,
+        "baseline_brier_score": 0.027770304978200322,
+        "brier_skill_score": -0.02094941834452868,
+        "probabilities_calibrated": true,
+        "probability_validation_ready": false,
+        "ranking_validation_ready": true,
+        "calibration": {
+          "method": "sigmoid",
+          "calibrated": true,
+          "min_class_count": 3,
+          "timing": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 702,
+                "test_rows": 716,
+                "test_start": "2026-07-13T19:48:23.396213+00:00",
+                "test_end": "2026-07-14T06:49:47.109905+00:00",
+                "train_label_latest": "2026-07-13T19:46:17.004854+00:00",
+                "purged_unsettled_or_embargo": 14,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1420,
+                "test_rows": 715,
+                "test_start": "2026-07-14T06:49:58.700582+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T06:48:58.442023+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ]
+          },
+          "fit_rows": 1420,
+          "calibration_rows": 715,
+          "fit_positives": 40,
+          "calibration_positives": 20
+        },
+        "rank_reference_quantiles": [
+          0.0007512365800859502,
+          0.0016357899745942982,
+          0.002320115731505136,
+          0.0025259713291194766,
+          0.002666254289720953,
+          0.002987719119120403,
+          0.003164970834731394,
+          0.003454172334965246,
+          0.00635919725831015,
+          0.048450485996159934,
+          0.07570841804568955,
+          0.07850903905429064,
+          0.08176188889951588,
+          0.08417774574267434,
+          0.08969851089596748,
+          0.09301027331466367,
+          0.09646120240414158,
+          0.10262111991787622,
+          0.10696777938155261,
+          0.1116792477939766,
+          0.1250297098982399,
+          0.12650018962193624,
+          0.12791948981786308,
+          0.1288610889579116,
+          0.12956312307936407,
+          0.13066393126851647,
+          0.13231192296284508,
+          0.1354361659482551,
+          0.1376761861207557,
+          0.1390694032989572,
+          0.1407065594946222,
+          0.14262542143576298,
+          0.14478440806585371,
+          0.14655816618541084,
+          0.148280948128821,
+          0.15002695781454622,
+          0.15164650802330507,
+          0.15351147520455152,
+          0.1553721190410164,
+          0.15684034285230777,
+          0.1588325431710038,
+          0.1607622385733186,
+          0.16210252023223365,
+          0.1634818428282056,
+          0.16499952288014524,
+          0.16589312860335179,
+          0.16708219164332283,
+          0.16850752212934353,
+          0.1692326699187709,
+          0.17048292121622383,
+          0.17182310720087282,
+          0.17254028679164782,
+          0.1738897063913411,
+          0.17504333151509324,
+          0.17604495241697546,
+          0.17684841098369053,
+          0.1777928929960872,
+          0.17908575746839306,
+          0.1803699331958959,
+          0.18179989107301991,
+          0.1840348185821783,
+          0.18650620429449138,
+          0.18994919808493635,
+          0.20070760244179778,
+          0.20603611417576803,
+          0.20991888750330553,
+          0.21409370245479964,
+          0.21939062732179707,
+          0.22373885349207603,
+          0.22739006944073167,
+          0.2308977693150623,
+          0.23435935898834925,
+          0.24004931102334642,
+          0.24916465076576755,
+          0.2638488437961055,
+          0.28032719883442814,
+          0.2953310450046295,
+          0.30926288819345943,
+          0.3222435318059953,
+          0.3485540136275267,
+          0.37459474995836234,
+          0.408911212002463,
+          0.44274293944389004,
+          0.4822759582280024,
+          0.4965398892698421,
+          0.5278940792318431,
+          0.5621631178627883,
+          0.579709726280144,
+          0.6135625864542339,
+          0.6670211782639872,
+          0.7026005247687589,
+          0.7322637651838056,
+          0.7709918968466279,
+          0.8083072238575275,
+          0.8524139113578951,
+          0.8928784215088897,
+          0.9378981417754431,
+          0.9549546804168061,
+          0.9725408685721201,
+          0.9872315241999364,
+          0.9999999851411097
+        ],
+        "probability_caveat": "Ranking scores are separate from held-out calibrated event probabilities. Neither proves executable or costed profit, and prospective validation is required before sizing or exits change.",
+        "precision_at_k": 0.09937888198757763,
+        "recall_at_k": 0.34782608695652173,
+        "precision_at_k_pct": 0.1,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement"
+          ],
+          "critical_warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": true,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 531,
+                    "eligible_rows": 531,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 160,
+                        "test_rows": 177,
+                        "test_start": "2026-07-13T13:05:56.620380+00:00",
+                        "test_end": "2026-07-13T14:57:28.076535+00:00",
+                        "train_label_latest": "2026-07-13T13:02:13.528884+00:00",
+                        "purged_unsettled_or_embargo": 17,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 350,
+                        "test_rows": 177,
+                        "test_start": "2026-07-13T14:57:33.600522+00:00",
+                        "test_end": "2026-07-13T17:20:02.693903+00:00",
+                        "train_label_latest": "2026-07-13T14:56:06.710491+00:00",
+                        "purged_unsettled_or_embargo": 4,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 350,
+                  "calibration_rows": 177,
+                  "fit_positives": 6,
+                  "calibration_positives": 6
+                }
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": true,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 1059,
+                    "eligible_rows": 1059,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 350,
+                        "test_rows": 353,
+                        "test_start": "2026-07-13T14:57:28.076535+00:00",
+                        "test_end": "2026-07-13T19:38:31.226823+00:00",
+                        "train_label_latest": "2026-07-13T14:56:06.710491+00:00",
+                        "purged_unsettled_or_embargo": 3,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 690,
+                        "test_rows": 353,
+                        "test_start": "2026-07-13T19:41:03.249214+00:00",
+                        "test_end": "2026-07-14T01:14:34.302409+00:00",
+                        "train_label_latest": "2026-07-13T19:35:03.415139+00:00",
+                        "purged_unsettled_or_embargo": 16,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 690,
+                  "calibration_rows": 353,
+                  "fit_positives": 16,
+                  "calibration_positives": 11
+                }
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": true,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 1599,
+                    "eligible_rows": 1599,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 518,
+                        "test_rows": 533,
+                        "test_start": "2026-07-13T17:20:02.693903+00:00",
+                        "test_end": "2026-07-14T01:20:44.725720+00:00",
+                        "train_label_latest": "2026-07-13T17:16:41.486169+00:00",
+                        "purged_unsettled_or_embargo": 15,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 1058,
+                        "test_rows": 533,
+                        "test_start": "2026-07-14T01:26:26.253000+00:00",
+                        "test_end": "2026-07-14T09:55:34.058782+00:00",
+                        "train_label_latest": "2026-07-14T01:23:02.854164+00:00",
+                        "purged_unsettled_or_embargo": 8,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 1058,
+                  "calibration_rows": 533,
+                  "fit_positives": 26,
+                  "calibration_positives": 19
+                }
+              }
+            ],
+            "out_of_sample_rows": 1610,
+            "probability_evaluation": {
+              "rows": 1610,
+              "positives": 46,
+              "brier_score": 0.02835207671474379,
+              "baseline_brier_score": 0.027770304978200322,
+              "brier_skill_score": -0.02094941834452868,
+              "baseline": "Each outer fold's mature training prevalence, not the future test prevalence",
+              "reliability_bins": [
+                {
+                  "bin_lower": 0.0,
+                  "bin_upper": 0.1,
+                  "rows": 1579,
+                  "mean_probability": 0.03150528829096655,
+                  "observed_rate": 0.027232425585813805
+                },
+                {
+                  "bin_lower": 0.1,
+                  "bin_upper": 0.2,
+                  "rows": 27,
+                  "mean_probability": 0.14573620339732804,
+                  "observed_rate": 0.1111111111111111
+                },
+                {
+                  "bin_lower": 0.3,
+                  "bin_upper": 0.4,
+                  "rows": 2,
+                  "mean_probability": 0.37298858639318566,
+                  "observed_rate": 0.0
+                },
+                {
+                  "bin_lower": 0.8,
+                  "bin_upper": 0.9,
+                  "rows": 2,
+                  "mean_probability": 0.8557471055511148,
+                  "observed_rate": 0.0
+                }
+              ]
+            }
+          },
+          "precision_floor": 0.6,
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10,
+            "by_lane": {
+              "pump_early_green_candle_sniper": {
+                "count": 1416,
+                "positives": 21
+              },
+              "pump_early_late_momentum_watch": {
+                "count": 34,
+                "positives": 1
+              },
+              "pump_early_research_rank_canary": {
+                "count": 123,
+                "positives": 21
+              },
+              "pump_early_sniper_research": {
+                "count": 37,
+                "positives": 3
+              }
+            }
+          }
+        }
+      },
+      "runner_100": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-103756/runner/runner_100.pkl",
+        "positives": 32,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "avg_pred": 0.218372100470817,
+        "base_rate": 0.014906832298136646,
+        "precision_lift_at_k": 2.0833333333333335,
+        "brier_score": 0.014644707608063665,
+        "baseline_brier_score": 0.014688096972601294,
+        "brier_skill_score": 0.0029540494332632727,
+        "probabilities_calibrated": true,
+        "probability_validation_ready": true,
+        "ranking_validation_ready": true,
+        "calibration": {
+          "method": "sigmoid",
+          "calibrated": true,
+          "min_class_count": 3,
+          "timing": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 702,
+                "test_rows": 716,
+                "test_start": "2026-07-13T19:48:23.396213+00:00",
+                "test_end": "2026-07-14T06:49:47.109905+00:00",
+                "train_label_latest": "2026-07-13T19:46:17.004854+00:00",
+                "purged_unsettled_or_embargo": 14,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1420,
+                "test_rows": 715,
+                "test_start": "2026-07-14T06:49:58.700582+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T06:48:58.442023+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ]
+          },
+          "fit_rows": 1420,
+          "calibration_rows": 715,
+          "fit_positives": 23,
+          "calibration_positives": 9
+        },
+        "rank_reference_quantiles": [
+          8.145668141586005e-09,
+          8.279073152734915e-08,
+          0.0019585953153049744,
+          0.002175022390678143,
+          0.00247464442371735,
+          0.00276687951668467,
+          0.003401316991623028,
+          0.0036195712980334103,
+          0.003932395772855402,
+          0.0042571645238489745,
+          0.007524107867744129,
+          0.026141527862957467,
+          0.10978269083564322,
+          0.12193343337293863,
+          0.12834813352745314,
+          0.13257631882393017,
+          0.1350622938724081,
+          0.13694351990150694,
+          0.13895289285668352,
+          0.140335200538621,
+          0.14177632617691577,
+          0.14289761571940024,
+          0.143740227950923,
+          0.1456160987279594,
+          0.1470985495762216,
+          0.14892108273515395,
+          0.15017537706653147,
+          0.15121284343271593,
+          0.152132209946281,
+          0.152976252193249,
+          0.15385157602939892,
+          0.15489693277376307,
+          0.15569494217165702,
+          0.15655276679140773,
+          0.1570711067837965,
+          0.15810681757880762,
+          0.1595712627878725,
+          0.16024609955326538,
+          0.1612168543316335,
+          0.16222290266998804,
+          0.1631566265305374,
+          0.1641637663651475,
+          0.16492741003206865,
+          0.16556405613489722,
+          0.16635355062018295,
+          0.1673514085979456,
+          0.1682762948548505,
+          0.1690155800567826,
+          0.16981685016867004,
+          0.17083083379989433,
+          0.17175664053618425,
+          0.17230679113048702,
+          0.17333112826614772,
+          0.17416470887969526,
+          0.1747046308209954,
+          0.17572385561571205,
+          0.17681730450526353,
+          0.17798127164155364,
+          0.1794263958943705,
+          0.18012719968954286,
+          0.18173332943614717,
+          0.18284923383279994,
+          0.18417182253130987,
+          0.185718336605201,
+          0.1869304767304554,
+          0.18905112968635973,
+          0.19077201666593532,
+          0.19224783982459356,
+          0.19285685102547448,
+          0.19396989878964943,
+          0.19501029412231746,
+          0.19634440548330542,
+          0.19707166076472027,
+          0.19763355395072002,
+          0.19881821860679616,
+          0.2002943325800889,
+          0.20705144915186025,
+          0.2161008366702435,
+          0.22988225642662238,
+          0.2510659687969167,
+          0.28056362758962883,
+          0.30806658120832414,
+          0.3605938264622638,
+          0.4140513406777011,
+          0.4809261993930178,
+          0.5243804397788858,
+          0.5668860144552393,
+          0.5984936059351771,
+          0.636510758610692,
+          0.6846758274392114,
+          0.7228403756152164,
+          0.7681687603415218,
+          0.7955507076508044,
+          0.8259463511308686,
+          0.8573486964588899,
+          0.8950531473606569,
+          0.9274674488492719,
+          0.9491038516715502,
+          0.9674513920486127,
+          0.9881159154285124,
+          0.9998688664908625
+        ],
+        "probability_caveat": "Ranking scores are separate from held-out calibrated event probabilities. Neither proves executable or costed profit, and prospective validation is required before sizing or exits change.",
+        "precision_at_k": 0.031055900621118012,
+        "recall_at_k": 0.20833333333333334,
+        "precision_at_k_pct": 0.1,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "critical_warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": true,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 531,
+                    "eligible_rows": 531,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 160,
+                        "test_rows": 177,
+                        "test_start": "2026-07-13T13:05:56.620380+00:00",
+                        "test_end": "2026-07-13T14:57:28.076535+00:00",
+                        "train_label_latest": "2026-07-13T13:02:13.528884+00:00",
+                        "purged_unsettled_or_embargo": 17,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 350,
+                        "test_rows": 177,
+                        "test_start": "2026-07-13T14:57:33.600522+00:00",
+                        "test_end": "2026-07-13T17:20:02.693903+00:00",
+                        "train_label_latest": "2026-07-13T14:56:06.710491+00:00",
+                        "purged_unsettled_or_embargo": 4,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 350,
+                  "calibration_rows": 177,
+                  "fit_positives": 3,
+                  "calibration_positives": 4
+                }
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": true,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 1059,
+                    "eligible_rows": 1059,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 350,
+                        "test_rows": 353,
+                        "test_start": "2026-07-13T14:57:28.076535+00:00",
+                        "test_end": "2026-07-13T19:38:31.226823+00:00",
+                        "train_label_latest": "2026-07-13T14:56:06.710491+00:00",
+                        "purged_unsettled_or_embargo": 3,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 690,
+                        "test_rows": 353,
+                        "test_start": "2026-07-13T19:41:03.249214+00:00",
+                        "test_end": "2026-07-14T01:14:34.302409+00:00",
+                        "train_label_latest": "2026-07-13T19:35:03.415139+00:00",
+                        "purged_unsettled_or_embargo": 16,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 690,
+                  "calibration_rows": 353,
+                  "fit_positives": 9,
+                  "calibration_positives": 7
+                }
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": true,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 1599,
+                    "eligible_rows": 1599,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 518,
+                        "test_rows": 533,
+                        "test_start": "2026-07-13T17:20:02.693903+00:00",
+                        "test_end": "2026-07-14T01:20:44.725720+00:00",
+                        "train_label_latest": "2026-07-13T17:16:41.486169+00:00",
+                        "purged_unsettled_or_embargo": 15,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 1058,
+                        "test_rows": 533,
+                        "test_start": "2026-07-14T01:26:26.253000+00:00",
+                        "test_end": "2026-07-14T09:55:34.058782+00:00",
+                        "train_label_latest": "2026-07-14T01:23:02.854164+00:00",
+                        "purged_unsettled_or_embargo": 8,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 1058,
+                  "calibration_rows": 533,
+                  "fit_positives": 15,
+                  "calibration_positives": 10
+                }
+              }
+            ],
+            "out_of_sample_rows": 1610,
+            "probability_evaluation": {
+              "rows": 1610,
+              "positives": 24,
+              "brier_score": 0.014644707608063665,
+              "baseline_brier_score": 0.014688096972601294,
+              "brier_skill_score": 0.0029540494332632727,
+              "baseline": "Each outer fold's mature training prevalence, not the future test prevalence",
+              "reliability_bins": [
+                {
+                  "bin_lower": 0.0,
+                  "bin_upper": 0.1,
+                  "rows": 1610,
+                  "mean_probability": 0.02139869501067705,
+                  "observed_rate": 0.014906832298136646
+                }
+              ]
+            }
+          },
+          "precision_floor": 0.6,
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10,
+            "by_lane": {
+              "pump_early_green_candle_sniper": {
+                "count": 1416,
+                "positives": 11
+              },
+              "pump_early_late_momentum_watch": {
+                "count": 34,
+                "positives": 0
+              },
+              "pump_early_research_rank_canary": {
+                "count": 123,
+                "positives": 10
+              },
+              "pump_early_sniper_research": {
+                "count": 37,
+                "positives": 3
+              }
+            },
+            "reason": "single_class_lane"
+          }
+        }
+      },
+      "runner_200": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-103756/runner/runner_200.pkl",
+        "positives": 18,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "avg_pred": 0.12193574605470194,
+        "base_rate": 0.008695652173913044,
+        "precision_lift_at_k": 1.4285714285714284,
+        "brier_score": 0.006485163396349764,
+        "baseline_brier_score": 0.0064918214746806585,
+        "brier_skill_score": 0.0010256102015223645,
+        "probabilities_calibrated": true,
+        "probability_validation_ready": true,
+        "ranking_validation_ready": true,
+        "calibration": {
+          "method": "sigmoid",
+          "calibrated": true,
+          "min_class_count": 3,
+          "timing": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 702,
+                "test_rows": 716,
+                "test_start": "2026-07-13T19:48:23.396213+00:00",
+                "test_end": "2026-07-14T06:49:47.109905+00:00",
+                "train_label_latest": "2026-07-13T19:46:17.004854+00:00",
+                "purged_unsettled_or_embargo": 14,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1420,
+                "test_rows": 715,
+                "test_start": "2026-07-14T06:49:58.700582+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T06:48:58.442023+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ]
+          },
+          "fit_rows": 1420,
+          "calibration_rows": 715,
+          "fit_positives": 14,
+          "calibration_positives": 4
+        },
+        "rank_reference_quantiles": [
+          3.0803568703190237e-11,
+          3.923756765136812e-09,
+          7.044351609736202e-06,
+          9.469551309870354e-05,
+          0.0005009653890264347,
+          0.0008356875334570974,
+          0.0010693237175057309,
+          0.0013940334998771599,
+          0.001929892714076445,
+          0.0030416141783779723,
+          0.003675988747146376,
+          0.004246490766512236,
+          0.004808264789439138,
+          0.005641082716517925,
+          0.007107785347678301,
+          0.008376286234478735,
+          0.01377601241839418,
+          0.02323731966467737,
+          0.03572834931740655,
+          0.04147020498593679,
+          0.04423004004195203,
+          0.046397899426565456,
+          0.04865512868828727,
+          0.05079249456156254,
+          0.05220477117733216,
+          0.0540342064702246,
+          0.05537156983561652,
+          0.05731627277392665,
+          0.058497945028487444,
+          0.060478688187998786,
+          0.06316932920860624,
+          0.06515009760767417,
+          0.06652415833595059,
+          0.06888022365243489,
+          0.07029160815044765,
+          0.071805256320909,
+          0.07343958095246668,
+          0.0749848760931399,
+          0.0770405450515458,
+          0.0789611359761597,
+          0.0808034766118061,
+          0.0826465967645493,
+          0.0848077436614565,
+          0.08714974902619954,
+          0.0888985015333148,
+          0.09074249982511293,
+          0.09236712860224333,
+          0.09420074777999554,
+          0.09666330673256844,
+          0.09867128907673733,
+          0.1004057831101676,
+          0.10275555165898072,
+          0.1046510302451311,
+          0.10729992121516392,
+          0.10945111379875631,
+          0.11171064935517183,
+          0.11351413424022799,
+          0.11605294716044975,
+          0.11805731259217554,
+          0.11978169702324366,
+          0.12209226253010527,
+          0.1258032326281771,
+          0.12804359739555013,
+          0.13041246078563615,
+          0.132659990591895,
+          0.13518310167933006,
+          0.13940259461618026,
+          0.14293429143819186,
+          0.14646946506763062,
+          0.15024619004539796,
+          0.15319287138185403,
+          0.15900943602214745,
+          0.16201171018457722,
+          0.1655468536706256,
+          0.17002456410768355,
+          0.1727020684053342,
+          0.17593468311688956,
+          0.17932963971550522,
+          0.1826840408111308,
+          0.18706319342382258,
+          0.18937289602067522,
+          0.1933031741736959,
+          0.1974482095999673,
+          0.2077311446982907,
+          0.2301810051837614,
+          0.24742956448930042,
+          0.2659576395318802,
+          0.2805856812386341,
+          0.3137029014935808,
+          0.3857001991648774,
+          0.4536007274602874,
+          0.533411729782271,
+          0.6461544232645928,
+          0.7395496124618077,
+          0.8061970576142747,
+          0.8854579903818527,
+          0.9267201795077511,
+          0.9515032445035914,
+          0.9718904451210879,
+          0.9927464325549622,
+          0.9999999999701792
+        ],
+        "probability_caveat": "Ranking scores are separate from held-out calibrated event probabilities. Neither proves executable or costed profit, and prospective validation is required before sizing or exits change.",
+        "precision_at_k": 0.012422360248447204,
+        "recall_at_k": 0.14285714285714285,
+        "precision_at_k_pct": 0.1,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "critical_warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": false,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 531,
+                    "eligible_rows": 531,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 160,
+                        "test_rows": 177,
+                        "test_start": "2026-07-13T13:05:56.620380+00:00",
+                        "test_end": "2026-07-13T14:57:28.076535+00:00",
+                        "train_label_latest": "2026-07-13T13:02:13.528884+00:00",
+                        "purged_unsettled_or_embargo": 17,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 350,
+                        "test_rows": 177,
+                        "test_start": "2026-07-13T14:57:33.600522+00:00",
+                        "test_end": "2026-07-13T17:20:02.693903+00:00",
+                        "train_label_latest": "2026-07-13T14:56:06.710491+00:00",
+                        "purged_unsettled_or_embargo": 4,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 531,
+                  "calibration_rows": 0,
+                  "reason": "insufficient_disjoint_calibration_classes_or_rows"
+                }
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": true,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 1059,
+                    "eligible_rows": 1059,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 350,
+                        "test_rows": 353,
+                        "test_start": "2026-07-13T14:57:28.076535+00:00",
+                        "test_end": "2026-07-13T19:38:31.226823+00:00",
+                        "train_label_latest": "2026-07-13T14:56:06.710491+00:00",
+                        "purged_unsettled_or_embargo": 3,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 690,
+                        "test_rows": 353,
+                        "test_start": "2026-07-13T19:41:03.249214+00:00",
+                        "test_end": "2026-07-14T01:14:34.302409+00:00",
+                        "train_label_latest": "2026-07-13T19:35:03.415139+00:00",
+                        "purged_unsettled_or_embargo": 16,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 690,
+                  "calibration_rows": 353,
+                  "fit_positives": 5,
+                  "calibration_positives": 6
+                }
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": true,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 1599,
+                    "eligible_rows": 1599,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 518,
+                        "test_rows": 533,
+                        "test_start": "2026-07-13T17:20:02.693903+00:00",
+                        "test_end": "2026-07-14T01:20:44.725720+00:00",
+                        "train_label_latest": "2026-07-13T17:16:41.486169+00:00",
+                        "purged_unsettled_or_embargo": 15,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 1058,
+                        "test_rows": 533,
+                        "test_start": "2026-07-14T01:26:26.253000+00:00",
+                        "test_end": "2026-07-14T09:55:34.058782+00:00",
+                        "train_label_latest": "2026-07-14T01:23:02.854164+00:00",
+                        "purged_unsettled_or_embargo": 8,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 1058,
+                  "calibration_rows": 533,
+                  "fit_positives": 10,
+                  "calibration_positives": 4
+                }
+              }
+            ],
+            "out_of_sample_rows": 1610,
+            "probability_evaluation": {
+              "rows": 1073,
+              "positives": 7,
+              "brier_score": 0.006485163396349764,
+              "baseline_brier_score": 0.0064918214746806585,
+              "brier_skill_score": 0.0010256102015223645,
+              "baseline": "Each outer fold's mature training prevalence, not the future test prevalence",
+              "reliability_bins": [
+                {
+                  "bin_lower": 0.0,
+                  "bin_upper": 0.1,
+                  "rows": 1073,
+                  "mean_probability": 0.012710379677144149,
+                  "observed_rate": 0.0065237651444548
+                }
+              ]
+            }
+          },
+          "precision_floor": 0.6,
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10,
+            "by_lane": {
+              "pump_early_green_candle_sniper": {
+                "count": 1416,
+                "positives": 7
+              },
+              "pump_early_late_momentum_watch": {
+                "count": 34,
+                "positives": 0
+              },
+              "pump_early_research_rank_canary": {
+                "count": 123,
+                "positives": 6
+              },
+              "pump_early_sniper_research": {
+                "count": 37,
+                "positives": 1
+              }
+            },
+            "reason": "single_class_lane"
+          }
+        }
+      },
+      "runner_300": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-103756/runner/runner_300.pkl",
+        "positives": 14,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "avg_pred": 0.12106088395925294,
+        "base_rate": 0.006211180124223602,
+        "precision_lift_at_k": 1.0,
+        "brier_score": 0.005504349286324078,
+        "baseline_brier_score": 0.005564193644528087,
+        "brier_skill_score": 0.010755261593539567,
+        "probabilities_calibrated": true,
+        "probability_validation_ready": true,
+        "ranking_validation_ready": false,
+        "calibration": {
+          "method": "sigmoid",
+          "calibrated": true,
+          "min_class_count": 3,
+          "timing": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 702,
+                "test_rows": 716,
+                "test_start": "2026-07-13T19:48:23.396213+00:00",
+                "test_end": "2026-07-14T06:49:47.109905+00:00",
+                "train_label_latest": "2026-07-13T19:46:17.004854+00:00",
+                "purged_unsettled_or_embargo": 14,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1420,
+                "test_rows": 715,
+                "test_start": "2026-07-14T06:49:58.700582+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T06:48:58.442023+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ]
+          },
+          "fit_rows": 1420,
+          "calibration_rows": 715,
+          "fit_positives": 11,
+          "calibration_positives": 3
+        },
+        "rank_reference_quantiles": [
+          1.20806263466581e-13,
+          1.381591179716722e-09,
+          6.000747812757537e-07,
+          5.714339675422718e-06,
+          3.510527188166129e-05,
+          5.334408538774591e-05,
+          0.0001207249965521138,
+          0.00048719298692397614,
+          0.0009768983509470816,
+          0.0014780294019115733,
+          0.0016100581219896022,
+          0.001730442366782896,
+          0.0018239348519877015,
+          0.0019602983364470743,
+          0.0022378435847118044,
+          0.002833280796568743,
+          0.0033732206424858732,
+          0.004966214793166311,
+          0.010630126424525555,
+          0.02773351269771306,
+          0.042175384821437636,
+          0.054838581206315594,
+          0.059533204055026163,
+          0.06185986003482016,
+          0.06460149046238102,
+          0.06636784084130039,
+          0.0687078989265385,
+          0.06993695646551863,
+          0.07109242373006995,
+          0.07264702256674975,
+          0.07373599224460319,
+          0.07549750539301865,
+          0.07705612045716362,
+          0.07834313020460446,
+          0.07988958164089344,
+          0.08135235453891777,
+          0.08315612167447121,
+          0.0841708323033886,
+          0.08533822689806315,
+          0.08715942763592872,
+          0.08813240183879137,
+          0.08946391441919119,
+          0.09067766479581225,
+          0.09193847499934743,
+          0.093050699642206,
+          0.09456820151184189,
+          0.09594801471777031,
+          0.09856554959755001,
+          0.10048742396367363,
+          0.1022176581026808,
+          0.10378823111785013,
+          0.10664256402023795,
+          0.10965415714162968,
+          0.11250658491473436,
+          0.11489333426830084,
+          0.11737260181951813,
+          0.1194161793384586,
+          0.12172503336718732,
+          0.12474771754523818,
+          0.12694845453314654,
+          0.12912915031275735,
+          0.13128809475203834,
+          0.13370337465786955,
+          0.13624700368428871,
+          0.13952131840440596,
+          0.14230804137826888,
+          0.14522071384793225,
+          0.14796123267448877,
+          0.1510727967785208,
+          0.1574858184098515,
+          0.16295775296467574,
+          0.16962039591607495,
+          0.19872972088869345,
+          0.21673644108226509,
+          0.22258922754037436,
+          0.22548389877893127,
+          0.2275483525083346,
+          0.2294622797556742,
+          0.2324143337227691,
+          0.2338431242746614,
+          0.235565685284499,
+          0.2376071562679384,
+          0.24095901387820484,
+          0.24449891276839594,
+          0.2517530453543502,
+          0.2619923115360282,
+          0.2740222198115719,
+          0.2858917498859827,
+          0.2946587962020016,
+          0.3053460494413387,
+          0.36507103143823894,
+          0.4479694530471319,
+          0.5675905262067237,
+          0.6631354132616128,
+          0.7531441409019992,
+          0.8296420826399011,
+          0.9061663465926294,
+          0.9392452714006858,
+          0.9689196349407461,
+          0.9912408814186358,
+          0.999999999997699
+        ],
+        "probability_caveat": "Ranking scores are separate from held-out calibrated event probabilities. Neither proves executable or costed profit, and prospective validation is required before sizing or exits change.",
+        "precision_at_k": 0.006211180124223602,
+        "recall_at_k": 0.1,
+        "precision_at_k_pct": 0.1,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "critical_warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": false,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 531,
+                    "eligible_rows": 531,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 160,
+                        "test_rows": 177,
+                        "test_start": "2026-07-13T13:05:56.620380+00:00",
+                        "test_end": "2026-07-13T14:57:28.076535+00:00",
+                        "train_label_latest": "2026-07-13T13:02:13.528884+00:00",
+                        "purged_unsettled_or_embargo": 17,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 350,
+                        "test_rows": 177,
+                        "test_start": "2026-07-13T14:57:33.600522+00:00",
+                        "test_end": "2026-07-13T17:20:02.693903+00:00",
+                        "train_label_latest": "2026-07-13T14:56:06.710491+00:00",
+                        "purged_unsettled_or_embargo": 4,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 531,
+                  "calibration_rows": 0,
+                  "reason": "insufficient_disjoint_calibration_classes_or_rows"
+                }
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": true,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 1059,
+                    "eligible_rows": 1059,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 350,
+                        "test_rows": 353,
+                        "test_start": "2026-07-13T14:57:28.076535+00:00",
+                        "test_end": "2026-07-13T19:38:31.226823+00:00",
+                        "train_label_latest": "2026-07-13T14:56:06.710491+00:00",
+                        "purged_unsettled_or_embargo": 3,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 690,
+                        "test_rows": 353,
+                        "test_start": "2026-07-13T19:41:03.249214+00:00",
+                        "test_end": "2026-07-14T01:14:34.302409+00:00",
+                        "train_label_latest": "2026-07-13T19:35:03.415139+00:00",
+                        "purged_unsettled_or_embargo": 16,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 690,
+                  "calibration_rows": 353,
+                  "fit_positives": 5,
+                  "calibration_positives": 3
+                }
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": true,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 1599,
+                    "eligible_rows": 1599,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 518,
+                        "test_rows": 533,
+                        "test_start": "2026-07-13T17:20:02.693903+00:00",
+                        "test_end": "2026-07-14T01:20:44.725720+00:00",
+                        "train_label_latest": "2026-07-13T17:16:41.486169+00:00",
+                        "purged_unsettled_or_embargo": 15,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 1058,
+                        "test_rows": 533,
+                        "test_start": "2026-07-14T01:26:26.253000+00:00",
+                        "test_end": "2026-07-14T09:55:34.058782+00:00",
+                        "train_label_latest": "2026-07-14T01:23:02.854164+00:00",
+                        "purged_unsettled_or_embargo": 8,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 1058,
+                  "calibration_rows": 533,
+                  "fit_positives": 8,
+                  "calibration_positives": 4
+                }
+              }
+            ],
+            "out_of_sample_rows": 1610,
+            "probability_evaluation": {
+              "rows": 1073,
+              "positives": 6,
+              "brier_score": 0.005504349286324078,
+              "baseline_brier_score": 0.005564193644528087,
+              "brier_skill_score": 0.010755261593539567,
+              "baseline": "Each outer fold's mature training prevalence, not the future test prevalence",
+              "reliability_bins": [
+                {
+                  "bin_lower": 0.0,
+                  "bin_upper": 0.1,
+                  "rows": 1070,
+                  "mean_probability": 0.0076945178615998415,
+                  "observed_rate": 0.005607476635514018
+                },
+                {
+                  "bin_lower": 0.1,
+                  "bin_upper": 0.2,
+                  "rows": 2,
+                  "mean_probability": 0.15143344260151517,
+                  "observed_rate": 0.0
+                },
+                {
+                  "bin_lower": 0.2,
+                  "bin_upper": 0.3,
+                  "rows": 1,
+                  "mean_probability": 0.2224992605132425,
+                  "observed_rate": 0.0
+                }
+              ]
+            }
+          },
+          "precision_floor": 0.6,
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10,
+            "by_lane": {
+              "pump_early_green_candle_sniper": {
+                "count": 1416,
+                "positives": 6
+              },
+              "pump_early_late_momentum_watch": {
+                "count": 34,
+                "positives": 0
+              },
+              "pump_early_research_rank_canary": {
+                "count": 123,
+                "positives": 3
+              },
+              "pump_early_sniper_research": {
+                "count": 37,
+                "positives": 1
+              }
+            },
+            "reason": "single_class_lane"
+          }
+        }
+      },
+      "runner_500": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-103756/runner/runner_500.pkl",
+        "positives": 5,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "avg_pred": 0.03199240855309832,
+        "base_rate": 0.002484472049689441,
+        "precision_lift_at_k": 0.0,
+        "brier_score": null,
+        "baseline_brier_score": null,
+        "brier_skill_score": null,
+        "probabilities_calibrated": false,
+        "probability_validation_ready": false,
+        "ranking_validation_ready": false,
+        "calibration": {
+          "method": "sigmoid",
+          "calibrated": false,
+          "min_class_count": 3,
+          "timing": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 702,
+                "test_rows": 716,
+                "test_start": "2026-07-13T19:48:23.396213+00:00",
+                "test_end": "2026-07-14T06:49:47.109905+00:00",
+                "train_label_latest": "2026-07-13T19:46:17.004854+00:00",
+                "purged_unsettled_or_embargo": 14,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1420,
+                "test_rows": 715,
+                "test_start": "2026-07-14T06:49:58.700582+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T06:48:58.442023+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ]
+          },
+          "fit_rows": 2147,
+          "calibration_rows": 0,
+          "reason": "insufficient_disjoint_calibration_classes_or_rows"
+        },
+        "rank_reference_quantiles": [
+          3.9103076876951485e-21,
+          1.3328815098180266e-15,
+          3.932009700501662e-14,
+          6.503960257642852e-13,
+          8.933842032975296e-12,
+          3.797554988923937e-11,
+          5.35860688290533e-10,
+          1.768788919095592e-08,
+          2.660563348377583e-07,
+          8.417390053967093e-07,
+          3.2859030646737515e-06,
+          1.466331191041909e-05,
+          2.951889162131828e-05,
+          5.5297787704617614e-05,
+          6.277502659164426e-05,
+          6.741213902052413e-05,
+          6.959019664216097e-05,
+          7.173552893404419e-05,
+          7.557819793622268e-05,
+          7.883923953155728e-05,
+          8.218533618992862e-05,
+          9.468252797505578e-05,
+          0.00010920968529346819,
+          0.00012021503634682674,
+          0.0001324561232772633,
+          0.00014914998198891488,
+          0.0001734805482321114,
+          0.0001941297590092045,
+          0.00021904011363000977,
+          0.00026614783881753296,
+          0.0003169700837207292,
+          0.0003512385049497725,
+          0.00038223274002516976,
+          0.00040903320410819627,
+          0.0004406242990079348,
+          0.00047943826865718645,
+          0.0005118235258367462,
+          0.0005619326608325878,
+          0.0007608246622359247,
+          0.001251190508447747,
+          0.0018222547632475356,
+          0.0025162910555944534,
+          0.0031855738229961874,
+          0.003514013328686772,
+          0.003780502621546612,
+          0.00399250828269618,
+          0.004134453523540546,
+          0.004380643896401133,
+          0.004600224372898041,
+          0.004755688604714263,
+          0.0050005108711856094,
+          0.005196957864534854,
+          0.005394051115883991,
+          0.005581153270783508,
+          0.00582993532733824,
+          0.0060780328534884714,
+          0.006332757789221783,
+          0.006623549673430723,
+          0.00685593737133481,
+          0.007158278905054565,
+          0.0074935707341930976,
+          0.007837276950888823,
+          0.008070609224647543,
+          0.00843161005081137,
+          0.00878205715327883,
+          0.009336482954886248,
+          0.009710352922383139,
+          0.010171095761619476,
+          0.010581253589928431,
+          0.011260390045457057,
+          0.011909965839654526,
+          0.012353998490197625,
+          0.013243368203980794,
+          0.014189968887571442,
+          0.01479890595225629,
+          0.01576952230830409,
+          0.01674167525861035,
+          0.0177431636068333,
+          0.01957688365936382,
+          0.02083119900104163,
+          0.022581008674050645,
+          0.02445893268469687,
+          0.025599997277839594,
+          0.027195045523758253,
+          0.028763601270707175,
+          0.030378113462813147,
+          0.03230877466133507,
+          0.034401605334345324,
+          0.0370315493680701,
+          0.03974241184204217,
+          0.057862764703141875,
+          0.07757563790100429,
+          0.0994333137104939,
+          0.12233550952004445,
+          0.16999952138178087,
+          0.23719063836130108,
+          0.4740882974451956,
+          0.7688495785139237,
+          0.8730705998727961,
+          0.9820051568897513,
+          0.9999999757239483
+        ],
+        "probability_caveat": "Ranking scores are separate from held-out calibrated event probabilities. Neither proves executable or costed profit, and prospective validation is required before sizing or exits change.",
+        "precision_at_k": 0.0,
+        "recall_at_k": 0.0,
+        "precision_at_k_pct": 0.1,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "critical_warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": false,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 531,
+                    "eligible_rows": 531,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 160,
+                        "test_rows": 177,
+                        "test_start": "2026-07-13T13:05:56.620380+00:00",
+                        "test_end": "2026-07-13T14:57:28.076535+00:00",
+                        "train_label_latest": "2026-07-13T13:02:13.528884+00:00",
+                        "purged_unsettled_or_embargo": 17,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 350,
+                        "test_rows": 177,
+                        "test_start": "2026-07-13T14:57:33.600522+00:00",
+                        "test_end": "2026-07-13T17:20:02.693903+00:00",
+                        "train_label_latest": "2026-07-13T14:56:06.710491+00:00",
+                        "purged_unsettled_or_embargo": 4,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 531,
+                  "calibration_rows": 0,
+                  "reason": "insufficient_disjoint_calibration_classes_or_rows"
+                }
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": false,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 1059,
+                    "eligible_rows": 1059,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 350,
+                        "test_rows": 353,
+                        "test_start": "2026-07-13T14:57:28.076535+00:00",
+                        "test_end": "2026-07-13T19:38:31.226823+00:00",
+                        "train_label_latest": "2026-07-13T14:56:06.710491+00:00",
+                        "purged_unsettled_or_embargo": 3,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 690,
+                        "test_rows": 353,
+                        "test_start": "2026-07-13T19:41:03.249214+00:00",
+                        "test_end": "2026-07-14T01:14:34.302409+00:00",
+                        "train_label_latest": "2026-07-13T19:35:03.415139+00:00",
+                        "purged_unsettled_or_embargo": 16,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 1059,
+                  "calibration_rows": 0,
+                  "reason": "insufficient_disjoint_calibration_classes_or_rows"
+                }
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": false,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 1599,
+                    "eligible_rows": 1599,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 518,
+                        "test_rows": 533,
+                        "test_start": "2026-07-13T17:20:02.693903+00:00",
+                        "test_end": "2026-07-14T01:20:44.725720+00:00",
+                        "train_label_latest": "2026-07-13T17:16:41.486169+00:00",
+                        "purged_unsettled_or_embargo": 15,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 1058,
+                        "test_rows": 533,
+                        "test_start": "2026-07-14T01:26:26.253000+00:00",
+                        "test_end": "2026-07-14T09:55:34.058782+00:00",
+                        "train_label_latest": "2026-07-14T01:23:02.854164+00:00",
+                        "purged_unsettled_or_embargo": 8,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 1599,
+                  "calibration_rows": 0,
+                  "reason": "insufficient_disjoint_calibration_classes_or_rows"
+                }
+              }
+            ],
+            "out_of_sample_rows": 1610,
+            "probability_evaluation": {
+              "rows": 0,
+              "positives": 0,
+              "brier_score": null,
+              "baseline_brier_score": null,
+              "brier_skill_score": null,
+              "baseline": "Each outer fold's mature training prevalence, not the future test prevalence",
+              "reliability_bins": []
+            }
+          },
+          "precision_floor": 0.6,
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10,
+            "by_lane": {
+              "pump_early_green_candle_sniper": {
+                "count": 1416,
+                "positives": 3
+              },
+              "pump_early_late_momentum_watch": {
+                "count": 34,
+                "positives": 0
+              },
+              "pump_early_research_rank_canary": {
+                "count": 123,
+                "positives": 1
+              },
+              "pump_early_sniper_research": {
+                "count": 37,
+                "positives": 0
+              }
+            },
+            "reason": "single_class_lane"
+          }
+        }
+      },
+      "runner_1000": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-103756/runner/runner_1000.pkl",
+        "positives": 4,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "avg_pred": 0.028922451930465533,
+        "base_rate": 0.0018633540372670807,
+        "precision_lift_at_k": 0.0,
+        "brier_score": null,
+        "baseline_brier_score": null,
+        "brier_skill_score": null,
+        "probabilities_calibrated": false,
+        "probability_validation_ready": false,
+        "ranking_validation_ready": false,
+        "calibration": {
+          "method": "sigmoid",
+          "calibrated": false,
+          "min_class_count": 3,
+          "timing": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 702,
+                "test_rows": 716,
+                "test_start": "2026-07-13T19:48:23.396213+00:00",
+                "test_end": "2026-07-14T06:49:47.109905+00:00",
+                "train_label_latest": "2026-07-13T19:46:17.004854+00:00",
+                "purged_unsettled_or_embargo": 14,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1420,
+                "test_rows": 715,
+                "test_start": "2026-07-14T06:49:58.700582+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T06:48:58.442023+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ]
+          },
+          "fit_rows": 2147,
+          "calibration_rows": 0,
+          "reason": "insufficient_disjoint_calibration_classes_or_rows"
+        },
+        "rank_reference_quantiles": [
+          4.7569890898823146e-20,
+          5.915579092872147e-13,
+          3.157780768904324e-11,
+          2.0042483551803385e-10,
+          1.0012429996709505e-09,
+          9.164957686513167e-09,
+          5.417888880538773e-08,
+          1.6841469287656616e-07,
+          4.031168170141966e-07,
+          7.221922749081136e-07,
+          1.5271447948210568e-06,
+          2.942610175381448e-06,
+          6.603207562492237e-06,
+          1.9766357739097812e-05,
+          2.9052582461118693e-05,
+          3.729627165533084e-05,
+          4.597058031904476e-05,
+          5.151103832339595e-05,
+          5.5475620865979254e-05,
+          5.806459187924734e-05,
+          5.994549624447831e-05,
+          6.158045963190299e-05,
+          6.495575138227583e-05,
+          6.769066657703735e-05,
+          7.068490419604074e-05,
+          7.404021782053224e-05,
+          8.677134558114692e-05,
+          0.00014016769552280213,
+          0.00017228210840877743,
+          0.0002077642331677922,
+          0.00025095899961163947,
+          0.00029892918693437474,
+          0.00032584984778558947,
+          0.0003454686200009722,
+          0.0003855563746146897,
+          0.0004189016736948042,
+          0.0004443447466141436,
+          0.0004720238435351708,
+          0.0005088287442000887,
+          0.0005844097658731525,
+          0.0008480054500945046,
+          0.0012224162129367193,
+          0.0016265854603766765,
+          0.002080895643626249,
+          0.0028472619211658734,
+          0.003426175585723294,
+          0.003755658138106867,
+          0.003972409861299047,
+          0.004219912915074526,
+          0.004493563144417393,
+          0.004735406881155741,
+          0.004964680174972046,
+          0.005184111524703496,
+          0.005382333958115604,
+          0.005702335089715401,
+          0.006008799519033582,
+          0.006332880889825944,
+          0.006655089070159614,
+          0.006882347525648705,
+          0.0070944402989610396,
+          0.00759814275779613,
+          0.008054399978373752,
+          0.008474645305748645,
+          0.008882032471443226,
+          0.00935329326598333,
+          0.009794298545194237,
+          0.010149039028330814,
+          0.01079285009263496,
+          0.011475736033384478,
+          0.011949983311651886,
+          0.012408833325547717,
+          0.012911811144017717,
+          0.013459756941158836,
+          0.014221075213205673,
+          0.015012793711201428,
+          0.015567637580461823,
+          0.016482095879656652,
+          0.017622761517551856,
+          0.018854669045820574,
+          0.01954209281469868,
+          0.02075906268906176,
+          0.022488068219324003,
+          0.02355376752465049,
+          0.0248241659561422,
+          0.026787942806819804,
+          0.028746808977956364,
+          0.030673426254847005,
+          0.03221227840504431,
+          0.03421959265945101,
+          0.036719151479483486,
+          0.040548569325778494,
+          0.05086532791220839,
+          0.07188740538351701,
+          0.08532928323918276,
+          0.11258506791634149,
+          0.14252542305926674,
+          0.26230152584961125,
+          0.5954392980517126,
+          0.8413023712866199,
+          0.9807699831449996,
+          0.9999971067049572
+        ],
+        "probability_caveat": "Ranking scores are separate from held-out calibrated event probabilities. Neither proves executable or costed profit, and prospective validation is required before sizing or exits change.",
+        "precision_at_k": 0.0,
+        "recall_at_k": 0.0,
+        "precision_at_k_pct": 0.1,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "critical_warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": false,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 531,
+                    "eligible_rows": 531,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 160,
+                        "test_rows": 177,
+                        "test_start": "2026-07-13T13:05:56.620380+00:00",
+                        "test_end": "2026-07-13T14:57:28.076535+00:00",
+                        "train_label_latest": "2026-07-13T13:02:13.528884+00:00",
+                        "purged_unsettled_or_embargo": 17,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 350,
+                        "test_rows": 177,
+                        "test_start": "2026-07-13T14:57:33.600522+00:00",
+                        "test_end": "2026-07-13T17:20:02.693903+00:00",
+                        "train_label_latest": "2026-07-13T14:56:06.710491+00:00",
+                        "purged_unsettled_or_embargo": 4,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 531,
+                  "calibration_rows": 0,
+                  "reason": "insufficient_disjoint_calibration_classes_or_rows"
+                }
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": false,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 1059,
+                    "eligible_rows": 1059,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 350,
+                        "test_rows": 353,
+                        "test_start": "2026-07-13T14:57:28.076535+00:00",
+                        "test_end": "2026-07-13T19:38:31.226823+00:00",
+                        "train_label_latest": "2026-07-13T14:56:06.710491+00:00",
+                        "purged_unsettled_or_embargo": 3,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 690,
+                        "test_rows": 353,
+                        "test_start": "2026-07-13T19:41:03.249214+00:00",
+                        "test_end": "2026-07-14T01:14:34.302409+00:00",
+                        "train_label_latest": "2026-07-13T19:35:03.415139+00:00",
+                        "purged_unsettled_or_embargo": 16,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 1059,
+                  "calibration_rows": 0,
+                  "reason": "insufficient_disjoint_calibration_classes_or_rows"
+                }
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "calibration": {
+                  "method": "sigmoid",
+                  "calibrated": false,
+                  "min_class_count": 3,
+                  "timing": {
+                    "mode": "purged_token_walk_forward",
+                    "rows": 1599,
+                    "eligible_rows": 1599,
+                    "excluded_missing_or_invalid_timing_or_identity": 0,
+                    "embargo_seconds": 60.0,
+                    "folds": [
+                      {
+                        "train_rows": 518,
+                        "test_rows": 533,
+                        "test_start": "2026-07-13T17:20:02.693903+00:00",
+                        "test_end": "2026-07-14T01:20:44.725720+00:00",
+                        "train_label_latest": "2026-07-13T17:16:41.486169+00:00",
+                        "purged_unsettled_or_embargo": 15,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      },
+                      {
+                        "train_rows": 1058,
+                        "test_rows": 533,
+                        "test_start": "2026-07-14T01:26:26.253000+00:00",
+                        "test_end": "2026-07-14T09:55:34.058782+00:00",
+                        "train_label_latest": "2026-07-14T01:23:02.854164+00:00",
+                        "purged_unsettled_or_embargo": 8,
+                        "purged_shared_tokens": 0,
+                        "used": true
+                      }
+                    ]
+                  },
+                  "fit_rows": 1599,
+                  "calibration_rows": 0,
+                  "reason": "insufficient_disjoint_calibration_classes_or_rows"
+                }
+              }
+            ],
+            "out_of_sample_rows": 1610,
+            "probability_evaluation": {
+              "rows": 0,
+              "positives": 0,
+              "brier_score": null,
+              "baseline_brier_score": null,
+              "brier_skill_score": null,
+              "baseline": "Each outer fold's mature training prevalence, not the future test prevalence",
+              "reliability_bins": []
+            }
+          },
+          "precision_floor": 0.6,
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10,
+            "by_lane": {
+              "pump_early_green_candle_sniper": {
+                "count": 1416,
+                "positives": 2
+              },
+              "pump_early_late_momentum_watch": {
+                "count": 34,
+                "positives": 0
+              },
+              "pump_early_research_rank_canary": {
+                "count": 123,
+                "positives": 1
+              },
+              "pump_early_sniper_research": {
+                "count": 37,
+                "positives": 0
+              }
+            },
+            "reason": "single_class_lane"
+          }
+        }
+      },
+      "runner_2000": {
+        "status": "skipped",
+        "reason": "single_class",
+        "positives": 0,
+        "validation": {
+          "warnings": [
+            "in_sample_only",
+            "not_ready_for_enforcement",
+            "single_class"
+          ],
+          "critical_warnings": [
+            "in_sample_only",
+            "not_ready_for_enforcement",
+            "single_class"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "in_sample_only"
+        }
+      },
+      "runner_5000": {
+        "status": "skipped",
+        "reason": "single_class",
+        "positives": 0,
+        "validation": {
+          "warnings": [
+            "in_sample_only",
+            "not_ready_for_enforcement",
+            "single_class"
+          ],
+          "critical_warnings": [
+            "in_sample_only",
+            "not_ready_for_enforcement",
+            "single_class"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "in_sample_only"
+        }
+      },
+      "runner_10000": {
+        "status": "skipped",
+        "reason": "single_class",
+        "positives": 0,
+        "validation": {
+          "warnings": [
+            "in_sample_only",
+            "not_ready_for_enforcement",
+            "single_class"
+          ],
+          "critical_warnings": [
+            "in_sample_only",
+            "not_ready_for_enforcement",
+            "single_class"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "in_sample_only"
+        }
+      }
+    },
+    "validation": {
+      "warnings": [
+        "in_sample_only",
+        "low_precision_at_k",
+        "not_ready_for_enforcement",
+        "single_class",
+        "unstable_by_lane"
+      ],
+      "critical_warnings": [
+        "in_sample_only",
+        "low_precision_at_k",
+        "not_ready_for_enforcement",
+        "single_class",
+        "unstable_by_lane"
+      ],
+      "ready_for_enforcement": false,
+      "mode": "target_specific"
+    },
+    "status": "ok",
+    "data_quality": {
+      "matched": 2147,
+      "ambiguous": 0,
+      "rows": 2147,
+      "max_lag_seconds": 30.0
+    }
+  },
+  "realized_return_regression": {
+    "family": "ev",
+    "trained_at_utc": "2026-10-07T10:37:58.313343+00:00",
+    "feature_set": "ev_features",
+    "feature_set_hash": "837af5eb1522e4d9",
+    "rows": 2147,
+    "targets": {
+      "ev_realized_clipped": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-103756/ev/ev_realized_clipped.pkl",
+        "mae": 14.567048441478489,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "not_ready_for_enforcement"
+          ],
+          "critical_warnings": [
+            "not_ready_for_enforcement"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "calibration": null
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "calibration": null
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "calibration": null
+              }
+            ],
+            "out_of_sample_rows": 1610
+          },
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10
+          }
+        }
+      }
+    },
+    "validation": {
+      "warnings": [
+        "not_ready_for_enforcement"
+      ],
+      "critical_warnings": [
+        "not_ready_for_enforcement"
+      ],
+      "ready_for_enforcement": false,
+      "mode": "target_specific"
+    },
+    "status": "ok",
+    "data_quality": {
+      "matched": 2147,
+      "ambiguous": 0,
+      "rows": 2147,
+      "max_lag_seconds": 30.0
+    }
+  },
+  "promotion_attempted": false,
+  "bot_started": false,
+  "caveats": [
+    "Runner targets are observed price peaks, not executable or costed profits.",
+    "Historical shadow observations do not establish future profitability.",
+    "Rare extreme targets can lack enough positive observations; no positive class is invented.",
+    "Learning audit artifacts are isolated from runtime models and no live model is activated."
+  ]
+}

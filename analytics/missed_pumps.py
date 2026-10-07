@@ -14,6 +14,7 @@ from analytics.report_utils import (
     write_markdown,
 )
 from config.config import PROJECT_ROOT
+from ml.labels import moonshot_execution_label
 from ml.data_contract import (
     SAMPLE_GREEN_SNIPER_REJECT_SHADOW,
     SAMPLE_LATE_MOMENTUM_WATCH_SHADOW,
@@ -91,6 +92,45 @@ def _classification(row: dict[str, Any], *, min_pnl_pct: float) -> str:
     return "unresolved_hot_candidate"
 
 
+def _row_peak_for_dedupe(row: dict[str, Any]) -> float:
+    confirmed = _confirmed_peak(row)
+    if confirmed is not None:
+        return float(confirmed)
+    fields = ("shadow_max_pnl_pct_seen", "max_pnl_pct_seen", "max_pnl_pct", "peak_pnl_pct", "target_total_pnl_pct")
+    values = [fnum(row.get(field), float("nan")) for field in fields if row.get(field) is not None]
+    values = [value for value in values if value == value]
+    return max(values) if values else fnum(row.get("price_pct_5m"), 0.0)
+
+
+def _dedupe_candidate_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    passthrough: list[dict[str, Any]] = []
+    for row in rows:
+        addr = address_of(row).strip().lower()
+        if not addr:
+            passthrough.append(row)
+            continue
+        grouped.setdefault(addr, []).append(row)
+
+    deduped: list[dict[str, Any]] = []
+    for group in grouped.values():
+        winner = max(
+            group,
+            key=lambda item: (
+                _row_peak_for_dedupe(item),
+                fnum(item.get("price_pct_5m"), 0.0),
+                1 if _outcome_confirmed(item) else 0,
+            ),
+        )
+        merged = dict(winner)
+        for row in group:
+            for key, value in row.items():
+                if merged.get(key) is None or (isinstance(merged.get(key), str) and not str(merged.get(key)).strip()):
+                    merged[key] = value
+        deduped.append(merged)
+    return deduped + passthrough
+
+
 def build_missed_pumps(
     root: Path | None = None,
     *,
@@ -100,7 +140,7 @@ def build_missed_pumps(
     root = root or PROJECT_ROOT
     bought = bought_addresses(root)
     rows: list[dict[str, Any]] = []
-    for row in load_candidate_outcomes(root):
+    for row in _dedupe_candidate_rows(load_candidate_outcomes(root)):
         addr = address_of(row)
         if not addr or addr in bought:
             continue
@@ -109,6 +149,7 @@ def build_missed_pumps(
             continue
         confirmed_peak = _confirmed_peak(row)
         decision = evaluate_green_sniper(dict(row), dry_run=True, live=False)
+        moonshot = moonshot_execution_label(row)
         rows.append(
             {
                 "address": addr,
@@ -128,6 +169,19 @@ def build_missed_pumps(
                 "rule_that_blocked": _reason(row),
                 "green_sniper_reason": decision.reason,
                 "classification": classification,
+                "theoretical_moonshot": bool(moonshot["theoretical_moonshot"]),
+                "executable_moonshot": bool(moonshot["executable_moonshot"]),
+                "moonshot_viability": moonshot["moonshot_viability"],
+                "moonshot_blocker": moonshot["moonshot_blocker"],
+                "moonshot_decision_reason": moonshot["moonshot_decision_reason"],
+                "moonshot_route_viability": moonshot["moonshot_route_viability"],
+                "moonshot_liquidity_viability": moonshot["moonshot_liquidity_viability"],
+                "moonshot_cluster_viability": moonshot["moonshot_cluster_viability"],
+                "moonshot_time_to_peak_min": moonshot["moonshot_time_to_peak_min"],
+                "moonshot_time_to_peak_source": moonshot["moonshot_time_to_peak_source"],
+                "moonshot_peak_pct": moonshot["moonshot_peak_pct"],
+                "moonshot_amount_sol": moonshot["moonshot_amount_sol"],
+                "moonshot_paper_only": moonshot["moonshot_paper_only"],
                 "observed_peak_after_seen_pct": row.get("max_pnl_pct_seen") or row.get("max_pnl_pct") or row.get("peak_pnl_pct"),
                 "shadow_outcome_pnl_pct": row.get("shadow_outcome_pnl_pct") or row.get("pnl_pct"),
                 "shadow_max_pnl_pct_seen": row.get("shadow_max_pnl_pct_seen") or row.get("max_pnl_pct_seen"),
@@ -185,6 +239,25 @@ def write_missed_pumps_report(root: Path | None = None) -> list[dict[str, Any]]:
             f"| {str(row['address'])[:10]}... | {row['classification']} | {confirmed_txt} | "
             f"{fnum(row.get('price_pct_5m_at_seen')):.2f}% | {row['rule_that_blocked']} | {row['would_green_sniper_pass']} |"
         )
+    moonshot_rows = [row for row in rows if row.get("theoretical_moonshot")]
+    if moonshot_rows:
+        lines.extend(
+            [
+                "",
+                "## Moonshot executable labels",
+                "",
+                "| Address | Peak | Executable | Viability | Blocker | Route | Time to peak |",
+                "|---|---:|---|---|---|---|---:|",
+            ]
+        )
+        for row in moonshot_rows[:100]:
+            time_to_peak = row.get("moonshot_time_to_peak_min")
+            time_txt = "n/a" if time_to_peak is None else f"{fnum(time_to_peak):.2f}m"
+            lines.append(
+                f"| {str(row['address'])[:10]}... | {fnum(row.get('moonshot_peak_pct')):.2f}% | "
+                f"{row.get('executable_moonshot')} | {row.get('moonshot_viability')} | "
+                f"{row.get('moonshot_blocker')} | {row.get('moonshot_route_viability')} | {time_txt} |"
+            )
     write_markdown(root / "docs" / "MISSED_PUMPS_REPORT.md", lines)
     return rows
 

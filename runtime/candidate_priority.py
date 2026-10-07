@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 from typing import Any
 
 from config.config import CFG
+from runtime.runner_priority import learned_runner_priority
 from ml.lane_taxonomy import (
     LANE_RESEARCH_RANK_CANARY,
     LANE_RESEARCH_SNIPER,
@@ -17,7 +19,7 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         if value is None:
             return float(default)
         out = float(value)
-        if out != out:
+        if not math.isfinite(out):
             return float(default)
         return out
     except Exception:
@@ -44,18 +46,20 @@ def _age_minutes(token: dict[str, Any], now: dt.datetime | None = None) -> float
     if isinstance(created, dt.datetime):
         if created.tzinfo is None:
             created = created.replace(tzinfo=dt.timezone.utc)
-        return max(0.0, (now - created).total_seconds() / 60.0)
+        seconds = (now - created).total_seconds()
+        return seconds / 60 if seconds >= 0 else 20.0
     for key in ("age_minutes", "age_min", "queue_age_minutes"):
         if token.get(key) is not None:
-            return _to_float(token.get(key), 0.0)
-    return 0.0
+            age = _to_float(token.get(key), 20.0)
+            return age if age >= 0 else 20.0
+    return 20.0
 
 
 def _boolish(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, (int, float)):
-        return bool(value)
+        return math.isfinite(value) and value == 1
     return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
@@ -123,6 +127,9 @@ def candidate_priority_score(token: dict[str, Any], *, source: str | None = None
     score += min(liq / 500.0, 15.0)
     if research_rank_priority_fit(token):
         score += _to_float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_BONUS", 25.0), 25.0)
+    learned = learned_runner_priority(token)
+    token["learned_runner_priority"] = learned
+    score += _to_float(learned.get("bonus"))
     return round(max(0.0, score), 3)
 
 

@@ -13,6 +13,7 @@ import pandas as pd
 
 from analytics.audit import normalize_candidate_outcomes_frame, write_normalized_candidate_outcomes
 from config.config import CFG, PROJECT_ROOT
+from ml.data_contract import normalize_candidate_event_row
 from utils.runtime_context import runtime_context_payload
 from utils.time import utc_now
 
@@ -130,7 +131,7 @@ def _event_dedup(key: str, ttl_s: int) -> bool:
     return False
 
 
-def _write_event(event_type: str, address: str, **payload: Any) -> None:
+def _write_event(event_type: str, address: str, **payload: Any) -> dict[str, Any]:
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
     RESEARCH_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     row = {
@@ -140,10 +141,16 @@ def _write_event(event_type: str, address: str, **payload: Any) -> None:
     }
     row.update(runtime_context_payload())
     row.update({str(k): _json_safe(v) for k, v in payload.items()})
+    # Event identity is owned by this writer.  Context copied from an earlier
+    # event must never turn a close back into a decision (or another address).
+    row["event_type"] = str(event_type)
+    row["address"] = str(address)
+    row = normalize_candidate_event_row(row)
     line = json.dumps(row, ensure_ascii=True)
     with _LOCK:
         with RESEARCH_EVENTS_PATH.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
+    return row
 
 
 def _load_portfolio() -> dict[str, Any]:
@@ -226,6 +233,11 @@ def _common_payload(
         "volume_24h_usd": _to_float(token.get("volume_24h_usd")),
         "market_cap_usd": mcap,
         "holders": _to_int(token.get("holders")),
+        "rug_score": _to_float(token.get("rug_score")),
+        "cluster_bad": bool(token.get("cluster_bad")) if token.get("cluster_bad") is not None else None,
+        "social_ok": bool(token.get("social_ok")) if token.get("social_ok") is not None else None,
+        "trend": token.get("trend"),
+        "insider_sig": token.get("insider_sig"),
         "has_jupiter_route": _to_int(token.get("has_jupiter_route")),
         "price_impact_pct": _to_float(token.get("price_impact_pct")),
         "price_pct_5m": price_pct_5m,
@@ -242,9 +254,17 @@ def _common_payload(
         "sniper_gate_failures": token.get("sniper_gate_failures") or token.get("live_profit_gate_failures"),
         "live_profit_gate_profile": token.get("live_profit_gate_profile"),
         "green_sniper_reason": token.get("green_sniper_reason"),
-        "pumpswap_rebound_confirmation": _to_int(token.get("pumpswap_rebound_confirmation") or token.get("recovery_confirmation")),
+        "pumpswap_rebound_confirmation": _to_int(
+            token.get("pumpswap_rebound_confirmation")
+            if token.get("pumpswap_rebound_confirmation") is not None
+            else token.get("recovery_confirmation")
+        ),
         "pumpswap_rebound_confirmation_reason": token.get("pumpswap_rebound_confirmation_reason"),
-        "liquidity_is_proxy": _to_int(token.get("liquidity_is_proxy") or token.get("liquidity_usd_is_proxy")),
+        "liquidity_is_proxy": _to_int(
+            token.get("liquidity_is_proxy")
+            if token.get("liquidity_is_proxy") is not None
+            else token.get("liquidity_usd_is_proxy")
+        ),
         "mcap_bucket": token.get("mcap_bucket") or mcap_bucket(mcap),
         "price5m_bucket": token.get("price5m_bucket") or price5m_bucket(price_pct_5m),
         "impact_zero_flag": _to_int(token.get("impact_zero_flag")),
@@ -529,17 +549,18 @@ def record_candidate_decision(
     )
     if shadow_kind:
         payload["shadow_kind"] = str(shadow_kind)
-    _write_event("candidate_decision", address, **payload)
+    event_row = _write_event("candidate_decision", address, **payload)
     try:
         append_decision(
             {
                 **runtime_context_payload(),
-                **payload,
+                **event_row,
                 "address": address,
-                "action": action,
-                "timestamp": utc_now().isoformat(),
+                "action": event_row.get("decision") or action,
+                "timestamp": event_row.get("timestamp") or utc_now().isoformat(),
                 "source": "candidate_decision",
-                "features_snapshot": payload,
+                "feature_snapshot": event_row.get("feature_snapshot") or {},
+                "features_snapshot": event_row.get("feature_snapshot") or {},
                 "policy_version": "research_runtime_v1",
             }
         )
@@ -547,7 +568,7 @@ def record_candidate_decision(
         log.debug("decision ledger append %s %s -> %s", action, address[:6], exc)
 
     if action == "bought":
-        _LIVE_CONTEXT[address] = payload
+        _LIVE_CONTEXT[address] = event_row
 
 
 def should_open_shadow(
@@ -652,7 +673,7 @@ def record_shadow_open(
     portfolio[address] = _json_safe({**portfolio.get(address, {}), **data, "closed": False})
     _save_portfolio(portfolio)
 
-    _write_event(
+    event_row = _write_event(
         "candidate_decision",
         address,
         decision_action="research_shadow_open",
@@ -665,12 +686,13 @@ def record_shadow_open(
         append_decision(
             {
                 **runtime_context_payload(),
-                **data,
+                **event_row,
                 "address": address,
-                "action": "research_shadow_open",
-                "timestamp": utc_now().isoformat(),
+                "action": event_row.get("decision") or "shadow",
+                "timestamp": event_row.get("timestamp") or utc_now().isoformat(),
                 "source": "candidate_decision",
-                "features_snapshot": data,
+                "feature_snapshot": event_row.get("feature_snapshot") or {},
+                "features_snapshot": event_row.get("feature_snapshot") or {},
                 "policy_version": "research_runtime_v1",
             }
         )
@@ -752,16 +774,33 @@ def record_live_trade_close(
         pnl_pct is not None
         and float(pnl_pct) >= float(getattr(CFG, "ML_POSITIVE_PNL_PCT", 5.0) or 5.0)
     ) else 0
-    payload = {
+    # ``record_candidate_decision`` stores the normalized opening event so the
+    # close can retain entry-time features.  That row also contains identity
+    # fields such as ``event_type`` and ``address``; passing them through
+    # ``**payload`` duplicates the explicit arguments to ``_write_event`` and
+    # used to raise after every committed close.  Keep only contextual fields,
+    # then let the authoritative close values win.
+    reserved = {
+        "address",
+        "event_type",
+        "ts_utc",
+        "timestamp",
+        "source",
+        "regime",
+        "pnl_pct",
+        "exit_reason",
+        "label",
+    }
+    payload = {str(key): value for key, value in context.items() if str(key) not in reserved}
+    if extra:
+        payload.update({str(key): value for key, value in extra.items() if str(key) not in reserved})
+    payload.update({
         "source": "live_trade",
         "regime": _normalize_regime(regime),
         "pnl_pct": _to_float(pnl_pct),
         "exit_reason": str(exit_reason or ""),
         "label": int(label),
-    }
-    payload.update(context)
-    if extra:
-        payload.update(extra)
+    })
     _write_event("candidate_outcome", address, **payload)
 
 

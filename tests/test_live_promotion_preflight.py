@@ -21,7 +21,10 @@ def _settings(tmp_path: Path):
 
 
 def _healthy_artifacts(root: Path) -> None:
-    _write_json(root / "data" / "metrics" / "current_run_summary.json", {"buys": 30, "closed_trades": 30})
+    _write_json(
+        root / "data" / "metrics" / "current_run_summary.json",
+        {"buys": 30, "closed_trades": 30, "total_pnl_usd": 12.5, "profit_factor": 1.2},
+    )
     _write_json(
         root / "data" / "research_runs" / "scoreboard.json",
         [
@@ -49,6 +52,8 @@ def test_live_promotion_preflight_blocks_api_budget(tmp_path) -> None:
     preflight = build_live_promotion_preflight(
         _settings(tmp_path),
         runtime_snapshot={"wallet_sol": 1.0, "dry_run": True},
+        manual_approval=True,
+        approved_by="operator",
     )
 
     assert not preflight["passed"]
@@ -60,15 +65,57 @@ def test_live_promotion_preflight_writes_live_profile_after_gates_pass(tmp_path)
     _healthy_artifacts(tmp_path)
     settings = _settings(tmp_path)
 
-    preflight = build_live_promotion_preflight(settings, runtime_snapshot={"wallet_sol": 1.0, "dry_run": True})
-    profile_path = write_live_start_profile(settings, preflight)
+    preflight = build_live_promotion_preflight(
+        settings,
+        runtime_snapshot={"wallet_sol": 1.0, "dry_run": True},
+        manual_approval=True,
+        approved_by="operator",
+    )
+    profile_path = write_live_start_profile(settings, preflight, approved_by="operator")
 
     assert preflight["passed"]
     text = profile_path.read_text(encoding="utf-8")
+    assert "LIVE_CANARY_PROTOCOL=manual_canary_v1" in text
     assert "DRY_RUN=0" in text
     assert "STRATEGY_OPTIMIZATION_LOCK=false" in text
+    assert "LIVE_CANARY_MANUAL_APPROVAL=true" in text
+    assert "LIVE_CANARY_APPROVED_BY=operator" in text
     assert "ALLOW_UNTAGGED_STANDARD_BUY=false" in text
-    assert "LIVE_CANARY_MAX_OPEN=0" in text
-    assert "LIVE_CANARY_MAX_DAILY_BUYS=0" in text
-    assert "RESEARCH_RANK_CANARY_MAX_OPEN=0" in text
-    assert "RESEARCH_RANK_CANARY_MAX_DAILY_BUYS=0" in text
+    assert "LIVE_CANARY_MAX_OPEN=1" in text
+    assert "LIVE_CANARY_MAX_DAILY_BUYS=3" in text
+    assert "LIVE_CANARY_DAILY_LOSS_CAP_SOL=0.05" in text
+    assert "RESEARCH_RANK_CANARY_MAX_OPEN=1" in text
+    assert "RESEARCH_RANK_CANARY_MAX_DAILY_BUYS=3" in text
+
+
+def test_live_promotion_preflight_blocks_without_manual_approval(tmp_path) -> None:
+    _healthy_artifacts(tmp_path)
+
+    preflight = build_live_promotion_preflight(
+        _settings(tmp_path),
+        runtime_snapshot={"wallet_sol": 1.0, "dry_run": True},
+    )
+
+    assert not preflight["passed"]
+    blocked = [gate["id"] for gate in preflight["gates"] if gate["status"] != "pass"]
+    assert "manual_approval" in blocked
+
+
+def test_live_promotion_preflight_blocks_negative_paper_sample(tmp_path) -> None:
+    _healthy_artifacts(tmp_path)
+    _write_json(
+        tmp_path / "data" / "metrics" / "current_run_summary.json",
+        {"buys": 30, "closed_trades": 30, "total_pnl_usd": -81.33, "profit_factor": 0.629},
+    )
+
+    preflight = build_live_promotion_preflight(
+        _settings(tmp_path),
+        runtime_snapshot={"wallet_sol": 1.0, "dry_run": True},
+        manual_approval=True,
+        approved_by="operator",
+    )
+
+    assert not preflight["passed"]
+    blocked = [gate["id"] for gate in preflight["gates"] if gate["status"] != "pass"]
+    assert "sample.net_pnl" in blocked
+    assert "sample.profit_factor" in blocked

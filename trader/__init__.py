@@ -1,17 +1,21 @@
 """
 Entrada única para el sub-paquete *trader*:
 
-    from memebot2.trader import buyer, seller, gmgn
+    from trader import buyer, seller, gmgn
+
+Paper imports do not initialize the live signer or require a wallet secret.
 """
 
 from importlib import import_module
 from types import ModuleType
-from typing import Dict
 
-_modules = ("gmgn", "sol_signer", "buyer", "seller")
+_modules = ("gmgn", "sol_signer", "buyer", "seller", "papertrading")
 
-globals_: Dict[str, ModuleType] = globals()
-for _m in _modules:
-    globals_[_m] = import_module(f"{__name__}.{_m}")
+def __getattr__(name: str) -> ModuleType:
+    if name not in _modules:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = import_module(f"{__name__}.{name}")
+    globals()[name] = module
+    return module
 
 __all__ = list(_modules)

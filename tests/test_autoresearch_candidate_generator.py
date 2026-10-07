@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from research_loop.candidate_generator import generate_candidate_policies, generate_research_candidates
 from research_loop.experiment_schema import validate_candidate_policy
@@ -108,6 +109,7 @@ def test_candidate_generator_supports_local_search_and_bandit_modes() -> None:
         mode="bandit_suggested",
         seed=3,
         created_at_utc="2026-06-04T00:00:00+00:00",
+        cfg=SimpleNamespace(PAPER_EXACT_TRADE_SIZE_ENABLED=False),
     )
 
     assert len(local) == 3

@@ -36,6 +36,7 @@ class MlPolicyDecision:
     risk_proba: float | None = None
     ev_pred_pct: float | None = None
     edge_score: float | None = None
+    risk_veto_enforced: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -101,14 +102,22 @@ def _resolve_lane(token: dict[str, Any], feature_row: Any) -> str:
     return normalize_entry_lane(reconstruct_entry_lane(row))
 
 
-def _risk_veto(risk_proba: float | None) -> bool:
+def _risk_veto_signal(risk_proba: float | None) -> bool:
     if risk_proba is None:
+        return False
+    if not _bool_cfg("ML_RISK_VETO_ENABLED", False):
+        return False
+    return float(risk_proba) >= _float_cfg("ML_RISK_VETO_THRESHOLD", 0.70)
+
+
+def _risk_veto_can_enforce(risk_proba: float | None, *, activation_ready: bool) -> bool:
+    if not _risk_veto_signal(risk_proba):
         return False
     if not _bool_cfg("ML_RISK_VETO_ENABLED", False):
         return False
     if _bool_cfg("ML_RISK_SHADOW_ONLY", True):
         return False
-    return float(risk_proba) >= _float_cfg("ML_RISK_VETO_THRESHOLD", 0.70)
+    return bool(activation_ready)
 
 
 def _edge_score(ev_pred_pct: float | None, risk_proba: float | None) -> float | None:
@@ -159,7 +168,8 @@ def decide_ml_action(
         global_mode = "legacy"
     threshold, activation_ready, threshold_reason, source = _threshold_payload(lane)
     proba_pass = bool(proba is not None and threshold is not None and float(proba) >= float(threshold))
-    risk_veto = _risk_veto(risk_proba)
+    risk_veto = _risk_veto_signal(risk_proba)
+    risk_veto_enforced = _risk_veto_can_enforce(risk_proba, activation_ready=activation_ready)
     edge = _edge_score(ev_pred_pct, risk_proba)
     sizing_mult = _sizing_multiplier(lane, proba, ev_pred_pct, risk_proba)
 
@@ -176,6 +186,8 @@ def decide_ml_action(
         green_risk_veto = bool(
             live
             and _bool_cfg("GREEN_SNIPER_RISK_CAN_VETO_LIVE", False)
+            and not _bool_cfg("ML_RISK_SHADOW_ONLY", True)
+            and bool(activation_ready)
             and risk_proba is not None
             and float(risk_proba) >= _float_cfg("ML_RISK_VETO_THRESHOLD", 0.70)
         )
@@ -183,6 +195,7 @@ def decide_ml_action(
             allow = False
             reason = "green_sniper_risk_veto"
             risk_veto = True
+            risk_veto_enforced = True
         return MlPolicyDecision(
             mode=mode,
             lane=lane or LANE_UNKNOWN,
@@ -198,6 +211,7 @@ def decide_ml_action(
             risk_proba=None if risk_proba is None else float(risk_proba),
             ev_pred_pct=None if ev_pred_pct is None else float(ev_pred_pct),
             edge_score=edge,
+            risk_veto_enforced=bool(risk_veto_enforced),
         )
 
     if global_mode == "off":
@@ -205,9 +219,12 @@ def decide_ml_action(
     elif global_mode == "shadow":
         reason = "ml_shadow"
     elif global_mode in {"legacy", "enforce"}:
-        enforce = global_mode == "legacy" or bool(activation_ready)
+        enforce = bool(activation_ready)
         allow = bool(base_rules_passed and (not enforce or proba_pass))
-        reason = "global_threshold_pass" if allow else "global_threshold_reject"
+        if not activation_ready:
+            reason = "global_threshold_shadow"
+        else:
+            reason = "global_threshold_pass" if allow else "global_threshold_reject"
     elif global_mode == "sizing_only":
         mode = "sizing_only"
         reason = "sizing_only"
@@ -227,6 +244,8 @@ def decide_ml_action(
             if live and not _bool_cfg("ML_ALLOW_RESEARCH_LIVE", False):
                 allow = False
                 reason = "research_live_disabled"
+            elif not enforce:
+                reason = "research_shadow"
             else:
                 reason = "research_enforce_pass" if allow else "research_enforce_reject"
         else:
@@ -236,7 +255,7 @@ def decide_ml_action(
                 allow = False
             reason = "unknown_lane_shadow" if allow else "unknown_lane_no_live"
 
-    if risk_veto:
+    if risk_veto_enforced:
         allow = False
         reason = "risk_veto"
 
@@ -255,6 +274,7 @@ def decide_ml_action(
         risk_proba=None if risk_proba is None else float(risk_proba),
         ev_pred_pct=None if ev_pred_pct is None else float(ev_pred_pct),
         edge_score=edge,
+        risk_veto_enforced=bool(risk_veto_enforced),
     )
 
 

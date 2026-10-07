@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -16,6 +17,7 @@ from research_loop.sandbox import SandboxResult, create_candidate_sandbox
 
 REPLAY_REPORTS = (
     "policy_replay.json",
+    "event_replay.json",
     "trade_diagnostics.json",
     "missed_pumps.json",
     "runner_capture_ladder_report.json",
@@ -73,16 +75,34 @@ def _write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
 
 
-def _copy_snapshot(root: Path, snapshot_dir: Path) -> list[str]:
+def _copy_snapshot(root: Path, snapshot_dir: Path, *, skip: set[str] | None = None) -> list[str]:
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     failures: list[str] = []
+    skipped = skip or set()
     for name in REPLAY_REPORTS:
+        if name in skipped:
+            continue
         source = metrics_dir(root) / name
         if not source.exists():
             failures.append(f"missing_report:{name}")
             continue
         shutil.copy2(source, snapshot_dir / name)
     return failures
+
+
+def _build_event_replay_report(
+    root: Path,
+    *,
+    candidate_policy_path: Path | None = None,
+    candidate_env_path: Path | None = None,
+) -> dict[str, Any]:
+    from backtest.event_replay import build_event_replay
+
+    return build_event_replay(
+        root,
+        candidate_policy_path=candidate_policy_path if candidate_policy_path is not None and candidate_policy_path.exists() else None,
+        candidate_env_path=candidate_env_path,
+    )
 
 
 def _candidate_env_path(sandbox: SandboxResult | str | Path, run_dir: Path) -> Path | None:
@@ -136,21 +156,30 @@ def _group_trades(report: dict[str, Any], group_name: str) -> int:
         return 0
     try:
         return int(float(group.get("trades") or 0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
 
 
-def _float(payload: dict[str, Any], key: str, default: float = 0.0) -> float:
+def _finite_number(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
     try:
-        return float(payload.get(key, default) or default)
-    except (TypeError, ValueError):
-        return default
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _float(payload: dict[str, Any], key: str, default: float | None = 0.0) -> float | None:
+    value = _finite_number(payload.get(key))
+    return default if value is None else value
 
 
 def _int(payload: dict[str, Any], key: str, default: int = 0) -> int:
     try:
-        return int(float(payload.get(key, default) or default))
-    except (TypeError, ValueError):
+        value = _finite_number(payload.get(key))
+        return int(value) if value is not None else default
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -159,12 +188,12 @@ def _dict(payload: dict[str, Any], key: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _first_float(default: float, *items: tuple[dict[str, Any], str]) -> float:
+def _first_float(default: float | None, *items: tuple[dict[str, Any], str]) -> float | None:
     for payload, key in items:
         if not isinstance(payload, dict) or key not in payload:
             continue
-        value = _float(payload, key, default)
-        if value != default or payload.get(key) not in (None, ""):
+        value = _finite_number(payload.get(key))
+        if value is not None:
             return value
     return default
 
@@ -173,9 +202,9 @@ def _first_int(default: int, *items: tuple[dict[str, Any], str]) -> int:
     for payload, key in items:
         if not isinstance(payload, dict) or key not in payload:
             continue
-        value = _int(payload, key, default)
-        if value != default or payload.get(key) not in (None, ""):
-            return value
+        value = _finite_number(payload.get(key))
+        if value is not None:
+            return int(value)
     return default
 
 
@@ -240,11 +269,13 @@ def _historical_metrics(
 
     metrics: dict[str, Any] = {
         "total_pnl_usd": _first_float(
-            0.0,
-            (paper_summary, "total_pnl_usd"),
-            (current_policy, "total_pnl"),
-            (trade_summary, "total_pnl_points"),
+            None,
+            (paper_summary, "net_total_pnl_usd"),
         ),
+        "diagnostic_gross_total_pnl_usd": _first_float(None, (paper_summary, "total_pnl_usd")),
+        "diagnostic_policy_pnl_pct_points": _first_float(None, (current_policy, "total_pnl"), (trade_summary, "total_pnl_points")),
+        "cost_basis": paper_summary.get("cost_basis", "unknown_or_incomplete"),
+        "event_replay_used_for_acceptance": False,
         "avg_pnl_pct": _first_float(0.0, (paper_summary, "avg_pnl_pct"), (current_policy, "avg_pnl"), (trade_summary, "avg_pnl")),
         "median_pnl_pct": _first_float(0.0, (paper_summary, "median_pnl_pct"), (current_policy, "median_pnl"), (trade_summary, "median_pnl")),
         "win_rate_pct": _first_float(0.0, (paper_summary, "win_rate_pct"), (current_policy, "win_rate"), (trade_summary, "win_rate")),
@@ -288,51 +319,48 @@ def _current_run_metrics(
     shadow_followup: dict[str, Any],
     paper_real: dict[str, Any],
 ) -> dict[str, Any]:
-    real_positions = _dict(current_trade_diagnostics, "real_paper_positions")
-    candidate_decisions = _dict(current_trade_diagnostics, "candidate_decisions")
-    paper_summary = _dict(paper_real, "summary")
+    run_id = str(current_summary.get("run_id") or _dict(current_summary, "current_run").get("run_id") or "")
+    diagnostics_run_id = str(_dict(current_trade_diagnostics, "current_run").get("run_id") or "")
+    real_positions = _dict(current_trade_diagnostics, "real_paper_positions") if run_id and diagnostics_run_id == run_id else {}
+    # Global summaries and decision rows are different cohorts/grains. They
+    # must not fill missing current-run trade performance.
+    health_run_id = str(_dict(health, "current_run").get("run_id") or "")
+    scoped_health = health if run_id and health_run_id == run_id else {}
     missed_summary = _dict(current_missed, "summary")
     runner_summary = _dict(runner, "summary")
     metrics: dict[str, Any] = {
         "total_pnl_usd": _first_float(
-            0.0,
-            (current_summary, "total_pnl_usd"),
-            (paper_summary, "total_pnl_usd"),
-            (health, "current_run_total_usd"),
-            (real_positions, "total_pnl_pct_points"),
+            None,
+            (current_summary, "net_total_pnl_usd"),
+            (scoped_health, "current_run_net_total_usd"),
         ),
+        "diagnostic_gross_total_pnl_usd": _first_float(None, (current_summary, "total_pnl_usd"), (scoped_health, "current_run_total_usd")),
+        "diagnostic_trade_pnl_pct_points": _first_float(None, (real_positions, "total_pnl_pct_points")),
+        "event_replay_used_for_acceptance": False,
         "avg_pnl_pct": _first_float(
             0.0,
             (current_summary, "avg_pnl_pct"),
-            (paper_summary, "avg_pnl_pct"),
-            (health, "current_run_avg_pnl"),
+            (scoped_health, "current_run_avg_pnl"),
             (real_positions, "avg_pnl_pct"),
-            (candidate_decisions, "avg_pnl_pct"),
         ),
         "median_pnl_pct": _first_float(
             0.0,
             (current_summary, "median_pnl_pct"),
-            (paper_summary, "median_pnl_pct"),
-            (health, "current_run_median_pnl"),
+            (scoped_health, "current_run_median_pnl"),
             (real_positions, "median_pnl_pct"),
-            (candidate_decisions, "median_pnl_pct"),
         ),
         "win_rate_pct": _first_float(
             0.0,
             (current_summary, "win_rate_pct"),
-            (paper_summary, "win_rate_pct"),
-            (health, "current_run_win_rate"),
+            (scoped_health, "current_run_win_rate"),
             (real_positions, "win_rate_pct"),
-            (candidate_decisions, "win_rate_pct"),
         ),
         "closed_trades": _first_int(
             0,
             (current_summary, "closed_trades"),
             (current_summary, "closed_positions"),
-            (paper_summary, "closed"),
-            (health, "current_run_closed_trades"),
+            (scoped_health, "current_run_closed_trades"),
             (real_positions, "pnl_rows"),
-            (real_positions, "rows"),
         ),
         "buys_per_hour": _float(health, "buys_per_hour"),
         "runner_capture_ratio": _first_float(
@@ -349,9 +377,7 @@ def _current_run_metrics(
         "severe_loss_count": _first_int(
             0,
             (current_summary, "severe_loss_count"),
-            (paper_summary, "severe_losses"),
             (real_positions, "severe_losses"),
-            (candidate_decisions, "severe_losses"),
         ),
         "liquidity_crush_count": _int(current_summary, "liquidity_crush_count"),
         "adverse_tick_count": _int(current_summary, "adverse_tick_count"),
@@ -390,6 +416,7 @@ def _combined_metrics(historical: dict[str, Any], current_run: dict[str, Any]) -
 def build_replay_metric_views(snapshot_dir: str | Path, *, api_budget: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
     base = Path(snapshot_dir)
     policy_replay = _read_json(base / "policy_replay.json")
+    event_replay = _read_json(base / "event_replay.json")
     trade_diagnostics = _read_json(base / "trade_diagnostics.json")
     health = _read_json(base / "bot_profitability_health.json")
     runner = _read_json(base / "runner_capture_ladder_report.json")
@@ -428,6 +455,23 @@ def build_replay_metric_views(snapshot_dir: str | Path, *, api_budget: dict[str,
         historical.update(api_metrics)
         current_run.update(api_metrics)
         combined.update(api_metrics)
+    event_inputs = _dict(event_replay if isinstance(event_replay, dict) else {}, "inputs")
+    event_metrics = _dict(event_replay if isinstance(event_replay, dict) else {}, "metrics")
+    if event_metrics and _int(event_inputs, "events") > 0:
+        event_metric_payload = dict(event_metrics)
+        if api_budget is not None:
+            event_metric_payload.update(metrics_from_api_budget(api_budget))
+        event_metric_payload["event_replay_used_for_acceptance"] = bool(
+            event_replay.get("acceptance_ready")
+            and event_metric_payload.get("event_replay_used_for_acceptance")
+        )
+        event_metric_payload["diagnostic_policy_replay_total_pnl_usd"] = combined.get("total_pnl_usd")
+        event_metric_payload["diagnostic_policy_pnl_pct_points"] = combined.get("diagnostic_policy_pnl_pct_points")
+        return {
+            "current_run_metrics": dict(event_metric_payload),
+            "historical_metrics": dict(event_metric_payload),
+            "combined_metrics": dict(event_metric_payload),
+        }
     return {
         "current_run_metrics": current_run,
         "historical_metrics": historical,
@@ -482,12 +526,14 @@ def run_research_replay_from_sandbox(
     failures: list[str] = []
     if regenerate:
         try:
-            if regenerate_func is None and candidate_env_path is not None:
-                summary = _regenerate_core_reports_with_profile(resolved_root, candidate_env_path)
-            elif regenerate_func is None:
-                from analytics.core_report_scheduler import regenerate_core_reports
-
-                summary = regenerate_core_reports(resolved_root, include_test_events=False, report_names=REPLAY_REPORTS)
+            if regenerate_func is None:
+                # Candidate acceptance is driven by the causal event replay
+                # below. Rebuilding every cumulative report for every candidate
+                # both mutates the bot's shared metrics directory and was timing
+                # out systematically on large JSONL inputs. Core reports are
+                # refreshed once by the stack before AutoResearch starts.
+                summary = {"warnings": {}}
+                warnings.append("candidate_core_regeneration_skipped:causal_event_replay_only")
             else:
                 if candidate_env_path is not None:
                     warnings.append("candidate_profile_not_applied_custom_regenerate_func")
@@ -498,9 +544,23 @@ def run_research_replay_from_sandbox(
         except Exception as exc:
             failures.append(f"regenerate_core_reports_failed:{exc}")
 
+    event_replay_report: dict[str, Any] | None = None
+    try:
+        event_replay_report = _build_event_replay_report(
+            resolved_root,
+            candidate_policy_path=candidate_policy_path,
+            candidate_env_path=candidate_env_path,
+        )
+    except Exception as exc:
+        failures.append(f"event_replay_failed:{exc}")
+
     report_snapshot_dir = run_dir / "report_snapshot"
-    failures.extend(_copy_snapshot(resolved_root, report_snapshot_dir))
-    api_budget = build_api_budget_report(resolved_root, write=True)
+    failures.extend(_copy_snapshot(resolved_root, report_snapshot_dir, skip={"event_replay.json"}))
+    if event_replay_report is None:
+        failures.append("missing_report:event_replay.json")
+    else:
+        _write_json(report_snapshot_dir / "event_replay.json", event_replay_report)
+    api_budget = build_api_budget_report(resolved_root, write=False)
     replay_metrics = extract_replay_metrics(report_snapshot_dir, api_budget=api_budget)
     if failures:
         replay_metrics["failed"] = True

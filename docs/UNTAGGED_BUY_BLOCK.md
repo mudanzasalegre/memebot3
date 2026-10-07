@@ -4,16 +4,18 @@ Paper buys without a valid entry lane, gate profile and lane tier are routed to 
 
 | Metric | Value |
 |---|---:|
-| Rows evaluated | 101547 |
-| Blocked context rows | 99829 |
-| Runtime blocked events | 511 |
+| Rows evaluated | 125052 |
+| Blocked context rows | 123154 |
+| Runtime blocked events | 515 |
 
 ## Blocked Reasons
 
-- `untagged_standard_buy_disabled`: 99829
-- `profit_lane_tier_missing`: 97910
-- `gate_profile_missing`: 75793
-- `entry_lane_missing`: 54876
-- `pumpfun_standard_buy_disabled`: 47145
-- `sniper_research_subprofile_missing`: 1934
-- `dex_mature_standard_buy_disabled`: 464
+- `untagged_standard_buy_disabled`: 123154
+- `profit_lane_tier_missing`: 121186
+- `gate_profile_missing`: 96042
+- `entry_lane_missing`: 86841
+- `pumpfun_standard_buy_disabled`: 58047
+- `dex_mature_standard_buy_disabled`: 44735
+- `sniper_research_subprofile_missing`: 2936
+- `pumpswap_profit_not_prime`: 105
+- `pumpswap_prime_not_strict`: 69

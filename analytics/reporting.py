@@ -451,7 +451,25 @@ def load_positions_frame(db_path: Path | None = None) -> pd.DataFrame:
         if tables.empty:
             return pd.DataFrame()
         table_name = "positions" if "positions" in set(tables["name"]) else "position"
-        return pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+        frame = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+    return normalize_positions_frame(frame)
+
+
+def normalize_positions_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    if "exit_reason_full" in out.columns:
+        full = out["exit_reason_full"]
+        if "exit_reason" in out.columns:
+            out["exit_reason"] = full.where(full.notna() & (full.astype("string").str.len() > 0), out["exit_reason"])
+        else:
+            out["exit_reason"] = full
+    if "source_position_key" in out.columns and "id" in out.columns:
+        source_key = out["source_position_key"].astype("string").fillna("")
+        missing = out["source_position_key"].isna() | (source_key.str.len() <= 0)
+        out.loc[missing, "source_position_key"] = out.loc[missing, "id"].astype("string")
+    return out
 
 
 def _compute_pnl_series(df: pd.DataFrame) -> pd.Series:

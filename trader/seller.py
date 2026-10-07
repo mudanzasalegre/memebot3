@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 
 from config.config import CFG
+from analytics import runner_ladder
 import analytics.exit_policy as exit_policy
 from utils.time import parse_iso_utc
 from utils import price_service
@@ -448,6 +449,7 @@ async def sell(
                 price_used, src_used = float(ps), (src_used or "jup_critical")
         except Exception:
             pass
+    price_confidence_close = price_service.price_confidence_from_source(src_used, price_used)
 
     log.info(
         "[seller] SELL sent sig=%s  price_used=%s  src=%s  router=%s",
@@ -463,6 +465,7 @@ async def sell(
         "ok": ok_flag,
         "price_used_usd": price_used,
         "price_source_close": src_used,
+        "price_confidence_close": price_confidence_close,
         "venue": venue,
     }
 
@@ -488,6 +491,12 @@ def check_exit_conditions(
     if price_now > float(position.get("peak_price", 0.0) or 0.0):
         position["peak_price"] = float(price_now)
 
+    pnl_pct = None
+    buy_price = float(position.get("buy_price_usd", 0.0) or 0.0)
+    if buy_price > 0 and price_now > 0:
+        pnl_pct = ((float(price_now) - buy_price) / buy_price) * 100.0
+        exit_policy.update_exit_state(position, pnl_pct=float(pnl_pct))
+
     liq_now = None
     if tick and isinstance(tick, dict):
         try:
@@ -500,6 +509,7 @@ def check_exit_conditions(
         price_now,
         datetime.now(timezone.utc),
         liq_now=liq_now,
+        pnl_pct=pnl_pct,
     )
 
 
@@ -550,7 +560,21 @@ async def apply_partial_tp(
     if not token_addr:
         return None
 
-    qty = compute_partial_qty(position, PARTIAL_TP_FRACTION)
+    fraction = PARTIAL_TP_FRACTION
+    ladder_plan = None
+    try:
+        buy_price = float(position.get("buy_price_usd", 0.0) or 0.0)
+        current_price = float(price_hint or 0.0)
+        if buy_price > 0.0 and current_price > 0.0:
+            pnl_pct = ((current_price - buy_price) / buy_price) * 100.0
+            if exit_policy.should_take_partial(position, pnl_pct):
+                ladder_plan = exit_policy.partial_ladder_plan(position, pnl_pct)
+                fraction = float(exit_policy.partial_sell_fraction(position, pnl_pct))
+    except Exception:
+        fraction = PARTIAL_TP_FRACTION
+        ladder_plan = None
+
+    qty = compute_partial_qty(position, fraction)
     if qty <= 0:
         log.info("[seller] partial TP sin cantidad disponible")
         return None
@@ -565,10 +589,19 @@ async def apply_partial_tp(
     )
     if res.get("ok"):
         position["partial_taken"] = True
+        partial_increment = 1
+        if isinstance(ladder_plan, dict):
+            partial_increment = max(1, int(ladder_plan.get("pending_step_count") or 1))
+        position["partial_count"] = int(position.get("partial_count") or 0) + partial_increment
+        position["exit_state"] = "post_partial"
+        position["entry_qty"] = int(position.get("entry_qty") or (int(position.get("qty_lamports") or 0) + int(position.get("realized_qty") or 0)))
+        position["realized_qty"] = int(position.get("realized_qty") or 0) + int(qty)
+        if isinstance(ladder_plan, dict) and isinstance(ladder_plan.get("next_state"), dict):
+            position["partial_ladder_state"] = runner_ladder.encode_ladder_state(ladder_plan["next_state"])
         position["qty_lamports"] = int(position.get("qty_lamports", 0)) - qty
         if position["qty_lamports"] < 0:
             position["qty_lamports"] = 0
-        log.info("[seller] Partial TP ejecutado: vendidas ~%.0f%% (%d lamports)", PARTIAL_TP_FRACTION * 100, qty)
+        log.info("[seller] Partial TP ejecutado: vendidas ~%.0f%% (%d lamports)", fraction * 100, qty)
         return res
     return None
 
@@ -633,6 +666,7 @@ async def safe_close_snapshot(
 
     pnl_pct = 0.0 if buy_price <= 0 else ((float(price_now) - buy_price) / buy_price) * 100.0
     closed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    price_confidence_close = price_service.price_confidence_from_source(src_used, price_now)
 
     return {
         "close_price_usd": float(price_now),
@@ -640,6 +674,7 @@ async def safe_close_snapshot(
         "closed_at": closed_at,
         "exit_reason": exit_reason,
         "price_source_close": src_used,
+        "price_confidence_close": price_confidence_close,
     }
 
 

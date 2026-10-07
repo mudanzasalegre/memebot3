@@ -46,6 +46,7 @@ class PositionLimitDecision:
     open_count: int
     cap: int
     reason: str
+    warning: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -98,6 +99,14 @@ def _cap_for_lane(lane: str, *, dry_run: bool, live: bool) -> int:
     return 999 if dry_run else 1
 
 
+def _cap_warning(cap: int) -> str:
+    if cap == 0:
+        return "cap_zero_unlimited"
+    if cap < 0:
+        return "cap_negative_unlimited"
+    return ""
+
+
 def count_open_by_lane(open_positions: Iterable[Any]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for pos in open_positions:
@@ -139,6 +148,7 @@ def evaluate_lane_position_limit(
         open_count=open_count,
         cap=cap,
         reason="ok" if allowed else ("lane_live_disabled" if live_disabled else f"lane_cap:{normalized}"),
+        warning="" if live_disabled else _cap_warning(cap),
     )
 
 

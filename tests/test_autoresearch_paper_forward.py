@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import pytest
 
 from research_loop.evaluator import STATUS_NEEDS_PAPER
 from research_loop.paper_forward import (
@@ -35,7 +36,7 @@ def _candidate(proposal_id: str = "ar_paper_001", changes: dict | None = None) -
 def _source_profile(tmp_path) -> None:
     profiles = tmp_path / "config" / "profiles"
     profiles.mkdir(parents=True)
-    (profiles / "paper_hotfix_runner_v2.env").write_text(
+    (profiles / "paper_hotfix_0707.env").write_text(
         "DRY_RUN=1\nPAPER_SNIPER_MODE=true\nLIVE_CANARY_ENABLED=false\n",
         encoding="utf-8",
     )
@@ -148,6 +149,8 @@ def test_finalize_paper_forward_accepts_when_budget_api_and_objective_pass(tmp_p
 
     assert result.status == STATUS_ACCEPTED_PAPER
     assert result.accepted is True
+    assert result.automation_eligible is False
+    assert "supplied_metrics_are_diagnostic_not_automatic_policy_evidence" in result.warnings
     assert result.result_path and result.result_path.exists()
     assert load_scoreboard(tmp_path)[0]["status"] == STATUS_ACCEPTED_PAPER
 
@@ -191,3 +194,43 @@ def test_finalize_paper_forward_rejects_missing_budget_sample(tmp_path) -> None:
     assert any(reason.startswith("paper_budget:min_hours") for reason in result.rejection_reasons)
     assert any(reason.startswith("paper_budget:min_closed_trades") for reason in result.rejection_reasons)
     assert any(reason.startswith("paper_budget:min_decisions") for reason in result.rejection_reasons)
+
+
+def test_baseline_uses_existing_run_start_and_source_profile_not_new_experiment_time(tmp_path, monkeypatch):
+    import research_loop.paper_forward as forward
+    _source_profile(tmp_path)
+    identity = {"run_id": "prior_runtime", "run_started_at": "2026-10-01T00:00:00Z"}
+    captured = []
+    monkeypatch.setattr(forward, "current_run_identity", lambda *args: identity)
+    monkeypatch.setattr(forward, "_load_current_paper_metrics", lambda root, state: captured.append(state) or {})
+    start = start_paper_forward(_candidate("baseline"), root=tmp_path, run_id="new_trial")
+    assert captured[0]["runtime_run_id"] == "prior_runtime"
+    assert captured[0]["started_at_utc"] == identity["run_started_at"]
+    assert captured[0]["paper_profile"] == "paper_hotfix_0707"
+    state = json.loads(start.state_path.read_text())
+    assert state["activation_status"] == "profile_exported_not_applied"
+    assert state["comparison_kind"] == "sequential_diagnostic_not_paired"
+
+
+def test_existing_forward_run_is_not_overwritten(tmp_path):
+    from research_loop.paper_forward import PaperForwardError
+    _source_profile(tmp_path)
+    start = start_paper_forward(_candidate("preserve"), root=tmp_path, run_id="same")
+    original = start.state_path.read_bytes()
+    with pytest.raises(PaperForwardError, match="already_initialized"):
+        start_paper_forward(_candidate("other"), root=tmp_path, run_id="same")
+    assert start.state_path.read_bytes() == original
+
+
+@pytest.mark.parametrize("net", [0, -1, float("nan"), float("inf")])
+def test_supplied_metrics_cannot_bypass_positive_finite_net_pnl(tmp_path, net):
+    _source_profile(tmp_path)
+    start = start_paper_forward(_candidate("invalid_net"), root=tmp_path, run_id="invalid_net")
+    metrics = _paper_metrics()
+    metrics["total_pnl_usd"] = net
+    result = finalize_paper_forward(start.run_id, root=tmp_path, paper_metrics=metrics,
+                                    baseline_metrics=_baseline(), api_budget=_api_budget(),
+                                    baseline_api_budget=_api_budget(), rollback_on_reject=False)
+    assert result.status == STATUS_REJECTED_PAPER
+    assert "paper_forward:nonpositive_net_pnl" in result.rejection_reasons
+    assert result.automation_eligible is False

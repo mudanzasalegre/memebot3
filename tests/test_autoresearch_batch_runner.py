@@ -46,6 +46,7 @@ def _baseline() -> dict:
         "provider_degraded_minutes": 0,
         "overtrading_count": 0,
         "idle_no_buy_hours": 0,
+        "event_replay_used_for_acceptance": True,
     }
 
 

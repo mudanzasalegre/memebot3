@@ -4,7 +4,7 @@ Base rebound candidates remain shadow-only until recovery confirmation is presen
 
 | Group | Rows | Win | Avg PnL | Median PnL | Severe |
 |---|---:|---:|---:|---:|---:|
-| base_pattern | 19 | 0.00% | -7.70% | 0.00% | 2 |
+| base_pattern | 14 | 0.00% | 0.00% | 0.00% | 0 |
 | confirmed_buy | 0 | 0.00% | 0.00% | 0.00% | 0 |
-| shadow_rebound_watch | 19 | 0.00% | -7.70% | 0.00% | 2 |
-| base_failures | 19423 | 1.38% | 0.14% | 0.00% | 271 |
+| shadow_rebound_watch | 14 | 0.00% | 0.00% | 0.00% | 0 |
+| base_failures | 23612 | 1.50% | -0.04% | 0.00% | 346 |

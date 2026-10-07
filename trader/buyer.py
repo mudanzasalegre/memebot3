@@ -53,6 +53,7 @@ from sqlalchemy import select
 
 # Precio: Jupiter Price v3 (Lite)
 from fetcher import jupiter_price
+from utils import price_service
 
 # Router Jupiter (opcional): cotizaciones con price_impact (si existe)
 try:
@@ -433,6 +434,7 @@ async def buy(
             "buy_price_usd": buy_price_usd,
             "peak_price": buy_price_usd,
             "price_source": price_src,
+            "price_confidence": price_service.price_confidence_from_source(price_src, buy_price_usd),
         }
 
     # ─────── Ventana horaria (guard-rail) ────────────────
@@ -599,6 +601,7 @@ async def buy(
                 "buy_price_usd": float(buy_price_usd),
                 "peak_price": float(buy_price_usd),
                 "price_source": str(price_src),
+                "price_confidence": price_service.price_confidence_from_source(price_src, buy_price_usd),
                 "entry_notional_usd": float(entry_notional_usd),
                 "venue": "jupiter_managed",
             }
@@ -652,6 +655,7 @@ async def buy(
                 "buy_price_usd": float(buy_price_usd),
                 "peak_price": float(buy_price_usd),
                 "price_source": str(price_src),
+                "price_confidence": price_service.price_confidence_from_source(price_src, buy_price_usd),
                 "entry_notional_usd": float(entry_notional_usd),
                 "venue": "gmgn",
             }

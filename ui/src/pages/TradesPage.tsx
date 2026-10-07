@@ -9,7 +9,7 @@ import { SourceHealthStrip } from "../components/primitives/SourceHealthStrip";
 import { StatusChip } from "../components/primitives/StatusChip";
 import { Surface } from "../components/primitives/Surface";
 import { usePollEnvelope } from "../hooks/usePollEnvelope";
-import type { ClosedTradeItem, ClosedTradesData } from "../lib/api";
+import type { ClosedTradeItem, ClosedTradesData, RiskControlData } from "../lib/api";
 import { formatCount, formatDecimal, formatSignedPct, formatTimestamp, formatUsd } from "../lib/format";
 
 
@@ -96,8 +96,11 @@ export function TradesPage() {
     }),
     5000,
   );
+  const riskQuery = usePollEnvelope<RiskControlData>("/api/v1/control/risk", 10000);
 
   const tradesData = tradesQuery.envelope?.data;
+  const riskData = riskQuery.envelope?.data;
+  const riskSummary = riskData?.summary || null;
   const trades = tradesData?.items || [];
   const sourceStatus = tradesQuery.envelope?.meta.source_status || [];
   const summary = tradesData?.summary;
@@ -497,6 +500,71 @@ export function TradesPage() {
 
         <Surface className="grid-span-4" eyebrow="Source truth" title="Ledger provenance">
           <SourceHealthStrip sources={sourceStatus} />
+        </Surface>
+
+        <Surface
+          className="grid-span-12"
+          eyebrow="Risk handoff"
+          title="Control Center signals"
+          subtitle="The same risk snapshot used by lane kill switches is available while inspecting closed trades."
+        >
+          <div className="metric-ribbon">
+            <div className="metric-ribbon__item">
+              <span>Gross spot closed PnL</span>
+              <strong>
+                {formatUsd(riskSummary?.gross_spot_closed_pnl_usd ?? riskSummary?.net_closed_pnl_usd)}
+              </strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Profit factor</span>
+              <strong>{formatDecimal(riskSummary?.profit_factor)}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Severe losses</span>
+              <strong>{formatCount(riskSummary?.severe_loss_count)}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>cap=0 lanes</span>
+              <strong>{formatCount(riskSummary?.cap_zero_lanes)}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Manual blocks</span>
+              <strong>{formatCount(riskSummary?.manual_disabled_lanes)}</strong>
+            </div>
+            <div className="metric-ribbon__item">
+              <span>Providers</span>
+              <strong>{riskSummary?.provider_overall_status || "n/a"}</strong>
+            </div>
+          </div>
+
+          <div className="editorial-grid">
+            <div className="grid-span-6">
+              <div className="breakdown-list">
+                {(riskData?.top_loss_reasons || []).slice(0, 5).map((row) => (
+                  <div className="breakdown-list__item" key={row.reason}>
+                    <div className="breakdown-list__label">
+                      <strong>{row.reason}</strong>
+                      <span>{formatUsd(row.total_pnl_usd ?? null)} | {formatCount(row.count)}</span>
+                    </div>
+                  </div>
+                ))}
+                {!(riskData?.top_loss_reasons || []).length ? <p className="empty-note">No loss reasons available.</p> : null}
+              </div>
+            </div>
+            <div className="grid-span-6">
+              <div className="breakdown-list">
+                {(riskData?.top_missed_moonshot_reasons || []).slice(0, 5).map((row) => (
+                  <div className="breakdown-list__item" key={row.reason}>
+                    <div className="breakdown-list__label">
+                      <strong>{row.reason}</strong>
+                      <span>{formatCount(row.count)}</span>
+                    </div>
+                  </div>
+                ))}
+                {!(riskData?.top_missed_moonshot_reasons || []).length ? <p className="empty-note">No missed moonshot reasons available.</p> : null}
+              </div>
+            </div>
+          </div>
         </Surface>
 
         <Surface className="grid-span-4" eyebrow="Current page" title="Wins and failures" subtitle="Breakdown over visible rows only. Totals above reflect the full filtered ledger.">

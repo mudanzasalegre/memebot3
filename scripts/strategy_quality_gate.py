@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,6 +77,46 @@ AUTORESEARCH_SECRET_MARKERS = (
     "RUGCHECK",
 )
 
+GOLDEN_0707_FIXTURE_RELATIVE_PATH = (
+    Path("tests") / "fixtures" / "golden_0707" / "strategy_regression_0707.json"
+)
+
+GOLDEN_0707_EXPECTED_AUDIT = {
+    "net_closed_pnl_usd": Decimal("-81.33"),
+    "profit_factor": Decimal("0.629"),
+    "exit_reason_pnl_usd.LIQUIDITY_CRUSH": Decimal("-138.99"),
+    "exit_reason_pnl_usd.NO_PUMP_EXIT": Decimal("-55.26"),
+    "partial_pnl_usd.no_partial": Decimal("-215.67"),
+    "partial_pnl_usd.partial": Decimal("134.35"),
+}
+
+GOLDEN_0707_REQUIRED_FALSE_FLAGS = (
+    "LIVE_CANARY_ENABLED",
+    "GREEN_SNIPER_LIVE_ENABLED",
+    "RESEARCH_RANK_CANARY_LIVE_ENABLED",
+    "LATE_MOMENTUM_WATCH_LIVE_ENABLED",
+    "LIVE_AGGRESSIVE_TRADING_ENABLED",
+    "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED",
+    "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED",
+    "SNIPER_RESEARCH_MICRO_FALLBACK_LIVE_ENABLED",
+    "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED",
+    "AUTO_PROMOTE_LIVE",
+    "MODEL_AUTO_PROMOTE",
+    "ML_AUTO_PROMOTE_LANES",
+    "ALLOW_LIVE_POLICY_ENFORCE",
+    "WALLET_PRESENT",
+    "RPC_URL_PRESENT",
+    "SECRETS_PRESENT",
+)
+
+GOLDEN_0707_FORBIDDEN_FEATURE_FRAGMENTS = (
+    "future",
+    "exit_reason",
+    "total_pnl",
+    "closed_at",
+    "realized_pnl",
+)
+
 
 def _bool(name: str, default: bool = False) -> bool:
     return bool(getattr(CFG, name, default))
@@ -113,6 +155,353 @@ def _truthy_text(value: str | None) -> bool:
 
 def _falsey_text(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"0", "false", "no", "n", "off"}
+
+
+def _golden_0707_fixture_path() -> Path:
+    return ROOT / GOLDEN_0707_FIXTURE_RELATIVE_PATH
+
+
+def _golden_0707_required_for_root() -> bool:
+    return (ROOT / ".github").exists() and (ROOT / "scripts" / "strategy_quality_gate.py").exists()
+
+
+def _decimal_or_error(value: object, errors: list[str], label: str) -> Decimal | None:
+    try:
+        if isinstance(value, bool):
+            raise InvalidOperation
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        errors.append(f"golden_0707 invalid decimal {label}: {value!r}")
+        return None
+
+
+def _int_or_error(value: object, errors: list[str], label: str) -> int | None:
+    try:
+        if isinstance(value, bool):
+            raise ValueError
+        return int(value)
+    except (ValueError, TypeError):
+        errors.append(f"golden_0707 invalid integer {label}: {value!r}")
+        return None
+
+
+def _fmt_decimal(value: Decimal) -> str:
+    return format(value, "f")
+
+
+def _expect_decimal_close(
+    errors: list[str],
+    label: str,
+    actual: Decimal | None,
+    expected: Decimal,
+    *,
+    tolerance: Decimal = Decimal("0.001"),
+) -> None:
+    if actual is None:
+        return
+    if abs(actual - expected) > tolerance:
+        errors.append(
+            f"golden_0707 {label} expected {_fmt_decimal(expected)} got {_fmt_decimal(actual)}"
+        )
+
+
+def _expect_int_equal(errors: list[str], label: str, actual: int | None, expected: int | None) -> None:
+    if actual is None or expected is None:
+        return
+    if actual != expected:
+        errors.append(f"golden_0707 {label} expected {expected} got {actual}")
+
+
+def _parse_fixture_ts(value: object, errors: list[str], label: str) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        errors.append(f"golden_0707 missing timestamp {label}")
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        errors.append(f"golden_0707 invalid timestamp {label}: {text}")
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _validate_golden_0707_audit_summary(payload: dict[str, object], errors: list[str]) -> dict[str, Decimal]:
+    audit = payload.get("audit_summary")
+    if not isinstance(audit, dict):
+        errors.append("golden_0707 audit_summary must be an object")
+        return {}
+
+    expected_by_key: dict[str, Decimal] = {}
+    for key, expected in GOLDEN_0707_EXPECTED_AUDIT.items():
+        if "." in key:
+            parent_key, child_key = key.split(".", 1)
+            parent = audit.get(parent_key)
+            if not isinstance(parent, dict):
+                errors.append(f"golden_0707 audit_summary.{parent_key} must be an object")
+                continue
+            actual = _decimal_or_error(parent.get(child_key), errors, f"audit_summary.{key}")
+        else:
+            actual = _decimal_or_error(audit.get(key), errors, f"audit_summary.{key}")
+        _expect_decimal_close(errors, f"audit_summary.{key}", actual, expected)
+        expected_by_key[key] = expected
+
+    expected_closed = _int_or_error(audit.get("closed_trades"), errors, "audit_summary.closed_trades")
+    if expected_closed is not None and expected_closed <= 0:
+        errors.append("golden_0707 audit_summary.closed_trades must be > 0")
+    if expected_closed is not None:
+        expected_by_key["closed_trades"] = Decimal(expected_closed)
+    return expected_by_key
+
+
+def _validate_golden_0707_sizing_rows(payload: dict[str, object], errors: list[str]) -> None:
+    sizing_cases = payload.get("sizing_cases")
+    if not isinstance(sizing_cases, list) or not sizing_cases:
+        errors.append("golden_0707 sizing_cases must be a non-empty list")
+        return
+
+    for idx, case in enumerate(sizing_cases):
+        if not isinstance(case, dict):
+            errors.append(f"golden_0707 sizing_cases[{idx}] must be an object")
+            continue
+        lane = str(case.get("lane") or "")
+        is_micro = bool(case.get("micro_lane")) or "micro" in lane.lower()
+        amount = _decimal_or_error(case.get("resolved_amount_sol"), errors, f"sizing_cases[{idx}].resolved_amount_sol")
+        max_allowed = _decimal_or_error(case.get("max_allowed_sol"), errors, f"sizing_cases[{idx}].max_allowed_sol")
+        if not is_micro:
+            continue
+        if amount is not None and amount >= Decimal("0.1"):
+            errors.append(
+                f"golden_0707 micro sizing regression {case.get('case_id') or idx}: resolved_amount_sol={_fmt_decimal(amount)}"
+            )
+        if amount is not None and max_allowed is not None and amount > max_allowed:
+            errors.append(
+                f"golden_0707 micro sizing cap exceeded {case.get('case_id') or idx}: "
+                f"{_fmt_decimal(amount)} > {_fmt_decimal(max_allowed)}"
+            )
+        if max_allowed is not None and max_allowed > Decimal("0.02"):
+            errors.append(
+                f"golden_0707 micro sizing max_allowed_sol must stay <=0.02 for {case.get('case_id') or idx}"
+            )
+
+
+def _validate_golden_0707_closed_trades(
+    payload: dict[str, object],
+    errors: list[str],
+    expected: dict[str, Decimal],
+) -> None:
+    rows = payload.get("closed_trades")
+    if not isinstance(rows, list) or not rows:
+        errors.append("golden_0707 closed_trades must be a non-empty list")
+        return
+
+    expected_count = int(expected["closed_trades"]) if "closed_trades" in expected else None
+    if expected_count is not None and len(rows) != expected_count:
+        errors.append(f"golden_0707 closed_trades expected {expected_count} rows got {len(rows)}")
+
+    seen_keys: set[str] = set()
+    total_pnl = Decimal("0")
+    exit_totals: dict[str, Decimal] = {}
+    partial_totals = {"partial": Decimal("0"), "no_partial": Decimal("0")}
+
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            errors.append(f"golden_0707 closed_trades[{idx}] must be an object")
+            continue
+        source_key = str(row.get("source_position_key") or "").strip()
+        if not source_key:
+            errors.append(f"golden_0707 closed_trades[{idx}] missing source_position_key")
+        elif source_key in seen_keys:
+            errors.append(f"golden_0707 duplicate source_position_key {source_key}")
+        else:
+            seen_keys.add(source_key)
+        if row.get("closed") is not True:
+            errors.append(f"golden_0707 closed_trades[{idx}] must be closed=true")
+
+        lane = str(row.get("entry_lane") or "")
+        if "micro" in lane.lower():
+            amount = _decimal_or_error(row.get("entry_amount_sol"), errors, f"closed_trades[{idx}].entry_amount_sol")
+            max_allowed = _decimal_or_error(row.get("micro_lane_max_sol"), errors, f"closed_trades[{idx}].micro_lane_max_sol")
+            if amount is not None and amount >= Decimal("0.1"):
+                errors.append(
+                    f"golden_0707 micro sizing regression closed trade {source_key or idx}: "
+                    f"entry_amount_sol={_fmt_decimal(amount)}"
+                )
+            if amount is not None and max_allowed is not None and amount > max_allowed:
+                errors.append(
+                    f"golden_0707 closed trade micro cap exceeded {source_key or idx}: "
+                    f"{_fmt_decimal(amount)} > {_fmt_decimal(max_allowed)}"
+                )
+
+        pnl = _decimal_or_error(row.get("total_pnl_usd"), errors, f"closed_trades[{idx}].total_pnl_usd")
+        if pnl is None:
+            continue
+        total_pnl += pnl
+        exit_reason = str(row.get("exit_reason") or "UNKNOWN").strip().upper()
+        exit_totals[exit_reason] = exit_totals.get(exit_reason, Decimal("0")) + pnl
+        partial_key = "partial" if row.get("partial_taken") is True else "no_partial"
+        partial_totals[partial_key] += pnl
+
+    _expect_decimal_close(
+        errors,
+        "closed_trades.net_closed_pnl_usd",
+        total_pnl,
+        expected.get("net_closed_pnl_usd", Decimal("0")),
+        tolerance=Decimal("0.01"),
+    )
+    _expect_decimal_close(
+        errors,
+        "closed_trades.exit_reason_pnl_usd.LIQUIDITY_CRUSH",
+        exit_totals.get("LIQUIDITY_CRUSH"),
+        expected.get("exit_reason_pnl_usd.LIQUIDITY_CRUSH", Decimal("0")),
+    )
+    _expect_decimal_close(
+        errors,
+        "closed_trades.exit_reason_pnl_usd.NO_PUMP_EXIT",
+        exit_totals.get("NO_PUMP_EXIT"),
+        expected.get("exit_reason_pnl_usd.NO_PUMP_EXIT", Decimal("0")),
+    )
+    _expect_decimal_close(
+        errors,
+        "closed_trades.partial_pnl_usd.no_partial",
+        partial_totals["no_partial"],
+        expected.get("partial_pnl_usd.no_partial", Decimal("0")),
+        tolerance=Decimal("0.01"),
+    )
+    _expect_decimal_close(
+        errors,
+        "closed_trades.partial_pnl_usd.partial",
+        partial_totals["partial"],
+        expected.get("partial_pnl_usd.partial", Decimal("0")),
+    )
+
+
+def _validate_golden_0707_ledger(
+    payload: dict[str, object],
+    errors: list[str],
+    expected: dict[str, Decimal],
+) -> None:
+    ledger = payload.get("ledger_reconciliation")
+    if not isinstance(ledger, dict):
+        errors.append("golden_0707 ledger_reconciliation must be an object")
+        return
+    db_rows = _int_or_error(ledger.get("db_closed_rows"), errors, "ledger_reconciliation.db_closed_rows")
+    report_rows = _int_or_error(ledger.get("report_closed_rows"), errors, "ledger_reconciliation.report_closed_rows")
+    expected_rows = int(expected["closed_trades"]) if "closed_trades" in expected else None
+    _expect_int_equal(errors, "ledger_reconciliation.db_closed_rows", db_rows, expected_rows)
+    _expect_int_equal(errors, "ledger_reconciliation.report_closed_rows", report_rows, expected_rows)
+    _expect_int_equal(errors, "ledger_reconciliation.db_vs_report_closed_rows", db_rows, report_rows)
+
+    db_total = _decimal_or_error(ledger.get("db_total_pnl_usd"), errors, "ledger_reconciliation.db_total_pnl_usd")
+    report_total = _decimal_or_error(
+        ledger.get("report_total_pnl_usd"),
+        errors,
+        "ledger_reconciliation.report_total_pnl_usd",
+    )
+    expected_total = expected.get("net_closed_pnl_usd", Decimal("0"))
+    _expect_decimal_close(errors, "ledger_reconciliation.db_total_pnl_usd", db_total, expected_total)
+    _expect_decimal_close(errors, "ledger_reconciliation.report_total_pnl_usd", report_total, expected_total)
+    if db_total is not None and report_total is not None:
+        _expect_decimal_close(errors, "ledger_reconciliation.db_vs_report_total_pnl_usd", db_total, report_total)
+
+
+def _validate_golden_0707_safety(payload: dict[str, object], errors: list[str]) -> None:
+    safety = payload.get("safety")
+    if not isinstance(safety, dict):
+        errors.append("golden_0707 safety must be an object")
+        return
+    if safety.get("DRY_RUN") is not True:
+        errors.append("golden_0707 safety requires DRY_RUN=true")
+    if safety.get("STRATEGY_OPTIMIZATION_LOCK") is not True:
+        errors.append("golden_0707 safety requires STRATEGY_OPTIMIZATION_LOCK=true")
+    for flag in GOLDEN_0707_REQUIRED_FALSE_FLAGS:
+        if safety.get(flag) is not False:
+            errors.append(f"golden_0707 safety requires {flag}=false")
+
+
+def _validate_golden_0707_threshold(payload: dict[str, object], errors: list[str]) -> None:
+    threshold = payload.get("threshold_gate")
+    if not isinstance(threshold, dict):
+        errors.append("golden_0707 threshold_gate must be an object")
+        return
+    if threshold.get("objective") != "expected_pnl_precision_floor":
+        errors.append("golden_0707 threshold_gate.objective must be expected_pnl_precision_floor")
+    if threshold.get("fallback_objective_used") is not False:
+        errors.append("golden_0707 threshold_gate must not fallback to expected_pnl")
+    floor = _decimal_or_error(threshold.get("precision_floor"), errors, "threshold_gate.precision_floor")
+    picked = _decimal_or_error(threshold.get("precision_at_picked"), errors, "threshold_gate.precision_at_picked")
+    if floor is None or picked is None:
+        return
+    if picked >= floor:
+        errors.append("golden_0707 threshold fixture must keep a missed precision-floor sentinel")
+    if picked < floor and threshold.get("activation_ready") is not False:
+        errors.append("golden_0707 threshold_gate must remain inactive when precision floor is missed")
+    if picked < floor and str(threshold.get("mode_recommended") or "").lower() != "shadow":
+        errors.append("golden_0707 threshold_gate must recommend shadow when precision floor is missed")
+
+
+def _validate_golden_0707_replay(payload: dict[str, object], errors: list[str]) -> None:
+    cases = payload.get("replay_cases")
+    if not isinstance(cases, list) or not cases:
+        errors.append("golden_0707 replay_cases must be a non-empty list")
+        return
+    for idx, case in enumerate(cases):
+        if not isinstance(case, dict):
+            errors.append(f"golden_0707 replay_cases[{idx}] must be an object")
+            continue
+        label = str(case.get("case_id") or idx)
+        if case.get("lookahead_used") is not False:
+            errors.append(f"golden_0707 replay no-lookahead regression {label}: lookahead_used must be false")
+        decision_ts = _parse_fixture_ts(case.get("decision_ts"), errors, f"replay_cases[{idx}].decision_ts")
+        feature_ts = _parse_fixture_ts(case.get("feature_max_ts"), errors, f"replay_cases[{idx}].feature_max_ts")
+        label_ts = _parse_fixture_ts(case.get("label_ts"), errors, f"replay_cases[{idx}].label_ts")
+        if decision_ts and feature_ts and feature_ts > decision_ts:
+            errors.append(f"golden_0707 replay no-lookahead regression {label}: feature_max_ts > decision_ts")
+        if decision_ts and label_ts and label_ts <= decision_ts:
+            errors.append(f"golden_0707 replay no-lookahead regression {label}: label_ts <= decision_ts")
+
+        feature_columns = case.get("feature_columns")
+        if not isinstance(feature_columns, list):
+            errors.append(f"golden_0707 replay_cases[{idx}].feature_columns must be a list")
+            continue
+        for column in feature_columns:
+            lowered = str(column).lower()
+            if any(fragment in lowered for fragment in GOLDEN_0707_FORBIDDEN_FEATURE_FRAGMENTS):
+                errors.append(f"golden_0707 replay forbidden feature column {label}: {column}")
+
+
+def _validate_golden_0707_payload(
+    payload: object,
+    errors: list[str],
+    *,
+    source_label: str = "golden_0707",
+) -> None:
+    if not isinstance(payload, dict):
+        errors.append(f"golden_0707 fixture must be an object: {source_label}")
+        return
+    if payload.get("fixture_id") != "golden_0707_strategy_regression_v1":
+        errors.append("golden_0707 fixture_id must be golden_0707_strategy_regression_v1")
+    expected = _validate_golden_0707_audit_summary(payload, errors)
+    _validate_golden_0707_sizing_rows(payload, errors)
+    _validate_golden_0707_closed_trades(payload, errors, expected)
+    _validate_golden_0707_ledger(payload, errors, expected)
+    _validate_golden_0707_safety(payload, errors)
+    _validate_golden_0707_threshold(payload, errors)
+    _validate_golden_0707_replay(payload, errors)
+
+
+def _validate_golden_0707_fixture(errors: list[str]) -> None:
+    path = _golden_0707_fixture_path()
+    if not path.exists():
+        errors.append(f"golden_0707 fixture missing: {GOLDEN_0707_FIXTURE_RELATIVE_PATH.as_posix()}")
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        errors.append(f"golden_0707 fixture cannot be parsed: {exc}")
+        return
+    _validate_golden_0707_payload(payload, errors, source_label=str(path))
 
 
 def _validate_autoresearch_runtime_flags(errors: list[str]) -> None:
@@ -536,10 +925,10 @@ def checks() -> list[str]:
         if str(getattr(CFG, name, "") or "").strip().lower() == "enforce" and not _bool("ALLOW_LIVE_POLICY_ENFORCE", False):
             errors.append(f"{name}=enforce requires explicit ALLOW_LIVE_POLICY_ENFORCE")
     if _bool("LIVE_CANARY_ENABLED", False):
-        if _int("LIVE_CANARY_MAX_OPEN", 1) > 1:
-            errors.append("LIVE_CANARY_MAX_OPEN must stay <=1")
-        if _int("LIVE_CANARY_MAX_DAILY_BUYS", 3) > 3:
-            errors.append("LIVE_CANARY_MAX_DAILY_BUYS must stay <=3")
+        if _int("LIVE_CANARY_MAX_OPEN", 0) < 1 or _int("LIVE_CANARY_MAX_OPEN", 0) > 1:
+            errors.append("LIVE_CANARY_MAX_OPEN must stay finite and <=1")
+        if _int("LIVE_CANARY_MAX_DAILY_BUYS", 0) < 1 or _int("LIVE_CANARY_MAX_DAILY_BUYS", 0) > 3:
+            errors.append("LIVE_CANARY_MAX_DAILY_BUYS must stay finite and <=3")
         if _float("LIVE_CANARY_DAILY_LOSS_CAP_SOL", 0.05) <= 0:
             errors.append("LIVE_CANARY_DAILY_LOSS_CAP_SOL is required")
         if not _bool("LIVE_REQUIRE_ROUTE", True):
@@ -612,6 +1001,8 @@ def checks() -> list[str]:
                 errors.append("missed_pumps.json uses legacy schema; regenerate tools/missed_pumps_report.py")
         except Exception:
             errors.append("missed_pumps.json cannot be parsed")
+    if _golden_0707_required_for_root():
+        _validate_golden_0707_fixture(errors)
     _validate_autoresearch_contract(errors)
     return errors
 
@@ -619,8 +1010,13 @@ def checks() -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--warn-only", action="store_true")
+    parser.add_argument("--golden-0707-only", action="store_true")
     args = parser.parse_args()
-    errors = checks()
+    errors: list[str] = []
+    if args.golden_0707_only:
+        _validate_golden_0707_fixture(errors)
+    else:
+        errors = checks()
     for error in errors:
         print(f"strategy_quality_gate=fail {error}")
     if errors and not args.warn_only:

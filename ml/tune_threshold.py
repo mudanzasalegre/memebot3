@@ -265,14 +265,20 @@ def tune_from_frame(
     activation_ready = False
     activation_reason = "f1_fallback"
 
-    if objective_requested in {"expected_pnl_precision_floor", "expected_pnl"}:
+    if objective_requested == "expected_pnl_precision_floor":
         if realized_return_rows < int(min_realized_selected):
             activation_reason = "insufficient_realized_returns"
-        elif objective_requested == "expected_pnl_precision_floor" and best_precision_floor is not None:
+        elif best_precision_floor is not None:
             picked = best_precision_floor
             objective_applied = "expected_pnl_precision_floor"
             activation_ready = bool((picked.avg_realized_pnl_pct or 0.0) > 0.0)
             activation_reason = "precision_floor_met" if activation_ready else "non_positive_expected_pnl"
+        else:
+            activation_reason = "precision_floor_not_met"
+            activation_ready = False
+    elif objective_requested == "expected_pnl":
+        if realized_return_rows < int(min_realized_selected):
+            activation_reason = "insufficient_realized_returns"
         elif best_expected_pnl is not None:
             picked = best_expected_pnl
             objective_applied = "expected_pnl"

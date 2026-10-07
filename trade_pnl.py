@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Tuple
 
+LEGACY_EXIT_REASON_MAX_LEN = 24
+
 
 def _to_float(value: Any, default: float = 0.0) -> float:
     try:
@@ -26,6 +28,24 @@ def _read(container: Any, key: str, default: Any = None) -> Any:
     if isinstance(container, Mapping):
         return container.get(key, default)
     return getattr(container, key, default)
+
+
+def canonical_exit_reason(record: Any) -> str | None:
+    value = _read(record, "exit_reason_full", None)
+    if value is None or (isinstance(value, str) and not value.strip()):
+        value = _read(record, "exit_reason", None)
+    if value is None:
+        return None
+    return str(value)
+
+
+def legacy_exit_reason(value: Any, *, max_len: int = LEGACY_EXIT_REASON_MAX_LEN) -> str | None:
+    if value is None:
+        return None
+    raw = str(value)
+    if max_len <= 0:
+        return raw
+    return raw[:max_len]
 
 
 def _resolve_entry_notional_usd(

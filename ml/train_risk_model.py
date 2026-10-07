@@ -9,7 +9,7 @@ from ml.family_training import train_classifier_family
 def train_risk_models() -> dict:
     report = train_classifier_family(
         family="risk",
-        targets=["severe_loss_30", "severe_loss_50"],
+        targets=["severe_loss_30", "severe_loss_50", "liquidity_crush_loss", "toxic_exit_loss"],
         feature_set_name="risk_features",
     )
     path = PROJECT_ROOT / "data" / "metrics" / "risk_model_report.json"

@@ -117,7 +117,9 @@ def test_productive_lane_mask_reconstructs_missing_lane_metadata(monkeypatch) ->
     assert meta["fallback_rows"] == 1
 
 
-def test_quality_readiness_reports_next_model_deficits() -> None:
+def test_quality_readiness_reports_next_model_deficits(monkeypatch) -> None:
+    monkeypatch.setattr(ml_train, "CFG", _cfg(ML_MIN_DATASET_ROWS=190, ML_MIN_UNIQUE_TOKENS=190,
+                                            ML_MIN_HOLDOUT_ROWS=30, ML_MIN_HOLDOUT_POSITIVES=10))
     quality = ml_train.DatasetQuality(
         passed=False,
         reasons=["rows<190", "unique_tokens<190"],
@@ -147,3 +149,26 @@ def test_quality_readiness_reports_next_model_deficits() -> None:
     assert readiness["holdout_positives_to_next_model"] == 1
     assert readiness["skip_reasons"] == ["rows<190", "unique_tokens<190"]
     assert readiness["blocker"] == "rows<190,unique_tokens<190"
+
+
+def test_train_does_not_attempt_promotion_when_activation_is_not_ready(tmp_path, monkeypatch) -> None:
+    artifact = SimpleNamespace(
+        model_id="candidate-not-ready",
+        model_path=tmp_path / "candidate" / "model.pkl",
+        meta_path=tmp_path / "candidate" / "model.meta.json",
+    )
+
+    def unexpected_promotion(*_args, **_kwargs):
+        raise AssertionError("promote_candidate must not be called")
+
+    monkeypatch.setattr(ml_train, "promote_candidate", unexpected_promotion)
+
+    status = ml_train._promote_trained_candidate(
+        artifact,
+        activation_ready=False,
+        active_model_path=tmp_path / "model.pkl",
+    )
+
+    assert status["attempted"] is False
+    assert status["promoted"] is False
+    assert status["reason"] == "activation_ready=true required for model promotion"

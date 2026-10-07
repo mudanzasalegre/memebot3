@@ -8,6 +8,7 @@ from typing import Any
 
 from analytics.lane_policy_categories import POLICY_SHADOW_FOLLOWUP_MICRO
 from analytics.lane_sizing import LANE_SHADOW_FOLLOWUP_MICRO
+from analytics.risk_guards import evaluate_pre_entry_risk
 from analytics.report_utils import (
     address_of,
     boolish,
@@ -200,11 +201,39 @@ def evaluate_shadow_followup_micro(
         failures.append("mcap_gt_150k")
     cluster_bad = boolish(_first(row, "cluster_bad", "helius_cluster_bad"), False) or "cluster_bad" in reason_text
     mode = str(_first(row, "mode", "shadow_followup_mode", "gate_profile") or "").strip().lower()
-    cluster_escape = trigger == "real_liquidity_breakout"
-    if cluster_bad and not (cluster_escape or (amount <= 0.001 and mode == "moonshot")):
+    cluster_escape = trigger == "real_liquidity_breakout" and _cfg_bool(
+        cfg,
+        "SHADOW_FOLLOWUP_ALLOW_CLUSTER_BAD_REAL_LIQUIDITY_BREAKOUT",
+        False,
+    )
+    moonshot_escape = (
+        amount <= 0.001
+        and mode == "moonshot"
+        and _cfg_bool(cfg, "SHADOW_FOLLOWUP_ALLOW_CLUSTER_BAD_MOONSHOT_MICRO", False)
+    )
+    if cluster_bad and not (cluster_escape or moonshot_escape):
         failures.append("cluster_bad")
     route_ok = boolish(_first(row, "has_jupiter_route", "route_ok", "route_available"), False)
     route_proxy = not route_ok
+    if (live or not dry_run) and not route_ok:
+        failures.append("no_executable_jupiter_route")
+    pre_entry_risk = evaluate_pre_entry_risk(
+        row,
+        amount_sol=amount,
+        dry_run=dry_run,
+        live=live,
+        cfg=cfg,
+    )
+    if not pre_entry_risk.allowed:
+        failures.extend(pre_entry_risk.failures or pre_entry_risk.risk_flags)
+        return out(
+            False,
+            "shadow_followup_pre_entry_risk:" + pre_entry_risk.reason,
+            failures,
+            route_proxy=route_proxy,
+        )
+    if pre_entry_risk.action == "downsize":
+        amount = float(pre_entry_risk.amount_sol)
     if failures:
         return out(False, "shadow_followup_blocked:" + ",".join(failures[:6]), failures, route_proxy=route_proxy)
     return out(True, f"shadow_followup_micro:{trigger}", [], route_proxy=route_proxy)

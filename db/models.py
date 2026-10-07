@@ -117,6 +117,7 @@ class Position(Base):
         Index("ix_positions_open", "closed", "opened_at"),
         Index("ix_positions_token", "address"),
         Index("ix_positions_token_mint", "token_mint"),
+        Index("ix_positions_source_position_key", "source_position_key"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -135,6 +136,7 @@ class Position(Base):
     # —— entrada (compra) ——
     buy_price_usd: Mapped[float] = mapped_column(Float)
     price_source_at_buy: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    price_confidence_at_buy: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     buy_tx_sig: Mapped[Optional[str]] = mapped_column(String(96), nullable=True)  # firma de compra (Solana ~88 chars)
     entry_regime: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
     size_bucket: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
@@ -179,7 +181,10 @@ class Position(Base):
     close_price_usd: Mapped[Optional[float]]        = mapped_column(Float, nullable=True)
     exit_tx_sig:     Mapped[Optional[str]]          = mapped_column(String(96), nullable=True)
     price_source_at_close: Mapped[Optional[str]]    = mapped_column(String(16), nullable=True)
+    price_confidence_at_close: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     exit_reason:     Mapped[Optional[str]]          = mapped_column(String(24), nullable=True)  # p.ej. TAKE_PROFIT / EARLY_DROP / TIMEOUT
+    exit_reason_full: Mapped[Optional[str]]         = mapped_column(Text, nullable=True)
+    source_position_key: Mapped[Optional[str]]      = mapped_column(String(128), nullable=True)
 
     # —— resultado (‘win’ / ‘fail’ / ‘fail_timeout’) ——
     outcome: Mapped[Optional[str]] = mapped_column(String(12), nullable=True)
@@ -187,6 +192,8 @@ class Position(Base):
     # Métrica histórica de PnL máximo (en %)
     highest_pnl_pct: Mapped[float] = mapped_column(Float, default=0.0)
     max_pnl_pct_seen: Mapped[float] = mapped_column(Float, default=0.0)
+    max_adverse_pnl_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    exit_state: Mapped[str] = mapped_column(String(24), default="pre_partial")
     realized_qty: Mapped[int] = mapped_column(Integer, default=0)
     realized_proceeds_usd: Mapped[float] = mapped_column(Float, default=0.0)
     realized_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
@@ -205,6 +212,7 @@ class Position(Base):
     partial_taken: Mapped[bool] = mapped_column(Boolean, default=False)
     partial_count: Mapped[int] = mapped_column(Integer, default=0)
     partial_ladder_state: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    runner_trailing_policy: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     first_partial_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_partial_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_partial_qty: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -215,6 +223,7 @@ class Position(Base):
 
     # —— relaciones ——
     token: Mapped["Token"] = relationship(back_populates="positions")
+    trade_events: Mapped[List["TradeEvent"]] = relationship(back_populates="position")
 
     # ────── ALIASES de compatibilidad (no columnas) ──────
     # qty_lamports <-> qty
@@ -243,6 +252,24 @@ class Position(Base):
     @price_source.setter
     def price_source(self, v: Optional[str]) -> None:
         self.price_source_at_buy = v
+
+    # price_confidence_close <-> price_confidence_at_close
+    @property
+    def price_confidence_close(self) -> Optional[str]:
+        return getattr(self, "price_confidence_at_close")
+
+    @price_confidence_close.setter
+    def price_confidence_close(self, v: Optional[str]) -> None:
+        self.price_confidence_at_close = v
+
+    # price_confidence (compra) <-> price_confidence_at_buy
+    @property
+    def price_confidence(self) -> Optional[str]:
+        return getattr(self, "price_confidence_at_buy")
+
+    @price_confidence.setter
+    def price_confidence(self, v: Optional[str]) -> None:
+        self.price_confidence_at_buy = v
 
     # liq_at_buy_usd (alias) <-> buy_liquidity_usd
     @property
@@ -283,6 +310,35 @@ class Position(Base):
 
 
 # ───────────────────────── RevivedToken ────────────────────────
+class TradeEvent(Base):
+    __tablename__ = "trade_events"
+    __table_args__ = (
+        Index("ix_trade_events_position_ts", "position_id", "ts_utc"),
+        Index("ix_trade_events_token_ts", "token_mint", "ts_utc"),
+        Index("ix_trade_events_event_ts", "event_type", "ts_utc"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    position_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("positions.id"), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    token_mint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    ts_utc: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    qty: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    price_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    notional_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    pnl_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    pnl_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price_source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    price_confidence: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    feature_snapshot_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    position: Mapped[Optional["Position"]] = relationship(back_populates="trade_events")
+
+
 class RevivedToken(Base):
     __tablename__ = "revived_tokens"
     __table_args__ = (

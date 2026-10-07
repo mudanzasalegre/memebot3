@@ -29,7 +29,7 @@ if ($MaxRestarts -lt 0) {
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $AutoResearchTool = Join-Path $RepoRoot "tools\run_autoresearch_loop.py"
-$DefaultConfigProfile = "paper_hotfix_runner_v2"
+$DefaultConfigProfile = "paper_hotfix_0707"
 $StackConfigProfile = if ([string]::IsNullOrWhiteSpace($env:CONFIG_PROFILE)) { $DefaultConfigProfile } else { $env:CONFIG_PROFILE.Trim() }
 
 if (-not (Test-Path $Python)) {

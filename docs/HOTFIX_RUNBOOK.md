@@ -1,51 +1,57 @@
 # Hotfix Runbook
 
-Use the paper profile:
+PR-00 freezes the bot in a paper-safe profile after the 2026-07-07 audit:
+
+- net closed PnL: `-81.33 USD`
+- profit factor: `0.629`
+- `LIQUIDITY_CRUSH`: `-138.99 USD`
+- `NO_PUMP_EXIT`: `-55.26 USD`
+- no-partial trades: `-215.67 USD`
+
+Do not enable live while this profile is active.
+
+## Paper Startup
+
+Use the PR-00 profile:
 
 ```powershell
-$env:CONFIG_PROFILE="paper_hotfix_runner_v2"
-.\.venv\Scripts\python.exe run_bot.py
+$env:CONFIG_PROFILE="paper_hotfix_0707"
+.\.venv\Scripts\python.exe tools\preflight.py
+.\.venv\Scripts\python.exe run_bot.py --dry-run --log
 ```
 
-Validation:
+The launchers default to `paper_hotfix_0707` when no `CONFIG_PROFILE` or
+`CONFIG_PROFILE_PATH` is set:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe tools\regenerate_core_reports.py
-.\.venv\Scripts\python.exe scripts\strategy_quality_gate.py --warn-only
-.\.venv\Scripts\python.exe tools\hotfix_smoke.py
+.\scripts\start_bot.ps1
+.\scripts\start_stack.ps1 -IncludeBot
 ```
 
-Safety invariants:
+## Safety Invariants
 
 - `DRY_RUN=1`
 - `STRATEGY_OPTIMIZATION_LOCK=true`
-- Live canary and green live flags remain false.
-- No wallet, buyer, or seller changes are required.
-- AutoResearch and model auto-promotion remain disabled.
+- `LANE_SIZING_FIXED_TRADE_AMOUNT_ENABLED=false`
+- Paper micro caps are finite; `0` is rejected because runtime treats it as unlimited.
+- Live, canary, model promotion, AutoResearch live promotion, and LLM trading flags remain false.
+- The profile contains no wallet keys, private keys, RPC secrets, API tokens, or passwords.
 
-Operational expectations:
+## Validation
 
-- Untagged or legacy buys are sent to shadow with `untagged_buy_blocked`.
-- Sniper research buys require one of the two subprofiles.
-- Runner partials persist ladder state and Bird TP1 is global for normal paper lanes before retrace exits.
-- Dynamic runner floor protects remaining runners after partials.
-- `research_rank_canary_priority` may bypass legacy shape/profit blockers only with route, real liquidity, rank >=70, txns5m >=1000, liquidity >=15000, and price5m 50..120.
-- `research_rank_canary_pullback` is paper-enabled for quality pullbacks only: real liquidity, route, price5m -10..30, liquidity >=15000, bounded mcap, and either rank >=70 with txns5m >=300 or rank >=65 with txns5m >=900.
-- Stale high-momentum rank canary entries are shadowed when price5m >=50, queue age >5m, token age >20m, and txns5m is below the priority threshold.
-- Momentum ignition may ignore missing trend/second tick only when a strong signal is present; cluster and toxic sell pressure remain hard shadows.
-- `pump_early_moonshot_micro_lottery` is paper-only, capped at `0.002 SOL`, max open 1, max daily buys 9, and live must remain false.
-- Moonshot now includes two paper-only micro patterns: birth velocity probes and late proxy momentum probes. Both remain under the same amount/open caps.
-- Paper exploration quota is micro-only and cannot override toxic pressure, bad cluster, missing price, or no-route except moonshot paper-only.
-- Turbo monitoring is paper-only and best-effort.
-- Core reports regenerate at startup, on interval, and after close-count milestones.
+```powershell
+$env:CONFIG_PROFILE="paper_hotfix_0707"
+.\.venv\Scripts\python.exe -m pytest -q tests\test_preflight_paper_hotfix.py tests\test_start_stack_autoresearch.py
+.\.venv\Scripts\python.exe tools\preflight.py
+.\.venv\Scripts\python.exe scripts\strategy_quality_gate.py --warn-only
+```
 
-New reports:
+`tools/preflight.py` writes `data/metrics/preflight_status.json`. The status
+includes a redacted copy of the PR-00 profile validation.
 
-- `partial_ladder_execution_audit.json`
-- `research_rank_priority_report.json`
-- `momentum_ignition_fallback_report.json`
-- `moonshot_micro_lottery_report.json`
-- `current_run_summary.json`
-- `entry_funnel_blocker_samples.json`
-- `paper_exploration_quota_report.json`
+## Expected Boot Banner
+
+At bot startup, `run_bot.py` emits a `PR-00 PAPER-SAFE FREEZE` warning with the
+2026-07-07 loss metrics and the active config profile. This is intentional and
+should remain visible until later PRs repair ledger, sizing, caps, and risk
+guards.

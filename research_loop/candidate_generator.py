@@ -6,6 +6,7 @@ import json
 import random
 import re
 from pathlib import Path
+from dataclasses import replace
 from typing import Any, Callable
 
 from research_loop.experiment_schema import validate_candidate_policy
@@ -13,6 +14,7 @@ from research_loop.paths import project_root
 from research_loop.safety import validate_candidate_safety
 from research_loop.search_space import SearchSpace, get_search_space, iter_grid, validate_search_space
 from research_loop.spaces import entry_quality, lane_sizing, late_momentum, moonshot_micro, rank_canary, runner_exit, shadow_followup
+from config.config import CFG
 
 GENERATION_MODES = {"grid", "random", "seeded_random", "local_search", "bandit_suggested"}
 KNOWN_OBJECTIVE_METRICS = {
@@ -71,6 +73,22 @@ def load_generation_space(space_name: str) -> SearchSpace:
     if builder is not None:
         return builder()
     return get_search_space(space_name)
+
+
+def _effective_space(space: SearchSpace, cfg: Any = None) -> SearchSpace:
+    cfg = CFG if cfg is None else cfg
+    if getattr(cfg, "PAPER_EXACT_TRADE_SIZE_ENABLED", False) is not True:
+        return space
+    # These settings cannot alter an order under the fixed 0.1 SOL contract.
+    # Keeping them in the search fabricates distinct, but operationally equal,
+    # experiments and wastes the replay/forward budget.
+    parameters = {key: values for key, values in space.parameters.items()
+                  if not key.endswith(("_AMOUNT_SOL", "_SIZE_SOL"))}
+    return replace(space, parameters=parameters)
+
+
+def applicable_generation_spaces(spaces: tuple[str, ...], *, cfg: Any = None) -> tuple[str, ...]:
+    return tuple(name for name in spaces if _effective_space(load_generation_space(name), cfg).parameters)
 
 
 def _changes_hash(space_name: str, changes: dict[str, Any], index: int, seed: int | None) -> str:
@@ -195,11 +213,14 @@ def generate_candidate_policies(
     mode: str = "seeded_random",
     seed: int | None = None,
     created_at_utc: str | None = None,
+    cfg: Any = None,
 ) -> list[dict[str, Any]]:
     mode = str(mode).strip()
     if mode not in GENERATION_MODES:
         raise CandidateGenerationError(f"unknown_generation_mode:{mode}")
-    space = load_generation_space(space_name)
+    space = _effective_space(load_generation_space(space_name), cfg)
+    if not space.parameters and n > 0:
+        raise CandidateGenerationError(f"search_space_inapplicable_to_exact_paper_size:{space_name}")
     validation = validate_search_space(space)
     if not validation.ok:
         raise CandidateGenerationError(";".join(validation.errors))
@@ -257,6 +278,7 @@ def generate_research_candidates(
 
 __all__ = [
     "CandidateGenerationError",
+    "applicable_generation_spaces",
     "GENERATION_MODES",
     "SPECIALIZED_BUILDERS",
     "generate_candidate_policies",

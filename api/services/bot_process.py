@@ -193,7 +193,12 @@ def start_bot_process_envelope(
     if not dry_run:
         if not confirm_live:
             raise RuntimeError("Live start requires confirm_live=true")
-        live_preflight = build_live_promotion_preflight(settings, runtime_snapshot=get_runtime_snapshot(settings, bot_id=bot_id))
+        live_preflight = build_live_promotion_preflight(
+            settings,
+            runtime_snapshot=get_runtime_snapshot(settings, bot_id=bot_id),
+            manual_approval=True,
+            approved_by=requested_by,
+        )
         if not bool(live_preflight.get("passed")):
             blocked = [
                 str(gate.get("id"))
@@ -201,7 +206,7 @@ def start_bot_process_envelope(
                 if isinstance(gate, dict) and str(gate.get("status")) != "pass"
             ]
             raise RuntimeError(f"live preflight blocked: {','.join(blocked) or 'unknown'}")
-        profile_path = write_live_start_profile(settings, live_preflight)
+        profile_path = write_live_start_profile(settings, live_preflight, approved_by=requested_by)
         env_overrides["CONFIG_PROFILE_PATH"] = str(profile_path)
 
     start_managed_bot_process(

@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "historical-edge",
+      "title": "El universo shadow histórico sigue siendo perdedor",
+      "queries": [{
+        "id": "causal-outcomes",
+        "source": {
+          "label": "Auditoría causal del run 20260713-1",
+          "files": ["data/metrics/causal_shadow_policy_audit_20260713-1.json", "analytics/causal_shadow_policy.py"],
+          "executedAt": "2026-10-04T10:27:32.485788+00:00",
+          "metricDefinitions": [
+            {"id": "closed-shadows", "label": "Cierres shadow", "definition": "Los cierres shadow son outcomes terminales simulados, no compras ejecutadas."},
+            {"id": "hypothetical-sol", "label": "PnL hipotético", "definition": "El PnL hipotético aplica 0,1 SOL a cada retorno shadow terminal y excluye costes y fallos de ejecución."}
+          ],
+          "filters": ["Run: 20260713-1", "Solo outcomes shadow terminales", "Snapshot de decisión anterior o igual al opened_at"],
+          "caveats": ["La selección estricta de siete outcomes se obtuvo retrospectivamente y no demuestra rentabilidad forward.", "Se perdió la bandera histórica explícita de liquidez proxy; no se puede confirmar ese requisito en los siete casos."],
+          "evidenceFlow": [
+            {"kind": "validation", "title": "Join causal", "text": "2.353 outcomes enlazados; cero sin snapshot anterior. Lag p90 de 0,003519 segundos."},
+            {"kind": "calculation", "title": "Cálculo", "text": "PnL SOL = 0,1 × suma(retorno_porcentual) / 100; profit factor = suma de retornos positivos / valor absoluto de los negativos."}
+          ]
+        },
+        "reportingPeriod": "13–15 de julio de 2026, ejecución 20260713-1",
+        "columns": [{"field": "metric", "label": "Métrica"}, {"field": "value", "label": "Valor"}],
+        "rows": [
+          {"metric": "Cierres shadow terminales", "value": 2353},
+          {"metric": "Win rate (%)", "value": 8.584785},
+          {"metric": "Retorno medio (%)", "value": -4.557907},
+          {"metric": "Profit factor", "value": 0.483938},
+          {"metric": "PnL hipotético antes de costes (SOL)", "value": -10.724754332}
+        ]
+      }]
+    },
+    {
+      "id": "model-gate",
+      "title": "El último candidato ML no justifica activación",
+      "queries": [{
+        "id": "latest-model",
+        "source": {
+          "label": "LightGBM 20261004_104225",
+          "files": ["ml/models/20261004_104225_lightgbm_small/model.meta.json", "ml/models/20260715_181745_lightgbm_small/model.meta.json"],
+          "executedAt": "2026-10-04T10:47:15.600555+00:00",
+          "filters": ["Holdout: 1.286 filas", "Umbral elegido: 0,7985886901510733"],
+          "caveats": ["Las etiquetas de retorno son históricas; no son fills reales ni resultados nuevos de octubre.", "El dataset pasa su contrato de entrenamiento, pero eso no certifica ventaja económica."],
+          "evidenceFlow": [{"kind": "validation", "title": "Gate de activación", "text": "activation_ready=false; precisión 0,301369863 inferior al mínimo 0,60 y retorno medio seleccionado negativo."}]
+        },
+        "reportingPeriod": "Entrenamiento del 4 de octubre sobre las mismas filas históricas de julio",
+        "columns": [{"field": "metric", "label": "Métrica"}, {"field": "value", "label": "Valor"}],
+        "rows": [
+          {"metric": "Operaciones históricas seleccionadas", "value": 73},
+          {"metric": "Precision at picked", "value": 0.3013698630136986},
+          {"metric": "Retorno medio seleccionado (%)", "value": -5.266299711106575},
+          {"metric": "Mediana seleccionada (%)", "value": -14.704010963439941}
+        ]
+      }]
+    },
+    {
+      "id": "execution-integrity",
+      "title": "Correcciones de medición y ejecución paper",
+      "queries": [{
+        "id": "regression-checks",
+        "source": {
+          "label": "Contratos de ejecución y validación",
+          "files": ["trader/papertrading.py", "analytics/forward_evidence.py", "analytics/paper_forward.py", "tests/test_audit_execution_integrity.py", "analytics/current_run.py"],
+          "caveats": ["Las pruebas automatizadas usan cotizaciones mockeadas; no certifican fills de mercado.", "El modelo paper utiliza slippage y fees estimados, no costes observados en transacciones reales."],
+          "evidenceFlow": [
+            {"kind": "validation", "title": "Regresión", "text": "840 pruebas aprobadas en la regresión final (36,30 s); 838 en el preflight del launcher antes de las dos últimas pruebas de cierre terminal y posiciones sin liquidar. Los casos nuevos cubren precio inválido, rutas a tamaño exacto, salida inversa, parciales, costes congelados, identidad de run y separación replay/forward."},
+            {"kind": "source", "title": "Consulta de ruta de lectura", "text": "Consulta Jupiter SOL→USDC de 0,1 SOL: inAmount=100000000, outAmount=12134642, impact_bps=0,16406688209937348. No se firmó ni envió una transacción."}
+          ],
+          "links": ["https://developers.jup.ag/docs/api-reference/swap/v1/quote"]
+        },
+        "reportingPeriod": "Validación local del 4 de octubre de 2026"
+      }]
+    },
+    {
+      "id": "new-smoke",
+      "title": "Smoke operativo de octubre: sin oportunidades elegibles ni órdenes reales",
+      "queries": [{
+        "id": "smoke-20261004-1",
+        "source": {
+          "label": "Run 20261004-1",
+          "files": ["docs/audits/system_state_after_smoke_20261004.json", "tools/audit_system_state.py", "data/research_runs/autoresearch_runtime_state.json", "logs/stop_stack.log"],
+          "filters": ["Run: 20261004-1", "Modo: paper", "Tamaño evaluado: 0,1 SOL"],
+          "caveats": ["Los 239 eventos, las 52 decisiones y las 19 evaluaciones bootstrap son granos diferentes, no un funnel estrictamente anidado.", "Este smoke duró unos dos minutos y medio y no valida rentabilidad."],
+          "evidenceFlow": [
+            {"kind": "validation", "title": "Stack", "text": "API health OK, UI HTTP 200, monitor con last_error=null. AutoResearch completó tres propuestas y rechazó las tres; no promovió live."},
+            {"kind": "validation", "title": "Parada", "text": "stop_stack finalizó con remaining=0, SQLite process_state=stopped y sin data/run_bot.lock."}
+          ]
+        },
+        "reportingPeriod": "4 de octubre de 2026, 10:42:23–10:44:49 UTC",
+        "columns": [{"field": "metric", "label": "Métrica"}, {"field": "value", "label": "Valor"}],
+        "rows": [
+          {"metric": "Eventos runtime", "value": 239},
+          {"metric": "Filas del decision ledger", "value": 52},
+          {"metric": "Evaluaciones bootstrap", "value": 19},
+          {"metric": "Evaluaciones bootstrap bloqueadas", "value": 19},
+          {"metric": "Compras y posiciones", "value": 0}
+        ]
+      }]
+    }
+  ]
+}

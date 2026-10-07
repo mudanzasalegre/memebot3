@@ -108,6 +108,11 @@ def _write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
 
 
+def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(row, sort_keys=True, default=str) for row in rows) + "\n", encoding="utf-8")
+
+
 def _parse_env(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.exists():
@@ -201,6 +206,39 @@ def _fixture_payloads() -> dict[str, Any]:
     }
 
 
+def _fixture_event_rows() -> list[dict[str, Any]]:
+    base = dt.datetime(2026, 6, 4, 12, 0, tzinfo=dt.timezone.utc)
+    rows: list[dict[str, Any]] = []
+    for index in range(12):
+        seen_at = base + dt.timedelta(minutes=index * 3)
+        closed_at = seen_at + dt.timedelta(minutes=2)
+        pnl = 18.0 + index
+        rows.append(
+            {
+                "address": f"smoke_token_{index:02d}",
+                "event_type": "candidate_outcome",
+                "action": "paper_buy",
+                "first_seen_at": seen_at.isoformat(),
+                "closed_at": closed_at.isoformat(),
+                "price_pct_5m": 350 + index * 10,
+                "txns_last_5m": 320,
+                "market_cap_usd": 80000,
+                "liquidity_usd": 25000,
+                "has_jupiter_route": True,
+                # Keep the smoke replay fully auditable in both SOL and USD.
+                # Acceptance replay now fails closed when entry notional is
+                # unknown instead of inventing a dollar value.
+                "actual_buy_amount_sol": 0.1,
+                "entry_notional_usd": 10.0,
+                "realized_pnl_pct": pnl,
+                "max_pnl_pct": 120 + index * 5,
+                "sample_type": "smoke_event_replay",
+                "is_test_event": True,
+            }
+        )
+    return rows
+
+
 def ensure_smoke_metrics(root: str | Path | None = None, *, overwrite: bool = False) -> list[str]:
     resolved_root = project_root(root)
     created: list[str] = []
@@ -211,6 +249,10 @@ def ensure_smoke_metrics(root: str | Path | None = None, *, overwrite: bool = Fa
             continue
         _write_json(path, payloads.get(name, {}))
         created.append(name)
+    event_rows_path = metrics_dir(resolved_root) / "candidate_outcomes.jsonl"
+    if overwrite or not event_rows_path.exists():
+        _write_jsonl(event_rows_path, _fixture_event_rows())
+        created.append("candidate_outcomes.jsonl")
     return created
 
 
@@ -244,7 +286,7 @@ def _smoke_metrics_have_sample(root: Path) -> bool:
 
 def ensure_safe_source_profile(root: str | Path | None = None) -> Path:
     resolved_root = project_root(root)
-    profile = resolved_root / "config" / "profiles" / "paper_hotfix_runner_v2.env"
+    profile = resolved_root / "config" / "profiles" / "paper_hotfix_0707.env"
     if profile.exists():
         return profile
     profile.parent.mkdir(parents=True, exist_ok=True)
@@ -254,12 +296,25 @@ def ensure_safe_source_profile(root: str | Path | None = None) -> Path:
                 "DRY_RUN=1",
                 "PAPER_SNIPER_MODE=true",
                 "STRATEGY_OPTIMIZATION_LOCK=true",
+                "LANE_SIZING_ENABLED=true",
+                "LANE_SIZING_FIXED_TRADE_AMOUNT_ENABLED=false",
                 "LIVE_CANARY_ENABLED=false",
                 "GREEN_SNIPER_LIVE_ENABLED=false",
+                "RESEARCH_RANK_CANARY_LIVE_ENABLED=false",
+                "LATE_MOMENTUM_WATCH_LIVE_ENABLED=false",
+                "LIVE_AGGRESSIVE_TRADING_ENABLED=false",
+                "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED=false",
+                "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED=false",
                 "AUTO_PROMOTE_LIVE=false",
                 "MODEL_AUTO_PROMOTE=false",
                 "AUTORESEARCH_LIVE_PROMOTION_ENABLED=false",
                 "AUTORESEARCH_AUTO_LIVE_PROMOTE=false",
+                "SHADOW_FOLLOWUP_MICRO_MAX_OPEN=2",
+                "SHADOW_FOLLOWUP_MICRO_MAX_DAILY_BUYS=8",
+                "PAPER_BOOTSTRAP_MAX_OPEN=2",
+                "PAPER_BOOTSTRAP_MAX_DAILY_BUYS=12",
+                "MOONSHOT_MICRO_LOTTERY_MAX_OPEN=3",
+                "MOONSHOT_MICRO_LOTTERY_MAX_DAILY_BUYS=10",
             ]
         )
         + "\n",

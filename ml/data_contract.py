@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from typing import Any
 
@@ -48,6 +50,15 @@ REQUIRED_ML_CONTEXT_COLUMNS = (
     "mint",
     "timestamp",
     "sample_type",
+    "decision_id",
+    "candidate_stage",
+    "decision",
+    "outcome",
+    "blockers",
+    "feature_snapshot",
+    "run_id",
+    "source",
+    "lane",
     "entry_regime",
     "entry_lane",
     "gate_profile",
@@ -57,6 +68,61 @@ REQUIRED_ML_CONTEXT_COLUMNS = (
     "label",
     "target_total_pnl_pct",
 )
+
+_SNAPSHOT_EXCLUDE_KEYS = {
+    "action",
+    "blocker",
+    "blockers",
+    "candidate_stage",
+    "decision",
+    "decision_action",
+    "decision_id",
+    "decision_intent",
+    "event_type",
+    "feature_snapshot",
+    "features_snapshot",
+    "linked_decision_id",
+    "outcome",
+    "reason",
+    "raw_action",
+    "row_lineage",
+    "stage",
+    "timestamp",
+    "ts_utc",
+}
+
+_BUY_EXECUTION_EVIDENCE_FIELDS = (
+    "order_id",
+    "execution_id",
+    "trade_id",
+    "position_id",
+    "buy_tx_sig",
+    "tx_sig",
+    "tx_signature",
+)
+
+_BLOCKER_ALIASES = {
+    "": "",
+    "none": "",
+    "unknown": "",
+    "ok": "",
+    "no_liq": "liquidity_missing",
+    "liq_missing": "liquidity_missing",
+    "liquidity_missing": "liquidity_missing",
+    "no_route": "route_missing",
+    "jupiter_price_missing": "price_missing",
+    "no_jup_price": "price_missing",
+    "price_missing": "price_missing",
+    "provider_degraded": "provider_degraded",
+    "buy_zero_qty": "execution_zero_qty",
+    "zero_qty": "execution_zero_qty",
+    "basic_filter": "basic_filter",
+    "banned_creator": "banned_creator",
+    "dex_whitelist": "dex_whitelist",
+    "cluster_bad": "cluster_bad",
+    "ml_gate": "ml_gate",
+    "soft_score": "soft_score",
+}
 
 
 def _raw(value: Any) -> str:
@@ -68,6 +134,28 @@ def _raw(value: Any) -> str:
     except Exception:
         pass
     return str(value).strip()
+
+
+def _has_buy_execution_evidence(row: Mapping[str, Any]) -> bool:
+    event_type = _raw(row.get("event_type")).lower().replace("-", "_").replace(" ", "_")
+    if event_type in {"buy", "bought", "buy_ok", "paper_buy"}:
+        return True
+    if any(_raw(row.get(key)) for key in _BUY_EXECUTION_EVIDENCE_FIELDS):
+        return True
+    if event_type != "execution" or not _raw(row.get("side")).lower().startswith("buy"):
+        return False
+    ok = row.get("ok")
+    if isinstance(ok, str):
+        return ok.strip().lower() in {"1", "true", "yes", "ok", "success"}
+    return bool(ok)
+
+
+def _decision_value(row: Mapping[str, Any]) -> Any:
+    for key in ("decision_action", "action", "decision"):
+        value = row.get(key)
+        if _raw(value):
+            return value
+    return None
 
 
 def normalize_sample_type(value: Any) -> str:
@@ -132,6 +220,187 @@ def normalize_price_source(value: Any) -> str:
         "dex_full": "dexscreener",
     }
     return aliases.get(raw, raw or "unknown")
+
+
+def normalize_decision(value: Any, row: Mapping[str, Any] | None = None) -> str:
+    row = row or {}
+    raw = _raw(value).lower().replace("-", "_").replace(" ", "_")
+    reason = _raw(row.get("reason") or row.get("reject_reason") or row.get("delay_reason")).lower()
+    stage = _raw(row.get("stage") or row.get("candidate_stage") or row.get("event_type")).lower()
+    joined = "|".join([raw, reason, stage])
+    # ``live`` is the strategy's requested execution mode, not proof that an
+    # order was placed.  Keep it neutral until the row carries execution
+    # evidence; this also repairs telemetry written by the legacy contract.
+    if raw == "live" and not _has_buy_execution_evidence(row):
+        return "observe"
+    if "zero_qty" in joined or "execution_blocked" in joined:
+        return "execution_blocked"
+    if "no_route" in joined:
+        return "execution_blocked"
+    if raw == "live":
+        return "buy"
+    if raw in {"buy", "bought", "buy_ok", "paper_buy"}:
+        return "buy"
+    if not raw and _has_buy_execution_evidence(row):
+        return "buy"
+    if "shadow" in joined:
+        return "shadow"
+    if raw in {"wait", "delay", "delayed", "waiting"} or "delay" in joined:
+        return "delay"
+    if raw in {"reject", "rejected", "policy_reject"} or "reject" in joined or "blocked" in joined:
+        return "reject"
+    if raw in {"candidate_decision", "candidate_stage"}:
+        return "observe"
+    return raw if raw in {"buy", "shadow", "reject", "delay", "execution_blocked", "observe"} else "reject"
+
+
+def normalize_candidate_stage(value: Any, row: Mapping[str, Any] | None = None) -> str:
+    row = row or {}
+    raw = _raw(value or row.get("stage") or row.get("event_type")).lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "candidate_decision": "decision",
+        "candidate_outcome": "outcome",
+        "candidate_stage": "stage",
+        "buy": "execution",
+        "bought": "execution",
+    }
+    return aliases.get(raw, raw or "unknown")
+
+
+def normalize_outcome(value: Any, row: Mapping[str, Any] | None = None) -> str:
+    row = row or {}
+    raw = _raw(value).lower().replace("-", "_").replace(" ", "_")
+    decision = normalize_decision(_decision_value(row), row)
+    raw_action = _raw(row.get("raw_action") or row.get("action")).lower()
+    if raw_action == "live" and not _has_buy_execution_evidence(row):
+        return "open"
+    if raw:
+        return raw
+    event_type = _raw(row.get("event_type")).lower()
+    if event_type == "candidate_outcome" or row.get("pnl_pct") is not None or row.get("label") is not None:
+        return "closed"
+    if decision == "buy":
+        return "bought"
+    if decision in {"reject", "delay", "shadow", "execution_blocked"}:
+        return decision
+    return "open"
+
+
+def normalize_blocker(value: Any) -> str:
+    raw = _raw(value).lower().replace("-", "_").replace(" ", "_")
+    if ":" in raw:
+        head, _tail = raw.split(":", 1)
+        raw = head
+    return _BLOCKER_ALIASES.get(raw, raw)
+
+
+def _extend_blockers(out: list[str], value: Any) -> None:
+    if value is None:
+        return
+    if isinstance(value, (list, tuple, set)):
+        items = value
+    elif isinstance(value, str):
+        items = value.replace(";", ",").split(",")
+    else:
+        items = [value]
+    for item in items:
+        normalized = normalize_blocker(item)
+        if normalized and normalized not in out:
+            out.append(normalized)
+
+
+def normalize_blockers(row: Mapping[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    for key in (
+        "blockers",
+        "reject_reasons",
+        "failures",
+        "hard_failures",
+        "risk_notes",
+        "sniper_gate_failures",
+        "profit_gate_reject_reasons",
+        "blocked_bucket",
+        "reason",
+    ):
+        _extend_blockers(blockers, row.get(key))
+    return blockers
+
+
+def feature_snapshot_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    explicit = row.get("feature_snapshot") or row.get("features_snapshot")
+    if isinstance(explicit, Mapping):
+        return dict(explicit)
+    snapshot: dict[str, Any] = {}
+    for key, value in row.items():
+        if key in _SNAPSHOT_EXCLUDE_KEYS:
+            continue
+        if key.startswith("_"):
+            continue
+        if isinstance(value, (dict, list, tuple, set)):
+            continue
+        snapshot[str(key)] = value
+    return snapshot
+
+
+def build_candidate_decision_id(row: Mapping[str, Any]) -> str:
+    raw = json.dumps(
+        {
+            "address": row.get("address") or row.get("mint") or row.get("token_address") or "",
+            "timestamp": row.get("timestamp") or row.get("ts_utc") or "",
+            "lane": row.get("lane") or row.get("entry_lane") or "unknown",
+            "decision": row.get("decision") or row.get("decision_action") or row.get("action") or "",
+            "reason": row.get("reason") or "",
+            "stage": row.get("candidate_stage") or row.get("stage") or "",
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def normalize_candidate_event_row(
+    row: Mapping[str, Any],
+    *,
+    source_file: str | None = None,
+    row_index: int | None = None,
+) -> dict[str, Any]:
+    out = dict(row)
+    address = out.get("address") or out.get("mint") or out.get("token_address")
+    out["address"] = address
+    out["mint"] = out.get("mint") or address
+    out["timestamp"] = out.get("timestamp") or out.get("ts_utc")
+    action = _raw(out.get("action"))
+    if action and not _raw(out.get("raw_action")):
+        out["raw_action"] = action
+    event_type = _raw(out.get("event_type")).lower().replace("-", "_").replace(" ", "_")
+    if event_type == "strategy_decision":
+        intent = _raw(out.get("decision_intent") or out.get("raw_action") or out.get("action"))
+        if intent:
+            out["decision_intent"] = intent
+    out["candidate_stage"] = normalize_candidate_stage(out.get("candidate_stage") or out.get("stage"), out)
+    out["decision"] = normalize_decision(_decision_value(out), out)
+    out["outcome"] = normalize_outcome(out.get("outcome"), out)
+    out["entry_regime"] = normalize_entry_regime(out.get("entry_regime") or out.get("regime") or out.get("discovered_via"))
+    had_lane = any(_raw(out.get(key)) for key in ("entry_lane", "lane", "profit_lane_tier", "size_bucket"))
+    resolved_lane = reconstruct_entry_lane(out)
+    out["entry_lane"] = resolved_lane if had_lane or resolved_lane != LANE_UNKNOWN else ""
+    out["lane"] = normalize_entry_lane(out.get("lane") or out.get("entry_lane"))
+    out["source"] = out.get("source") or out.get("event_type") or out.get("discovered_via") or "unknown"
+    out["run_id"] = out.get("run_id") or ""
+    out["blockers"] = normalize_blockers(out)
+    out["blocker"] = out["blockers"][0] if out["blockers"] else ""
+    out["feature_snapshot"] = feature_snapshot_from_row(out)
+    out["features_snapshot"] = out["feature_snapshot"]
+    out["decision_id"] = out.get("decision_id") or build_candidate_decision_id(out)
+    lineage = dict(out.get("row_lineage") or {}) if isinstance(out.get("row_lineage"), Mapping) else {}
+    if source_file is not None:
+        lineage["source_file"] = str(source_file)
+    if row_index is not None:
+        lineage["row_index"] = int(row_index)
+    if lineage:
+        out["row_lineage"] = lineage
+    return out
 
 
 def _to_float(value: Any) -> float | None:
@@ -201,7 +470,7 @@ def normalize_ml_row(row: Mapping[str, Any]) -> dict[str, Any]:
         out["gate_profile"] = out.get("sniper_gate_profile") or out.get("live_profit_gate_profile") or ""
     if not out.get("profit_lane_tier"):
         out["profit_lane_tier"] = out["entry_lane"] if out["entry_lane"] != LANE_UNKNOWN else ""
-    return out
+    return normalize_candidate_event_row(out)
 
 
 def apply_data_contract(frame: pd.DataFrame) -> pd.DataFrame:
@@ -262,6 +531,14 @@ __all__ = [
     "SAMPLE_RESEARCH_RANK_SHADOW",
     "SAMPLE_UNKNOWN",
     "VALID_SAMPLE_TYPES",
+    "build_candidate_decision_id",
+    "feature_snapshot_from_row",
+    "normalize_blocker",
+    "normalize_blockers",
+    "normalize_candidate_event_row",
+    "normalize_candidate_stage",
+    "normalize_decision",
+    "normalize_outcome",
     "normalize_sample_type",
     "normalize_entry_regime",
     "normalize_entry_lane",

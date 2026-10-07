@@ -49,6 +49,27 @@ def row_time(row: dict[str, Any], *, prefer_run_started: bool = False) -> dt.dat
 def current_run_identity(root: Path | None = None, rows: Iterable[dict[str, Any]] | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
     runtime_rows = list(rows) if rows is not None else load_runtime_events(root)
+    # Select a run by its start, not by an untagged/late event. Otherwise a
+    # background social event can replace the real run with `legacy`.
+    known: dict[str, dict[str, dt.datetime | None]] = {}
+    for row in runtime_rows:
+        run_id = str(row.get("run_id") or "").strip()
+        if not run_id or run_id == "legacy":
+            continue
+        item = known.setdefault(run_id, {"start": None, "first": None, "last": None})
+        for key, value in (("start", parse_time(row.get("run_started_at"))), ("first", row_time(row))):
+            if value is not None and (item[key] is None or value < item[key]):
+                item[key] = value
+        seen = row_time(row)
+        if seen is not None and (item["last"] is None or seen > item["last"]):
+            item["last"] = seen
+    if known:
+        minimum = dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+        run_id = max(known, key=lambda key: known[key]["start"] or known[key]["first"] or minimum)
+        started = known[run_id]["start"] or known[run_id]["first"]
+        return {"run_id": run_id, "run_started_at": started.isoformat() if started else None,
+                "selected_at": started.isoformat() if started else None, "source": "runtime_events",
+                "last_event_at": known[run_id]["last"].isoformat() if known[run_id]["last"] else None}
     best: dict[str, Any] | None = None
     best_time: dt.datetime | None = None
     for row in runtime_rows:
@@ -84,7 +105,8 @@ def row_in_current_run(row: dict[str, Any], identity: dict[str, Any]) -> bool:
             return row_run_id == run_id
         started = parse_time(identity.get("run_started_at") or identity.get("selected_at"))
         seen = row_time(row)
-        return bool(started is not None and seen is not None and seen >= started)
+        ended = parse_time(identity.get("last_event_at"))
+        return bool(started is not None and seen is not None and seen >= started and (ended is None or seen <= ended))
 
     started = parse_time(identity.get("run_started_at") or identity.get("selected_at"))
     if started is None:

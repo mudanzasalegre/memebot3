@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from config.config import PROJECT_ROOT
+from ml.data_contract import normalize_candidate_event_row
 from utils.runtime_context import runtime_context_payload
 from utils.time import utc_now
 
@@ -39,11 +40,20 @@ def record_runtime_event(event_type: str, address: str, **payload: Any) -> None:
     }
     row.update(runtime_context_payload())
     row.update({str(k): _json_safe(v) for k, v in payload.items()})
+    if _should_normalize_event(str(event_type), row):
+        row = normalize_candidate_event_row(row)
 
     line = json.dumps(row, ensure_ascii=True)
     with _LOCK:
         with RUNTIME_EVENTS_PATH.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
+
+
+def _should_normalize_event(event_type: str, row: dict[str, Any]) -> bool:
+    event = str(event_type or "").strip().lower()
+    if event in {"blocked_before_buy", "buy", "bought", "paper_buy", "ml_decision", "ml_policy_decision", "strategy_decision"}:
+        return True
+    return any(key in row for key in ("decision_action", "action", "reason", "entry_lane", "gate_profile"))
 
 
 def log_queue_add(

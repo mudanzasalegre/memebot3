@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import math
 from typing import Any
 
 OBJECTIVE_CONFIG_PATH = Path(__file__).resolve().with_name("objectives.yaml")
@@ -116,9 +117,12 @@ def _metric_value(metrics: dict[str, Any], key: str) -> float | None:
     value = metrics.get(key)
     if value is None:
         return None
+    if isinstance(value, bool):
+        return None
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        value = float(value)
+        return value if math.isfinite(value) else None
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -127,7 +131,8 @@ def _metric_delta(baseline_metrics: dict[str, Any], candidate_metrics: dict[str,
     candidate = _metric_value(candidate_metrics, key)
     if baseline is None or candidate is None:
         return None
-    return candidate - baseline
+    delta = candidate - baseline
+    return delta if math.isfinite(delta) else None
 
 
 def _weighted_metric_key(weight_key: str) -> str:
@@ -162,10 +167,12 @@ def _all_numeric_deltas(baseline_metrics: dict[str, Any], candidate_metrics: dic
             deltas[key] = delta
     if "api_429_count" not in deltas:
         api_429_sources = ("gecko_429_count", "birdeye_429_count", "jupiter_rate_limit_count")
-        baseline_api = sum(_metric_value(baseline_metrics, key) or 0.0 for key in api_429_sources)
-        candidate_api = sum(_metric_value(candidate_metrics, key) or 0.0 for key in api_429_sources)
-        if baseline_api or candidate_api:
-            deltas["api_429_count"] = candidate_api - baseline_api
+        baseline_parts = [_metric_value(baseline_metrics, key) for key in api_429_sources]
+        candidate_parts = [_metric_value(candidate_metrics, key) for key in api_429_sources]
+        if all(value is not None for value in baseline_parts + candidate_parts):
+            delta = sum(candidate_parts) - sum(baseline_parts)
+            if math.isfinite(delta):
+                deltas["api_429_count"] = delta
     return deltas
 
 
@@ -211,7 +218,11 @@ def calculate_objective_score(
         if delta is None:
             warnings.append(f"missing_objective_metric:{metric_key}")
             continue
-        score += delta * float(raw_weight)
+        weight = _metric_value(objective, weight_key)
+        if weight is None:
+            rejection_reasons.append(f"invalid_objective_weight:{weight_key}")
+            continue
+        score += delta * weight
 
     for penalty_key, raw_penalty in penalties.items():
         metric_key = _penalty_metric_key(str(penalty_key), metric_deltas)
@@ -219,8 +230,12 @@ def calculate_objective_score(
         if delta is None:
             warnings.append(f"missing_penalty_metric:{metric_key}")
             continue
+        penalty = _metric_value(penalties, penalty_key)
+        if penalty is None or penalty < 0:
+            rejection_reasons.append(f"invalid_objective_penalty:{penalty_key}")
+            continue
         if delta > 0:
-            score -= delta * float(raw_penalty)
+            score -= delta * penalty
 
     for gate_key, raw_limit in hard_gates.items():
         if gate_key == "live_allowed_default":
@@ -230,13 +245,23 @@ def calculate_objective_score(
         delta = metric_deltas.get(metric_key)
         if delta is None:
             warnings.append(f"missing_hard_gate_metric:{metric_key}")
+            rejection_reasons.append(f"missing_hard_gate_metric:{metric_key}")
             continue
-        limit = float(raw_limit)
+        limit = _metric_value(hard_gates, gate_key)
+        if limit is None:
+            rejection_reasons.append(f"invalid_hard_gate_limit:{gate_name}")
+            continue
+        if not gate_name.endswith(("_delta_min", "_delta_max")):
+            rejection_reasons.append(f"invalid_hard_gate_name:{gate_name}")
+            continue
         if gate_name.endswith("_delta_min") and delta < limit:
             rejection_reasons.append(f"hard_gate:{metric_key}_delta<{limit}")
         elif gate_name.endswith("_delta_max") and delta > limit:
             rejection_reasons.append(f"hard_gate:{metric_key}_delta>{limit}")
 
+    if not math.isfinite(score):
+        rejection_reasons.append("nonfinite_objective_score")
+        score = 0.0
     hard_gate_passed = not rejection_reasons
     if hard_gate_passed and score <= 0:
         rejection_reasons.append("objective_score_not_positive")

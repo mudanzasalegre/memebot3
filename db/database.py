@@ -50,7 +50,7 @@ if str(REPO_ROOT) not in sys.path:    # garantiza import config
     sys.path.insert(0, str(REPO_ROOT))
 
 from config import SQLITE_DB          # type: ignore
-from trade_pnl import apply_partial_fill, summarize_trade
+from trade_pnl import apply_partial_fill, canonical_exit_reason, legacy_exit_reason, summarize_trade
 
 # ─────── ruta definitiva de la BD ───────
 sqlite_path = Path(SQLITE_DB).expanduser()
@@ -86,6 +86,10 @@ async def _table_has_column(conn, table: str, column: str) -> bool:
     cols = {r[1] for r in rows}  # (cid, name, type, notnull, dflt_value, pk)
     return column in cols
 
+
+def _quote_ident(identifier: str) -> str:
+    return '"' + str(identifier).replace('"', '""') + '"'
+
 async def _ensure_position_columns() -> None:
     """
     Asegura que la tabla Position contiene las columnas necesarias:
@@ -99,6 +103,7 @@ async def _ensure_position_columns() -> None:
         ("peak_price", "REAL NOT NULL DEFAULT 0.0"),
         ("entry_qty", "INTEGER NOT NULL DEFAULT 0"),
         ("price_source_at_buy", "VARCHAR(16)"),
+        ("price_confidence_at_buy", "VARCHAR(16)"),
         ("buy_tx_sig", "VARCHAR(96)"),
         ("entry_regime", "VARCHAR(24)"),
         ("size_bucket", "VARCHAR(16)"),
@@ -129,6 +134,8 @@ async def _ensure_position_columns() -> None:
         ("buy_volume_24h_usd", "REAL"),
         ("peak_price_usd", "REAL NOT NULL DEFAULT 0.0"),
         ("max_pnl_pct_seen", "REAL NOT NULL DEFAULT 0.0"),
+        ("max_adverse_pnl_pct", "REAL NOT NULL DEFAULT 0.0"),
+        ("exit_state", "VARCHAR(24) NOT NULL DEFAULT 'pre_partial'"),
         ("realized_qty", "INTEGER NOT NULL DEFAULT 0"),
         ("realized_proceeds_usd", "REAL NOT NULL DEFAULT 0.0"),
         ("realized_cost_usd", "REAL NOT NULL DEFAULT 0.0"),
@@ -143,13 +150,17 @@ async def _ensure_position_columns() -> None:
         ("exit_from_peak_giveback_pct", "REAL"),
         ("partial_count", "INTEGER NOT NULL DEFAULT 0"),
         ("partial_ladder_state", "TEXT"),
+        ("runner_trailing_policy", "TEXT"),
         ("first_partial_at", "TIMESTAMP"),
         ("last_partial_at", "TIMESTAMP"),
         ("last_partial_qty", "INTEGER"),
         ("last_partial_price_usd", "REAL"),
         ("exit_tx_sig", "VARCHAR(96)"),
         ("price_source_at_close", "VARCHAR(16)"),
+        ("price_confidence_at_close", "VARCHAR(16)"),
         ("exit_reason", "VARCHAR(24)"),
+        ("exit_reason_full", "TEXT"),
+        ("source_position_key", "VARCHAR(128)"),
         ("outcome", "VARCHAR(12)"),
     ]
 
@@ -167,6 +178,89 @@ async def _ensure_position_columns() -> None:
                     await conn.exec_driver_sql(
                         f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql};"
                     )
+            await conn.exec_driver_sql(
+                f"CREATE INDEX IF NOT EXISTS ix_{table_name}_source_position_key "
+                f"ON {table_name} (source_position_key);"
+            )
+
+
+async def _ensure_trade_ledger_schema() -> None:
+    async with engine.begin() as conn:
+        await conn.exec_driver_sql(
+            """
+            CREATE TABLE IF NOT EXISTS trade_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                position_id INTEGER,
+                event_type VARCHAR(24) NOT NULL,
+                token_mint VARCHAR(64),
+                address VARCHAR(64),
+                ts_utc TIMESTAMP NOT NULL,
+                qty INTEGER,
+                price_usd REAL,
+                notional_usd REAL,
+                pnl_usd REAL,
+                pnl_pct REAL,
+                reason TEXT,
+                price_source VARCHAR(32),
+                price_confidence VARCHAR(16),
+                feature_snapshot_json TEXT,
+                raw_json TEXT,
+                created_at TIMESTAMP NOT NULL,
+                FOREIGN KEY(position_id) REFERENCES positions(id)
+            );
+            """
+        )
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_trade_events_position_ts "
+            "ON trade_events (position_id, ts_utc);"
+        )
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_trade_events_token_ts "
+            "ON trade_events (token_mint, ts_utc);"
+        )
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_trade_events_event_ts "
+            "ON trade_events (event_type, ts_utc);"
+        )
+        if not await _table_has_column(conn, "trade_events", "price_confidence"):
+            await conn.exec_driver_sql(
+                "ALTER TABLE trade_events ADD COLUMN price_confidence VARCHAR(16);"
+            )
+
+        res = await conn.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='positions';"
+        )
+        if res.fetchone() is None:
+            return
+
+        await conn.exec_driver_sql(
+            "UPDATE positions SET exit_reason_full = exit_reason "
+            "WHERE exit_reason_full IS NULL AND exit_reason IS NOT NULL;"
+        )
+        await conn.exec_driver_sql(
+            "UPDATE positions SET source_position_key = CAST(id AS TEXT) "
+            "WHERE source_position_key IS NULL OR source_position_key = '';"
+        )
+
+        columns_res = await conn.exec_driver_sql("PRAGMA table_info(positions);")
+        columns = [str(row[1]) for row in columns_res.fetchall()]
+        select_columns = []
+        for column in columns:
+            if column == "exit_reason":
+                select_columns.append("COALESCE(p.exit_reason_full, p.exit_reason) AS exit_reason")
+            else:
+                select_columns.append(f"p.{_quote_ident(column)}")
+        select_sql = ",\n                ".join(select_columns)
+        await conn.exec_driver_sql("DROP VIEW IF EXISTS closed_trade_view;")
+        await conn.exec_driver_sql(
+            f"""
+            CREATE VIEW closed_trade_view AS
+            SELECT
+                {select_sql}
+            FROM positions p
+            WHERE COALESCE(p.closed, 0) = 1;
+            """
+        )
 
 
 async def _ensure_token_columns() -> None:
@@ -262,6 +356,7 @@ async def async_init_db() -> None:
     # Asegura columnas adicionales en SQLite (ALTER TABLE si faltan)
     await _ensure_token_columns()
     await _ensure_position_columns()
+    await _ensure_trade_ledger_schema()
     await _ensure_control_command_schema()
     await _ensure_ui_saved_views_schema()
 
@@ -271,7 +366,82 @@ async def async_init_db() -> None:
 # Nota: asumimos un modelo Position con:
 #   id, token_mint, qty_lamports, entry_qty, buy_price_usd,
 #   close_price_usd, realized_*, total_pnl_*, partial_taken, ...
-from .models import Position  # type: ignore
+from .models import Position, TradeEvent  # type: ignore
+
+
+def _event_timestamp(value: Optional[datetime] = None) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc)
+
+
+def position_source_key(pos: Position) -> str:
+    current = str(getattr(pos, "source_position_key", "") or "").strip()
+    if current:
+        return current
+    pos_id = getattr(pos, "id", None)
+    if pos_id is not None:
+        return str(pos_id)
+    for attr in ("buy_tx_sig", "opened_at", "address", "token_mint"):
+        value = getattr(pos, attr, None)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return "unpersisted"
+
+
+def ensure_position_source_key(pos: Position) -> str:
+    key = position_source_key(pos)
+    if hasattr(pos, "source_position_key") and not str(getattr(pos, "source_position_key", "") or "").strip():
+        pos.source_position_key = key
+    return key
+
+
+def set_position_exit_reason(pos: Position, reason: object) -> str | None:
+    full = None if reason is None else str(reason)
+    if hasattr(pos, "exit_reason_full"):
+        pos.exit_reason_full = full
+    pos.exit_reason = legacy_exit_reason(full)
+    return canonical_exit_reason(pos)
+
+
+def add_trade_event(
+    session: AsyncSession,
+    pos: Position,
+    *,
+    event_type: str,
+    ts_utc: Optional[datetime] = None,
+    qty: Optional[int] = None,
+    price_usd: Optional[float] = None,
+    notional_usd: Optional[float] = None,
+    pnl_usd: Optional[float] = None,
+    pnl_pct: Optional[float] = None,
+    reason: Optional[str] = None,
+    price_source: Optional[str] = None,
+    price_confidence: Optional[str] = None,
+    feature_snapshot_json: Optional[str] = None,
+    raw_json: Optional[str] = None,
+) -> TradeEvent:
+    ensure_position_source_key(pos)
+    event = TradeEvent(
+        position_id=getattr(pos, "id", None),
+        event_type=str(event_type),
+        token_mint=getattr(pos, "token_mint", None) or getattr(pos, "address", None),
+        address=getattr(pos, "address", None),
+        ts_utc=_event_timestamp(ts_utc),
+        qty=None if qty is None else int(qty),
+        price_usd=None if price_usd is None else float(price_usd),
+        notional_usd=None if notional_usd is None else float(notional_usd),
+        pnl_usd=None if pnl_usd is None else float(pnl_usd),
+        pnl_pct=None if pnl_pct is None else float(pnl_pct),
+        reason=reason,
+        price_source=price_source,
+        price_confidence=price_confidence,
+        feature_snapshot_json=feature_snapshot_json,
+        raw_json=raw_json,
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(event)
+    return event
 
 async def get_open_positions(session: AsyncSession) -> List[Position]:
     stmt = select(Position).where(Position.closed.is_(False))
@@ -327,9 +497,12 @@ async def mark_partial_and_reduce_qty(
     if not pos:
         return None
     remaining_before = max(0, int(getattr(pos, "qty_lamports", 0) or 0))
+    realized_proceeds_before = float(getattr(pos, "realized_proceeds_usd", 0.0) or 0.0)
+    realized_pnl_before = float(getattr(pos, "realized_pnl_usd", 0.0) or 0.0)
     sold_qty = max(0, min(remaining_before, int(qty_sold)))
     remaining = max(0, remaining_before - sold_qty)
     pos.qty_lamports = remaining
+    ensure_position_source_key(pos)
     # flag parcial
     try:
         pos.partial_taken = True  # type: ignore[attr-defined]
@@ -367,6 +540,32 @@ async def mark_partial_and_reduce_qty(
             setattr(pos, "realized_cost_usd", totals.realized_cost_usd)
         if hasattr(pos, "realized_pnl_usd"):
             setattr(pos, "realized_pnl_usd", totals.realized_pnl_usd)
+        if sold_qty > 0:
+            add_trade_event(
+                session,
+                pos,
+                event_type="partial_fill",
+                ts_utc=now,
+                qty=sold_qty,
+                price_usd=float(last_partial_price_usd),
+                notional_usd=float(totals.realized_proceeds_usd - realized_proceeds_before),
+                pnl_usd=float(totals.realized_pnl_usd - realized_pnl_before),
+                pnl_pct=float(totals.total_pnl_pct),
+                reason="partial_fill",
+                price_source=getattr(pos, "price_source_at_close", None),
+                price_confidence=getattr(pos, "price_confidence_at_close", None),
+            )
+    elif sold_qty > 0:
+        add_trade_event(
+            session,
+            pos,
+            event_type="partial_fill",
+            ts_utc=now,
+            qty=sold_qty,
+            reason="partial_fill",
+            price_source=getattr(pos, "price_source_at_close", None),
+            price_confidence=getattr(pos, "price_confidence_at_close", None),
+        )
     await session.commit()
     await session.refresh(pos)
     return pos
@@ -378,6 +577,7 @@ async def close_position_safe(
     close_price_usd: float,
     exit_reason: str,
     price_source_close: Optional[str] = None,
+    price_confidence_close: Optional[str] = None,
     closed_at_iso: Optional[str] = None,
 ) -> Optional[Position]:
     """
@@ -412,7 +612,8 @@ async def close_position_safe(
 
     # aplica cambios
     pos.close_price_usd = float(close_price_usd)
-    pos.exit_reason = str(exit_reason)
+    set_position_exit_reason(pos, exit_reason)
+    ensure_position_source_key(pos)
     pos.closed_at = closed_at
     pos.closed = True
     if hasattr(pos, "entry_qty"):
@@ -429,9 +630,26 @@ async def close_position_safe(
         pos.total_pnl_pct = totals.total_pnl_pct
     if price_source_close is not None and hasattr(pos, "price_source_close"):
         pos.price_source_close = price_source_close  # type: ignore[attr-defined]
+    if price_confidence_close is not None and hasattr(pos, "price_confidence_close"):
+        pos.price_confidence_close = price_confidence_close  # type: ignore[attr-defined]
 
     if hasattr(pos, "qty_lamports"):
         pos.qty_lamports = 0
+
+    add_trade_event(
+        session,
+        pos,
+        event_type="close",
+        ts_utc=closed_at,
+        qty=remaining_qty,
+        price_usd=float(close_price_usd),
+        notional_usd=float(totals.unrealized_proceeds_usd),
+        pnl_usd=float(totals.unrealized_pnl_usd),
+        pnl_pct=float(totals.total_pnl_pct),
+        reason=canonical_exit_reason(pos),
+        price_source=price_source_close,
+        price_confidence=price_confidence_close,
+    )
 
     await session.commit()
     await session.refresh(pos)

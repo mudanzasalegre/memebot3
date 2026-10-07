@@ -43,7 +43,7 @@ def test_live_canary_requires_route(monkeypatch) -> None:
     assert reason == "no_route"
 
 
-def test_green_live_canary_zero_daily_cap_is_unlimited(monkeypatch) -> None:
+def test_green_live_canary_requires_finite_daily_cap(monkeypatch) -> None:
     monkeypatch.setattr(
         canary,
         "CFG",
@@ -65,8 +65,8 @@ def test_green_live_canary_zero_daily_cap_is_unlimited(monkeypatch) -> None:
 
     ok, reason = canary.evaluate_green_live_canary({"has_jupiter_route": 1, "price_impact_pct": 1})
 
-    assert ok is True
-    assert reason == "ok"
+    assert ok is False
+    assert reason == "daily_buy_cap_required"
 
 
 def test_live_canary_v2_blocked_by_strategy_optimization_lock(monkeypatch) -> None:
@@ -95,7 +95,7 @@ def test_live_canary_v2_blocked_by_strategy_optimization_lock(monkeypatch) -> No
     assert decision.reason == "strategy_optimization_lock"
 
 
-def test_live_canary_v2_zero_open_and_daily_caps_are_unlimited(monkeypatch) -> None:
+def test_live_canary_v2_requires_finite_open_and_daily_caps(monkeypatch) -> None:
     monkeypatch.setattr(
         canary_v2,
         "CFG",
@@ -120,6 +120,7 @@ def test_live_canary_v2_zero_open_and_daily_caps_are_unlimited(monkeypatch) -> N
         daily_buys=999,
     )
 
-    assert decision.allowed is True
+    assert decision.allowed is False
+    assert decision.reason == "max_open_cap_required"
     assert decision.max_open == 0
     assert decision.max_daily_buys == 0

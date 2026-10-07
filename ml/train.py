@@ -31,7 +31,7 @@ from ml.data_contract import (
     normalize_sample_type,
 )
 from ml.feature_matrix import coerce_feature_frame
-from ml.model_registry import promote_candidate, write_candidate
+from ml.model_registry import ACTIVATION_READY_PROMOTION_ERROR, ModelArtifactSet, promote_candidate, write_candidate
 from ml.segment_report import SEGMENT_JSON, build_segment_report, write_segment_outputs
 from ml.tune_threshold import tune_from_frame
 
@@ -190,6 +190,73 @@ def _write_json(path: pathlib.Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(_json_safe(payload), indent=2), encoding="utf-8")
 
 
+def _feature_files(data_dir: pathlib.Path | None = None) -> list[pathlib.Path]:
+    resolved = pathlib.Path(data_dir) if data_dir is not None else DATA_DIR
+    return sorted(resolved.glob("features_*.parquet")) or sorted(resolved.glob("features_*.csv"))
+
+
+def feature_dataset_snapshot(
+    data_dir: pathlib.Path | None = None,
+    *,
+    max_age_hours: float | None = None,
+) -> dict[str, Any]:
+    resolved = pathlib.Path(data_dir).resolve() if data_dir is not None else pathlib.Path(DATA_DIR).resolve()
+    files = _feature_files(resolved)
+    latest = max(files, key=lambda path: path.stat().st_mtime) if files else None
+    now = pd.Timestamp.now(tz="UTC")
+    latest_mtime = pd.Timestamp.fromtimestamp(latest.stat().st_mtime, tz="UTC") if latest is not None else None
+    age_seconds = float((now - latest_mtime).total_seconds()) if latest_mtime is not None else None
+    freshness_limit = (
+        float(getattr(CFG, "ML_FEATURES_MAX_AGE_HOURS", 48.0) or 0.0)
+        if max_age_hours is None
+        else float(max_age_hours)
+    )
+    stale = bool(age_seconds is not None and freshness_limit > 0 and age_seconds > freshness_limit * 3600.0)
+    return {
+        "features_dir": str(resolved),
+        "exists": resolved.exists(),
+        "file_count": len(files),
+        "files": [str(path) for path in files],
+        "latest_file": str(latest) if latest is not None else None,
+        "latest_mtime_utc": latest_mtime.isoformat() if latest_mtime is not None else None,
+        "latest_age_seconds": age_seconds,
+        "max_age_hours": freshness_limit,
+        "fresh": bool(files) and not stale,
+        "stale": stale,
+        "usable": bool(files),
+    }
+
+
+def _empty_dataset_quality(reasons: list[str]) -> DatasetQuality:
+    return DatasetQuality(
+        passed=False,
+        reasons=list(reasons),
+        source_rows=0,
+        source_positives=0,
+        source_unique_tokens=0,
+        rows=0,
+        positives=0,
+        unique_tokens=0,
+        outcome_rows=0,
+        legacy_outcome_rows=0,
+        policy_reject_rows=0,
+        realized_return_rows=0,
+        numeric_feature_candidates=0,
+        non_constant_numeric_features=0,
+        holdout_rows=0,
+        holdout_positives=0,
+        holdout_unique_tokens=0,
+        sample_type_counts={},
+    )
+
+
+def _missing_dataset_action() -> str:
+    return (
+        "Generate features_*.parquet or features_*.csv under FEATURES_DIR, "
+        "or set FEATURES_DIR to an absolute path or a path relative to PROJECT_ROOT."
+    )
+
+
 def _coerce_timestamp(df: pd.DataFrame) -> pd.DataFrame:
     for cand in ("timestamp", "ts", "created_at", "listed_at"):
         if cand in df.columns:
@@ -210,7 +277,12 @@ def _load_dataset() -> pd.DataFrame:
     csv_files = sorted(glob.glob(str(DATA_DIR / "features_*.csv")))
     files = parquet_files if parquet_files else csv_files
     if not files:
-        raise FileNotFoundError(f"No se encontro features_*.parquet/csv en {DATA_DIR}")
+        resolved = pathlib.Path(DATA_DIR).resolve()
+        raise FileNotFoundError(
+            f"No feature dataset files found in {resolved}. "
+            "Expected features_*.parquet or features_*.csv. "
+            f"{_missing_dataset_action()}"
+        )
 
     df = pd.concat([_load_one(f) for f in files], ignore_index=True)
 
@@ -840,6 +912,63 @@ def _quality_readiness(quality: DatasetQuality) -> dict[str, Any]:
     }
 
 
+def _float_or_none(value: Any) -> float | None:
+    try:
+        value_f = float(value)
+    except Exception:
+        return None
+    return value_f if np.isfinite(value_f) else None
+
+
+def _enforcement_gates(quality: DatasetQuality, tune_result: dict[str, Any]) -> dict[str, Any]:
+    min_holdout_rows = int(getattr(CFG, "ML_MIN_HOLDOUT_ROWS", 40))
+    min_holdout_positives = int(getattr(CFG, "ML_MIN_HOLDOUT_POSITIVES", 8))
+    min_realized_selected = int(getattr(CFG, "ML_TUNE_MIN_REALIZED_SELECTED", 5))
+    precision_floor = float(getattr(CFG, "ML_TUNE_PRECISION_FLOOR", 0.60))
+    precision = _float_or_none(tune_result.get("precision_at_picked"))
+    avg_realized = _float_or_none(tune_result.get("avg_realized_pnl_pct_at_picked"))
+    realized_selected = _float_or_none(tune_result.get("realized_selected_rows_at_picked"))
+
+    blockers: list[str] = []
+    if not bool(quality.passed):
+        blockers.append("dataset_quality")
+    if int(quality.holdout_rows) < min_holdout_rows:
+        blockers.append("holdout_rows")
+    if int(quality.holdout_positives) < min_holdout_positives:
+        blockers.append("holdout_positives")
+    if str(tune_result.get("objective_applied") or "") != "expected_pnl_precision_floor":
+        blockers.append("precision_floor_objective")
+    if not bool(tune_result.get("activation_ready")):
+        blockers.append(str(tune_result.get("activation_reason") or "threshold_not_activation_ready"))
+    if precision is None or precision < precision_floor:
+        blockers.append("precision_floor")
+    if avg_realized is None or avg_realized <= 0.0:
+        blockers.append("ev_non_positive")
+    if realized_selected is None or int(realized_selected) < min_realized_selected:
+        blockers.append("realized_selected_rows")
+
+    unique_blockers = sorted(set(str(item) for item in blockers if str(item)))
+    return {
+        "activation_ready": not unique_blockers,
+        "blockers": unique_blockers,
+        "checks": {
+            "dataset_quality_passed": bool(quality.passed),
+            "holdout_rows": int(quality.holdout_rows),
+            "min_holdout_rows": min_holdout_rows,
+            "holdout_positives": int(quality.holdout_positives),
+            "min_holdout_positives": min_holdout_positives,
+            "objective_applied": tune_result.get("objective_applied"),
+            "threshold_activation_ready": bool(tune_result.get("activation_ready")),
+            "threshold_activation_reason": tune_result.get("activation_reason"),
+            "precision_at_picked": precision,
+            "precision_floor": precision_floor,
+            "avg_realized_pnl_pct_at_picked": avg_realized,
+            "realized_selected_rows_at_picked": None if realized_selected is None else int(realized_selected),
+            "min_realized_selected": min_realized_selected,
+        },
+    }
+
+
 def _build_training_context(
     df_source: pd.DataFrame,
     *,
@@ -1254,11 +1383,79 @@ def _save_model(model: Any) -> None:
     pathlib.Path(tmp_path).replace(MODEL_PATH)
 
 
+def _promote_trained_candidate(
+    artifact: ModelArtifactSet,
+    *,
+    activation_ready: Any,
+    active_model_path: pathlib.Path | None = None,
+) -> dict[str, Any]:
+    status: dict[str, Any] = {
+        "attempted": False,
+        "promoted": False,
+        "candidate_model_id": artifact.model_id,
+        "candidate_model_path": str(artifact.model_path),
+        "candidate_meta_path": str(artifact.meta_path),
+        "reason": "not_attempted",
+    }
+    if activation_ready is not True:
+        status["reason"] = ACTIVATION_READY_PROMOTION_ERROR
+        return status
+
+    status["attempted"] = True
+    try:
+        registry_payload = promote_candidate(artifact, active_model_path=active_model_path or MODEL_PATH)
+        status.update(
+            {
+                "promoted": True,
+                "reason": "promoted",
+                "registry": registry_payload,
+            }
+        )
+    except RuntimeError as exc:
+        if "STRATEGY_OPTIMIZATION_LOCK=true blocks model promotion" not in str(exc):
+            raise
+        status["reason"] = str(exc)
+    return status
+
+
 def train_and_save() -> TrainResult:
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
     attempted_at = pd.Timestamp.now(tz="UTC").isoformat()
 
-    df_source = _load_dataset()
+    feature_snapshot = feature_dataset_snapshot(DATA_DIR)
+    try:
+        df_source = _load_dataset()
+    except FileNotFoundError as exc:
+        quality = _empty_dataset_quality(["features_missing"])
+        readiness = _quality_readiness(quality)
+        payload = _status_payload(
+            status="missing_dataset",
+            quality=quality,
+            feature_hash="",
+            features=[],
+            excluded_effective=[],
+            extra={
+                "last_train_attempt_at": attempted_at,
+                "last_train_status": "missing_dataset",
+                "features_dir": str(pathlib.Path(DATA_DIR).resolve()),
+                "feature_dataset": feature_snapshot,
+                "error": str(exc),
+                "action": _missing_dataset_action(),
+                "skip_reasons": list(quality.reasons),
+                **readiness,
+            },
+        )
+        _write_json(DATASET_QUALITY_JSON, asdict(quality))
+        _write_json(TRAIN_STATUS_JSON, payload)
+        print(f"[ML] Dataset no disponible: {exc}")
+        return TrainResult(
+            trained=False,
+            status="missing_dataset",
+            dataset_quality=quality,
+            selection_metric=None,
+            selection_score=None,
+        )
+
     df_source = _apply_training_window(df_source)
     context = _build_training_context(df_source, training_scope="productive_strict")
     strict_context = context
@@ -1323,6 +1520,7 @@ def train_and_save() -> TrainResult:
                 "bootstrap_used": bool(bootstrap_used),
                 "strict_productive_dataset": strict_summary,
                 "bootstrap_candidate_dataset": bootstrap_summary,
+                "feature_dataset": feature_snapshot,
                 "eligible_rows": int(quality.rows),
                 "eligible_unique_tokens": int(quality.unique_tokens),
                 "eligible_positives": int(quality.positives),
@@ -1394,6 +1592,7 @@ def train_and_save() -> TrainResult:
                 "bootstrap_used": bool(bootstrap_used),
                 "strict_productive_dataset": strict_summary,
                 "bootstrap_candidate_dataset": bootstrap_summary,
+                "feature_dataset": feature_snapshot,
                 "eligible_rows": int(quality.rows),
                 "eligible_unique_tokens": int(quality.unique_tokens),
                 "eligible_positives": int(quality.positives),
@@ -1428,8 +1627,15 @@ def train_and_save() -> TrainResult:
         for row in final_feature_signal[: min(15, len(final_feature_signal))]:
             print(f"      {row['feature']:30s}  {row['importance']:.4f}")
 
-    tune_result = selected.tune_result
-    _write_json(RECOMMENDED_JSON, tune_result)
+    tune_result = dict(selected.tune_result)
+    threshold_activation_ready = bool(tune_result.get("activation_ready"))
+    enforcement_gates = _enforcement_gates(quality, tune_result)
+    tune_result["threshold_activation_ready"] = threshold_activation_ready
+    tune_result["enforcement_gates"] = enforcement_gates
+    tune_result["activation_ready"] = bool(enforcement_gates.get("activation_ready"))
+    if not tune_result["activation_ready"] and threshold_activation_ready:
+        blockers = ",".join(enforcement_gates.get("blockers") or [])
+        tune_result["activation_reason"] = f"enforcement_gates_blocked:{blockers}" if blockers else "enforcement_gates_blocked"
     meta_payload = {
         "last_train_attempt_at": attempted_at,
         "last_train_status": "trained",
@@ -1437,6 +1643,7 @@ def train_and_save() -> TrainResult:
         "bootstrap_used": bool(bootstrap_used),
         "strict_productive_dataset": strict_summary,
         "bootstrap_candidate_dataset": bootstrap_summary,
+        "feature_dataset": feature_snapshot,
         "selected_model_name": selected.name,
         "model_family": selected.model_family,
         "auc_forward_or_cv_mean": selected.auc_mean,
@@ -1447,6 +1654,7 @@ def train_and_save() -> TrainResult:
         "threshold_metric": tune_result.get("objective_applied"),
         "activation_ready": tune_result.get("activation_ready"),
         "threshold_result": tune_result,
+        "enforcement_gates": enforcement_gates,
         "dataset_quality_passed": quality.passed,
         "dataset_quality": asdict(quality),
         "rows": int(len(df_trainable)),
@@ -1472,7 +1680,11 @@ def train_and_save() -> TrainResult:
     lane_thresholds = None
     try:
         segment_report = build_segment_report(selected.val_preds, threshold=tune_result.get("picked"))
-        lane_thresholds = write_segment_outputs(segment_report)
+        lane_thresholds = write_segment_outputs(
+            segment_report,
+            global_result=tune_result,
+            publish_thresholds=False,
+        )
         meta_payload["thresholds_by_lane"] = lane_thresholds
     except Exception as exc:
         print(f"[SEG] segment_report omitido: {exc}")
@@ -1483,28 +1695,13 @@ def train_and_save() -> TrainResult:
         val_preds_path=VAL_PREDS_CSV,
         segment_report_path=SEGMENT_JSON,
     )
-    promotion_status: dict[str, Any] = {
-        "attempted": True,
-        "promoted": False,
-        "candidate_model_id": artifact.model_id,
-        "candidate_model_path": str(artifact.model_path),
-        "candidate_meta_path": str(artifact.meta_path),
-        "reason": "not_attempted",
-    }
-    try:
-        registry_payload = promote_candidate(artifact, active_model_path=MODEL_PATH)
-        promotion_status.update(
-            {
-                "promoted": True,
-                "reason": "promoted",
-                "registry": registry_payload,
-            }
-        )
-    except RuntimeError as exc:
-        if "STRATEGY_OPTIMIZATION_LOCK=true blocks model promotion" not in str(exc):
-            raise
-        promotion_status["reason"] = str(exc)
-        print(f"[ML] Promocion activa omitida: {exc}")
+    promotion_status = _promote_trained_candidate(
+        artifact,
+        activation_ready=meta_payload.get("activation_ready"),
+        active_model_path=MODEL_PATH,
+    )
+    if not promotion_status.get("promoted"):
+        print(f"[ML] Promocion activa omitida: {promotion_status.get('reason')}")
 
     train_status = _status_payload(
         status="trained",
@@ -1519,10 +1716,12 @@ def train_and_save() -> TrainResult:
             "bootstrap_used": bool(bootstrap_used),
             "strict_productive_dataset": strict_summary,
             "bootstrap_candidate_dataset": bootstrap_summary,
+            "feature_dataset": feature_snapshot,
             "eligible_rows": int(quality.rows),
             "eligible_unique_tokens": int(quality.unique_tokens),
             "eligible_positives": int(quality.positives),
             "holdout_rows": int(quality.holdout_rows),
+            "holdout_positives": int(quality.holdout_positives),
             "rows_missing_lane_metadata": int(filtering_meta.get("rows_missing_lane_metadata", 0)),
             "skip_reasons": [],
             **readiness,
@@ -1534,7 +1733,10 @@ def train_and_save() -> TrainResult:
             "auc_pr_forward_or_cv_mean": selected.ap_mean,
             "precision_at_k_pct": float(PREC_AT_K_PCT),
             "precision_at_k_val": selected.precision_at_k,
+            "threshold_metric": tune_result.get("objective_applied"),
+            "activation_ready": tune_result.get("activation_ready"),
             "threshold_result": tune_result,
+            "enforcement_gates": enforcement_gates,
             "promotion": promotion_status,
             "candidate_summaries": {candidate.name: candidate.summary() for candidate in candidates},
             "candidate_errors": candidate_errors,
@@ -1558,7 +1760,10 @@ def train_and_save() -> TrainResult:
     if promotion_status.get("promoted"):
         print(f"[ML] Modelo activo + meta guardados en {MODEL_PATH}")
     else:
-        print(f"[ML] Candidato guardado en {artifact.model_path} (activo bloqueado por lock)")
+        print(
+            f"[ML] Candidato guardado en {artifact.model_path} "
+            f"(promocion no aplicada: {promotion_status.get('reason')})"
+        )
 
     return TrainResult(
         trained=True,
@@ -1569,7 +1774,7 @@ def train_and_save() -> TrainResult:
         model_path=str(MODEL_PATH if promotion_status.get("promoted") else artifact.model_path),
         meta_path=str(META_PATH if promotion_status.get("promoted") else artifact.meta_path),
         val_preds_path=str(VAL_PREDS_CSV),
-        recommended_threshold_path=str(RECOMMENDED_JSON),
+        recommended_threshold_path=str(RECOMMENDED_JSON) if promotion_status.get("promoted") else None,
     )
 
 

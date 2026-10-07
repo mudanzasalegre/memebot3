@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import os
 from dataclasses import dataclass
 from typing import Any
 
-from analytics import bird_runner_exit, runner_ladder
+from analytics import bird_runner_exit, runner_ladder, runner_price_policy
 from config.config import CFG, PROJECT_ROOT
 from trade_pnl import total_pnl_pct_from_record
 
@@ -23,6 +24,16 @@ def _get(subject: Any, key: str, default: Any = None) -> Any:
     if isinstance(subject, dict):
         return subject.get(key, default)
     return getattr(subject, key, default)
+
+
+def _set(subject: Any, key: str, value: Any) -> None:
+    try:
+        if isinstance(subject, dict):
+            subject[key] = value
+        else:
+            setattr(subject, key, value)
+    except Exception:
+        pass
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
@@ -60,6 +71,16 @@ def _effective_dry_run(subject: Any | None = None) -> bool:
     if _RUNTIME_DRY_RUN_OVERRIDE is not None:
         return bool(_RUNTIME_DRY_RUN_OVERRIDE)
     return bool(getattr(CFG, "DRY_RUN", True))
+
+
+def _partial_taken(subject: Any) -> bool:
+    if _to_bool(_get(subject, "partial_taken"), False):
+        return True
+    if int(max(0.0, _to_float(_get(subject, "partial_count"), 0.0))) > 0:
+        return True
+    if int(max(0.0, _to_float(_get(subject, "realized_qty"), 0.0))) > 0:
+        return True
+    return False
 
 
 def _normalize_regime(value: Any) -> str:
@@ -109,7 +130,11 @@ class ExitPolicy:
     liq_crush_drop_pct: float
     liq_crush_window_min: float
     liq_crush_abs_fract: float
+    no_expansion_window_min: float
+    no_expansion_min_peak_pct: float
     no_expansion_max_pct: float
+    pre_partial_max_adverse_pct: float
+    pre_partial_max_adverse_min_age_s: float
     no_pump_window_min: float
     no_pump_min_pnl_pct: float
     no_pump_max_pnl_pct: float | None
@@ -223,17 +248,28 @@ def resolve_entry_regime(subject: Any) -> str:
     return "dex_mature"
 
 
+def _current_regime_override(regime: str, key: str) -> Any:
+    # CFG can be replaced by an explicit paper configuration. Do not retain the
+    # import-time values: doing so silently ignores the selected exit profile.
+    if key not in _REGIME_EXIT_OVERRIDES.get(regime, {}):
+        return None
+    field = f"{regime.upper()}_{key.upper()}"
+    if hasattr(CFG, field):
+        return getattr(CFG, field)
+    return _opt_env_float(field)
+
+
 def _override_value(regime: str, key: str, default: float) -> float:
     if not bool(CFG.EXIT_PROFILE_BY_REGIME):
         return float(default)
-    override = _REGIME_EXIT_OVERRIDES.get(regime, {}).get(key)
+    override = _current_regime_override(regime, key)
     return float(default if override is None else override)
 
 
 def _override_bool(regime: str, key: str, default: bool) -> bool:
     if not bool(CFG.EXIT_PROFILE_BY_REGIME):
         return bool(default)
-    override = _REGIME_EXIT_OVERRIDES.get(regime, {}).get(key)
+    override = _current_regime_override(regime, key)
     return _to_bool(default if override is None else override, default)
 
 
@@ -241,7 +277,7 @@ def _override_optional_value(regime: str, key: str, default: float | None) -> fl
     if not bool(CFG.EXIT_PROFILE_BY_REGIME):
         override = None
     else:
-        override = _REGIME_EXIT_OVERRIDES.get(regime, {}).get(key)
+        override = _current_regime_override(regime, key)
     value = default if override is None else override
     return None if value is None else float(value)
 
@@ -938,7 +974,14 @@ def effective_exit_policy(subject: Any) -> ExitPolicy:
         liq_crush_drop_pct=max(0.0, float(CFG.LIQ_CRUSH_DROP_PCT)),
         liq_crush_window_min=max(0.0, float(CFG.LIQ_CRUSH_WINDOW_MIN)),
         liq_crush_abs_fract=max(0.0, min(1.0, float(CFG.LIQ_CRUSH_ABS_FRACT))),
+        no_expansion_window_min=max(0.0, float(getattr(CFG, "NO_EXPANSION_WINDOW_MIN", 60.0) or 60.0)),
+        no_expansion_min_peak_pct=max(0.0, float(getattr(CFG, "NO_EXPANSION_MIN_PEAK_PCT", 5.0) or 5.0)),
         no_expansion_max_pct=float(CFG.NO_EXPANSION_MAX_PCT),
+        pre_partial_max_adverse_pct=max(0.0, float(getattr(CFG, "PRE_PARTIAL_MAX_ADVERSE_PCT", 12.0) or 12.0)),
+        pre_partial_max_adverse_min_age_s=max(
+            0.0,
+            float(getattr(CFG, "PRE_PARTIAL_MAX_ADVERSE_MIN_AGE_S", 45.0) or 45.0),
+        ),
         no_pump_window_min=max(0.0, _override_value(regime, "no_pump_window_min", float(CFG.NO_PUMP_WINDOW_MIN))),
         no_pump_min_pnl_pct=_override_value(regime, "no_pump_min_pnl_pct", float(CFG.NO_PUMP_MIN_PNL_PCT)),
         no_pump_max_pnl_pct=_override_optional_value(
@@ -961,7 +1004,7 @@ def should_take_partial(subject: Any, pnl_pct: float) -> bool:
     plan = partial_ladder_plan(subject, pnl_pct)
     if bool(plan.get("enabled")):
         return float(plan.get("sell_fraction_of_remaining") or 0.0) > 0.0
-    if _to_bool(_get(subject, "partial_taken"), False):
+    if _partial_taken(subject):
         return False
     return float(pnl_pct) >= float(policy.tp_partial_trigger_pct)
 
@@ -972,8 +1015,16 @@ def partial_fraction(subject: Any) -> float:
 
 def _position_qty_state(subject: Any) -> tuple[int, int, int]:
     remaining = int(max(0.0, _to_float(_get(subject, "qty"), 0.0)))
+    if remaining <= 0:
+        remaining = int(max(0.0, _to_float(_get(subject, "qty_lamports"), 0.0)))
+    if remaining <= 0:
+        remaining = int(max(0.0, _to_float(_get(subject, "size_tokens"), 0.0)))
     realized = int(max(0.0, _to_float(_get(subject, "realized_qty"), 0.0)))
+    if realized <= 0:
+        realized = int(max(0.0, _to_float(_get(subject, "realized_qty_lamports"), 0.0)))
     entry = int(max(0.0, _to_float(_get(subject, "entry_qty"), 0.0)))
+    if entry <= 0:
+        entry = int(max(0.0, _to_float(_get(subject, "entry_qty_lamports"), 0.0)))
     if entry <= 0 and (remaining > 0 or realized > 0):
         entry = remaining + realized
     return entry, remaining, realized
@@ -1008,6 +1059,9 @@ def partial_ladder_plan(subject: Any, pnl_pct: float) -> dict[str, Any]:
         state=runner_ladder.state_from_subject(subject),
     )
     plan["enabled"] = True
+    plan["exit_state"] = "post_partial" if _partial_taken(subject) or int(plan.get("pending_step_count") or 0) > 0 else "pre_partial"
+    plan["entry_lane"] = str(_get(subject, "entry_lane", "") or "")
+    plan["runner_exit_profile"] = resolve_runner_exit_profile(subject)
     return plan
 
 
@@ -1018,20 +1072,108 @@ def partial_sell_fraction(subject: Any, pnl_pct: float) -> float:
     plan = partial_ladder_plan(subject, pnl_pct)
     if bool(plan.get("enabled")):
         return max(0.0, min(1.0, float(plan.get("sell_fraction_of_remaining") or 0.0)))
-    if _to_bool(_get(subject, "partial_taken"), False):
+    if _partial_taken(subject):
         return 0.0
     if float(pnl_pct) < float(policy.tp_partial_trigger_pct):
         return 0.0
     return max(0.0, min(0.95, float(policy.tp_partial_fraction)))
 
 
+def _peak_pct_from_subject(subject: Any, *, buy_price_usd: float = 0.0) -> float:
+    peak = _to_float(_get(subject, "highest_pnl_pct"), 0.0)
+    if peak <= 0:
+        peak = _to_float(_get(subject, "max_pnl_pct_seen"), 0.0)
+    if peak <= 0:
+        peak = _to_float(_get(subject, "peak_pnl_pct"), 0.0)
+    if peak <= 0 and buy_price_usd > 0:
+        peak_price = _to_float(_get(subject, "peak_price_usd"), 0.0)
+        if peak_price <= 0:
+            peak_price = _to_float(_get(subject, "peak_price"), 0.0)
+        if peak_price > 0:
+            peak = (float(peak_price) - float(buy_price_usd)) / float(buy_price_usd) * 100.0
+    return max(0.0, float(peak or 0.0))
+
+
+def update_exit_state(subject: Any, *, pnl_pct: float, peak: float | None = None) -> dict[str, float | str]:
+    current = float(pnl_pct)
+    peak_value = _peak_pct_from_subject(subject) if peak is None else max(0.0, float(peak or 0.0))
+    if current > peak_value:
+        peak_value = current
+    max_adverse = _to_float(_get(subject, "max_adverse_pnl_pct"), 0.0)
+    if current < max_adverse:
+        max_adverse = current
+    state = "post_partial" if _partial_taken(subject) else "pre_partial"
+    _set(subject, "highest_pnl_pct", float(peak_value))
+    _set(subject, "max_pnl_pct_seen", float(peak_value))
+    _set(subject, "max_adverse_pnl_pct", float(max_adverse))
+    _set(subject, "exit_state", state)
+    return {"highest_pnl_pct": float(peak_value), "max_adverse_pnl_pct": float(max_adverse), "state": state}
+
+
+def _partial_trigger_locked(subject: Any, *, pnl_pct: float) -> bool:
+    if _partial_taken(subject):
+        return False
+    try:
+        return should_take_partial(subject, float(pnl_pct))
+    except Exception:
+        return False
+
+
+def pre_partial_exit_reason(
+    subject: Any,
+    policy: ExitPolicy,
+    *,
+    age_s: float,
+    pnl_pct: float,
+    peak: float,
+) -> str | None:
+    if _partial_taken(subject):
+        return None
+    if _partial_trigger_locked(subject, pnl_pct=float(pnl_pct)):
+        return None
+
+    age_min = max(0.0, float(age_s) / 60.0)
+    if policy.pre_partial_retrace_trigger_pct > 0 and policy.pre_partial_retrace_giveback_pct > 0:
+        if float(peak) >= float(policy.pre_partial_retrace_trigger_pct):
+            retrace_floor = max(
+                float(policy.pre_partial_retrace_floor_pct),
+                float(peak) - float(policy.pre_partial_retrace_giveback_pct),
+            )
+            if float(pnl_pct) <= retrace_floor:
+                return "PRE_PARTIAL_RETRACE"
+
+    if (
+        policy.pre_partial_max_adverse_pct > 0
+        and float(age_s) >= float(policy.pre_partial_max_adverse_min_age_s)
+        and float(pnl_pct) <= -abs(float(policy.pre_partial_max_adverse_pct))
+    ):
+        return "MAX_ADVERSE_EXCURSION"
+
+    if policy.pre_partial_time_stop_min > 0 and age_min >= float(policy.pre_partial_time_stop_min):
+        if float(peak) < float(policy.pre_partial_time_stop_min_peak_pct) and float(pnl_pct) <= float(
+            policy.pre_partial_time_stop_max_pnl_pct
+        ):
+            return "PRE_PARTIAL_TIME_STOP"
+
+    if policy.no_expansion_window_min > 0 and age_min >= float(policy.no_expansion_window_min):
+        if float(peak) < float(policy.no_expansion_min_peak_pct) and float(pnl_pct) <= float(policy.no_expansion_max_pct):
+            return "NO_EXPANSION"
+
+    return None
+
+
 def runner_giveback_emergency_reason(subject: Any, *, pnl_pct: float, peak: float) -> str | None:
     if not bool(getattr(CFG, "RUNNER_GIVEBACK_CLOSE_REMAINING", True)):
         return None
-    if not _to_bool(_get(subject, "partial_taken"), False):
+    if not _partial_taken(subject):
         return None
     if float(pnl_pct) <= 0.0:
         return None
+    proportional_floor = runner_price_protection_floor_pct(subject, peak=peak)
+    if proportional_floor is not None:
+        return "RUNNER_GIVEBACK_EMERGENCY" if float(pnl_pct) <= proportional_floor else None
+    if _is_moonshot_micro_subject(subject):
+        return _moonshot_runner_giveback_reason(pnl_pct=float(pnl_pct), peak=float(peak or 0.0))
     return bird_runner_exit.runner_giveback_emergency_reason(
         peak_pct=float(peak or 0.0),
         pnl_pct=float(pnl_pct),
@@ -1040,12 +1182,98 @@ def runner_giveback_emergency_reason(subject: Any, *, pnl_pct: float, peak: floa
     )
 
 
+def _moonshot_runner_floor_pct(peak: float) -> float | None:
+    peak_value = max(0.0, float(peak or 0.0))
+    thresholds = (
+        (
+            float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_TP4_PCT", 1500.0) or 1500.0),
+            float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_RUNNER_FLOOR_TP4_PCT", 700.0) or 700.0),
+        ),
+        (
+            float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_TP3_PCT", 700.0) or 700.0),
+            float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_RUNNER_FLOOR_TP3_PCT", 300.0) or 300.0),
+        ),
+        (
+            float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_TP2_PCT", 300.0) or 300.0),
+            float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_RUNNER_FLOOR_TP2_PCT", 100.0) or 100.0),
+        ),
+    )
+    for min_peak, floor in thresholds:
+        if peak_value >= max(0.0, min_peak):
+            return max(0.0, float(floor))
+    return None
+
+
+def _moonshot_runner_giveback_reason(*, pnl_pct: float, peak: float) -> str | None:
+    peak_value = max(0.0, float(peak or 0.0))
+    current = float(pnl_pct)
+    giveback = max(0.0, peak_value - current)
+    thresholds = (
+        (
+            float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_TP4_PCT", 1500.0) or 1500.0),
+            float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_RUNNER_TP4_MAX_GIVEBACK_PCT", 650.0) or 650.0),
+        ),
+        (
+            float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_TP3_PCT", 700.0) or 700.0),
+            float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_RUNNER_TP3_MAX_GIVEBACK_PCT", 320.0) or 320.0),
+        ),
+        (
+            float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_TP2_PCT", 300.0) or 300.0),
+            float(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_RUNNER_TP2_MAX_GIVEBACK_PCT", 180.0) or 180.0),
+        ),
+    )
+    for min_peak, max_giveback in thresholds:
+        if peak_value >= max(0.0, min_peak):
+            if giveback >= max(0.0, float(max_giveback)):
+                return "RUNNER_GIVEBACK_EMERGENCY"
+            return None
+    return None
+
+
+def _active_runner_price_policy(subject: Any, *, peak: float) -> dict[str, Any] | None:
+    # An explicit paper position is required. Missing/legacy snapshots and live
+    # positions keep their existing exit rules even if the global flag changes.
+    paper = _get(subject, "dry_run", False)
+    if str(paper).lower() not in {"true", "1"} or not _partial_taken(subject):
+        return None
+    policy = runner_price_policy.parse_policy(_get(subject, "runner_trailing_policy"))
+    peak = _to_float(peak, float("-inf"))
+    if policy is None or not math.isfinite(peak) or peak < policy["activation_peak_pct"]:
+        return None
+    # Short-lived probes and deep-reversal scalps are not runner-tail experiments.
+    if _is_birth_probe_micro_subject(subject) or _is_sniper_deep_reversal_subject(subject):
+        return None
+    return policy
+
+
+def runner_price_protection_floor_pct(subject: Any, *, peak: float) -> float | None:
+    policy = _active_runner_price_policy(subject, peak=peak)
+    if policy is None:
+        return None
+    return runner_price_policy.price_drawdown_floor_pct(peak, policy["max_price_drawdown_pct"])
+
+
 def dynamic_runner_floor_pct(subject: Any, *, peak: float) -> float | None:
-    if not _to_bool(_get(subject, "partial_taken"), False):
+    if not _partial_taken(subject):
         return None
     if float(peak or 0.0) < 100.0:
         return None
-    return runner_ladder.dynamic_runner_floor_pct(float(peak or 0.0), cfg=CFG)
+    proportional_floor = runner_price_protection_floor_pct(subject, peak=peak)
+    if proportional_floor is not None:
+        # The common trailing and emergency paths must use this same scale,
+        # otherwise a fixed-point rule would still close an extreme runner first.
+        return max(0.0, proportional_floor)
+    if _is_moonshot_micro_subject(subject):
+        return _moonshot_runner_floor_pct(float(peak or 0.0))
+    floors = [runner_ladder.dynamic_runner_floor_pct(float(peak or 0.0), cfg=CFG)]
+    if resolve_runner_exit_profile(subject) is not None:
+        try:
+            policy = effective_exit_policy(subject)
+            floors.append(post_partial_protection_floor_pct(subject, policy, peak=float(peak or 0.0)))
+        except Exception:
+            pass
+    active = [float(floor) for floor in floors if floor is not None]
+    return max(active) if active else None
 
 
 def dynamic_runner_floor_reason(subject: Any, *, pnl_pct: float, peak: float) -> str | None:
@@ -1059,7 +1287,7 @@ def dynamic_runner_floor_reason(subject: Any, *, pnl_pct: float, peak: float) ->
 
 def total_pnl_protection_floor_pct(subject: Any, *, peak: float) -> float | None:
     partial_count = int(max(0.0, _to_float(_get(subject, "partial_count"), 0.0)))
-    if partial_count <= 0 and _to_bool(_get(subject, "partial_taken"), False):
+    if partial_count <= 0 and _partial_taken(subject):
         partial_count = 1
     floors: list[float] = []
     if partial_count >= 1:
@@ -1117,7 +1345,7 @@ def post_partial_protection_floor_pct(
     *,
     peak: float | None = None,
 ) -> float | None:
-    if not _to_bool(_get(subject, "partial_taken"), False):
+    if not _partial_taken(subject):
         return None
     policy = policy or effective_exit_policy(subject)
     peak_value = _to_float(_get(subject, "highest_pnl_pct"), 0.0) if peak is None else float(peak)
@@ -1138,6 +1366,9 @@ def post_partial_protection_floor_pct(
     )
     if peak_value < min_peak:
         return None
+    proportional_floor = runner_price_protection_floor_pct(subject, peak=peak_value)
+    if proportional_floor is not None:
+        return max(float(policy.post_partial_lock_floor_pct), proportional_floor)
     return max(
         float(policy.post_partial_lock_floor_pct),
         float(peak_value) - float(policy.post_partial_max_giveback_pct),
@@ -1151,7 +1382,15 @@ def _post_partial_exit_reason(
     pnl_pct: float,
     peak: float,
 ) -> str | None:
-    if not _to_bool(_get(subject, "partial_taken"), False):
+    if not _partial_taken(subject):
+        return None
+    proportional_floor = runner_price_protection_floor_pct(subject, peak=peak)
+    if proportional_floor is not None:
+        return "POST_PARTIAL_TRAILING" if float(pnl_pct) <= proportional_floor else None
+    if _is_moonshot_micro_subject(subject):
+        moonshot_floor = _moonshot_runner_floor_pct(float(peak or 0.0))
+        if moonshot_floor is not None and float(pnl_pct) <= float(moonshot_floor):
+            return "MOONSHOT_RUNNER_FLOOR"
         return None
 
     protection_floor = post_partial_protection_floor_pct(subject, policy, peak=peak)
@@ -1228,7 +1467,8 @@ def should_exit(
     age_h = age_s / 3600.0
     age_min = age_s / 60.0
 
-    if price_now is None:
+    price_now = _to_float(price_now, float("nan"))
+    if not math.isfinite(price_now) or price_now <= 0.0:
         if age_h >= float(policy.max_holding_h):
             return "TIMEOUT_NOPRICE"
         return None
@@ -1236,11 +1476,17 @@ def should_exit(
     buy_price_usd = _to_float(_get(subject, "buy_price_usd"))
     if pnl_pct is None and buy_price_usd > 0:
         pnl_pct = (float(price_now) - buy_price_usd) / buy_price_usd * 100.0
+    if pnl_pct is not None:
+        pnl_pct = _to_float(pnl_pct, float("nan"))
+        if not math.isfinite(pnl_pct):
+            pnl_pct = None
 
-    peak = _to_float(_get(subject, "highest_pnl_pct"), 0.0)
-    if peak <= 0:
-        peak = _to_float(_get(subject, "peak_pnl_pct"), 0.0)
-    partial_taken = _to_bool(_get(subject, "partial_taken"), False)
+    peak = _peak_pct_from_subject(subject, buy_price_usd=buy_price_usd)
+    partial_taken = _partial_taken(subject)
+    if pnl_pct is not None:
+        state = update_exit_state(subject, pnl_pct=float(pnl_pct), peak=peak)
+        peak = float(state["highest_pnl_pct"])
+        partial_taken = state["state"] == "post_partial"
 
     if pnl_pct is not None and _is_sniper_deep_reversal_subject(subject):
         deep_tp = max(0.0, _to_float(getattr(CFG, "SNIPER_RESEARCH_DEEP_REVERSAL_TAKE_PROFIT_PCT", 12.0), 12.0))
@@ -1345,7 +1591,8 @@ def should_exit(
     if entry_liq <= 0:
         entry_liq = _to_float(_get(subject, "liq_at_buy_usd"), 0.0)
     if entry_liq > 0 and liq_now and liq_now > 0 and policy.liq_crush_window_min >= 0:
-        window_ok = policy.liq_crush_window_min <= 0 or age_min <= float(policy.liq_crush_window_min)
+        window_ok = (policy.liq_crush_window_min <= 0 or age_min <= float(policy.liq_crush_window_min)
+                     or _active_runner_price_policy(subject, peak=peak) is not None)
         if window_ok:
             if policy.liq_crush_fraction > 0 and float(liq_now) <= entry_liq * float(policy.liq_crush_fraction):
                 return "LIQUIDITY_CRUSH"
@@ -1356,13 +1603,21 @@ def should_exit(
             if min_liq > 0 and float(liq_now) < min_liq * float(policy.liq_crush_abs_fract):
                 return "LIQUIDITY_CRUSH"
 
+    if pnl_pct is not None and not partial_taken:
+        pre_partial_reason = pre_partial_exit_reason(
+            subject,
+            policy,
+            age_s=age_s,
+            pnl_pct=float(pnl_pct),
+            peak=peak,
+        )
+        if pre_partial_reason is not None:
+            return pre_partial_reason
+
     if pnl_pct is None:
         if age_h >= float(policy.max_holding_h):
             return "TIMEOUT"
         return None
-
-    if policy.no_expansion_max_pct and age_s >= 3600.0 and float(pnl_pct) <= float(policy.no_expansion_max_pct):
-        return "NO_EXPANSION"
 
     if _is_pumpswap_profit_subject(subject) or _is_green_sniper_subject(subject):
         if _is_green_sniper_subject(subject):
@@ -1389,21 +1644,6 @@ def should_exit(
         if peak < float(policy.time_stop_min_peak_pct) and float(pnl_pct) <= float(policy.time_stop_max_pnl_pct):
             return "TIME_STOP"
 
-    if not partial_taken:
-        if policy.pre_partial_retrace_trigger_pct > 0 and policy.pre_partial_retrace_giveback_pct > 0:
-            if peak >= float(policy.pre_partial_retrace_trigger_pct):
-                retrace_floor = max(
-                    float(policy.pre_partial_retrace_floor_pct),
-                    float(peak) - float(policy.pre_partial_retrace_giveback_pct),
-                )
-                if float(pnl_pct) <= retrace_floor:
-                    return "PRE_PARTIAL_RETRACE"
-        if policy.pre_partial_time_stop_min > 0 and age_min >= float(policy.pre_partial_time_stop_min):
-            if peak < float(policy.pre_partial_time_stop_min_peak_pct) and float(pnl_pct) <= float(
-                policy.pre_partial_time_stop_max_pnl_pct
-            ):
-                return "PRE_PARTIAL_TIME_STOP"
-
     if partial_taken:
         total_reason = total_pnl_protection_reason(
             subject,
@@ -1426,7 +1666,12 @@ def should_exit(
     if float(pnl_pct) <= -abs(float(policy.stop_loss_pct)):
         return "STOP_LOSS"
 
-    if float(policy.trailing_pct) > 0 and float(pnl_pct) <= (peak - float(policy.trailing_pct)):
+    if (
+        not (partial_taken and _is_moonshot_micro_subject(subject))
+        and runner_price_protection_floor_pct(subject, peak=peak) is None
+        and float(policy.trailing_pct) > 0
+        and float(pnl_pct) <= (peak - float(policy.trailing_pct))
+    ):
         return "TRAILING_STOP"
 
     waiting_ladder_partial = False
@@ -1437,6 +1682,7 @@ def should_exit(
             waiting_ladder_partial = False
     runner_waiting_for_partial = (
         waiting_ladder_partial
+        or _partial_trigger_locked(subject, pnl_pct=float(pnl_pct))
         or (
             (_is_green_sniper_subject(subject) or _is_moonshot_micro_subject(subject))
             and not partial_taken
@@ -1447,6 +1693,13 @@ def should_exit(
         if not (policy.tp_partial_enabled and partial_taken):
             return "TAKE_PROFIT"
 
+    runner_price_config = _active_runner_price_policy(subject, peak=peak)
+    if runner_price_config is not None:
+        if age_h >= runner_price_config["max_holding_h"]:
+            return "TIMEOUT_RUNNER"
+        # All price, cost/total-PnL and liquidity protections above still apply.
+        # Only the short generic timer is replaced by a bounded runner timer.
+        return None
     if age_h >= float(policy.max_holding_h):
         if policy.max_hard_hold_h > float(policy.max_holding_h) and float(pnl_pct) >= float(policy.trailing_pct):
             if age_h >= float(policy.max_hard_hold_h):
@@ -1494,6 +1747,13 @@ def describe_exit_policy() -> dict[str, Any]:
         "pre_partial_retrace_trigger_pct": float(CFG.PRE_PARTIAL_RETRACE_TRIGGER_PCT),
         "pre_partial_retrace_giveback_pct": float(CFG.PRE_PARTIAL_RETRACE_GIVEBACK_PCT),
         "pre_partial_retrace_floor_pct": float(CFG.PRE_PARTIAL_RETRACE_FLOOR_PCT),
+        "pre_partial_max_adverse_pct": float(getattr(CFG, "PRE_PARTIAL_MAX_ADVERSE_PCT", 12.0) or 12.0),
+        "pre_partial_max_adverse_min_age_s": float(
+            getattr(CFG, "PRE_PARTIAL_MAX_ADVERSE_MIN_AGE_S", 45.0) or 45.0
+        ),
+        "no_expansion_window_min": float(getattr(CFG, "NO_EXPANSION_WINDOW_MIN", 60.0) or 60.0),
+        "no_expansion_min_peak_pct": float(getattr(CFG, "NO_EXPANSION_MIN_PEAK_PCT", 5.0) or 5.0),
+        "no_expansion_max_pct": float(CFG.NO_EXPANSION_MAX_PCT),
         "no_pump_window_min": float(CFG.NO_PUMP_WINDOW_MIN),
         "no_pump_min_pnl_pct": float(CFG.NO_PUMP_MIN_PNL_PCT),
         "no_pump_max_pnl_pct": CFG.NO_PUMP_MAX_PNL_PCT,
@@ -1501,7 +1761,7 @@ def describe_exit_policy() -> dict[str, Any]:
         "time_stop_max_pnl_pct": float(CFG.TIME_STOP_MAX_PNL_PCT),
         "time_stop_min_peak_pct": float(CFG.TIME_STOP_MIN_PEAK_PCT),
         "regime_overrides_active": {
-            regime: any(v is not None for v in overrides.values())
+            regime: any(_current_regime_override(regime, key) is not None for key in overrides)
             for regime, overrides in _REGIME_EXIT_OVERRIDES.items()
         },
         "effective_by_regime": effective_by_regime,

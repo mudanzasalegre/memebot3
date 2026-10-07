@@ -1123,6 +1123,8 @@ export type ControlCommandType =
   | "resume_discovery"
   | "pause_buys"
   | "resume_buys"
+  | "disable_lane"
+  | "enable_lane"
   | "reload_model"
   | "trigger_retrain"
   | "refresh_reports"
@@ -1236,6 +1238,65 @@ export interface ControlCommandsData {
   before_ts: string | null;
   status: string | null;
   command_type: string | null;
+}
+
+export interface RiskLaneControlRow {
+  lane: string;
+  group: string;
+  disabled: boolean;
+  disabled_source: string | null;
+  manual_disabled: boolean;
+  autotune_blocked: boolean;
+  disable_reason: string | null;
+  cap: number;
+  open_count: number;
+  cap_warning: string | null;
+  pnl_rows: number;
+  avg_pnl_pct: number | null;
+  total_pnl_pct_points: number | null;
+  severe_losses: number;
+  buys: number;
+  shadows: number;
+  missed_100: number;
+  policy_category: string | null;
+}
+
+export interface RiskReasonRow {
+  reason: string;
+  count: number;
+  total_pnl_usd?: number | null;
+  avg_pnl_pct?: number | null;
+  severe_loss_count?: number | null;
+}
+
+export interface RiskControlData {
+  generated_at_utc: string | null;
+  summary: {
+    closed_trades: number;
+    gross_spot_closed_pnl_usd?: number | null;
+    /** @deprecated Gross-spot alias kept for compatibility with older clients. */
+    net_closed_pnl_usd: number | null;
+    profit_factor: number | null;
+    severe_loss_count: number;
+    manual_disabled_lanes: number;
+    autotune_blocked_lanes: number;
+    cap_zero_lanes: number;
+    provider_overall_status: string | null;
+  };
+  pnl_accounting?: {
+    basis: string;
+    canonical_field: string;
+    fees_included: boolean;
+    network_fees_included: boolean;
+    priority_fees_included: boolean;
+    legacy_aliases: Record<string, string>;
+  };
+  lanes: RiskLaneControlRow[];
+  top_lane_risks: RiskLaneControlRow[];
+  top_loss_reasons: RiskReasonRow[];
+  top_missed_moonshot_reasons: RiskReasonRow[];
+  provider_health: Record<string, unknown>;
+  manual_controls: Record<string, unknown>;
 }
 
 export interface ControlCommandCreateRequest {

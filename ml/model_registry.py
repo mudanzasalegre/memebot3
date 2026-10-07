@@ -15,6 +15,7 @@ from config.config import CFG, PROJECT_ROOT
 
 MODELS_DIR = PROJECT_ROOT / "ml" / "models"
 REGISTRY_PATH = PROJECT_ROOT / "ml" / "model_registry.json"
+ACTIVATION_READY_PROMOTION_ERROR = "activation_ready=true required for model promotion"
 
 
 @dataclass(frozen=True)
@@ -88,15 +89,21 @@ def _ensure_promotion_unlocked() -> None:
         raise RuntimeError("STRATEGY_OPTIMIZATION_LOCK=true blocks model promotion")
 
 
+def _ensure_activation_ready(meta: dict[str, Any]) -> None:
+    if meta.get("activation_ready") is not True:
+        raise RuntimeError(ACTIVATION_READY_PROMOTION_ERROR)
+
+
 def promote_candidate(artifact: ModelArtifactSet, *, active_model_path: Path | None = None) -> dict[str, Any]:
     _ensure_promotion_unlocked()
     active_model_path = active_model_path or CFG.MODEL_PATH
     active_meta_path = active_model_path.with_suffix(".meta.json")
     if not artifact.model_path.exists() or not artifact.meta_path.exists():
         raise FileNotFoundError("candidate model/meta is incomplete")
+    meta = json.loads(artifact.meta_path.read_text(encoding="utf-8"))
+    _ensure_activation_ready(meta)
     # Validate load and JSON before touching active files.
     joblib.load(artifact.model_path)
-    json.loads(artifact.meta_path.read_text(encoding="utf-8"))
 
     registry = _load_registry()
     previous = registry.get("active_model_id")
@@ -113,12 +120,16 @@ def promote_candidate(artifact: ModelArtifactSet, *, active_model_path: Path | N
         tmp = target.with_name(target.name + ".tmp")
         shutil.copy2(artifact.thresholds_path, tmp)
         os.replace(tmp, target)
+    threshold_result = meta.get("threshold_result")
+    if isinstance(threshold_result, dict):
+        target = PROJECT_ROOT / "data" / "metrics" / "recommended_threshold.json"
+        atomic_write_json(target, threshold_result)
 
     new_registry = {
         "active_model_id": artifact.model_id,
         "previous_model_id": previous,
         "active_since_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "feature_set_hash": json.loads(artifact.meta_path.read_text(encoding="utf-8")).get("feature_set_hash"),
+        "feature_set_hash": meta.get("feature_set_hash"),
         "status": "active",
     }
     atomic_write_json(REGISTRY_PATH, new_registry)
@@ -136,8 +147,9 @@ def promote_family_candidate(
     active_model_path = family_dir / active_name
     registry = _load_registry()
     families = dict(registry.get("families") or {})
-    joblib.load(artifact.model_path)
     meta = json.loads(artifact.meta_path.read_text(encoding="utf-8"))
+    _ensure_activation_ready(meta)
+    joblib.load(artifact.model_path)
     family_dir.mkdir(parents=True, exist_ok=True)
     tmp_model = active_model_path.with_name(active_model_path.name + ".tmp")
     tmp_meta = active_model_path.with_suffix(".meta.json.tmp")
@@ -162,6 +174,7 @@ __all__ = [
     "ModelArtifactSet",
     "MODELS_DIR",
     "REGISTRY_PATH",
+    "ACTIVATION_READY_PROMOTION_ERROR",
     "utc_model_id",
     "atomic_write_json",
     "write_candidate",

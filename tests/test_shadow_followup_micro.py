@@ -94,6 +94,22 @@ def test_shadow_followup_live_uses_live_flag() -> None:
     assert enabled.allowed is True
 
 
+def test_shadow_followup_live_route_is_fail_closed() -> None:
+    decision = evaluate_shadow_followup_micro(
+        {
+            "shadow_pnl_pct": 30,
+            "minutes_since_first_seen": 2,
+            "market_cap_usd": 70_000,
+        },
+        dry_run=False,
+        live=True,
+        cfg=SimpleNamespace(SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED=True),
+    )
+
+    assert decision.allowed is False
+    assert "no_executable_jupiter_route" in decision.failures
+
+
 def test_shadow_followup_allowed_context_passes_selector() -> None:
     row = {
         "entry_regime": "pump_early",
@@ -126,7 +142,10 @@ def test_shadow_followup_cluster_bad_blocks_except_moonshot_micro_mode() -> None
             "cluster_bad": True,
         }
     )
-    allowed_cfg = SimpleNamespace(SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL=0.001)
+    allowed_cfg = SimpleNamespace(
+        SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL=0.001,
+        SHADOW_FOLLOWUP_ALLOW_CLUSTER_BAD_MOONSHOT_MICRO=True,
+    )
     allowed = evaluate_shadow_followup_micro(
         {
             "shadow_pnl_pct": 30,
@@ -161,27 +180,53 @@ def test_shadow_followup_no_route_marks_route_proxy_without_blocking_paper() -> 
     assert decision.route_proxy is True
 
 
-def test_shadow_followup_real_liquidity_breakout_allows_cluster_escape() -> None:
+def test_shadow_followup_real_liquidity_breakout_cluster_escape_is_opt_in() -> None:
+    row = {
+        "liquidity_usd": 19_031,
+        "liquidity_is_proxy": 0,
+        "has_jupiter_route": True,
+        "txns_last_5m": 866,
+        "volume_24h_usd": 75_636,
+        "market_cap_usd": 69_261,
+        "age_minutes": 9.2,
+        "price_impact_pct": 7.33,
+        "price_pct_5m": 8.8,
+        "rank_score": 60.3,
+        "cluster_bad": True,
+    }
+    blocked = evaluate_shadow_followup_micro(row, dry_run=True, live=False)
+    allowed = evaluate_shadow_followup_micro(
+        row,
+        dry_run=True,
+        live=False,
+        cfg=SimpleNamespace(SHADOW_FOLLOWUP_ALLOW_CLUSTER_BAD_REAL_LIQUIDITY_BREAKOUT=True),
+    )
+
+    assert blocked.allowed is False
+    assert "cluster_bad" in blocked.failures
+    assert allowed.allowed is True
+    assert allowed.reason == "shadow_followup_micro:real_liquidity_breakout"
+
+
+def test_shadow_followup_blocks_negative_price5m_without_exception() -> None:
     decision = evaluate_shadow_followup_micro(
         {
-            "liquidity_usd": 19_031,
-            "liquidity_is_proxy": 0,
+            "shadow_pnl_pct": 30,
+            "minutes_since_first_seen": 2,
+            "market_cap_usd": 98_628,
             "has_jupiter_route": True,
-            "txns_last_5m": 866,
-            "volume_24h_usd": 75_636,
-            "market_cap_usd": 69_261,
-            "age_minutes": 9.2,
-            "price_impact_pct": 7.33,
-            "price_pct_5m": 8.8,
-            "rank_score": 60.3,
-            "cluster_bad": True,
+            "liquidity_usd": 25_006,
+            "txns_last_5m": 1179,
+            "price_pct_5m": -19.74,
+            "price_impact_pct": 2.0,
         },
         dry_run=True,
         live=False,
     )
 
-    assert decision.allowed is True
-    assert decision.reason == "shadow_followup_micro:real_liquidity_breakout"
+    assert decision.allowed is False
+    assert "shadow_followup_pre_entry_risk" in decision.reason
+    assert "price5m_negative" in decision.failures
 
 
 def test_shadow_followup_honors_configured_amount_without_hidden_cap() -> None:

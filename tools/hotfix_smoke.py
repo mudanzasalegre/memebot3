@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-os.environ.setdefault("CONFIG_PROFILE", "paper_hotfix_runner_v2")
+os.environ.setdefault("CONFIG_PROFILE", "paper_hotfix_0707")
 
 from analytics import runner_turbo_monitor
 from analytics.core_report_scheduler import REQUIRED_CORE_REPORTS, regenerate_core_reports
@@ -29,8 +29,8 @@ def _ok(name: str, passed: bool, detail: object = None) -> dict[str, object]:
 def main() -> int:
     results: list[dict[str, object]] = []
 
-    profile_path = ROOT / "config" / "profiles" / "paper_hotfix_runner_v2.env"
-    results.append(_ok("config_loads", profile_path.exists() and getattr(CFG, "CONFIG_PROFILE", "") == "paper_hotfix_runner_v2"))
+    profile_path = ROOT / "config" / "profiles" / "paper_hotfix_0707.env"
+    results.append(_ok("config_loads", profile_path.exists() and getattr(CFG, "CONFIG_PROFILE", "") == "paper_hotfix_0707"))
 
     gate_errors = quality_checks()
     results.append(_ok("quality_gate_ok_or_warn", isinstance(gate_errors, list), {"warnings": gate_errors[:20]}))

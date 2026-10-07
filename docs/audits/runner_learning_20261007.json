@@ -1,0 +1,1243 @@
+{
+  "generated_at_utc": "2026-10-07T10:10:12.225748+00:00",
+  "sources": [
+    {
+      "file": "data/features/features_202607.parquet",
+      "sha256": "18edc6f91c13e617e0ba8b9afa96106807353ba7887ac062840ab54cac589ab0",
+      "mtime_utc": "2026-07-15T18:18:25.193220+00:00"
+    },
+    {
+      "file": "data/features/features_202610.parquet",
+      "sha256": "9b5226d4284eedaa8d5e4cc1206128a04b13247f21e80d8ee26de67091a2c84c",
+      "mtime_utc": "2026-10-04T10:43:35.278763+00:00"
+    },
+    {
+      "file": "data/metrics/candidate_outcomes.jsonl",
+      "sha256": "3e6721a861f4bdf012b9a66c410fd17caa53ba29ff726b9b249eba616563c96f",
+      "mtime_utc": "2026-10-04T10:44:49.141558+00:00"
+    }
+  ],
+  "rows": 2147,
+  "target_join": {
+    "matched": 2147,
+    "ambiguous": 0,
+    "rows": 2147,
+    "max_lag_seconds": 30.0
+  },
+  "decision_period_utc": {
+    "start": "2026-07-13 12:06:34.183735+00:00",
+    "end": "2026-07-15 17:46:15.159836+00:00"
+  },
+  "target_counts": {
+    "runner_50": {
+      "observed": 2147,
+      "positive": 60
+    },
+    "runner_100": {
+      "observed": 2147,
+      "positive": 32
+    },
+    "runner_200": {
+      "observed": 2147,
+      "positive": 18
+    },
+    "runner_300": {
+      "observed": 2147,
+      "positive": 14
+    },
+    "runner_500": {
+      "observed": 2147,
+      "positive": 5
+    },
+    "runner_1000": {
+      "observed": 2147,
+      "positive": 4
+    },
+    "runner_2000": {
+      "observed": 2147,
+      "positive": 0
+    },
+    "runner_5000": {
+      "observed": 2147,
+      "positive": 0
+    },
+    "runner_10000": {
+      "observed": 2147,
+      "positive": 0
+    }
+  },
+  "classification": {
+    "family": "runner",
+    "trained_at_utc": "2026-10-07T10:10:10.381013+00:00",
+    "feature_set": "runner_features",
+    "feature_set_hash": "524f0912c4dcb1f8",
+    "rows": 2147,
+    "targets": {
+      "runner_50": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-101010/runner/runner_50.pkl",
+        "positives": 60,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "avg_pred": 0.26216485264896083,
+        "base_rate": 0.02857142857142857,
+        "precision_lift_at_k": 3.695652173913044,
+        "brier_score": 0.1370177269142153,
+        "probabilities_calibrated": false,
+        "probability_caveat": "Class-balanced classifier outputs are ranking scores; calibration and prospective costed validation are required before sizing or exits use them as probabilities.",
+        "precision_at_k": 0.10559006211180125,
+        "recall_at_k": 0.3695652173913043,
+        "precision_at_k_pct": 0.1,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement"
+          ],
+          "critical_warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536
+              }
+            ],
+            "out_of_sample_rows": 1610
+          },
+          "precision_floor": 0.6,
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10,
+            "by_lane": {
+              "pump_early_green_candle_sniper": {
+                "count": 1416,
+                "positives": 21
+              },
+              "pump_early_late_momentum_watch": {
+                "count": 34,
+                "positives": 1
+              },
+              "pump_early_research_rank_canary": {
+                "count": 123,
+                "positives": 21
+              },
+              "pump_early_sniper_research": {
+                "count": 37,
+                "positives": 3
+              }
+            }
+          }
+        }
+      },
+      "runner_100": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-101010/runner/runner_100.pkl",
+        "positives": 32,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "avg_pred": 0.24995500581334004,
+        "base_rate": 0.014906832298136646,
+        "precision_lift_at_k": 2.9166666666666665,
+        "brier_score": 0.1251314119159397,
+        "probabilities_calibrated": false,
+        "probability_caveat": "Class-balanced classifier outputs are ranking scores; calibration and prospective costed validation are required before sizing or exits use them as probabilities.",
+        "precision_at_k": 0.043478260869565216,
+        "recall_at_k": 0.2916666666666667,
+        "precision_at_k_pct": 0.1,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "critical_warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536
+              }
+            ],
+            "out_of_sample_rows": 1610
+          },
+          "precision_floor": 0.6,
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10,
+            "by_lane": {
+              "pump_early_green_candle_sniper": {
+                "count": 1416,
+                "positives": 11
+              },
+              "pump_early_late_momentum_watch": {
+                "count": 34,
+                "positives": 0
+              },
+              "pump_early_research_rank_canary": {
+                "count": 123,
+                "positives": 10
+              },
+              "pump_early_sniper_research": {
+                "count": 37,
+                "positives": 3
+              }
+            },
+            "reason": "single_class_lane"
+          }
+        }
+      },
+      "runner_200": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-101010/runner/runner_200.pkl",
+        "positives": 18,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "avg_pred": 0.14270090871667,
+        "base_rate": 0.008695652173913044,
+        "precision_lift_at_k": 3.571428571428571,
+        "brier_score": 0.08228098426557388,
+        "probabilities_calibrated": false,
+        "probability_caveat": "Class-balanced classifier outputs are ranking scores; calibration and prospective costed validation are required before sizing or exits use them as probabilities.",
+        "precision_at_k": 0.031055900621118012,
+        "recall_at_k": 0.35714285714285715,
+        "precision_at_k_pct": 0.1,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "critical_warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536
+              }
+            ],
+            "out_of_sample_rows": 1610
+          },
+          "precision_floor": 0.6,
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10,
+            "by_lane": {
+              "pump_early_green_candle_sniper": {
+                "count": 1416,
+                "positives": 7
+              },
+              "pump_early_late_momentum_watch": {
+                "count": 34,
+                "positives": 0
+              },
+              "pump_early_research_rank_canary": {
+                "count": 123,
+                "positives": 6
+              },
+              "pump_early_sniper_research": {
+                "count": 37,
+                "positives": 1
+              }
+            },
+            "reason": "single_class_lane"
+          }
+        }
+      },
+      "runner_300": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-101010/runner/runner_300.pkl",
+        "positives": 14,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "avg_pred": 0.1411628134411754,
+        "base_rate": 0.006211180124223602,
+        "precision_lift_at_k": 3.0000000000000004,
+        "brier_score": 0.07710761674963491,
+        "probabilities_calibrated": false,
+        "probability_caveat": "Class-balanced classifier outputs are ranking scores; calibration and prospective costed validation are required before sizing or exits use them as probabilities.",
+        "precision_at_k": 0.018633540372670808,
+        "recall_at_k": 0.3,
+        "precision_at_k_pct": 0.1,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "critical_warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536
+              }
+            ],
+            "out_of_sample_rows": 1610
+          },
+          "precision_floor": 0.6,
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10,
+            "by_lane": {
+              "pump_early_green_candle_sniper": {
+                "count": 1416,
+                "positives": 6
+              },
+              "pump_early_late_momentum_watch": {
+                "count": 34,
+                "positives": 0
+              },
+              "pump_early_research_rank_canary": {
+                "count": 123,
+                "positives": 3
+              },
+              "pump_early_sniper_research": {
+                "count": 37,
+                "positives": 1
+              }
+            },
+            "reason": "single_class_lane"
+          }
+        }
+      },
+      "runner_500": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-101010/runner/runner_500.pkl",
+        "positives": 5,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "avg_pred": 0.03199240855309832,
+        "base_rate": 0.002484472049689441,
+        "precision_lift_at_k": 0.0,
+        "brier_score": 0.02352317549306562,
+        "probabilities_calibrated": false,
+        "probability_caveat": "Class-balanced classifier outputs are ranking scores; calibration and prospective costed validation are required before sizing or exits use them as probabilities.",
+        "precision_at_k": 0.0,
+        "recall_at_k": 0.0,
+        "precision_at_k_pct": 0.1,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "critical_warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536
+              }
+            ],
+            "out_of_sample_rows": 1610
+          },
+          "precision_floor": 0.6,
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10,
+            "by_lane": {
+              "pump_early_green_candle_sniper": {
+                "count": 1416,
+                "positives": 3
+              },
+              "pump_early_late_momentum_watch": {
+                "count": 34,
+                "positives": 0
+              },
+              "pump_early_research_rank_canary": {
+                "count": 123,
+                "positives": 1
+              },
+              "pump_early_sniper_research": {
+                "count": 37,
+                "positives": 0
+              }
+            },
+            "reason": "single_class_lane"
+          }
+        }
+      },
+      "runner_1000": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-101010/runner/runner_1000.pkl",
+        "positives": 4,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "avg_pred": 0.028922451930465533,
+        "base_rate": 0.0018633540372670807,
+        "precision_lift_at_k": 0.0,
+        "brier_score": 0.020065797428496183,
+        "probabilities_calibrated": false,
+        "probability_caveat": "Class-balanced classifier outputs are ranking scores; calibration and prospective costed validation are required before sizing or exits use them as probabilities.",
+        "precision_at_k": 0.0,
+        "recall_at_k": 0.0,
+        "precision_at_k_pct": 0.1,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "critical_warnings": [
+            "low_precision_at_k",
+            "not_ready_for_enforcement",
+            "unstable_by_lane"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536
+              }
+            ],
+            "out_of_sample_rows": 1610
+          },
+          "precision_floor": 0.6,
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10,
+            "by_lane": {
+              "pump_early_green_candle_sniper": {
+                "count": 1416,
+                "positives": 2
+              },
+              "pump_early_late_momentum_watch": {
+                "count": 34,
+                "positives": 0
+              },
+              "pump_early_research_rank_canary": {
+                "count": 123,
+                "positives": 1
+              },
+              "pump_early_sniper_research": {
+                "count": 37,
+                "positives": 0
+              }
+            },
+            "reason": "single_class_lane"
+          }
+        }
+      },
+      "runner_2000": {
+        "status": "skipped",
+        "reason": "single_class",
+        "positives": 0,
+        "validation": {
+          "warnings": [
+            "in_sample_only",
+            "not_ready_for_enforcement",
+            "single_class"
+          ],
+          "critical_warnings": [
+            "in_sample_only",
+            "not_ready_for_enforcement",
+            "single_class"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "in_sample_only"
+        }
+      },
+      "runner_5000": {
+        "status": "skipped",
+        "reason": "single_class",
+        "positives": 0,
+        "validation": {
+          "warnings": [
+            "in_sample_only",
+            "not_ready_for_enforcement",
+            "single_class"
+          ],
+          "critical_warnings": [
+            "in_sample_only",
+            "not_ready_for_enforcement",
+            "single_class"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "in_sample_only"
+        }
+      },
+      "runner_10000": {
+        "status": "skipped",
+        "reason": "single_class",
+        "positives": 0,
+        "validation": {
+          "warnings": [
+            "in_sample_only",
+            "not_ready_for_enforcement",
+            "single_class"
+          ],
+          "critical_warnings": [
+            "in_sample_only",
+            "not_ready_for_enforcement",
+            "single_class"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "in_sample_only"
+        }
+      }
+    },
+    "validation": {
+      "warnings": [
+        "in_sample_only",
+        "low_precision_at_k",
+        "not_ready_for_enforcement",
+        "single_class",
+        "unstable_by_lane"
+      ],
+      "critical_warnings": [
+        "in_sample_only",
+        "low_precision_at_k",
+        "not_ready_for_enforcement",
+        "single_class",
+        "unstable_by_lane"
+      ],
+      "ready_for_enforcement": false,
+      "mode": "target_specific"
+    },
+    "status": "ok",
+    "data_quality": {
+      "matched": 2147,
+      "ambiguous": 0,
+      "rows": 2147,
+      "max_lag_seconds": 30.0
+    }
+  },
+  "realized_return_regression": {
+    "family": "ev",
+    "trained_at_utc": "2026-10-07T10:10:11.471615+00:00",
+    "feature_set": "ev_features",
+    "feature_set_hash": "837af5eb1522e4d9",
+    "rows": 2147,
+    "targets": {
+      "ev_realized_clipped": {
+        "status": "trained",
+        "model_path": "data/validation/runner-learning-20261007-101010/ev/ev_realized_clipped.pkl",
+        "mae": 14.567048441478489,
+        "target_rows": 2147,
+        "unlabelled_rows": 0,
+        "features": [
+          "entry_regime_code",
+          "dex_id_code",
+          "price_source_quality",
+          "age_minutes",
+          "queue_attempts",
+          "queue_age_minutes",
+          "snapshot_missing_fields",
+          "coverage_core_fields",
+          "liquidity_usd",
+          "volume_24h_usd",
+          "market_cap_usd",
+          "txns_last_5m",
+          "txns_last_5m_buys",
+          "txns_last_5m_sells",
+          "holders",
+          "rug_score",
+          "cluster_bad",
+          "mint_auth_renounced",
+          "price_pct_1m",
+          "price_pct_5m",
+          "price5m_bucket_code",
+          "green_sniper_score",
+          "volume_pct_5m",
+          "price_impact_pct",
+          "impact_zero_flag",
+          "social_ok",
+          "social_link_count",
+          "social_confidence_bonus",
+          "twitter_followers",
+          "discord_members",
+          "score_total",
+          "trend",
+          "has_jupiter_route",
+          "require_jupiter_for_buy",
+          "route_proxy",
+          "liquidity_is_proxy",
+          "venue_is_pumpswap",
+          "mcap_bucket_code",
+          "missing_liquidity",
+          "missing_volume",
+          "missing_holders",
+          "missing_rug_score",
+          "missing_socials",
+          "missing_trend"
+        ],
+        "validation": {
+          "warnings": [
+            "not_ready_for_enforcement"
+          ],
+          "critical_warnings": [
+            "not_ready_for_enforcement"
+          ],
+          "ready_for_enforcement": false,
+          "mode": "purged_token_walk_forward",
+          "temporal": {
+            "mode": "purged_token_walk_forward",
+            "rows": 2147,
+            "eligible_rows": 2147,
+            "excluded_missing_or_invalid_timing_or_identity": 0,
+            "embargo_seconds": 60.0,
+            "folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537,
+                "test_start": "2026-07-13T17:29:22.645419+00:00",
+                "test_end": "2026-07-14T01:34:22.238629+00:00",
+                "train_label_latest": "2026-07-13T17:27:57.435688+00:00",
+                "purged_unsettled_or_embargo": 6,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537,
+                "test_start": "2026-07-14T01:34:42.207690+00:00",
+                "test_end": "2026-07-14T10:11:42.057636+00:00",
+                "train_label_latest": "2026-07-14T01:33:42.058698+00:00",
+                "purged_unsettled_or_embargo": 15,
+                "purged_shared_tokens": 0,
+                "used": true
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536,
+                "test_start": "2026-07-14T10:11:54.801889+00:00",
+                "test_end": "2026-07-15T17:46:15.159836+00:00",
+                "train_label_latest": "2026-07-14T10:03:59.075287+00:00",
+                "purged_unsettled_or_embargo": 12,
+                "purged_shared_tokens": 0,
+                "used": true
+              }
+            ],
+            "evaluated_folds": [
+              {
+                "train_rows": 531,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1059,
+                "test_rows": 537
+              },
+              {
+                "train_rows": 1599,
+                "test_rows": 536
+              }
+            ],
+            "out_of_sample_rows": 1610
+          },
+          "lane_stability": {
+            "lane_count": 4,
+            "small_lanes": {},
+            "min_lane_rows": 10
+          }
+        }
+      }
+    },
+    "validation": {
+      "warnings": [
+        "not_ready_for_enforcement"
+      ],
+      "critical_warnings": [
+        "not_ready_for_enforcement"
+      ],
+      "ready_for_enforcement": false,
+      "mode": "target_specific"
+    },
+    "status": "ok",
+    "data_quality": {
+      "matched": 2147,
+      "ambiguous": 0,
+      "rows": 2147,
+      "max_lag_seconds": 30.0
+    }
+  },
+  "promotion_attempted": false,
+  "bot_started": false,
+  "caveats": [
+    "Runner targets are observed price peaks, not executable or costed profits.",
+    "Historical shadow observations do not establish future profitability.",
+    "Rare extreme targets can lack enough positive observations; no positive class is invented.",
+    "Learning audit artifacts are isolated from runtime models and no live model is activated."
+  ]
+}

@@ -26,10 +26,10 @@ ENTRY_QUALITY_PARAMETERS = {
     "SNIPER_RESEARCH_DEEP_REVERSAL_MIN_TXNS_5M": [300, 500, 800],
     "PAPER_IDLE_AFTER_HOURS": [0],
     "PAPER_IDLE_AMOUNT_SOL": [0.02, 0.05, 0.1],
-    "PAPER_EXPLORATION_MAX_OPEN": [0],
-    "PAPER_IDLE_MAX_DAILY_BUYS": [0],
-    "PAPER_BOOTSTRAP_MAX_OPEN": [0],
-    "PAPER_BOOTSTRAP_MAX_DAILY_BUYS": [0],
+    "PAPER_EXPLORATION_MAX_OPEN": [1, 2],
+    "PAPER_IDLE_MAX_DAILY_BUYS": [1, 3],
+    "PAPER_BOOTSTRAP_MAX_OPEN": [1, 2],
+    "PAPER_BOOTSTRAP_MAX_DAILY_BUYS": [1, 3],
     "PAPER_BOOTSTRAP_MIN_SECONDS_BETWEEN_BUYS": [0],
 }
 
@@ -39,7 +39,7 @@ def build_space() -> SearchSpace:
         name=SPACE_NAME,
         parameters={key: list(values) for key, values in ENTRY_QUALITY_PARAMETERS.items()},
         target_lanes=list(TARGET_LANES),
-        hypothesis="Improve entry quality across rank canary, sniper momentum and idle paper exploration without buy quotas.",
+        hypothesis="Improve entry quality across rank canary, sniper momentum and idle paper exploration with bounded buy quotas.",
         expected_effect={
             "increase_pnl": True,
             "increase_win_rate": True,
@@ -47,7 +47,7 @@ def build_space() -> SearchSpace:
             "reduce_severe_losses": True,
         },
         optimization_targets=optimization_targets(),
-        risk_notes=["paper only", "entry thresholds only; buy quotas remain unlimited"],
+        risk_notes=["paper only", "entry thresholds only; buy quotas bounded"],
     )
 
 

@@ -79,9 +79,10 @@ def test_replay_runner_writes_metrics_and_snapshot(tmp_path) -> None:
     result = run_research_replay(_candidate(), root=tmp_path, run_id="ar_replay", regenerate_func=fake_regenerate)
 
     assert result.status == "completed"
-    assert result.replay_metrics["total_pnl_usd"] == 12.0
+    assert result.replay_metrics["total_pnl_usd"] is None
+    assert result.replay_metrics["diagnostic_policy_pnl_pct_points"] == 12.0
     assert result.replay_metrics["closed_trades"] == 7
-    assert result.replay_metrics["combined_metrics"]["total_pnl_usd"] == 12.0
+    assert result.replay_metrics["combined_metrics"]["total_pnl_usd"] is None
     assert result.replay_metrics["historical_metrics"]["closed_trades"] == 7
     assert "current_run_metrics" in result.replay_metrics
     assert result.replay_metrics["overtrading_count"] == 0
@@ -205,3 +206,95 @@ def test_candidate_env_does_not_modify_real_env_file(tmp_path) -> None:
     assert result.status == "completed"
     assert env_path.read_text(encoding="utf-8") == "DRY_RUN=1\nSHADOW_FOLLOWUP_TRIGGER_PNL_3M=25\n"
     assert "SHADOW_FOLLOWUP_TRIGGER_PNL_3M=20" in (result.run_dir / "candidate.env").read_text(encoding="utf-8")
+
+
+def test_replay_runner_uses_event_replay_metrics_for_acceptance(tmp_path) -> None:
+    _write_jsonl(
+        tmp_path / "data" / "metrics" / "candidate_outcomes.jsonl",
+        [
+            {
+                "address": "EVENT_ACCEPT",
+                "source": "pumpfun",
+                "first_seen_at": "2026-07-07T10:00:00+00:00",
+                "closed_at": "2026-07-07T10:05:00+00:00",
+                "age_minutes": 2,
+                "price_pct_5m": 650,
+                "txns_last_5m": 320,
+                "market_cap_usd": 80_000,
+                "has_jupiter_route": True,
+                "entry_notional_usd": 10.0,
+                "actual_buy_amount_sol": 0.001,
+                "pnl_pct": 20,
+                "max_pnl_pct": 25,
+                "sample_type": "shadow_close",
+            }
+        ],
+    )
+
+    def fake_regenerate(root: Path) -> dict:
+        metrics = root / "data" / "metrics"
+        for name in REPLAY_REPORTS:
+            _write_json(metrics / name, {"generated_at_utc": "2026-06-04T00:00:00+00:00"})
+        _write_json(
+            metrics / "policy_replay.json",
+            {
+                "current": {
+                    "total_pnl": 999.0,
+                    "avg_pnl": 999.0,
+                    "median_pnl": 999.0,
+                    "win_rate": 100.0,
+                    "trades": 99,
+                    "runner_capture_ratio": 1.0,
+                    "severe_loss_count": 0,
+                    "max_drawdown_proxy": 0.0,
+                }
+            },
+        )
+        return {"warnings": {}}
+
+    candidate = _candidate()
+    candidate["changes"] = {"SHADOW_FOLLOWUP_TRIGGER_PNL_3M": "20"}
+
+    result = run_research_replay(candidate, root=tmp_path, run_id="ar_event_acceptance", regenerate_func=fake_regenerate)
+
+    assert result.status == "completed"
+    assert result.replay_metrics["event_replay_used_for_acceptance"] is True
+    assert result.replay_metrics["closed_trades"] == 1
+    assert result.replay_metrics["total_pnl_usd"] != 999.0
+    assert result.replay_metrics["diagnostic_policy_replay_total_pnl_usd"] is None
+    assert result.replay_metrics["diagnostic_policy_pnl_pct_points"] == 999.0
+    assert (result.report_snapshot_dir / "event_replay.json").exists()
+
+
+def test_replay_runner_does_not_overwrite_shared_event_replay_or_api_budget(tmp_path) -> None:
+    metrics = tmp_path / "data" / "metrics"
+    for name in REPLAY_REPORTS:
+        _write_json(metrics / name, {"sentinel": name})
+    _write_jsonl(
+        metrics / "candidate_outcomes.jsonl",
+        [
+            {
+                "address": "ISOLATED",
+                "source": "pumpfun",
+                "first_seen_at": "2026-07-07T10:00:00+00:00",
+                "closed_at": "2026-07-07T10:05:00+00:00",
+                "age_minutes": 2,
+                "price_pct_5m": 650,
+                "txns_last_5m": 320,
+                "market_cap_usd": 80_000,
+                "has_jupiter_route": True,
+                "pnl_pct": 20,
+                "sample_type": "shadow_close",
+            }
+        ],
+    )
+    shared_event = metrics / "event_replay.json"
+    shared_api_budget = metrics / "api_budget_report.json"
+    before = shared_event.read_text(encoding="utf-8")
+
+    result = run_research_replay(_candidate(), root=tmp_path, run_id="ar_no_shared_writes", regenerate=False)
+
+    assert result.status == "completed"
+    assert shared_event.read_text(encoding="utf-8") == before
+    assert not shared_api_budget.exists()
+    assert (result.report_snapshot_dir / "event_replay.json").exists()

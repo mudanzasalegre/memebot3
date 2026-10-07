@@ -13,6 +13,9 @@ REQUIRED_SAFE_FLAG_VALUES = {
     "AUTO_PROMOTE_LIVE": False,
     "MODEL_AUTO_PROMOTE": False,
     "ML_AUTO_PROMOTE_LANES": False,
+    "AUTORESEARCH_AUTO_PAPER_PROMOTE": False,
+    "AUTORESEARCH_AUTO_LIVE_PROMOTE": False,
+    "AUTORESEARCH_LIVE_PROMOTION_ENABLED": False,
     "LLM_TRADING_ENABLED": False,
     "AUTORESEARCH_LLM_ENABLED": False,
     "AUTORESEARCH_LLM_CAN_EDIT_CODE": False,
@@ -23,6 +26,9 @@ REQUIRED_SAFE_FLAG_VALUES = {
     "PAPER_BOOTSTRAP_REQUIRE_COLD_START": False,
 }
 
+# Historical name kept for import compatibility with the promoter. In governance
+# v2 these keys are bounded quota keys: positive finite values are safe, while
+# zero can mean unlimited in runtime lanes.
 UNLIMITED_BUY_QUOTA_KEYS = {
     "BUY_RATE_LIMIT_N",
     "BUY_RATE_LIMIT_WINDOW_S",
@@ -66,6 +72,27 @@ UNLIMITED_BUY_QUOTA_KEYS = {
     "PAPER_BOOTSTRAP_MIN_SECONDS_BETWEEN_BUYS",
     "SHADOW_FOLLOWUP_MICRO_MAX_OPEN",
     "SHADOW_FOLLOWUP_MICRO_MAX_DAILY_BUYS",
+}
+QUOTA_CAP_KEY_MARKERS = (
+    "BUY_RATE_LIMIT_N",
+    "MAX_ACTIVE_POSITIONS",
+    "MAX_OPEN",
+    "MAX_DAILY_BUYS",
+    "MAX_HOURLY_BUYS",
+)
+RUNTIME_QUOTA_LANE_MARKERS = {
+    "BIRTH_PROBE_MICRO_CANARY": ("birth_probe", "birth_probe_micro", "birth_probe_micro_canary"),
+    "GREEN_SNIPER": ("green_sniper",),
+    "LATE_MOMENTUM_WATCH": ("late_momentum", "late_momentum_watch"),
+    "LIVE_CANARY": ("live_canary",),
+    "MOONSHOT_MICRO_LOTTERY": ("moonshot_micro", "moonshot_micro_lottery"),
+    "PAPER_BOOTSTRAP": ("paper_bootstrap",),
+    "PAPER_EXPLORATION": ("paper_exploration",),
+    "PAPER_IDLE": ("paper_idle", "paper_exploration"),
+    "PUMP_EARLY": ("pump_early",),
+    "RESEARCH_RANK_CANARY": ("rank_canary", "research_rank_canary"),
+    "SHADOW_FOLLOWUP_MICRO": ("shadow_followup", "shadow_followup_micro"),
+    "SNIPER_RESEARCH_MICRO_FALLBACK": ("sniper_research", "sniper_momentum"),
 }
 
 
@@ -166,6 +193,31 @@ def _float_value(value: Any) -> float | None:
         return None
 
 
+def _candidate_target_lanes(candidate_policy: dict[str, Any]) -> list[str]:
+    raw = candidate_policy.get("target_lanes")
+    if isinstance(raw, str):
+        values = [raw]
+    elif isinstance(raw, (list, tuple, set)):
+        values = [str(value) for value in raw]
+    else:
+        values = []
+    return [value.strip().lower() for value in values if value and str(value).strip()]
+
+
+def _is_quota_cap_key(key: str) -> bool:
+    return key in UNLIMITED_BUY_QUOTA_KEYS and any(marker in key for marker in QUOTA_CAP_KEY_MARKERS)
+
+
+def _quota_key_applies_to_target_lane(key: str, target_lanes: list[str]) -> bool:
+    if not target_lanes:
+        return True
+    for key_marker, lane_markers in RUNTIME_QUOTA_LANE_MARKERS.items():
+        if key_marker not in key:
+            continue
+        return any(marker in lane for lane in target_lanes for marker in lane_markers)
+    return True
+
+
 def _candidate_changes(candidate_policy: dict[str, Any], errors: list[str]) -> dict[str, Any]:
     changes = candidate_policy.get("changes", {})
     if changes is None:
@@ -228,6 +280,7 @@ def validate_candidate_safety(candidate_policy: dict[str, Any]) -> SafetyResult:
     forbidden_true_flags = {str(key).upper() for key in config.get("forbidden_true_flags", [])}
     protected_api_keys = {str(key).upper() for key in config.get("api_budget_protected_keys", [])}
     max_amounts = config.get("max_amounts") or {}
+    target_lanes = _candidate_target_lanes(candidate_policy)
 
     for raw_key, value in changes.items():
         key = str(raw_key).strip().upper()
@@ -254,13 +307,18 @@ def validate_candidate_safety(candidate_policy: dict[str, Any]) -> SafetyResult:
 
         cap = _amount_cap_for_key(key, max_amounts)
         numeric_value = _float_value(value)
-        if key in UNLIMITED_BUY_QUOTA_KEYS:
+        if _is_quota_cap_key(key):
             if numeric_value is None:
-                errors.append(f"unlimited_quota_must_be_numeric:{key}")
+                errors.append(f"quota_cap_must_be_numeric:{key}")
                 continue
-            if numeric_value != 0.0:
-                errors.append(f"unlimited_quota_required:{key}:{numeric_value}")
+            if numeric_value < 0:
+                errors.append(f"quota_cap_negative:{key}:{numeric_value}")
                 forbidden_changes.append(key)
+            elif numeric_value == 0.0:
+                warnings.append(f"quota_zero_means_unlimited:{key}")
+                if _quota_key_applies_to_target_lane(key, target_lanes):
+                    errors.append(f"runtime_quota_zero_unlimited:{key}")
+                    forbidden_changes.append(key)
         if cap is not None and numeric_value is None:
             errors.append(f"amount_must_be_numeric:{key}")
             continue

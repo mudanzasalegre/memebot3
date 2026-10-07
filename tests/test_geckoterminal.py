@@ -82,14 +82,17 @@ def patch_time(monkeypatch):
 
 
 # -----------------------------------------------------------------
-def test_get_token_data_numeric_conversion(mock_requests_get, patch_time):
+def test_get_token_data_numeric_conversion(mock_requests_get, patch_time, monkeypatch):
     """
     • price_usd, fdv_usd, total_reserve_in_usd, volume_usd_24h deben ser numéricos.
     • Se ejecutan dos llamadas seguidas para disparar el rate-limit; se
-      comprueba que la 1.ª o la 2.ª provocan un sleep ≥1.9 s.
+      comprueba la pausa descontando el tiempo transcurrido entre llamadas.
     """
     # importamos late para que los parches ya estén aplicados
     from fetcher.geckoterminal import get_token_data
+    from fetcher import geckoterminal
+    monkeypatch.setattr(geckoterminal, "_min_interval_s", 2.0)
+    monkeypatch.setattr(geckoterminal, "_last_call_ts", 0.0)
 
     out1 = get_token_data("solana", "0xABCDEF1234567890")
     out2 = get_token_data("solana", "0xABCDEF1234567890")  # misma addr: da igual al test
@@ -110,4 +113,20 @@ def test_get_token_data_numeric_conversion(mock_requests_get, patch_time):
     sleeps = patch_time        # alias claro
     assert sleeps, "El rate-limit no llamó a time.sleep()"
     # Tomamos la mayor pausa registrada
-    assert max(sleeps) >= 1.9, "Sleep menor de lo esperado para el límite de 30 req/min"
+    # The fake clock advances 0.1s per read; elapsed time counts toward the
+    # interval too. A sleep alone need not be the complete 2s interval.
+    assert max(sleeps) == pytest.approx(1.8)
+
+
+def test_sync_throttle_respects_complete_interval(monkeypatch):
+    from fetcher import geckoterminal
+    times = iter([1.0, 2.0, 2.1, 4.0])
+    sleeps = []
+    monkeypatch.setattr(geckoterminal, "_min_interval_s", 2.0)
+    monkeypatch.setattr(geckoterminal, "_last_call_ts", 0.0)
+    monkeypatch.setattr(geckoterminal.time, "time", lambda: next(times))
+    monkeypatch.setattr(geckoterminal.time, "sleep", sleeps.append)
+    geckoterminal._throttle_internal()
+    geckoterminal._throttle_internal()
+    assert sleeps == pytest.approx([1.0, 1.9])
+    assert geckoterminal._last_call_ts == 4.0

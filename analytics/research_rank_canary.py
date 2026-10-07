@@ -729,8 +729,10 @@ def build_research_rank_canary_audit_report(root: Path | None = None) -> dict[st
         runtime_audit = _read_audit()
     if isinstance(runtime_audit.get("runtime_audit"), dict):
         runtime_audit = runtime_audit["runtime_audit"]
-    rows = load_candidate_outcomes(root) + load_deduped_positions(root)
-    rank_rows = [row for row in rows if _is_rank_canary_row(row)]
+    position_rows = load_deduped_positions(root)
+    outcome_rows = load_candidate_outcomes(root, dedupe=True)
+    rank_rows = [row for row in outcome_rows if _is_rank_canary_row(row)]
+    rank_positions = [row for row in position_rows if _is_rank_canary_row(row)]
     band_25_40 = [row for row in rank_rows if 25.0 <= _price5m(row) < 40.0]
     band_40_50 = [row for row in rank_rows if 40.0 <= _price5m(row) < 50.0]
     band_50_100 = [row for row in rank_rows if 50.0 <= _price5m(row) <= 100.0]
@@ -749,8 +751,8 @@ def build_research_rank_canary_audit_report(root: Path | None = None) -> dict[st
     ]
     priority_rows = [row for row in rank_rows if _is_priority_row(row)]
     normal_rows = [row for row in rank_rows if _is_normal_micro_row(row)]
-    priority_bought_rows = [row for row in priority_rows if _is_bought_row(row)]
-    normal_bought_rows = [row for row in normal_rows if _is_bought_row(row)]
+    priority_bought_rows = [row for row in rank_positions if _is_priority_row(row) and _is_bought_row(row)]
+    normal_bought_rows = [row for row in rank_positions if _is_normal_micro_row(row) and _is_bought_row(row)]
     priority_shadow_rows = [row for row in priority_rows if _is_shadow_row(row)]
     normal_shadow_rows = [row for row in normal_rows if _is_shadow_row(row)]
     reasons = runtime_audit.get("reasons") if isinstance(runtime_audit.get("reasons"), dict) else {}
@@ -871,14 +873,20 @@ def _is_shadow_row(row: dict[str, Any]) -> bool:
 def _is_bought_row(row: dict[str, Any]) -> bool:
     if _is_shadow_row(row):
         return False
-    action = str(_first(row, "action", "decision_action", "event_type") or "").strip().lower()
-    if action in {"buy", "bought", "paper_buy", "trade_close", "position_closed"}:
-        return normalize_entry_lane(_first(row, "entry_lane")) == LANE_RESEARCH_RANK_CANARY
-    if action in {"reject", "rejected", "blocked", "shadow"}:
+    if normalize_entry_lane(_first(row, "entry_lane")) != LANE_RESEARCH_RANK_CANARY:
         return False
-    return (
-        normalize_entry_lane(_first(row, "entry_lane")) == LANE_RESEARCH_RANK_CANARY
-        and _first(row, "total_pnl_pct", "realized_pnl_pct", "pnl_pct", "closed_at", "exit_reason") is not None
+    # load_deduped_positions annotates authoritative executed positions with
+    # _source. A candidate/shadow outcome carrying PnL is not evidence of a buy.
+    if str(row.get("_source") or "") in {"sqlite_positions", "paper_portfolio"}:
+        return True
+    event = str(_first(row, "event_type", "event") or "").strip().lower()
+    return event in {"actual_paper_buy", "buy", "bought", "paper_buy", "buy_ok"}
+
+
+def _closed_position(row: dict[str, Any]) -> bool:
+    return _is_bought_row(row) and (
+        _bool(row.get("closed"))
+        or _first(row, "closed_at", "exit_reason", "total_pnl_pct", "realized_pnl_pct") is not None
     )
 
 
@@ -895,8 +903,10 @@ def _normal_micro_seen_from_reasons(reasons: dict[str, Any]) -> int:
 
 def build_research_rank_priority_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_candidate_outcomes(root) + load_deduped_positions(root)
-    rank_rows = [row for row in rows if _is_rank_canary_row(row)]
+    position_rows = load_deduped_positions(root)
+    outcome_rows = load_candidate_outcomes(root, dedupe=True)
+    rank_rows = [row for row in outcome_rows if _is_rank_canary_row(row)]
+    rank_positions = [row for row in position_rows if _is_rank_canary_row(row)]
     priority_rows = [row for row in rank_rows if _is_priority_row(row)]
     elite_rows = [row for row in rank_rows if _is_elite_row(row)]
     pullback_tail_rows = [row for row in rank_rows if _is_pullback_tail_row(row)]
@@ -909,8 +919,8 @@ def build_research_rank_priority_report(root: Path | None = None) -> dict[str, A
         runtime_audit = runtime_audit["runtime_audit"]
     reasons = runtime_audit.get("reasons") if isinstance(runtime_audit.get("reasons"), dict) else {}
     blockers = runtime_audit.get("blocked_by_reason") if isinstance(runtime_audit.get("blocked_by_reason"), dict) else {}
-    priority_bought_rows = [row for row in priority_rows if _is_bought_row(row)]
-    normal_bought_rows = [row for row in normal_rows if _is_bought_row(row)]
+    priority_bought_rows = [row for row in rank_positions if _is_priority_row(row) and _is_bought_row(row)]
+    normal_bought_rows = [row for row in rank_positions if _is_normal_micro_row(row) and _is_bought_row(row)]
     priority_shadow_rows = [row for row in priority_rows if _is_shadow_row(row)]
     normal_shadow_rows = [row for row in normal_rows if _is_shadow_row(row)]
     normal_shadow_blockers = int(blockers.get("research_rank_canary_normal_shadow_only") or 0) + int(
@@ -1022,22 +1032,17 @@ def build_research_rank_current_run_report(root: Path | None = None) -> dict[str
     root = root or PROJECT_ROOT
     runtime_rows = load_runtime_events(root)
     identity = current_run_identity(root, runtime_rows)
-    rows = filter_current_run_rows(
-        runtime_rows + load_candidate_outcomes(root) + load_deduped_positions(root),
-        identity,
-    )
+    position_rows = filter_current_run_rows(load_deduped_positions(root), identity)
+    rows = filter_current_run_rows(runtime_rows + load_candidate_outcomes(root, dedupe=True), identity)
     rank_rows = [row for row in rows if _is_rank_canary_row(row)]
+    rank_positions = [row for row in position_rows if _is_rank_canary_row(row)]
     priority_rows = [row for row in rank_rows if _is_priority_row(row)]
     normal_rows = [row for row in rank_rows if _is_normal_micro_row(row)]
-    priority_bought_rows = [row for row in priority_rows if _is_bought_row(row)]
-    normal_bought_rows = [row for row in normal_rows if _is_bought_row(row)]
+    priority_bought_rows = [row for row in rank_positions if _is_priority_row(row) and _is_bought_row(row)]
+    normal_bought_rows = [row for row in rank_positions if _is_normal_micro_row(row) and _is_bought_row(row)]
     priority_shadow_rows = [row for row in priority_rows if _is_shadow_row(row)]
     normal_shadow_rows = [row for row in normal_rows if _is_shadow_row(row)]
-    closed_trades = [
-        row
-        for row in rank_rows
-        if _first(row, "total_pnl_pct", "realized_pnl_pct", "pnl_pct", "closed_at", "exit_reason") is not None
-    ]
+    closed_trades = [row for row in rank_positions if _closed_position(row)]
     return {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "current_run": identity,

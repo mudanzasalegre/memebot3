@@ -18,7 +18,6 @@ import aiohttp
 import tenacity
 
 from config import exits              # ← sin cambios: módulos de riesgo
-from . import sol_signer
 
 log = logging.getLogger("gmgn")
 
@@ -68,6 +67,9 @@ async def buy(token_addr: str, amount_sol: float) -> dict:
         log.info("[GMGN] Simulación BUY – amount=0")
         return {"route": {}, "signature": "SIMULATION"}
 
+    # Live-only dependency: loading paper entry/exit modules must not read a
+    # wallet secret, create a keypair or fail a fresh keyless paper checkout.
+    from . import sol_signer
     owner = str(sol_signer.PUBLIC_KEY)
     lamports_in = int(amount_sol * LAMPORTS)
 
@@ -95,6 +97,7 @@ async def sell(token_addr: str, qty_lamports: int) -> dict:
         log.info("[GMGN] Simulación SELL – qty=0")
         return {"route": {}, "signature": "SIMULATION"}
 
+    from . import sol_signer
     owner = str(sol_signer.PUBLIC_KEY)
 
     route = await _route(token_addr, SOL_MINT, qty_lamports, owner)

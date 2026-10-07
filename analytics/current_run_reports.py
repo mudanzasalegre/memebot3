@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import collections
 import datetime as dt
+import math
 import statistics
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from analytics.report_utils import (
     load_candidate_outcomes,
     load_deduped_positions,
     load_runtime_events,
+    is_closed_trade,
     metrics_dir,
     write_json,
 )
@@ -64,12 +66,20 @@ def _peak(row: dict[str, Any]) -> float:
     )
 
 
+def _is_candidate_partial(row: dict[str, Any]) -> bool:
+    return any(
+        str(_first(row, key) or "").strip().lower() == "candidate_partial"
+        for key in ("event_type", "event", "sample_type", "candidate_stage", "source")
+    )
+
+
 def _closed(row: dict[str, Any]) -> bool:
-    if boolish(row.get("closed"), False):
-        return True
-    if _first(row, "closed_at", "exit_reason", "total_pnl_pct", "realized_pnl_pct") is not None:
-        return True
-    return _event(row) in {"trade_close", "close", "closed"}
+    # candidate_partial is a mark-to-market/ladder observation. It is not an
+    # independent closed trade even when it carries pnl_pct and outcome=closed
+    # after normalization.
+    if _is_candidate_partial(row):
+        return False
+    return is_closed_trade(row)
 
 
 def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -107,7 +117,12 @@ def build_current_run_trade_diagnostics(root: Path | None = None) -> dict[str, A
     shadow_rows = [
         row
         for row in outcome_rows + runtime_rows
-        if "shadow" in " ".join(str(_first(row, key) or "") for key in ("sample_type", "reason", "action", "shadow_kind")).lower()
+        if not _is_candidate_partial(row)
+        and _closed(row)
+        and "shadow"
+        in " ".join(
+            str(_first(row, key) or "") for key in ("sample_type", "reason", "action", "shadow_kind")
+        ).lower()
     ]
     candidate_decisions = [
         row
@@ -158,16 +173,33 @@ def _lane_summary(
     outcome_rows: list[dict[str, Any]],
     position_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    # A lane's performance grain is one executed position. Runtime decisions,
+    # shadow closes and candidate partials are contextual telemetry and must not
+    # be concatenated into the trade population.
     grouped: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
-    for row in runtime_rows + outcome_rows + position_rows:
+    for row in position_rows:
         grouped[_lane(row)].append(row)
+    shadow_addresses_by_lane: dict[str, set[str]] = collections.defaultdict(set)
+    for row in runtime_rows + outcome_rows:
+        if _is_candidate_partial(row) or not _closed(row):
+            continue
+        shadow_text = " ".join(
+            str(_first(row, key) or "") for key in ("sample_type", "reason", "action", "shadow_kind")
+        ).lower()
+        addr = address_of(row)
+        if "shadow" in shadow_text and addr:
+            shadow_addresses_by_lane[_lane(row)].add(addr)
     out: dict[str, Any] = {}
     for lane, rows in sorted(grouped.items()):
-        events = [_event(row) for row in rows]
+        closed_rows = [row for row in rows if _closed(row)]
+        summary = _summary(closed_rows)
         out[lane] = {
-            **_summary(rows),
-            "buys": sum(1 for event in events if event in {"buy", "bought", "paper_buy", "buy_ok"}),
-            "shadows": sum(1 for row in rows if "shadow" in " ".join(str(_first(row, key) or "") for key in ("sample_type", "reason", "action", "shadow_kind")).lower()),
+            **summary,
+            "rows": len(rows),
+            "executed_positions": len(rows),
+            "closed_trades": len(closed_rows),
+            "buys": len(rows),
+            "shadows": len(shadow_addresses_by_lane.get(lane, set())),
             "policy_category": classify_policy_category(rows[-1]) if rows else "unknown",
         }
     return out
@@ -213,30 +245,70 @@ def build_current_run_funnel(root: Path | None = None) -> dict[str, Any]:
     }
 
 
+_EXECUTED_BUY_EVENTS = {"actual_paper_buy", "buy", "bought", "paper_buy", "buy_ok"}
+
+
+def _bought_addresses(
+    runtime_rows: list[dict[str, Any]],
+    position_rows: list[dict[str, Any]],
+) -> set[str]:
+    bought = {address_of(row) for row in position_rows if address_of(row)}
+    bought.update(
+        address_of(row)
+        for row in runtime_rows
+        if address_of(row) and _event(row) in _EXECUTED_BUY_EVENTS
+    )
+    return bought
+
+
+def _unique_missed_pump_rows(
+    outcome_rows: list[dict[str, Any]],
+    bought: set[str],
+) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    for row in outcome_rows:
+        addr = address_of(row)
+        if not addr or addr in bought or not _closed(row):
+            continue
+        grouped[addr].append(row)
+
+    missed: list[dict[str, Any]] = []
+    for addr, rows in grouped.items():
+        evidence = max(
+            rows,
+            key=lambda row: (
+                _peak(row),
+                fnum(_first(row, "price_pct_5m", "buy_price_pct_5m"), 0.0),
+            ),
+        )
+        peak = max((_peak(row) for row in rows), default=0.0)
+        price_pct_5m = max(
+            (fnum(_first(row, "price_pct_5m", "buy_price_pct_5m"), 0.0) for row in rows),
+            default=0.0,
+        )
+        if peak < 100.0 and price_pct_5m < 100.0:
+            continue
+        missed.append(
+            {
+                "address": addr,
+                "symbol": evidence.get("symbol"),
+                "lane": _lane(evidence),
+                "reason": _reason(evidence),
+                "peak_pct": peak,
+                "pnl_pct": _pnl(evidence),
+                "price_pct_5m_at_seen": price_pct_5m,
+                "classification": "confirmed_missed_winner" if peak >= 100.0 else "hot_seen_not_bought",
+                "observations": len(rows),
+            }
+        )
+    missed.sort(key=lambda row: (-fnum(row.get("peak_pct"), 0.0), str(row.get("address") or "")))
+    return missed
+
+
 def build_current_run_missed_pumps(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
     identity, runtime_rows, outcome_rows, position_rows = _current_rows(root)
-    bought = {address_of(row) for row in runtime_rows + position_rows if address_of(row) and (_event(row) in {"buy", "bought", "paper_buy", "buy_ok"} or row in position_rows)}
-    missed = []
-    for row in outcome_rows:
-        addr = address_of(row)
-        if not addr or addr in bought:
-            continue
-        peak = _peak(row)
-        if peak >= 100.0 or fnum(_first(row, "price_pct_5m", "buy_price_pct_5m"), 0.0) >= 100.0:
-            missed.append(
-                {
-                    "address": addr,
-                    "symbol": row.get("symbol"),
-                    "lane": _lane(row),
-                    "reason": _reason(row),
-                    "peak_pct": peak,
-                    "pnl_pct": _pnl(row),
-                    "price_pct_5m_at_seen": _first(row, "price_pct_5m", "buy_price_pct_5m"),
-                    "classification": "confirmed_missed_winner" if peak >= 100.0 else "hot_seen_not_bought",
-                }
-            )
-    missed.sort(key=lambda row: (-fnum(row.get("peak_pct"), 0.0), str(row.get("address") or "")))
+    missed = _unique_missed_pump_rows(outcome_rows, _bought_addresses(runtime_rows, position_rows))
     return {
         "generated_at_utc": _now(),
         "current_run": identity,
@@ -293,16 +365,29 @@ def build_bot_profitability_health(root: Path | None = None) -> dict[str, Any]:
     if closed and win_rate < 40.0:
         action = "reduce_size_and_follow_shadows"
     if not closed and len(shadows) > buys:
-        action = "allow_idle_micro_exploration"
+        action = "inspect_data_quality_and_entry_gates"
     if primary_blocker in {"untagged_buy_blocked", "pumpswap_strict_no_sublane"}:
         action = "inspect_entry_lane_selector"
-    bought_addresses = {
-        address_of(row)
-        for row in runtime_rows
-        if address_of(row) and _event(row) in {"actual_paper_buy", "buy", "bought", "paper_buy", "buy_ok"}
-    }
-    bought_addresses.update({address_of(row) for row in position_rows if address_of(row)})
-    missed = [_peak(row) for row in outcome_rows if address_of(row) and address_of(row) not in bought_addresses]
+    latest = max((row_time(row) for row in runtime_rows if row_time(row) is not None), default=None)
+    age_seconds = (dt.datetime.now(dt.timezone.utc) - latest).total_seconds() if latest else None
+    stale = age_seconds is None or age_seconds > 3600
+    if stale:
+        action = "collect_fresh_paper_evidence"
+    net_values = []
+    for row in closed:
+        try:
+            value = float(row["net_total_pnl_usd"])
+            if row.get("execution_cost_model") and math.isfinite(value):
+                net_values.append(value)
+        except (KeyError, TypeError, ValueError):
+            continue
+    missed = [
+        fnum(row.get("peak_pct"), 0.0)
+        for row in _unique_missed_pump_rows(
+            outcome_rows,
+            _bought_addresses(runtime_rows, position_rows),
+        )
+    ]
     return {
         "generated_at_utc": _now(),
         "current_run": identity,
@@ -311,6 +396,11 @@ def build_bot_profitability_health(root: Path | None = None) -> dict[str, Any]:
         "current_run_avg_pnl": round(sum(pnls) / len(pnls), 3) if pnls else 0.0,
         "current_run_median_pnl": round(statistics.median(pnls), 3) if pnls else 0.0,
         "current_run_total_usd": round(total_usd, 6),
+        "current_run_costed_closed_trades": len(net_values),
+        "current_run_net_total_usd": round(sum(net_values), 6) if closed and len(net_values) == len(closed) else None,
+        "profitability_evidence_status": "insufficient" if not closed or len(net_values) != len(closed) or stale else "paper_cost_scenario_only",
+        "last_runtime_event_at": latest.isoformat() if latest else None,
+        "runtime_evidence_stale": stale,
         "buys_per_hour": round(buys / hours, 3) if hours else 0.0,
         "shadows_per_hour": round(len(shadows) / hours, 3) if hours else 0.0,
         "missed_peak_100_500_1000": {

@@ -21,6 +21,7 @@ from api.services.bot_process import (
     start_bot_process_envelope,
     stop_bot_process_envelope,
 )
+from api.services.risk_control import get_risk_control_envelope
 from api.settings import APISettings
 
 
@@ -94,6 +95,11 @@ def control_live_preflight(settings: APISettings = Depends(get_settings)) -> Env
         ),
     ]
     return build_envelope(payload, source_status=source_status, empty=False, degraded=not bool(payload.get("passed")), stale=False)
+
+
+@router.get("/control/risk", response_model=Envelope)
+def control_risk(settings: APISettings = Depends(get_settings)) -> Envelope:
+    return get_risk_control_envelope(settings)
 
 
 @router.post(

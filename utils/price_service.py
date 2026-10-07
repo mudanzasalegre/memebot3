@@ -39,6 +39,11 @@ from fetcher.geckoterminal import (
 from fetcher import birdeye
 from fetcher import dexscreener
 
+try:
+    from analytics.api_budget import provider_status as _provider_status
+except Exception:  # pragma: no cover
+    _provider_status = None  # type: ignore
+
 # Jupiter Price (Lite)
 try:
     from fetcher.jupiter_price import get_usd_price as _jup_get_usd_price  # type: ignore
@@ -232,6 +237,92 @@ def _has_any_signal(tok: Dict[str, Any] | None) -> bool:
         if not _is_missing(tok.get(key)):
             return True
     return False
+
+
+def _infer_price_source(tok: Dict[str, Any] | None) -> str | None:
+    if not isinstance(tok, dict):
+        return None
+    source = tok.get("price_source") or tok.get("source")
+    if isinstance(source, str) and source.strip():
+        return source.strip().lower()
+    if tok.get("dexId") or tok.get("dex_id") or tok.get("pair_address") or tok.get("pairAddress"):
+        return "dexscreener"
+    return None
+
+
+def _source_degraded(source: str | None) -> bool:
+    if _provider_status is None or not source:
+        return False
+    try:
+        return bool(_provider_status(source).get("degraded"))
+    except Exception:
+        return False
+
+
+def price_confidence_from_source(
+    source: str | None,
+    price_usd: Any,
+    *,
+    complete: bool = True,
+    provider_degraded: bool = False,
+) -> str:
+    if _is_missing(price_usd):
+        return "none"
+    if provider_degraded:
+        return "degraded"
+    source_norm = str(source or "").strip().lower()
+    if source_norm == "jupiter":
+        return "high" if complete else "partial"
+    if source_norm in {"birdeye", "dexscreener", "gecko", "geckoterminal"}:
+        return "medium" if complete else "partial"
+    return "low" if complete else "partial"
+
+
+def _stamp_price_confidence(
+    tok: Dict[str, Any] | None,
+    *,
+    address: str,
+    fields_needed: Tuple[str, ...],
+    reason: str | None = None,
+) -> Dict[str, Any] | None:
+    if not isinstance(tok, dict):
+        return tok
+    tok = _coerce_tick_numbers(dict(tok))
+    tok.setdefault("address", address)
+    source = _infer_price_source(tok)
+    if source and not tok.get("price_source"):
+        tok["price_source"] = source
+    complete = not _needs_fields(tok, fields_needed)
+    degraded = _source_degraded(source)
+    tok["price_confidence"] = price_confidence_from_source(
+        source,
+        tok.get("price_usd"),
+        complete=complete,
+        provider_degraded=degraded,
+    )
+    if reason:
+        tok["price_confidence_reason"] = reason
+    elif _is_missing(tok.get("price_usd")):
+        tok["price_confidence_reason"] = "no_price"
+    elif not complete:
+        tok["price_confidence_reason"] = "partial_snapshot"
+    elif degraded:
+        tok["price_confidence_reason"] = "provider_degraded"
+    else:
+        tok.setdefault("price_confidence_reason", "ok")
+    tok["price_provider_degraded"] = bool(degraded)
+    return tok
+
+
+def build_no_price_snapshot(address: str, *, reason: str = "no_price") -> Dict[str, Any]:
+    return {
+        "address": address,
+        "price_usd": None,
+        "price_source": None,
+        "price_confidence": "none",
+        "price_confidence_reason": reason,
+        "price_provider_degraded": False,
+    }
 
 
 def _is_solana_address(addr: str) -> bool:
@@ -492,6 +583,11 @@ async def get_price(
                     partial_hit = _coerce_tick_numbers(partial_hit)
                     if isinstance(partial_hit, dict):
                         partial_hit.setdefault("address", address)
+                    partial_hit = _stamp_price_confidence(
+                        partial_hit,
+                        address=address,
+                        fields_needed=fields_needed,
+                    )
                     return _strip_non_t0_keys(partial_hit)
             if critical:
                 logger.debug("[price_service] critical=True: ignorando cache negativa para %s", address[:6])
@@ -501,6 +597,7 @@ async def get_price(
             hit = _coerce_tick_numbers(hit)
             if isinstance(hit, dict):
                 hit.setdefault("address", address)  # ← garantía de address
+            hit = _stamp_price_confidence(hit, address=address, fields_needed=fields_needed)
             hit = _strip_non_t0_keys(hit)  # saneo anti claves futuras
             return hit
     elif allow_partial:
@@ -509,6 +606,11 @@ async def get_price(
             partial_hit = _coerce_tick_numbers(partial_hit)
             if isinstance(partial_hit, dict):
                 partial_hit.setdefault("address", address)
+            partial_hit = _stamp_price_confidence(
+                partial_hit,
+                address=address,
+                fields_needed=fields_needed,
+            )
             return _strip_non_t0_keys(partial_hit)
 
     # Primer intento de la cadena (Jupiter primero)
@@ -518,6 +620,7 @@ async def get_price(
     if tok:
         tok.setdefault("address", address)
 
+    tok = _stamp_price_confidence(tok, address=address, fields_needed=fields_needed)
     tok = _strip_non_t0_keys(tok)  # saneo
 
     if tok and not _needs_fields(tok, fields_needed):
@@ -535,6 +638,7 @@ async def get_price(
         tok_retry = await _query_sources(address, use_gt=use_gt, fields_needed=fields_needed)
         if tok_retry:
             tok_retry.setdefault("address", address)
+        tok_retry = _stamp_price_confidence(tok_retry, address=address, fields_needed=fields_needed)
         tok_retry = _strip_non_t0_keys(tok_retry)
 
         if tok_retry and not _needs_fields(tok_retry, fields_needed):
@@ -546,6 +650,7 @@ async def get_price(
     # Último chequeo post-reintento
     if tok:
         tok.setdefault("address", address)
+    tok = _stamp_price_confidence(tok, address=address, fields_needed=fields_needed)
     tok = _strip_non_t0_keys(tok)
 
     if tok and not _needs_fields(tok, fields_needed):
@@ -553,12 +658,22 @@ async def get_price(
         return tok
 
     if allow_partial and _has_any_signal(tok):
+        tok = _stamp_price_confidence(
+            tok,
+            address=address,
+            fields_needed=fields_needed,
+            reason="partial_snapshot",
+        )
         cache_set(partial_ck, tok, ttl=_TTL_PARTIAL)
         return tok
 
     # Sin datos válidos → sólo cache negativa si NO es crítico
     if not critical:
         cache_set(ck, False, ttl=_TTL_ERR)
+    if allow_partial:
+        snapshot = build_no_price_snapshot(address)
+        cache_set(partial_ck, snapshot, ttl=_TTL_ERR)
+        return snapshot
     logger.debug(
         "[price_service] Sin datos (%s) para %s (fallback agotado; critical=%s)",
         "price_only" if price_only else "full",
@@ -579,4 +694,9 @@ async def get_price_usd(address: str, *, use_gt: bool = True, critical: bool = F
     return float(tok["price_usd"]) if tok and not _is_missing(tok.get("price_usd")) else None
 
 
-__all__ = ["get_price", "get_price_usd"]
+__all__ = [
+    "build_no_price_snapshot",
+    "get_price",
+    "get_price_usd",
+    "price_confidence_from_source",
+]

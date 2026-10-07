@@ -13,6 +13,7 @@ from research_loop.objectives import (
     METRIC_SCOPES,
     ObjectiveResult,
     calculate_objective_score,
+    load_objective_config,
     metric_delta_is_worse,
 )
 from research_loop.safety import SafetyResult, validate_candidate_safety
@@ -73,6 +74,7 @@ METRIC_VIEW_KEYS = {
     "combined_metrics": METRIC_SCOPE_COMBINED,
 }
 REVERSE_METRIC_VIEW_KEYS = {value: key for key, value in METRIC_VIEW_KEYS.items()}
+DEFAULT_MIN_EVENT_REPLAY_CLOSED_TRADES = 5
 
 
 @dataclass(frozen=True)
@@ -123,6 +125,33 @@ def _closed_trades(metrics: dict[str, Any]) -> int:
         return int(float(metrics.get("closed_trades") or metrics.get("trades") or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _int_config_value(payload: dict[str, Any], key: str, default: int) -> int:
+    try:
+        return int(float(payload.get(key, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _minimum_samples() -> dict[str, int]:
+    config = load_objective_config()
+    payload = config.get("minimum_samples") if isinstance(config.get("minimum_samples"), dict) else {}
+    return {
+        "replay_closed_trades": _int_config_value(payload, "replay_closed_trades", 0),
+        "current_run_closed_trades": _int_config_value(payload, "current_run_closed_trades", 1),
+        "event_replay_closed_trades": _int_config_value(
+            payload,
+            "event_replay_closed_trades",
+            DEFAULT_MIN_EVENT_REPLAY_CLOSED_TRADES,
+        ),
+    }
+
+
+def _event_replay_used(metrics: dict[str, Any]) -> bool:
+    if metrics.get("event_replay_used_for_acceptance") is True:
+        return True
+    return str(metrics.get("event_replay_used_for_acceptance") or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _proposal_id(candidate_policy: dict[str, Any]) -> str | None:
@@ -274,6 +303,9 @@ def evaluate_replay_candidate(
             optimization_scope=optimization_scope,
         )
 
+    minimum_samples = _minimum_samples()
+    effective_min_closed_trades = max(int(min_closed_trades), int(minimum_samples["replay_closed_trades"]))
+    effective_min_event_replay = int(minimum_samples["event_replay_closed_trades"])
     baseline_views, baseline_nested = _metric_views(baseline_metrics)
     candidate_views, candidate_nested = _metric_views(candidate_metrics)
     nested_metrics_present = baseline_nested or candidate_nested
@@ -300,8 +332,14 @@ def evaluate_replay_candidate(
         )
 
     closed_trades = _closed_trades(selected_candidate)
-    if min_closed_trades > 0 and closed_trades < min_closed_trades:
-        warnings.append(f"sample_too_small:{closed_trades}<{min_closed_trades}")
+    event_replay_sample_too_small = False
+    if not _event_replay_used(selected_candidate):
+        rejection_reasons.append("event_replay_required_for_acceptance")
+    elif effective_min_event_replay > 0 and closed_trades < effective_min_event_replay:
+        event_replay_sample_too_small = True
+        warnings.append(f"event_replay_sample_too_small:{closed_trades}<{effective_min_event_replay}")
+    if effective_min_closed_trades > 0 and closed_trades < effective_min_closed_trades:
+        warnings.append(f"sample_too_small:{closed_trades}<{effective_min_closed_trades}")
 
     current_run_objective = _objective_for_scope(
         baseline_views,
@@ -355,7 +393,7 @@ def evaluate_replay_candidate(
 
     effective_min_current = min_current_run_closed_trades
     if effective_min_current is None:
-        effective_min_current = 1 if nested_metrics_present else 0
+        effective_min_current = int(minimum_samples["current_run_closed_trades"]) if nested_metrics_present else 0
     current_run_closed_trades = _closed_trades(candidate_views.get(METRIC_SCOPE_CURRENT_RUN) or {})
     current_run_sample_too_small = effective_min_current > 0 and current_run_closed_trades < effective_min_current
     if current_run_sample_too_small:
@@ -375,7 +413,7 @@ def evaluate_replay_candidate(
             historical_objective=historical_objective,
             combined_objective=combined_objective,
         )
-    if min_closed_trades > 0 and closed_trades < min_closed_trades or current_run_sample_too_small:
+    if effective_min_closed_trades > 0 and closed_trades < effective_min_closed_trades or current_run_sample_too_small or event_replay_sample_too_small:
         return EvaluationResult(
             status=STATUS_NEEDS_PAPER,
             accepted=False,

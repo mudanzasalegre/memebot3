@@ -1,0 +1,180 @@
+{
+  "fixture_id": "golden_0707_strategy_regression_v1",
+  "as_of_utc": "2026-07-07T00:00:00Z",
+  "source": "PR-15 audit evidence snapshot",
+  "audit_summary": {
+    "closed_trades": 4,
+    "net_closed_pnl_usd": -81.33,
+    "profit_factor": 0.629,
+    "exit_reason_pnl_usd": {
+      "LIQUIDITY_CRUSH": -138.99,
+      "NO_PUMP_EXIT": -55.26
+    },
+    "partial_pnl_usd": {
+      "no_partial": -215.67,
+      "partial": 134.35
+    }
+  },
+  "safety": {
+    "DRY_RUN": true,
+    "STRATEGY_OPTIMIZATION_LOCK": true,
+    "LIVE_CANARY_ENABLED": false,
+    "GREEN_SNIPER_LIVE_ENABLED": false,
+    "RESEARCH_RANK_CANARY_LIVE_ENABLED": false,
+    "LATE_MOMENTUM_WATCH_LIVE_ENABLED": false,
+    "LIVE_AGGRESSIVE_TRADING_ENABLED": false,
+    "MOONSHOT_MICRO_LOTTERY_LIVE_ENABLED": false,
+    "SHADOW_FOLLOWUP_MICRO_LIVE_ENABLED": false,
+    "SNIPER_RESEARCH_MICRO_FALLBACK_LIVE_ENABLED": false,
+    "BIRTH_PROBE_MICRO_CANARY_LIVE_ENABLED": false,
+    "AUTO_PROMOTE_LIVE": false,
+    "MODEL_AUTO_PROMOTE": false,
+    "ML_AUTO_PROMOTE_LANES": false,
+    "ALLOW_LIVE_POLICY_ENFORCE": false,
+    "WALLET_PRESENT": false,
+    "RPC_URL_PRESENT": false,
+    "SECRETS_PRESENT": false
+  },
+  "sizing_cases": [
+    {
+      "case_id": "moonshot_micro_fixed_amount_regression",
+      "lane": "pump_early_moonshot_micro_lottery",
+      "micro_lane": true,
+      "computed_amount_sol": 0.1,
+      "resolved_amount_sol": 0.001,
+      "max_allowed_sol": 0.02,
+      "reason": "moonshot_micro_size"
+    },
+    {
+      "case_id": "shadow_followup_micro_fixed_amount_regression",
+      "lane": "pump_early_shadow_followup_micro",
+      "micro_lane": true,
+      "computed_amount_sol": 0.1,
+      "resolved_amount_sol": 0.003,
+      "max_allowed_sol": 0.02,
+      "reason": "shadow_followup_micro_size"
+    },
+    {
+      "case_id": "sniper_research_micro_fixed_amount_regression",
+      "lane": "pump_early_sniper_research_micro_fallback",
+      "micro_lane": true,
+      "computed_amount_sol": 0.1,
+      "resolved_amount_sol": 0.003,
+      "max_allowed_sol": 0.02,
+      "reason": "sniper_research_micro_fallback_size"
+    }
+  ],
+  "closed_trades": [
+    {
+      "source_position_key": "run-0707:1",
+      "address": "GOLDEN_LIQ_CRUSH",
+      "closed": true,
+      "entry_lane": "pump_early_moonshot_micro_lottery",
+      "entry_amount_sol": 0.001,
+      "micro_lane_max_sol": 0.02,
+      "partial_taken": false,
+      "exit_reason": "LIQUIDITY_CRUSH",
+      "total_pnl_usd": -138.99,
+      "opened_at": "2026-07-07T10:00:00Z",
+      "closed_at": "2026-07-07T10:07:30Z"
+    },
+    {
+      "source_position_key": "run-0707:2",
+      "address": "GOLDEN_NO_PUMP",
+      "closed": true,
+      "entry_lane": "pump_early_shadow_followup_micro",
+      "entry_amount_sol": 0.003,
+      "micro_lane_max_sol": 0.02,
+      "partial_taken": false,
+      "exit_reason": "NO_PUMP_EXIT",
+      "total_pnl_usd": -55.26,
+      "opened_at": "2026-07-07T10:10:00Z",
+      "closed_at": "2026-07-07T10:18:00Z"
+    },
+    {
+      "source_position_key": "run-0707:3",
+      "address": "GOLDEN_OTHER_LOSS",
+      "closed": true,
+      "entry_lane": "pump_early_sniper_research_micro_fallback",
+      "entry_amount_sol": 0.003,
+      "micro_lane_max_sol": 0.02,
+      "partial_taken": false,
+      "exit_reason": "ROUTE_DECAY_EXIT",
+      "total_pnl_usd": -21.42,
+      "opened_at": "2026-07-07T10:22:00Z",
+      "closed_at": "2026-07-07T10:31:00Z"
+    },
+    {
+      "source_position_key": "run-0707:4",
+      "address": "GOLDEN_POST_PARTIAL_WIN",
+      "closed": true,
+      "entry_lane": "pump_early_research_rank_canary",
+      "entry_amount_sol": 0.005,
+      "micro_lane_max_sol": 0.03,
+      "partial_taken": true,
+      "exit_reason": "POST_PARTIAL_TRAILING",
+      "total_pnl_usd": 134.35,
+      "opened_at": "2026-07-07T10:35:00Z",
+      "closed_at": "2026-07-07T10:50:00Z"
+    }
+  ],
+  "ledger_reconciliation": {
+    "db_closed_rows": 4,
+    "report_closed_rows": 4,
+    "db_total_pnl_usd": -81.33,
+    "report_total_pnl_usd": -81.33,
+    "sqlite_source": "closed_trade_view",
+    "report_source": "paper_real_outcomes_report"
+  },
+  "threshold_gate": {
+    "objective": "expected_pnl_precision_floor",
+    "precision_floor": 0.8,
+    "precision_at_picked": 0.75,
+    "activation_ready": false,
+    "mode_recommended": "shadow",
+    "activation_reason": "precision_floor_not_met",
+    "fallback_objective_used": false
+  },
+  "replay_cases": [
+    {
+      "case_id": "moonshot_liquidity_crush_t0",
+      "decision_ts": "2026-07-07T10:00:00Z",
+      "feature_max_ts": "2026-07-07T10:00:00Z",
+      "label_ts": "2026-07-07T10:07:30Z",
+      "lookahead_used": false,
+      "feature_columns": [
+        "entry_lane",
+        "price_pct_5m",
+        "txns_last_5m",
+        "liquidity_usd",
+        "has_jupiter_route",
+        "cluster_bad"
+      ],
+      "forbidden_feature_columns": [
+        "exit_reason",
+        "total_pnl_usd",
+        "future_price"
+      ]
+    },
+    {
+      "case_id": "post_partial_trailing_t0",
+      "decision_ts": "2026-07-07T10:35:00Z",
+      "feature_max_ts": "2026-07-07T10:35:00Z",
+      "label_ts": "2026-07-07T10:50:00Z",
+      "lookahead_used": false,
+      "feature_columns": [
+        "entry_lane",
+        "rank_score",
+        "price_pct_5m",
+        "volume_pct_5m",
+        "real_liquidity_usd",
+        "gate_profile"
+      ],
+      "forbidden_feature_columns": [
+        "exit_reason",
+        "total_pnl_usd",
+        "closed_at"
+      ]
+    }
+  ]
+}

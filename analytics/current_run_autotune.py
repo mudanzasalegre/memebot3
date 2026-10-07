@@ -28,9 +28,11 @@ from ml.lane_taxonomy import (
     LANE_SNIPER_RESEARCH_MICRO_FALLBACK,
     normalize_entry_lane,
 )
+from runtime.policy_overlay import build_policy_overlay_state
 
 
 REPORT_JSON = "current_run_autotune_state.json"
+TOXIC_EXIT_REASONS = {"LIQUIDITY_CRUSH", "NO_PUMP_EXIT"}
 MICRO_LANES = {
     "paper_bootstrap": LANE_PAPER_BOOTSTRAP_MICRO,
     "shadow_followup_micro": LANE_SHADOW_FOLLOWUP_MICRO,
@@ -73,8 +75,12 @@ def _event(row: dict[str, Any]) -> str:
 
 def _reason(row: dict[str, Any]) -> str:
     return str(
-        _first(row, "reason", "green_sniper_reason", "entry_reason", "reject_reason", "exit_reason") or ""
+        _first(row, "exit_reason", "reason", "green_sniper_reason", "entry_reason", "reject_reason") or ""
     ).strip()
+
+
+def _reason_upper(row: dict[str, Any]) -> str:
+    return _reason(row).strip().upper()
 
 
 def _lane(row: dict[str, Any]) -> str:
@@ -168,10 +174,21 @@ def _lane_stats(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         lane_rows = sorted(grouped.get(lane, []), key=_sort_key)
         closed_rows = [row for row in lane_rows if _closed(row)]
         pnls = [_pnl(row) for row in closed_rows]
+        total_pnl_usd = sum(_pnl_usd(row) for row in closed_rows)
+        total_notional_usd = sum(
+            max(0.0, fnum(_first(row, "entry_notional_usd", "buy_notional_usd"), 0.0))
+            for row in closed_rows
+        )
         consecutive_losses = 0
         for value in reversed(pnls):
             if value < 0.0:
                 consecutive_losses += 1
+            else:
+                break
+        consecutive_toxic_exits = 0
+        for row in reversed(closed_rows):
+            if _reason_upper(row) in TOXIC_EXIT_REASONS:
+                consecutive_toxic_exits += 1
             else:
                 break
         out[name] = {
@@ -184,9 +201,17 @@ def _lane_stats(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             "win_rate_pct": round(100.0 * sum(1 for value in pnls if value > 0.0) / len(pnls), 6) if pnls else 0.0,
             "avg_pnl_pct": round(sum(pnls) / len(pnls), 6) if pnls else 0.0,
             "consecutive_losses": consecutive_losses,
+            "consecutive_toxic_exits": consecutive_toxic_exits,
             "severe_loss_count": sum(1 for row in closed_rows if is_severe_exit(row)),
+            "toxic_exit_count": sum(1 for row in closed_rows if _reason_upper(row) in TOXIC_EXIT_REASONS),
             "total_pnl_pct_points": round(sum(pnls), 6) if pnls else 0.0,
-            "total_pnl_usd": round(sum(_pnl_usd(row) for row in closed_rows), 6) if closed_rows else 0.0,
+            "total_pnl_usd": round(total_pnl_usd, 6) if closed_rows else 0.0,
+            "entry_notional_usd": round(total_notional_usd, 6) if closed_rows else 0.0,
+            "return_on_notional_pct": (
+                round(100.0 * total_pnl_usd / total_notional_usd, 6)
+                if total_notional_usd > 0.0
+                else round(sum(pnls) / len(pnls), 6) if pnls else 0.0
+            ),
             "last_result": "win" if pnls and pnls[-1] > 0 else "loss" if pnls and pnls[-1] < 0 else "none",
             "last_reason": _reason(closed_rows[-1]) if closed_rows else "",
         }
@@ -239,14 +264,32 @@ def build_current_run_autotune_state(root: Path | None = None) -> dict[str, Any]
     closed_positions = [row for row in position_rows if _closed(row)]
     total_pnl_usd = round(sum(_pnl_usd(row) for row in closed_positions), 6)
     severe_loss_count = sum(int(state.get("severe_loss_count") or 0) for state in lane_states.values())
-    previous_severe = int((previous.get("snapshot") or {}).get("severe_loss_count") or 0)
+    previous_run_id = str(previous.get("current_run_id") or "").strip()
+    current_run_id = str(identity.get("run_id") or "legacy").strip()
+    same_previous_run = not previous_run_id or previous_run_id == current_run_id
+    previous_lane_states = previous.get("lane_states") if same_previous_run and isinstance(previous.get("lane_states"), dict) else {}
+    previous_severe = (
+        int((previous.get("snapshot") or {}).get("severe_loss_count") or 0)
+        if same_previous_run
+        else 0
+    )
 
     zero_buy_hours = float(getattr(CFG, "CURRENT_RUN_AUTOTUNE_ZERO_BUY_HOURS", 3.0) or 3.0)
     loss_threshold = float(getattr(CFG, "CURRENT_RUN_AUTOTUNE_LOSS_USD_THRESHOLD", 5.0) or 5.0)
     loss_streak = int(getattr(CFG, "CURRENT_RUN_AUTOTUNE_LOSS_STREAK", 3) or 3)
+    cooldown_min = float(getattr(CFG, "CURRENT_RUN_AUTOTUNE_COOLDOWN_MIN", 60.0) or 60.0)
+    overlay_enabled = bool(getattr(CFG, "CURRENT_RUN_AUTOTUNE_RUNTIME_OVERLAY_ENABLED", True))
     overtrade_buys_per_hour = float(getattr(CFG, "CURRENT_RUN_AUTOTUNE_OVERTRADE_BUYS_PER_HOUR", 120.0) or 120.0)
     bootstrap_min_closed = int(getattr(CFG, "CURRENT_RUN_AUTOTUNE_BOOTSTRAP_MIN_CLOSED", 25) or 25)
     bootstrap_min_win_rate = float(getattr(CFG, "CURRENT_RUN_AUTOTUNE_BOOTSTRAP_MIN_WIN_RATE_PCT", 8.0) or 8.0)
+    negative_lane_min_closed = int(getattr(CFG, "CURRENT_RUN_AUTOTUNE_NEGATIVE_LANE_MIN_CLOSED", 10) or 10)
+    negative_lane_max_avg = float(getattr(CFG, "CURRENT_RUN_AUTOTUNE_NEGATIVE_LANE_MAX_AVG_PNL_PCT", -5.0))
+    negative_lane_max_win_rate = float(
+        getattr(CFG, "CURRENT_RUN_AUTOTUNE_NEGATIVE_LANE_MAX_WIN_RATE_PCT", 25.0)
+    )
+    negative_lane_min_severe_rate = float(
+        getattr(CFG, "CURRENT_RUN_AUTOTUNE_NEGATIVE_LANE_MIN_SEVERE_RATE_PCT", 20.0)
+    )
     apply_enabled = bool(getattr(CFG, "CURRENT_RUN_AUTOTUNE_APPLY_ENABLED", False))
     enabled = bool(getattr(CFG, "CURRENT_RUN_AUTOTUNE_ENABLED", True))
 
@@ -278,12 +321,12 @@ def build_current_run_autotune_state(root: Path | None = None) -> dict[str, Any]
             }
         )
 
-    if enabled and severe_loss_count > previous_severe:
-        severe_lane = max(
-            lane_states.items(),
-            key=lambda item: int(item[1].get("severe_loss_count") or 0),
-            default=("", {}),
-        )[0]
+    for severe_lane, severe_state in lane_states.items():
+        current_lane_severe = int(severe_state.get("severe_loss_count") or 0)
+        previous_lane = previous_lane_states.get(severe_lane) if isinstance(previous_lane_states, dict) else {}
+        previous_lane_severe = int((previous_lane or {}).get("severe_loss_count") or 0)
+        if not enabled or current_lane_severe <= previous_lane_severe:
+            continue
         disable_key = {
             "paper_bootstrap": "PAPER_BOOTSTRAP_ENABLED",
             "paper_exploration": "PAPER_EXPLORATION_QUOTA_ENABLED",
@@ -297,10 +340,76 @@ def build_current_run_autotune_state(root: Path | None = None) -> dict[str, Any]
         actions.append(
             {
                 "action": "disable_severe_loss_lane",
-                "reason": "severe_loss_count_increased",
+                "reason": "lane_severe_loss_count_increased",
                 "lane": severe_lane,
-                "previous_severe_loss_count": previous_severe,
-                "current_severe_loss_count": severe_loss_count,
+                "previous_severe_loss_count": previous_lane_severe,
+                "current_severe_loss_count": current_lane_severe,
+            }
+        )
+
+    toxic_disable_keys = {
+        "paper_bootstrap": "PAPER_BOOTSTRAP_ENABLED",
+        "paper_exploration": "PAPER_EXPLORATION_QUOTA_ENABLED",
+        "shadow_followup_micro": "SHADOW_FOLLOWUP_MICRO_ENABLED",
+        "research_rank_canary": "RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED",
+        "moonshot_micro_lottery": "MOONSHOT_MICRO_LOTTERY_ENABLED",
+        "sniper_research_micro_fallback": "SNIPER_RESEARCH_MICRO_FALLBACK_ENABLED",
+    }
+    negative_expectancy_lanes: set[str] = set()
+    for lane_name, state in lane_states.items():
+        closed = int(state.get("closed_trades") or 0)
+        if closed <= 0:
+            continue
+        severe_rate = 100.0 * int(state.get("severe_loss_count") or 0) / closed
+        persistently_negative = (
+            enabled
+            and closed >= negative_lane_min_closed
+            and float(state.get("total_pnl_usd") or 0.0) < 0.0
+            and (
+                float(state.get("avg_pnl_pct") or 0.0) <= negative_lane_max_avg
+                or float(state.get("return_on_notional_pct") or 0.0) <= negative_lane_max_avg
+            )
+            and (
+                float(state.get("win_rate_pct") or 0.0) <= negative_lane_max_win_rate
+                or severe_rate >= negative_lane_min_severe_rate
+            )
+        )
+        if not persistently_negative:
+            continue
+        negative_expectancy_lanes.add(lane_name)
+        disable_key = toxic_disable_keys.get(lane_name)
+        if disable_key:
+            _merge_change(recommended_changes, disable_key, False)
+        actions.append(
+            {
+                "action": "disable_negative_expectancy_lane",
+                "reason": "persistent_negative_expectancy",
+                "lane": lane_name,
+                "closed_trades": closed,
+                "avg_pnl_pct": float(state.get("avg_pnl_pct") or 0.0),
+                "return_on_notional_pct": float(state.get("return_on_notional_pct") or 0.0),
+                "win_rate_pct": float(state.get("win_rate_pct") or 0.0),
+                "severe_loss_rate_pct": round(severe_rate, 6),
+                "total_pnl_usd": float(state.get("total_pnl_usd") or 0.0),
+                "cooldown_min": cooldown_min,
+            }
+        )
+
+    for lane_name, state in lane_states.items():
+        toxic_streak = int(state.get("consecutive_toxic_exits") or 0)
+        if not enabled or toxic_streak < loss_streak:
+            continue
+        disable_key = toxic_disable_keys.get(lane_name)
+        if disable_key:
+            _merge_change(recommended_changes, disable_key, False)
+        actions.append(
+            {
+                "action": "cooldown_toxic_exit_lane",
+                "reason": "liquidity_crush_or_no_pump_loss_streak",
+                "lane": lane_name,
+                "consecutive_toxic_exits": toxic_streak,
+                "loss_streak_threshold": loss_streak,
+                "cooldown_min": cooldown_min,
             }
         )
 
@@ -361,7 +470,14 @@ def build_current_run_autotune_state(root: Path | None = None) -> dict[str, Any]
         )
 
     shadow_state = lane_states["shadow_followup_micro"]
-    if enabled and int(shadow_state.get("wins") or 0) > 0 and shadow_state.get("last_result") == "win":
+    if (
+        enabled
+        and "shadow_followup_micro" not in negative_expectancy_lanes
+        and int(shadow_state.get("wins") or 0) > 0
+        and float(shadow_state.get("avg_pnl_pct") or 0.0) > 0.0
+        and float(shadow_state.get("total_pnl_usd") or 0.0) > 0.0
+        and shadow_state.get("last_result") == "win"
+    ):
         actions.append(
             {
                 "action": "keep_shadow_followup_micro",
@@ -381,8 +497,29 @@ def build_current_run_autotune_state(root: Path | None = None) -> dict[str, Any]
             }
         )
 
+    if enabled and same_previous_run:
+        active_lanes = {str(action.get("lane") or "") for action in actions if isinstance(action, dict)}
+        previous_overlay = previous.get("runtime_overlay") if isinstance(previous.get("runtime_overlay"), dict) else {}
+        now_dt = dt.datetime.now(dt.timezone.utc)
+        for block in previous_overlay.get("blocked_lanes") or []:
+            if not isinstance(block, dict):
+                continue
+            lane = str(block.get("lane") or "").strip()
+            until = parse_time(block.get("cooldown_until"))
+            if not lane or lane in active_lanes or until is None or until <= now_dt:
+                continue
+            actions.append(
+                {
+                    "action": "carry_forward_lane_cooldown",
+                    "reason": str(block.get("reason") or "prior_cooldown_active"),
+                    "lane": lane,
+                    "cooldown_until": until.isoformat(),
+                    "original_action": str(block.get("action") or "lane_block"),
+                }
+            )
+
     applied_changes = dict(recommended_changes) if apply_enabled and enabled else {}
-    return {
+    report = {
         "generated_at_utc": _utc_now(),
         "current_run_id": str(identity.get("run_id") or "legacy"),
         "current_run": identity,
@@ -408,6 +545,12 @@ def build_current_run_autotune_state(root: Path | None = None) -> dict[str, Any]
             "touches_api_budget": False,
         },
     }
+    report["runtime_overlay"] = build_policy_overlay_state(
+        report,
+        cooldown_min=cooldown_min,
+        enabled=bool(enabled and overlay_enabled),
+    )
+    return report
 
 
 def write_current_run_autotune_state(root: Path | None = None) -> dict[str, Any]:

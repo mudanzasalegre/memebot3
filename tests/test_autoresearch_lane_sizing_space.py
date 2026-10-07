@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from research_loop.candidate_generator import generate_candidate_policies
 from research_loop.spaces import lane_sizing
+from types import SimpleNamespace
 
 
 def test_lane_sizing_space_respects_safety_caps() -> None:
@@ -23,6 +24,7 @@ def test_lane_sizing_space_generates_safe_candidate() -> None:
         n=1,
         mode="grid",
         created_at_utc="2026-06-04T00:00:00+00:00",
+        cfg=SimpleNamespace(PAPER_EXACT_TRADE_SIZE_ENABLED=False),
     )[0]
 
     assert candidate["live_allowed"] is False

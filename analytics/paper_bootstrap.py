@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import collections
 import datetime as dt
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from analytics.risk_guards import evaluate_pre_entry_risk
 from analytics.report_utils import (
     address_of,
     boolish,
@@ -35,6 +37,7 @@ class PaperBootstrapDecision:
     hard_failures: tuple[str, ...] = ()
     risk_notes: tuple[str, ...] = ()
     model_cold: bool = False
+    require_route: bool = True
 
 
 def _first(row: dict[str, Any], *keys: str) -> Any:
@@ -74,6 +77,18 @@ def _bool_cfg(cfg: Any, name: str, default: bool) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _observed_bool(value: Any) -> bool | None:
+    """Parse an explicitly observed boolean without treating unknown text as false."""
+    if value is None:
+        return None
+    if isinstance(value, (bool, int, float)):
+        return bool(value) if value in (0, 1) else None
+    raw = str(value).strip().lower()
+    if raw not in {"1", "true", "yes", "y", "on", "0", "false", "no", "n", "off"}:
+        return None
+    return boolish(value, False)
 
 
 def _cap_reached(count: int, cap: int) -> bool:
@@ -121,15 +136,26 @@ def _hard_failures(row: dict[str, Any], *, cfg: Any) -> tuple[str, ...]:
         False,
     ):
         failures.append("toxic_initial_sell_pressure")
-    if _bool_cfg(cfg, "PAPER_BOOTSTRAP_BLOCK_CLUSTER_BAD", False) and (
-        "cluster_bad" in reason_text or boolish(_first(row, "cluster_bad", "helius_cluster_bad"), False)
-    ):
-        failures.append("cluster_bad")
+    if _bool_cfg(cfg, "PAPER_BOOTSTRAP_BLOCK_CLUSTER_BAD", False):
+        cluster_bad = _observed_bool(_first(row, "cluster_bad", "helius_cluster_bad"))
+        if "cluster_bad" in reason_text or cluster_bad is True:
+            failures.append("cluster_bad")
+        elif cluster_bad is None:
+            failures.append("cluster_status_unknown")
     if _activity_score(row) <= 0.0:
         failures.append("no_activity_signal")
 
     max_impact = _float_cfg(cfg, "PAPER_BOOTSTRAP_MAX_PRICE_IMPACT_PCT", 40.0)
-    price_impact = fnum(_first(row, "price_impact_pct", "buy_price_impact_pct"), 0.0)
+    price_impact = fnum(
+        _first(
+            row,
+            "price_impact_pct",
+            "buy_price_impact_pct",
+            "route_price_impact_pct",
+            "jupiter_price_impact_pct",
+        ),
+        0.0,
+    )
     if max_impact > 0 and price_impact > max_impact:
         failures.append("price_impact_too_high")
 
@@ -157,24 +183,135 @@ def _risk_notes(row: dict[str, Any]) -> tuple[str, ...]:
 
 
 def _field_present(row: dict[str, Any], *keys: str) -> bool:
-    return _first(row, *keys) is not None
+    value = _first(row, *keys)
+    try:
+        return value is not None and math.isfinite(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
 
 
-def _quality_failures(row: dict[str, Any], *, cfg: Any) -> tuple[str, ...]:
+def _timestamp_minutes_ago(value: Any) -> float | None:
+    parsed: dt.datetime | None = None
+    if isinstance(value, dt.datetime):
+        parsed = value
+    elif isinstance(value, (int, float)):
+        raw = float(value)
+        if raw <= 0:
+            return None
+        if raw > 10_000_000_000:
+            raw /= 1000.0
+        try:
+            parsed = dt.datetime.fromtimestamp(raw, tz=dt.timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    elif isinstance(value, str) and value.strip():
+        raw = value.strip()
+        try:
+            if raw.replace(".", "", 1).isdigit():
+                return _timestamp_minutes_ago(float(raw))
+            parsed = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    now = dt.datetime.now(dt.timezone.utc)
+    age = (now - parsed.astimezone(dt.timezone.utc)).total_seconds() / 60.0
+    return age if age >= 0 else None
+
+
+def _candidate_age_minutes(row: dict[str, Any]) -> float | None:
+    timestamp_age = _timestamp_minutes_ago(
+        _first(
+            row,
+            "created_at",
+            "createdAt",
+            "created",
+            "createdAtUtc",
+            "pairCreatedAt",
+            "pair_created_at",
+            "pairCreatedAtMs",
+        )
+    )
+    if timestamp_age is not None:
+        return timestamp_age
+    explicit = _first(row, "age_minutes", "age_min", "token_age_min")
+    if explicit is not None:
+        try:
+            value = float(explicit)
+            return value if math.isfinite(value) and value > 0.0 else None
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _queue_age_minutes(row: dict[str, Any]) -> float | None:
+    explicit = _first(row, "queue_age_minutes", "minutes_since_first_seen")
+    if explicit is not None:
+        try:
+            value = float(explicit)
+            return value if math.isfinite(value) and value >= 0.0 else None
+        except (TypeError, ValueError):
+            return None
+    first_seen = _first(row, "first_seen_epoch_s", "first_seen_at")
+    return _timestamp_minutes_ago(first_seen) if first_seen is not None else None
+
+
+def _quality_failures(
+    row: dict[str, Any],
+    *,
+    cfg: Any,
+    require_observed_route: bool = False,
+) -> tuple[str, ...]:
     if not _bool_cfg(cfg, "PAPER_BOOTSTRAP_QUALITY_GATES_ENABLED", True):
         return ()
 
     failures: list[str] = []
+    for label, keys in (
+        ("price", ("price_usd", "buy_price_usd")),
+        ("liquidity", ("liquidity_usd", "buy_liquidity_usd")),
+        ("mcap", ("market_cap_usd", "buy_market_cap_usd", "mcap")),
+        ("txns5m", ("txns_last_5m", "txns_5m", "buy_txns_last_5m")),
+        ("score", ("score_total", "entry_score_total")),
+    ):
+        value = _first(row, *keys)
+        if value is not None and (not _field_present(row, *keys) or float(value) < 0
+                                  or (label == "price" and float(value) == 0)):
+            failures.append(f"{label}_invalid")
+    if _bool_cfg(cfg, "PAPER_BOOTSTRAP_REQUIRE_PUMPSWAP", False):
+        dex_id = _norm(_first(row, "dex_id", "dexId", "dex", "venue"))
+        if dex_id != "pumpswap":
+            failures.append("not_pumpswap")
+
     if _bool_cfg(cfg, "PAPER_BOOTSTRAP_REQUIRE_ROUTE", True):
         route_value = _first(row, "has_jupiter_route", "route_ok", "route_available")
-        if route_value is not None and not boolish(route_value, False):
+        if (route_value is None and require_observed_route) or (
+            route_value is not None and _observed_bool(route_value) is not True
+        ):
             failures.append("no_jupiter_route")
 
-    if _bool_cfg(cfg, "PAPER_BOOTSTRAP_REQUIRE_REAL_LIQUIDITY", True) and boolish(
-        _first(row, "liquidity_is_proxy", "liquidity_usd_is_proxy", "buy_liquidity_is_proxy"),
-        False,
+    if _bool_cfg(cfg, "PAPER_BOOTSTRAP_REQUIRE_REAL_LIQUIDITY", True):
+        liquidity_is_proxy = _observed_bool(
+            _first(row, "liquidity_is_proxy", "liquidity_usd_is_proxy", "buy_liquidity_is_proxy")
+        )
+        if liquidity_is_proxy is None:
+            failures.append("liquidity_proxy_unknown")
+        elif liquidity_is_proxy:
+            failures.append("proxy_liquidity")
+
+    max_impact = _float_cfg(cfg, "PAPER_BOOTSTRAP_MAX_PRICE_IMPACT_PCT", 40.0)
+    if max_impact > 0 and not _field_present(
+        row,
+        "price_impact_pct",
+        "buy_price_impact_pct",
+        "route_price_impact_pct",
+        "jupiter_price_impact_pct",
     ):
-        failures.append("proxy_liquidity")
+        failures.append("price_impact_missing")
+
+    if not _field_present(row, "price_pct_5m", "buy_price_pct_5m", "price5m", "price_change_5m"):
+        failures.append("price5m_missing")
 
     min_liq = _float_cfg(cfg, "PAPER_BOOTSTRAP_MIN_LIQUIDITY_USD", 1_500.0)
     if min_liq > 0 and fnum(_first(row, "liquidity_usd", "buy_liquidity_usd"), 0.0) < min_liq:
@@ -191,6 +328,22 @@ def _quality_failures(row: dict[str, Any], *, cfg: Any) -> tuple[str, ...]:
     min_score = _int_cfg(cfg, "PAPER_BOOTSTRAP_MIN_SCORE_TOTAL", 30)
     if min_score > 0 and fnum(_first(row, "score_total", "entry_score_total"), 0.0) < min_score:
         failures.append("score_below_min")
+
+    max_age = _float_cfg(cfg, "PAPER_BOOTSTRAP_MAX_AGE_MIN", 0.0)
+    if max_age > 0:
+        age = _candidate_age_minutes(row)
+        if age is None:
+            failures.append("age_missing")
+        elif age > max_age:
+            failures.append("age_above_max")
+
+    max_queue_age = _float_cfg(cfg, "PAPER_BOOTSTRAP_MAX_QUEUE_AGE_MIN", 0.0)
+    if max_queue_age > 0:
+        queue_age = _queue_age_minutes(row)
+        if queue_age is None:
+            failures.append("queue_age_missing")
+        elif queue_age > max_queue_age:
+            failures.append("queue_age_above_max")
 
     max_missing = _int_cfg(cfg, "PAPER_BOOTSTRAP_MAX_SNAPSHOT_MISSING_FIELDS", 2)
     if max_missing >= 0:
@@ -223,6 +376,7 @@ def should_allow_paper_bootstrap(
     model_rows: int,
     trigger_stage: str,
     trigger_reason: str,
+    require_observed_route: bool = False,
     cfg: Any = CFG,
 ) -> PaperBootstrapDecision:
     amount = min(
@@ -250,6 +404,7 @@ def should_allow_paper_bootstrap(
             hard_failures=hard_failures,
             risk_notes=risk_notes,
             model_cold=bool(model_cold),
+            require_route=_bool_cfg(cfg, "PAPER_BOOTSTRAP_REQUIRE_ROUTE", True),
         )
 
     if not _bool_cfg(cfg, "PAPER_BOOTSTRAP_ENABLED", True):
@@ -259,9 +414,41 @@ def should_allow_paper_bootstrap(
     if _bool_cfg(cfg, "PAPER_BOOTSTRAP_REQUIRE_COLD_START", False) and not model_cold:
         return decision(False, "paper_bootstrap_cold_start_complete")
 
-    failures = _hard_failures(row, cfg=cfg) + _quality_failures(row, cfg=cfg)
+    failures = _hard_failures(row, cfg=cfg) + _quality_failures(
+        row,
+        cfg=cfg,
+        require_observed_route=require_observed_route,
+    )
     if failures:
         return decision(False, "paper_bootstrap_hard_risk", hard_failures=failures)
+
+    pre_entry_risk = evaluate_pre_entry_risk(
+        row,
+        amount_sol=amount,
+        dry_run=dry_run,
+        live=live,
+        cfg=cfg,
+    )
+    if not pre_entry_risk.allowed:
+        return decision(
+            False,
+            "paper_bootstrap_pre_entry_risk",
+            hard_failures=pre_entry_risk.failures or pre_entry_risk.risk_flags,
+            risk_notes=(pre_entry_risk.reason,),
+        )
+    pre_entry_notes: tuple[str, ...] = ()
+    if pre_entry_risk.action == "downsize":
+        if _bool_cfg(cfg, "PAPER_BOOTSTRAP_REQUIRE_EXACT_AMOUNT", False):
+            return decision(
+                False,
+                "paper_bootstrap_exact_amount_required",
+                hard_failures=("pre_entry_downsize_required",),
+                risk_notes=(pre_entry_risk.reason,),
+            )
+        amount = float(pre_entry_risk.amount_sol)
+        pre_entry_notes = (pre_entry_risk.reason,)
+    elif pre_entry_risk.risk_flags:
+        pre_entry_notes = (pre_entry_risk.reason,)
 
     if _cap_reached(open_count, _int_cfg(cfg, "PAPER_BOOTSTRAP_MAX_OPEN", 0)):
         return decision(False, "paper_bootstrap_open_cap")
@@ -273,7 +460,7 @@ def should_allow_paper_bootstrap(
     if cooldown > 0 and seconds_since_last_buy < cooldown:
         return decision(False, "paper_bootstrap_cooldown")
 
-    return decision(True, POLICY_PAPER_BOOTSTRAP, risk_notes=_risk_notes(row))
+    return decision(True, POLICY_PAPER_BOOTSTRAP, risk_notes=_risk_notes(row) + pre_entry_notes)
 
 
 def apply_paper_bootstrap_context(row: dict[str, Any], decision: PaperBootstrapDecision) -> dict[str, Any]:
@@ -290,7 +477,7 @@ def apply_paper_bootstrap_context(row: dict[str, Any], decision: PaperBootstrapD
     row["paper_bootstrap_amount_sol"] = float(decision.amount_sol)
     row["paper_bootstrap_model_cold"] = int(bool(decision.model_cold))
     row["paper_bootstrap_risk_notes"] = ",".join(decision.risk_notes)
-    row["require_jupiter_for_buy"] = int(_bool_cfg(CFG, "PAPER_BOOTSTRAP_REQUIRE_ROUTE", True))
+    row["require_jupiter_for_buy"] = int(bool(decision.require_route))
     row["green_sniper_reason"] = POLICY_PAPER_BOOTSTRAP
     row["entry_reason"] = POLICY_PAPER_BOOTSTRAP
     row["sniper_research_subprofile_reason"] = POLICY_PAPER_BOOTSTRAP
@@ -365,7 +552,11 @@ def build_paper_bootstrap_report(root: Path | None = None) -> dict[str, Any]:
             "require_cold_start": _bool_cfg(CFG, "PAPER_BOOTSTRAP_REQUIRE_COLD_START", False),
             "quality_gates_enabled": _bool_cfg(CFG, "PAPER_BOOTSTRAP_QUALITY_GATES_ENABLED", True),
             "require_route": _bool_cfg(CFG, "PAPER_BOOTSTRAP_REQUIRE_ROUTE", True),
+            "require_pumpswap": _bool_cfg(CFG, "PAPER_BOOTSTRAP_REQUIRE_PUMPSWAP", False),
             "require_real_liquidity": _bool_cfg(CFG, "PAPER_BOOTSTRAP_REQUIRE_REAL_LIQUIDITY", True),
+            "require_exact_amount": _bool_cfg(CFG, "PAPER_BOOTSTRAP_REQUIRE_EXACT_AMOUNT", False),
+            "max_age_min": _float_cfg(CFG, "PAPER_BOOTSTRAP_MAX_AGE_MIN", 0.0),
+            "max_queue_age_min": _float_cfg(CFG, "PAPER_BOOTSTRAP_MAX_QUEUE_AGE_MIN", 0.0),
             "min_liquidity_usd": _float_cfg(CFG, "PAPER_BOOTSTRAP_MIN_LIQUIDITY_USD", 1_500.0),
             "min_market_cap_usd": _float_cfg(CFG, "PAPER_BOOTSTRAP_MIN_MARKET_CAP_USD", 2_000.0),
             "min_txns_5m": _int_cfg(CFG, "PAPER_BOOTSTRAP_MIN_TXNS_5M", 25),
