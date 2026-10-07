@@ -151,6 +151,41 @@ def _plan_id(plan: dict[str, Any]) -> str:
     return evaluator.plan_identity(plan)
 
 
+def incumbent_neighbors(cfg: Any, parameters: dict[str, float]) -> list[tuple[str, dict[str, float]]]:
+    """Predeclared adjacent complete profiles, including revalidation/reset.
+
+    There is one active component selection in this transport. A different
+    component cannot replace it using outcomes from an incomparable gate.
+    """
+    gate = policy.THRESHOLDS[next(iter(parameters))].gate
+    candidates = [dict(parameters)]
+    for key in sorted(parameters):
+        reset = dict(parameters)
+        reset.pop(key)
+        candidates.append(reset)
+        rule = policy.THRESHOLDS[key]
+        for delta in (-rule.max_step, rule.max_step):
+            neighbor = dict(parameters)
+            value = neighbor[key] + delta
+            if value == policy.number(getattr(cfg, key)):
+                neighbor.pop(key)
+            else:
+                neighbor[key] = value
+            candidates.append(neighbor)
+    candidates.extend(values for component, values in proposals(cfg) if component == gate)
+    seen, result = set(), []
+    for candidate in candidates:
+        try:
+            checked = policy.validate_transition(cfg, parameters, candidate, gate=gate)
+            identity = policy.digest(checked)
+            if identity not in seen:
+                seen.add(identity)
+                result.append((gate, checked))
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return result
+
+
 def _plan(root: Path, cfg: Any, ctx: dict[str, Any], gate: str, stamp: dt.datetime) -> tuple[str, dict[str, Any]] | None:
     base = directory(root)
     pointer_path = base / "open_plan.json"
@@ -167,7 +202,15 @@ def _plan(root: Path, cfg: Any, ctx: dict[str, Any], gate: str, stamp: dt.dateti
                 or plan["configured_hash"] != policy.configured_hash(cfg, plan["gate"])):
             return None
         return (pointer["plan_id"], plan) if plan["gate"] == gate else None
-    choices = proposals(cfg)
+    active_path = base / "active_policy.json"
+    active = storage.read(active_path)
+    if active_path.exists() and (not active or active.get("version") != evaluator.VERSION
+            or active.get("role") != evaluator.ROLE
+            or re.fullmatch(r"[0-9a-f]{20}", str(active.get("revision"))) is None):
+        return None
+    selected = evaluator.load_selection(cfg, root=root, now=stamp)
+    incumbent = dict(selected["parameters"]) if selected else {}
+    choices = incumbent_neighbors(cfg, incumbent) if incumbent else proposals(cfg)
     if not choices:
         return None
     cursor_path = base / "proposal_cursor.json"
@@ -184,7 +227,18 @@ def _plan(root: Path, cfg: Any, ctx: dict[str, Any], gate: str, stamp: dt.dateti
     from research_loop.runner_forward import entry_policy
     exit_configuration = exit_rule_id()
     frozen_runner = entry_policy(cfg, root=root, now=stamp)
+    if selected:
+        if (active.get("parameters") != incumbent or active.get("revision") != selected["revision"]
+                or active.get("evidence_sha256") != selected["evidence_sha256"]):
+            return None
+        history_path = base / "history" / f"{active['revision']}.json"
+        if history_path.exists() and storage.read(history_path) != active:
+            return None
+        storage.write(history_path, active)  # Original checked predecessor, before future outcomes.
     plan = {"version": evaluator.VERSION, "role": evaluator.ROLE, "collector_version": COLLECTOR,
+        "comparison_version": evaluator.COMPARISON_VERSION,
+        "incumbent": {"parameters": incumbent, "manifest": copy.deepcopy(active) if selected else None},
+        "active_manifest_sha256_at_plan": policy.digest(active) if active else None,
         "gate": gate, "parameters": parameters, "configured_hash": policy.configured_hash(cfg, gate),
         "run_id": ctx["run_id"], "run_started_at": ctx["run_started_at"], "planned_at": stamp.isoformat(),
         "cohort_started_at": stamp.isoformat(), "cohort_ends_at": (stamp + dt.timedelta(hours=24)).isoformat(),
@@ -245,10 +299,11 @@ def capture_gate(gate: str, row: dict[str, Any], cfg: Any, *, now: dt.datetime |
                 or len(active_tokens(root) | runner_forward.active_tokens(root)) >= 128):
             return None  # Predeclared sample/capacity selection, not outcome censoring.
         with suppress_capture(), policy.baseline_scope():
-            baseline = evaluator.gate_decision(gate, features, cfg)
-            with policy.parameter_scope(cfg, plan["parameters"], revision="prospective_challenger"):
-                challenger = evaluator.gate_decision(gate, features, cfg)
-        if baseline is None or challenger is None:
+            incumbent_parameters = evaluator.incumbent_profile(plan, cfg)
+            baseline = evaluator.profile_decision(gate, features, cfg, {})
+            challenger = evaluator.profile_decision(gate, features, cfg, plan["parameters"])
+            incumbent_buy = evaluator.profile_decision(gate, features, cfg, incumbent_parameters)
+        if baseline is None or challenger is None or incumbent_buy is None:
             return None
         case_id = policy.digest([plan_id, mint, stamp.isoformat(), features])
         if not storage.claim(root, "entry_gate", other_pending=runner_forward.has_quote_demand(root), now=stamp, request_id=case_id):
@@ -260,10 +315,11 @@ def capture_gate(gate: str, row: dict[str, Any], cfg: Any, *, now: dt.datetime |
         storage.write(base / "journals" / f"{plan_id}.json", journal)  # Registration before case/quote.
         case = {"collector_version": COLLECTOR, "plan_id": plan_id, "case_id": case_id, "token": mint,
             "decision_at": stamp.isoformat(), "features": features, "baseline_buy": baseline, "challenger_buy": challenger,
-            "exit_rule_id": plan["exit_rule_id"], "cash_rule": "one_common_frozen_entry_and_exit_for_both_gate_arms",
-            "cash": None, "outcomes_complete": not (baseline or challenger), "observation_count": 0,
+            "incumbent_buy": incumbent_buy,
+            "exit_rule_id": plan["exit_rule_id"], "cash_rule": "one_common_frozen_entry_and_exit_for_all_gate_arms",
+            "cash": None, "outcomes_complete": not (baseline or challenger or incumbent_buy), "observation_count": 0,
             "observation_gap_limit_exceeded": False, "last_observed_at": stamp.isoformat()}
-        state = "active" if baseline or challenger else "closed"
+        state = "active" if baseline or challenger or incumbent_buy else "closed"
         storage.write(base / state / f"{case_id}.json", case)
         if state == "active" and context["submit_tasks"]:
             task = asyncio.get_running_loop().create_task(fill_entry(case_id, root=root, cfg=cfg))
@@ -475,27 +531,41 @@ def evaluate_plan(root: Path | str, cfg: Any, plan_id: str, *, now: dt.datetime)
     previous = storage.read(previous_path)
     if previous_path.exists() and (not previous or re.fullmatch(r"[0-9a-f]{20}", str(previous.get("revision"))) is None):
         return {"status": "retained_corrupt_manifest", "accepted": False}
-    if report.get("rollback_to_configured") and previous and previous.get("parameters") == plan["parameters"]:
+    if getattr(cfg, "PAPER_ENTRY_GATE_AUTO_APPLY", False) is not True:
+        return {"status": "evaluated_auto_apply_disabled", "accepted": report["accepted"], "evaluation": name}
+    if plan.get("comparison_version"):
+        current_identity = policy.digest(previous) if previous else None
+        if current_identity != plan["active_manifest_sha256_at_plan"]:
+            return {"status": "retained_changed_incumbent", "accepted": False, "evaluation": name}
+    if report["accepted"]:
+        if previous and not plan.get("comparison_version"):
+            return {"status": "retained_incumbent_requires_direct_comparison"}
+        revision = policy.digest([plan_id, now.isoformat()])[:20]
+        manifest = {"version": evaluator.VERSION, "role": evaluator.ROLE, "revision": revision,
+            "selected_at": now.isoformat(), "expires_at": (now + dt.timedelta(days=7)).isoformat(),
+            "evidence_name": name, "evidence_sha256": policy.digest(bundle), "parameters": report["parameters"],
+            "action": report["selection_action"], "previous_manifest_sha256": policy.digest(previous) if previous else None}
+        if previous:
+            history_path = base / "history" / f"{previous['revision']}.json"
+            if history_path.exists() and storage.read(history_path) != previous:
+                return {"status": "retained_conflicting_history", "accepted": False, "evaluation": name}
+            storage.write(history_path, previous)
+        storage.write(base / "history" / f"{revision}.json", manifest)
+        storage.write(base / "active_policy.json", manifest)
+        return {"status": "selected", "action": manifest["action"], "accepted": True, "evaluation": name}
+    rollback_parameters = report.get("incumbent_parameters") if plan.get("comparison_version") else plan["parameters"]
+    if report.get("rollback_to_configured") and previous and previous.get("parameters") == rollback_parameters:
         retirement = policy.digest([previous, name])
         storage.write(base / "rollbacks" / f"{retirement}.json", {"action": "rollback_to_configured",
             "previous_manifest": previous, "evidence_name": name, "evidence_sha256": policy.digest(bundle)})
         destination = base / "history" / f"{previous['revision']}_retired.json"
         if not destination.resolve().is_relative_to(base):
             return {"status": "invalid_history_scope", "accepted": False}
+        if destination.exists() and storage.read(destination) != previous:
+            return {"status": "retained_conflicting_history", "accepted": False, "evaluation": name}
         destination.parent.mkdir(parents=True, exist_ok=True)
         os.replace(base / "active_policy.json", destination)
         return {"status": "rolled_back_to_configured", "evaluation": name}
-    if report["accepted"] and getattr(cfg, "PAPER_ENTRY_GATE_AUTO_APPLY", False) is True:
-        if previous and previous.get("parameters") != report["parameters"]:
-            return {"status": "retained_incumbent_requires_direct_comparison"}
-        revision = policy.digest([plan_id, now.isoformat()])[:20]
-        manifest = {"version": evaluator.VERSION, "role": evaluator.ROLE, "revision": revision,
-            "selected_at": now.isoformat(), "expires_at": (now + dt.timedelta(days=7)).isoformat(),
-            "evidence_name": name, "evidence_sha256": policy.digest(bundle), "parameters": report["parameters"]}
-        if previous:
-            storage.write(base / "history" / f"{previous['revision']}.json", previous)
-        storage.write(base / "history" / f"{revision}.json", manifest)
-        storage.write(base / "active_policy.json", manifest)
     return {"status": "evaluated", "accepted": report["accepted"], "evaluation": name}
 
 

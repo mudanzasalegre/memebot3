@@ -128,6 +128,25 @@ def test_unsafe_inert_nonfinite_or_unbounded_parameters_are_rejected(parameters)
         policy.validate_parameters(config(), parameters)
 
 
+@pytest.mark.parametrize("before,after", [
+    ({"RESEARCH_RANK_CANARY_MIN_SCORE": 60}, {"RESEARCH_RANK_CANARY_MIN_SCORE": 70}),
+    ({"RESEARCH_RANK_CANARY_MIN_SCORE": 60, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_TXNS_5M": 200},
+     {"RESEARCH_RANK_CANARY_PRIORITY_MAX_PRICE5M": 850, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MAX_PRICE5M": 170}),
+    ({"RESEARCH_RANK_CANARY_MIN_SCORE": 60}, {"LATE_MOMENTUM_WATCH_MIN_PRICE5M": 250}),
+])
+def test_complete_profile_transition_cannot_hide_large_or_multi_gate_changes(before, after):
+    with pytest.raises((ValueError, TypeError, AttributeError)):
+        policy.validate_transition(config(), before, after, gate="rank_canary")
+
+
+def test_transition_counts_reset_to_configured_as_an_effective_change():
+    cfg = config()
+    before = {"RESEARCH_RANK_CANARY_MIN_SCORE": 60}
+    assert policy.validate_transition(cfg, before, {}, gate="rank_canary") == {}
+    with pytest.raises(ValueError):
+        policy.validate_parameters(cfg, {})  # Empty is not an activated override.
+
+
 def test_scoped_threshold_is_real_immutable_and_does_not_leak():
     cfg = config()
     token = cohort(cfg)[1][0]["features"]

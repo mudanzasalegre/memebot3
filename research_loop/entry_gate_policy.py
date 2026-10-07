@@ -22,6 +22,7 @@ from runtime import paper_entry_policy as policy
 
 VERSION = "paired_paper_entry_gate_v1"
 ROLE = "paper_entry_gate_only"
+COMPARISON_VERSION = "configured_incumbent_challenger_v1"
 MIN_TOKENS = 50
 MAX_CASES = 128
 MAX_AGE_HOURS = 48
@@ -44,6 +45,44 @@ def gate_decision(gate: str, features: dict[str, Any], cfg: Any) -> bool | None:
     from research_loop.entry_gate_forward import suppress_capture
     with suppress_capture():
         return _gate_decision(gate, features, cfg)
+
+
+def profile_decision(gate: str, features: dict[str, Any], cfg: Any, parameters: dict[str, Any]) -> bool | None:
+    with policy.baseline_scope():
+        if not parameters:
+            return gate_decision(gate, features, cfg)
+        with policy.parameter_scope(cfg, parameters, revision="frozen_counterfactual"):
+            return gate_decision(gate, features, cfg)
+
+
+def incumbent_profile(plan: dict[str, Any], cfg: Any) -> dict[str, float]:
+    """The incumbent is registered before outcomes, never chosen afterwards."""
+    if not plan.get("comparison_version"):
+        return {}  # Prior first-selection evidence compared with configured settings.
+    if plan["comparison_version"] != COMPARISON_VERSION:
+        raise ValueError("unknown admission comparison")
+    snapshot = plan["incumbent"]
+    parameters = snapshot["parameters"]
+    if not isinstance(parameters, dict):
+        raise ValueError("complete incumbent profile required")
+    checked = policy.validate_parameters(cfg, parameters, gate=plan["gate"]) if parameters else {}
+    manifest = snapshot["manifest"]
+    expected = plan["active_manifest_sha256_at_plan"]
+    if expected is not None and re.fullmatch(r"[0-9a-f]{64}", str(expected)) is None:
+        raise ValueError("invalid predeclared active manifest identity")
+    if manifest is None:
+        if checked:
+            raise ValueError("unproven incumbent parameters")
+        return checked
+    planned, selected, expires = _time(plan["planned_at"]), _time(manifest["selected_at"]), _time(manifest["expires_at"])
+    if (not checked or manifest.get("parameters") != checked or policy.digest(manifest) != expected
+            or manifest.get("version") != VERSION or manifest.get("role") != ROLE
+            or re.fullmatch(r"[0-9a-f]{20}", str(manifest.get("revision"))) is None
+            or not selected <= planned < expires or expires - selected > dt.timedelta(days=7)
+            or re.fullmatch(r"[0-9a-f]{64}\.json", str(manifest.get("evidence_name"))) is None
+            or re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("evidence_sha256"))) is None):
+        raise ValueError("incompatible or nonprospective incumbent")
+    return checked
 
 
 def _gate_decision(gate: str, features: dict[str, Any], cfg: Any) -> bool | None:
@@ -107,7 +146,8 @@ def _entry_cash(case: dict[str, Any], plan: dict[str, Any], now: dt.datetime) ->
     close = _time(terminal["closed_at"])
     if (case.get("observation_gap_limit_exceeded") is not False or case.get("observation_count", 0) < 2
             or case.get("exit_rule_id") != plan["exit_rule_id"] or close > now
-            or case.get("cash_rule") != "one_common_frozen_entry_and_exit_for_both_gate_arms"):
+            or case.get("cash_rule") != ("one_common_frozen_entry_and_exit_for_all_gate_arms"
+                if plan.get("comparison_version") else "one_common_frozen_entry_and_exit_for_both_gate_arms")):
         raise ValueError("incomplete or incomparable counterfactual coverage")
     cash_case = {"prefix": prefix, "registered_at": prefix["opened_at"],
                  "cohort_ends_at": plan["cohort_ends_at"]}
@@ -125,7 +165,9 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
         if getattr(cfg, "DRY_RUN", False) is not True:
             raise ValueError("paper-only component")
         gate = plan["gate"]
-        candidate = policy.validate_parameters(cfg, plan["parameters"], gate=gate)
+        incumbent_parameters = incumbent_profile(plan, cfg)
+        candidate = (policy.validate_transition(cfg, incumbent_parameters, plan["parameters"], gate=gate)
+            if plan.get("comparison_version") else policy.validate_parameters(cfg, plan["parameters"], gate=gate))
         start, end, planned, run_start = (_time(plan[k]) for k in (
             "cohort_started_at", "cohort_ends_at", "planned_at", "run_started_at"))
         if (plan.get("version") != VERSION or plan.get("role") != ROLE or plan.get("test_event")
@@ -168,7 +210,8 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
                 raise ValueError("incomplete full-window collector uptime")
             collector_validated = True
         ids, tokens, paired_sol, paired_usd, selected_sol, selected_usd, closes = [], set(), [], [], [], [], []
-        changed = 0
+        incumbent_delta_sol, incumbent_delta_usd, direct_sol, direct_usd = [], [], [], []
+        changed = changed_incumbent = changed_direct = 0
         for case in cases:
             from utils.solana_addr import is_valid_base58_32
             token, decision_at = case["token"], _time(case["decision_at"])
@@ -182,47 +225,78 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
                 raise ValueError("altered predecision features")
             ids.append(expected_id)
             tokens.add(token)
-            with policy.baseline_scope():
-                baseline = gate_decision(gate, case["features"], cfg)
-                with policy.parameter_scope(cfg, candidate, revision="counterfactual"):
-                    challenger = gate_decision(gate, case["features"], cfg)
-            if (baseline is None or challenger is None or case.get("baseline_buy") is not baseline
-                    or case.get("challenger_buy") is not challenger):
+            baseline = profile_decision(gate, case["features"], cfg, {})
+            challenger = profile_decision(gate, case["features"], cfg, candidate)
+            incumbent = profile_decision(gate, case["features"], cfg, incumbent_parameters)
+            if (baseline is None or challenger is None or incumbent is None or case.get("baseline_buy") is not baseline
+                    or case.get("challenger_buy") is not challenger
+                    or (plan.get("comparison_version") and case.get("incumbent_buy") is not incumbent)):
                 raise ValueError("gate decision or component applicability mismatch")
-            if baseline or challenger:
+            if baseline or challenger or incumbent:
                 sol, usd = _entry_cash(case, plan, stamp)
                 closes.append(_time(case["cash"]["terminal"]["closed_at"]))
             else:
                 if case.get("cash") is not None:
-                    raise ValueError("both arms skip but cash was attributed")
+                    raise ValueError("all arms skip but cash was attributed")
                 sol = usd = 0.0  # Explicit policy skip, never a missing buy/quote.
             changed += baseline != challenger
+            changed_incumbent += baseline != incumbent
+            changed_direct += incumbent != challenger
             paired_sol.append(sol * (int(challenger) - int(baseline)))
             paired_usd.append(usd * (int(challenger) - int(baseline)))
+            incumbent_delta_sol.append(sol * (int(incumbent) - int(baseline)))
+            incumbent_delta_usd.append(usd * (int(incumbent) - int(baseline)))
+            direct_sol.append(sol * (int(challenger) - int(incumbent)))
+            direct_usd.append(usd * (int(challenger) - int(incumbent)))
             selected_sol.append(sol if challenger else 0.0)
             selected_usd.append(usd if challenger else 0.0)
-        if (sorted(ids) != sorted(plan["case_ids"]) or changed < 10 or not closes
+        if (sorted(ids) != sorted(plan["case_ids"]) or max(changed, changed_incumbent, changed_direct) < 10 or not closes
                 or (not collector_validated and max(closes) - min(_time(c["decision_at"]) for c in cases) < dt.timedelta(hours=24))
                 or stamp - max(closes) > dt.timedelta(hours=MAX_AGE_HOURS)):
             raise ValueError("missing population, effective differences, duration or freshness")
         rng = random.Random(1907)
-        boot_sol, boot_usd = [], []
+        boot_sol, boot_usd, boot_direct_sol, boot_direct_usd, boot_incumbent_sol, boot_incumbent_usd = [], [], [], [], [], []
         for _ in range(2000):
             sampled = [rng.randrange(len(cases)) for _ in cases]
             boot_sol.append(statistics.fmean(paired_sol[i] for i in sampled))
             boot_usd.append(statistics.fmean(paired_usd[i] for i in sampled))
-        # One predeclared challenger; 2.5% lower marginal bounds for both currencies.
-        lower_sol, lower_usd = sorted(boot_sol)[49], sorted(boot_usd)[49]
+            boot_direct_sol.append(statistics.fmean(direct_sol[i] for i in sampled))
+            boot_direct_usd.append(statistics.fmean(direct_usd[i] for i in sampled))
+            boot_incumbent_sol.append(statistics.fmean(incumbent_delta_sol[i] for i in sampled))
+            boot_incumbent_usd.append(statistics.fmean(incumbent_delta_usd[i] for i in sampled))
+        successor = bool(incumbent_parameters) and incumbent_parameters != candidate
+        # Four simultaneous lower comparisons for successors; two for first
+        # selection or revalidation. These diagnostics are not a profit promise.
+        bound = 24 if successor else 49
+        lower_sol, lower_usd = sorted(boot_sol)[bound], sorted(boot_usd)[bound]
         upper_sol, upper_usd = sorted(boot_sol)[-50], sorted(boot_usd)[-50]
+        direct_lower_sol, direct_lower_usd = sorted(boot_direct_sol)[bound], sorted(boot_direct_usd)[bound]
+        incumbent_upper_sol, incumbent_upper_usd = sorted(boot_incumbent_sol)[-50], sorted(boot_incumbent_usd)[-50]
         baseline_sol = sum(s - d for s, d in zip(selected_sol, paired_sol))
         baseline_usd = sum(s - d for s, d in zip(selected_usd, paired_usd))
-        accepted = lower_sol > 0 and lower_usd > 0 and sum(selected_sol) > 0 and sum(selected_usd) > 0
+        accepted = (changed >= 10 and lower_sol > 0 and lower_usd > 0 and sum(selected_sol) > 0 and sum(selected_usd) > 0
+            and (not successor or (changed_direct >= 10 and direct_lower_sol > 0 and direct_lower_usd > 0)))
+        rollback = (changed_incumbent >= 10 and incumbent_upper_sol < 0 and incumbent_upper_usd < 0
+                    and baseline_sol > 0 and baseline_usd > 0)
+        if not plan.get("comparison_version"):
+            rollback = upper_sol < 0 and upper_usd < 0 and baseline_sol > 0 and baseline_usd > 0
         result.update(accepted=accepted, reasons=[] if accepted else ["no_positive_costed_paired_improvement"],
             plan_id=plan_id, gate=gate, parameters=candidate, unique_tokens=len(tokens), changed_decisions=changed,
             net_pnl_sol=sum(selected_sol), net_pnl_usd=sum(selected_usd),
             paired_lower_mean_sol=lower_sol, paired_lower_mean_usd=lower_usd,
             paired_upper_mean_sol=upper_sol, paired_upper_mean_usd=upper_usd,
-            rollback_to_configured=(upper_sol < 0 and upper_usd < 0 and baseline_sol > 0 and baseline_usd > 0),
+            comparison_version=plan.get("comparison_version"), incumbent_parameters=incumbent_parameters,
+            changed_incumbent_vs_configured=changed_incumbent, changed_challenger_vs_incumbent=changed_direct,
+            challenger_vs_incumbent_lower_mean_sol=direct_lower_sol,
+            challenger_vs_incumbent_lower_mean_usd=direct_lower_usd,
+            incumbent_vs_configured_upper_mean_sol=incumbent_upper_sol,
+            incumbent_vs_configured_upper_mean_usd=incumbent_upper_usd,
+            incumbent_net_pnl_sol=baseline_sol + sum(incumbent_delta_sol),
+            incumbent_net_pnl_usd=baseline_usd + sum(incumbent_delta_usd),
+            effective_transition_changes=len({k for k in incumbent_parameters.keys() | candidate.keys()
+                if incumbent_parameters.get(k, getattr(cfg, k)) != candidate.get(k, getattr(cfg, k))}),
+            selection_action="successor" if successor else ("revalidation" if incumbent_parameters else "first_selection"),
+            rollback_to_configured=rollback,
             generated_at=stamp.isoformat(),
             case_evidence=[{"case_id": case["case_id"], "sha256": policy.digest(case)} for case in cases])
     except (KeyError, TypeError, ValueError, OverflowError, AttributeError, ZeroDivisionError):
@@ -241,6 +315,59 @@ def _read(path: Path, *, inside: Path) -> dict[str, Any]:
     return value
 
 
+def _manifest_times(manifest: dict[str, Any]) -> tuple[dt.datetime, dt.datetime]:
+    selected, expires = _time(manifest["selected_at"]), _time(manifest["expires_at"])
+    if (manifest.get("version") != VERSION or manifest.get("role") != ROLE
+            or not dt.timedelta(0) < expires - selected <= dt.timedelta(days=7)
+            or re.fullmatch(r"[0-9a-f]{20}", str(manifest.get("revision"))) is None):
+        raise ValueError("invalid paper manifest")
+    return selected, expires
+
+
+def _evidence_sources(directory: Path, manifest: dict[str, Any]):
+    """Bounded original evidence, not a scalar accepted flag or recursive chain."""
+    _manifest_times(manifest)
+    name = str(manifest["evidence_name"])
+    if re.fullmatch(r"[0-9a-f]{64}\.json", name) is None:
+        raise ValueError("invalid evidence name")
+    bundle = _read(directory / "evaluations" / name, inside=directory)
+    if policy.digest(bundle) != manifest.get("evidence_sha256"):
+        raise ValueError("changed evidence bundle")
+    plan = bundle["plan"]
+    from research_loop.entry_gate_forward import COLLECTOR, exit_rule_id
+    if plan.get("collector_version") != COLLECTOR or plan.get("exit_configuration_id") != exit_rule_id():
+        raise ValueError("incompatible collector or exits")
+    identity = plan_identity(plan)
+    original = _read(directory / "plans" / f"{identity}.json", inside=directory)
+    journal = _read(directory / "journals" / f"{identity}.json", inside=directory)
+    beats = _read(directory / "heartbeats" / f"{identity}.json", inside=directory)
+    if (plan_identity(original) != identity or original.get("enrollment_complete") is True
+            or journal.get("events") != plan.get("enrollment_journal")
+            or beats.get("times") != plan.get("enrollment_heartbeats")):
+        raise ValueError("changed original enrollment")
+    if len(plan["case_ids"]) != len(set(plan["case_ids"])) or not MIN_TOKENS <= len(plan["case_ids"]) <= MAX_CASES:
+        raise ValueError("invalid original population")
+    paths = []
+    for case_id in plan["case_ids"]:
+        if re.fullmatch(r"[0-9a-f]{64}", str(case_id)) is None:
+            raise ValueError("invalid case path")
+        path = directory / "closed" / f"{case_id}.json"
+        if not path.resolve().is_relative_to(directory):
+            raise ValueError("case path escapes research directory")
+        metadata = path.stat()
+        paths.append((path, metadata.st_mtime_ns, metadata.st_size))
+    return bundle, paths
+
+
+def _replay_manifest(cfg: Any, directory: Path, manifest: dict[str, Any], bundle: dict[str, Any], paths):
+    cases = [_read(path, inside=directory) for path, _, _ in paths]
+    verified = compare_cohort(bundle["plan"], cases, cfg, now=_time(manifest["selected_at"]))
+    if (not verified["accepted"] or verified != bundle["evaluation"]
+            or manifest.get("parameters") != verified["parameters"]):
+        raise ValueError("manifest has no matching complete accepted cohort")
+    return verified
+
+
 def load_selection(cfg: Any, *, root: Path | str, now: dt.datetime | None = None) -> dict[str, Any] | None:
     """Recheck the original closed cohort; generic profile exports cannot apply."""
     try:
@@ -253,52 +380,32 @@ def load_selection(cfg: Any, *, root: Path | str, now: dt.datetime | None = None
         if not directory.is_relative_to(project):
             return None
         manifest = _read(directory / "active_policy.json", inside=directory)
-        selected_at, expires = _time(manifest["selected_at"]), _time(manifest["expires_at"])
-        if (manifest.get("version") != VERSION or manifest.get("role") != ROLE
-                or not selected_at <= stamp < expires
-                or expires - selected_at > dt.timedelta(days=7)
-                or re.fullmatch(r"[0-9a-f]{20}", str(manifest.get("revision"))) is None):
+        selected_at, expires = _manifest_times(manifest)
+        if not selected_at <= stamp < expires:
             return None
-        name = str(manifest["evidence_name"])
-        if re.fullmatch(r"[0-9a-f]{64}\.json", name) is None:
-            return None
-        bundle = _read(directory / "evaluations" / name, inside=directory)
-        if policy.digest(bundle) != manifest.get("evidence_sha256"):
-            return None
-        plan, cases = bundle["plan"], []
-        from research_loop.entry_gate_forward import COLLECTOR, exit_rule_id
-        if plan.get("collector_version") != COLLECTOR or plan.get("exit_configuration_id") != exit_rule_id():
-            return None
-        identity = plan_identity(plan)
-        original = _read(directory / "plans" / f"{identity}.json", inside=directory)
-        journal = _read(directory / "journals" / f"{identity}.json", inside=directory)
-        beats = _read(directory / "heartbeats" / f"{identity}.json", inside=directory)
-        if (plan_identity(original) != identity or original.get("enrollment_complete") is True
-                or journal.get("events") != plan.get("enrollment_journal")
-                or beats.get("times") != plan.get("enrollment_heartbeats")):
-            return None
-        if len(plan["case_ids"]) != len(set(plan["case_ids"])) or not MIN_TOKENS <= len(plan["case_ids"]) <= MAX_CASES:
-            return None
-        paths = []
-        for case_id in plan["case_ids"]:
-            if re.fullmatch(r"[0-9a-f]{64}", str(case_id)) is None:
+        bundle, paths = _evidence_sources(directory, manifest)
+        plan = bundle["plan"]
+        anchor = (plan.get("incumbent") or {}).get("manifest")
+        anchor_bundle, anchor_paths = None, []
+        if anchor is not None:
+            incumbent_profile(plan, cfg)
+            original_anchor = _read(directory / "history" / f"{anchor['revision']}.json", inside=directory)
+            if original_anchor != anchor:
                 return None
-            path = directory / "closed" / f"{case_id}.json"
-            metadata = path.stat()
-            paths.append((path, metadata.st_mtime_ns, metadata.st_size))
+            anchor_bundle, anchor_paths = _evidence_sources(directory, anchor)
         signature = policy.digest([manifest, bundle, policy.configured_hash(cfg, plan["gate"]),
-                                   [(str(path), mtime, size) for path, mtime, size in paths]])
+            anchor, anchor_bundle, [(str(path), mtime, size) for path, mtime, size in paths + anchor_paths]])
         cached = _VERIFIED_CACHE.get(str(directory))
         # Even unchanged metadata gets a full source recheck within five seconds.
         if cached and cached[0] == signature and 0 <= (stamp - _time(cached[1]["verified_at"])).total_seconds() < 5:
             return {k: v for k, v in cached[1].items() if k != "verified_at"}
-        for path, _, _ in paths:
-            case = _read(path, inside=directory)
-            cases.append(case)
-        verified = compare_cohort(plan, cases, cfg, now=selected_at)
-        if (not verified["accepted"] or verified != bundle["evaluation"]
-                or manifest.get("parameters") != verified["parameters"]):
-            return None
+        if anchor is not None:
+            _replay_manifest(cfg, directory, anchor, anchor_bundle, anchor_paths)
+        # Every candidate is independently checked against configured settings
+        # on its own fresh cohort, as well as the frozen immediate incumbent.
+        # Replaying arbitrarily many historic ancestors is not needed to prove
+        # that comparison and would create an unbounded entry-time workload.
+        verified = _replay_manifest(cfg, directory, manifest, bundle, paths)
         selection = {"parameters": verified["parameters"], "revision": manifest["revision"],
                      "evidence_sha256": manifest["evidence_sha256"]}
         if len(_VERIFIED_CACHE) >= 16:

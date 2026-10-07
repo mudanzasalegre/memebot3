@@ -1,0 +1,49 @@
+{
+  "status": "INCUMBENT_SUCCESSOR_SOFTWARE_VALIDATED_FORWARD_EVIDENCE_PENDING",
+  "full_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Checked automatic lifecycle for one active paper admission component; not simultaneous whole-bot optimization or an observed profitable run",
+  "implemented": {
+    "frozen_three_arm_plan": "Configured baseline, previously checked incumbent and predeclared challenger use the same prospectively sampled opportunities and one common costed virtual position. Incumbent parameters, original manifest identity and source history are registered before future quotes. An incumbent-only buy still needs quoted cash even when the other two arms skip",
+    "effective_transition": "Complete profiles remain inside the existing admission allowlist and original configured envelope. At most two effective same-component parameter changes are allowed between incumbent and challenger, including resets to configured values. Two individually valid opposite-end profiles cannot hide a double-sized jump or four changed fields",
+    "proposal_lifecycle": "An active incumbent supplies deterministic adjacent neighbors and fresh same-profile revalidation. A different component cannot replace it on incomparable gate outcomes. Expired selections revert to configured consumption and require newly settled evidence for replacement",
+    "paired_acceptance": "A successor must have positive selected net SOL and USD and improve against both configured and incumbent decisions on the same original full cohort. At least ten effective decision differences are required for each relevant comparison. Marginal lower bootstrap diagnostics use 1.25-percent tails across the four successor comparisons; first selection and revalidation retain two 2.5-percent marginal comparisons. These sample diagnostics do not establish future profitability or independent-token market risk",
+    "selection_revalidation_retirement": "Accepted successors or fresh revalidations preserve the original predecessor. A losing incumbent may be retired to configured values with fresh negative upper diagnostics and positive configured cash; a valid better successor takes precedence over that rollback. AUTO_APPLY=false blocks all automatic promotions and retirements",
+    "stale_work_and_replay": "A changed active manifest during enrollment prevents stale selection/retirement. Replaying an already selected cohort cannot renew its expiry. Legacy first-selection evidence cannot refresh an existing incumbent without a registered direct comparison. Conflicting original history is preserved rather than overwritten",
+    "actual_consumer_proof": "The guarded paper entry loader rechecks the new cohort and the immediate incumbent's original bundle, registration journal, full-window heartbeats and closed cash records. Missing or altered source history rejects. Work is bounded to current and immediate predecessor cohorts, not an unbounded recursive chain; every new accepted profile is independently checked against configured settings on its own fresh cohort",
+    "preserved_contracts": "Exact 0.1 SOL buys, common frozen exit rules, unlimited percentage upside with existing runner protection, shared secondary quote/market budgets, primary safety gates and live-disabled behavior remain unchanged. No production admission flag was made stricter in this stage"
+  },
+  "verification": {
+    "initial_extended_suite": "Five new scenarios failed because their expected child-threshold rejection ignored an enabled generic acceptance fallback. Inspected the real gate branches and corrected only the synthetic fixture configuration to exercise the child threshold; production configuration was not changed",
+    "focused_suite": "89 passed in 61.75s: entry collector, checked policy transport and shared coordinator",
+    "full_working_checkout": "1186 passed in 113.52s",
+    "full_publishing_checkout": "1186 passed in 111.85s without personal .env",
+    "local_preflight_both_checkouts": "PASS: configuration import, zero compilation errors, paper profile and seven empty-data report builders in each checkout",
+    "source_sync": "Seven reviewed source/evidence files synchronized with zero deletions. Personal .env, data, logs, runtime weights and dependencies excluded",
+    "qualification": "Isolated synthetic clocks, prices, raw quotes and cost scenarios through actual gate functions, collector, selector and guarded loader. No bot start, new financial run, runtime model training or realized wallet gain",
+    "python_runtime": "Existing D:/Dev/Python/memebot3/.venv interpreter for both checkouts; no new publishing dependency environment or personal .env",
+    "tests": ["tests/test_entry_gate_forward.py", "tests/test_paper_entry_policy.py", "tests/test_paired_forward.py"]
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "active_runtime_models_changed": false,
+    "runtime_model_training_started": false,
+    "runtime_cohort_created": false,
+    "active_entry_policy_created": false,
+    "shutdown_verification": "VERIFIED_OFF",
+    "shutdown_verified_at_utc": "2026-10-07T15:46:22.2934272Z",
+    "runtime_process_count_both_roots": 0,
+    "bot_locks_present_both_roots": 0,
+    "active_entry_policy_count_both_roots": 0,
+    "runtime_entry_plan_count_both_roots": 0,
+    "database_process_state": "stopped",
+    "database_retrain_state": "idle",
+    "database_reports_refresh_state": "idle"
+  },
+  "remaining_full_goal_requirements": [
+    "Complete independent multi-component selection composition, still-cached scanner/core-entry consumers and downstream capital/admission/execution constraints; this transport still has one active component profile",
+    "Complete architecture, freshness, provider failure paths and fresh rare-runner/risk/continuation learning validation across the actual system",
+    "Obtain separately authorized prospective complete-strategy closed evidence with executable quantities and defensible costs before any profitability or live-promotion claim"
+  ]
+}

@@ -126,6 +126,32 @@ def validate_parameters(cfg: Any, parameters: Mapping[str, Any], *, gate: str | 
     return output
 
 
+def validate_transition(cfg: Any, incumbent: Mapping[str, Any], candidate: Mapping[str, Any],
+                        *, gate: str) -> dict[str, float]:
+    """Check the effective change, including parameters reset to configured values.
+
+    Each complete profile remains inside the original allowlisted envelope.
+    Comparing two individually valid profiles is not permission to change four
+    fields or jump from one end of that envelope to the other in one trial.
+    An empty candidate means the configured baseline, never a scoped binding.
+    """
+    before = validate_parameters(cfg, incumbent, gate=gate) if incumbent else {}
+    after = validate_parameters(cfg, candidate, gate=gate) if candidate else {}
+    if not isinstance(incumbent, Mapping) or not isinstance(candidate, Mapping):
+        raise ValueError("complete admission profiles required")
+    changed = {}
+    for key in before.keys() | after.keys():
+        old = before.get(key, number(getattr(cfg, key)))
+        new = after.get(key, number(getattr(cfg, key)))
+        if old != new:
+            if abs(new - old) > THRESHOLDS[key].max_step:
+                raise ValueError("non-adjacent incumbent transition")
+            changed[key] = new
+    if len(changed) > 2:
+        raise ValueError("at most two effective admission changes per experiment")
+    return after
+
+
 class _EntryConfig:
     __slots__ = ("_base", "_parameters")
 

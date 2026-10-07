@@ -337,3 +337,174 @@ def test_missing_original_heartbeat_disables_a_previously_checked_selection(tmp_
     assert evaluator.load_selection(cfg, root=tmp_path, now=now)
     (bank.directory(tmp_path) / "heartbeats" / f"{identity}.json").unlink()
     assert evaluator.load_selection(cfg, root=tmp_path, now=now) is None
+
+
+def champion_fixture(root):
+    cfg = config(RESEARCH_RANK_CANARY_PRIORITY_MIN_RANK_SCORE=60,
+        # Exercise the child admission threshold: the generic normal fallback
+        # would otherwise accept the same low-rank features after it rejects.
+        RESEARCH_RANK_CANARY_NORMAL_BUY_ENABLED=False, RESEARCH_RANK_CANARY_PRIORITY_ONLY=True,
+        RESEARCH_RANK_CANARY_PRIORITY_MIN_PRICE5M=100,
+        RESEARCH_RANK_CANARY_PRIORITY_MAX_PRICE5M=200,
+        RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M=300,
+        RESEARCH_RANK_CANARY_PRIORITY_MIN_LIQUIDITY_USD=15000)
+    identity, now = complete(root, cfg)
+    assert bank.evaluate_plan(root, cfg, identity, now=now)["accepted"]
+    base = bank.directory(root)
+    manifest = store.read(base / "active_policy.json")
+    (base / "open_plan.json").unlink()  # Synthetic transition, no runtime restart.
+    return cfg, manifest
+
+
+def successor_fixture(root, cfg, *, normal_output=30000000, priority_output=200000000):
+    start = T0 + dt.timedelta(days=2)
+    base = bank.directory(root)
+    # Neighbor 2 resets only the paper-normal threshold, retaining the relaxed
+    # parent threshold. It can buy priority opportunities while skipping normal ones.
+    store.write(base / "proposal_cursor.json", {"index": 2})
+    for i in range(50):
+        decision = start + dt.timedelta(seconds=900 * i)
+        row = token(i + 101, rank_score=62 if i < 40 else 72,
+                    price_pct_5m=150 if 20 <= i < 40 else 70)
+        identity = capture(root, cfg, row, now=decision, start=start)
+        assert identity and fill(root, cfg, identity, now=decision + dt.timedelta(seconds=1))
+        record = case(root, identity)
+        record["observation_count"] = 1560  # Synthetic complete cadence only.
+        closed = start + dt.timedelta(hours=26, seconds=i)
+        quantity = record["cash"]["prefix"]["entry_qty"]
+        record["cash"]["terminal"]["intent"] = {"quantity": quantity, "reason": "synthetic_three_arm_exit",
+                                                   "requested_at": closed.isoformat()}
+        store.write(base / "active" / f"{identity}.json", record)
+        output = normal_output if i < 20 else priority_output if i < 40 else 200000000
+        assert bank.observe_quote(row["address"], quote(quantity=quantity, output=output), 100.,
+            root=root, cfg=cfg, now=closed) == 1
+    plan_id = store.read(base / "open_plan.json")["plan_id"]
+    store.write(base / "heartbeats" / f"{plan_id}.json", {"times": [(start + dt.timedelta(minutes=i)).isoformat() for i in range(1441)]})
+    return plan_id, start + dt.timedelta(hours=27)
+
+
+def test_incumbent_only_buy_still_gets_cash_when_both_other_arms_skip(tmp_path):
+    cfg, manifest = champion_fixture(tmp_path)
+    base = bank.directory(tmp_path)
+    store.write(base / "proposal_cursor.json", {"index": 2})
+    start = T0 + dt.timedelta(days=2)
+    identity = capture(tmp_path, cfg, token(101), now=start, start=start)
+    record = case(tmp_path, identity)
+    assert record["incumbent_buy"] and not record["baseline_buy"] and not record["challenger_buy"]
+    assert not record["outcomes_complete"]
+    assert fill(tmp_path, cfg, identity, now=start + dt.timedelta(seconds=1))
+    plan = store.read(base / "plans" / f"{record['plan_id']}.json")
+    assert plan["incumbent"]["manifest"] == manifest
+
+
+def test_fresh_successor_beats_both_configured_and_incumbent_and_is_consumed(tmp_path):
+    cfg, original = champion_fixture(tmp_path)
+    identity, now = successor_fixture(tmp_path, cfg)
+    result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
+    assert result["accepted"] and result["action"] == "successor"
+    base = bank.directory(tmp_path)
+    active = store.read(base / "active_policy.json")
+    assert active["parameters"] == {"RESEARCH_RANK_CANARY_MIN_SCORE": 60}
+    assert active["revision"] != original["revision"]
+    assert store.read(base / "history" / f"{original['revision']}.json") == original
+    selected = evaluator.load_selection(cfg, root=tmp_path, now=now)
+    assert selected and selected["parameters"] == active["parameters"]
+    report = store.read(base / "evaluations" / result["evaluation"])["evaluation"]
+    assert report["changed_challenger_vs_incumbent"] == 20
+    assert report["paired_lower_mean_sol"] > 0 and report["challenger_vs_incumbent_lower_mean_sol"] > 0
+    assert report["effective_transition_changes"] == 1
+
+
+def test_positive_against_configured_but_worse_than_incumbent_cannot_replace(tmp_path):
+    cfg, original = champion_fixture(tmp_path)
+    identity, now = successor_fixture(tmp_path, cfg, normal_output=200000000, priority_output=150000000)
+    result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
+    assert not result["accepted"]
+    base = bank.directory(tmp_path)
+    assert store.read(base / "active_policy.json") == original
+    report = store.read(base / "evaluations" / result["evaluation"])["evaluation"]
+    assert report["paired_lower_mean_sol"] > 0
+    assert report["challenger_vs_incumbent_lower_mean_sol"] < 0
+
+
+def test_changed_incumbent_during_enrollment_prevents_stale_replacement(tmp_path):
+    cfg, original = champion_fixture(tmp_path)
+    identity, now = successor_fixture(tmp_path, cfg)
+    changed = {**original, "expires_at": (store.time(original["expires_at"]) - dt.timedelta(hours=1)).isoformat()}
+    base = bank.directory(tmp_path)
+    store.write(base / "active_policy.json", changed)
+    result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
+    assert result["status"] == "retained_changed_incumbent"
+    assert store.read(base / "active_policy.json") == changed
+
+
+def test_auto_apply_off_prevents_even_evidence_backed_rollback(tmp_path):
+    cfg, original = champion_fixture(tmp_path)
+    identity, now = complete(tmp_path, cfg, start=T0 + dt.timedelta(days=2), losing=True)
+    disabled = replace(cfg, PAPER_ENTRY_GATE_AUTO_APPLY=False)
+    result = bank.evaluate_plan(tmp_path, disabled, identity, now=now)
+    assert result["status"] == "evaluated_auto_apply_disabled"
+    base = bank.directory(tmp_path)
+    assert store.read(base / "active_policy.json") == original
+    assert store.read(base / "evaluations" / result["evaluation"])["evaluation"]["rollback_to_configured"]
+    assert not list((base / "rollbacks").glob("*.json"))
+
+
+@pytest.mark.parametrize("damage", ["history", "original_case"])
+def test_successor_loader_rechecks_immediate_incumbent_original_proof(tmp_path, damage):
+    cfg, original = champion_fixture(tmp_path)
+    identity, now = successor_fixture(tmp_path, cfg)
+    assert bank.evaluate_plan(tmp_path, cfg, identity, now=now)["accepted"]
+    assert evaluator.load_selection(cfg, root=tmp_path, now=now)
+    base = bank.directory(tmp_path)
+    if damage == "history":
+        (base / "history" / f"{original['revision']}.json").unlink()
+    else:
+        prior_bundle = store.read(base / "evaluations" / original["evidence_name"])
+        path = base / "closed" / f"{prior_bundle['plan']['case_ids'][0]}.json"
+        record = store.read(path)
+        record["cash"]["terminal"]["subject"]["estimated_fees_sol"] += .01
+        store.write(path, record)
+    assert evaluator.load_selection(cfg, root=tmp_path, now=now + dt.timedelta(seconds=6)) is None
+
+
+def test_incumbent_neighbors_count_resets_and_stay_inside_checked_envelope():
+    cfg = config()
+    before = {"RESEARCH_RANK_CANARY_MIN_SCORE": 60, "RESEARCH_RANK_CANARY_PAPER_NORMAL_MIN_RANK_SCORE": 60}
+    neighbors = bank.incumbent_neighbors(cfg, before)
+    assert neighbors[0] == ("rank_canary", before)
+    assert ("rank_canary", {"RESEARCH_RANK_CANARY_MIN_SCORE": 60}) in neighbors
+    for gate, profile in neighbors:
+        assert policy.validate_transition(cfg, before, profile, gate=gate) == profile
+
+
+def test_same_profile_is_revalidated_with_fresh_cohort_and_preserved_history(tmp_path):
+    cfg, original = champion_fixture(tmp_path)
+    identity, now = complete(tmp_path, cfg, start=T0 + dt.timedelta(days=2))
+    result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
+    assert result["accepted"] and result["action"] == "revalidation"
+    active = store.read(bank.directory(tmp_path) / "active_policy.json")
+    assert active["parameters"] == original["parameters"] and active["revision"] != original["revision"]
+    assert evaluator.load_selection(cfg, root=tmp_path, now=now)
+
+
+def test_valid_successor_is_preferred_over_rollback_of_a_losing_incumbent(tmp_path):
+    cfg, _ = champion_fixture(tmp_path)
+    identity, now = successor_fixture(tmp_path, cfg, normal_output=1000000, priority_output=101000000)
+    result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
+    assert result["accepted"] and result["action"] == "successor"
+    base = bank.directory(tmp_path)
+    report = store.read(base / "evaluations" / result["evaluation"])["evaluation"]
+    assert report["rollback_to_configured"]
+    assert not list((base / "rollbacks").glob("*.json"))
+
+
+def test_replaying_an_already_selected_cohort_cannot_refresh_expiry(tmp_path):
+    cfg = config()
+    identity, now = complete(tmp_path, cfg)
+    assert bank.evaluate_plan(tmp_path, cfg, identity, now=now)["accepted"]
+    base = bank.directory(tmp_path)
+    original = store.read(base / "active_policy.json")
+    replay = bank.evaluate_plan(tmp_path, cfg, identity, now=now + dt.timedelta(hours=1))
+    assert replay["status"] == "retained_changed_incumbent"
+    assert store.read(base / "active_policy.json") == original
