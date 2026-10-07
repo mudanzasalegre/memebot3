@@ -167,12 +167,18 @@ def test_primary_fit_and_reader_can_distinguish_lanes_with_identical_numeric_obs
     runtime, registry, artifact = setup_entry(tmp_path, monkeypatch)
     original = json.loads(artifact.meta_path.read_text())
     data = context_frame().assign(label=[0, 1] * 80)
+    data["mint"] = data.address
     data, features, _ = trainer._select_feature_columns(data)
     from features.builder import ALLOWED_FEATURES
     features = [name for name in features if name in ALLOWED_FEATURES]
     model = trainer._fit_logreg_calibrated(data, features)
+    from ml.entry_probability import probability_metadata
+    candidate = trainer._evaluate_candidate(name="isolated_context", model_family="sklearn_logreg",
+        builder=trainer._fit_logreg_calibrated, x_cols=features, use_forward=True,
+        tr_df=data.iloc[:120], te_df=data.iloc[120:])
     artifact = registry.write_candidate(model=model,
-        meta={**original, "features": features, "context_encoding": context_encoding_schema(features)}, model_id="categorical")
+        meta={**original, **probability_metadata(model, candidate.probability_evaluation),
+              "features": features, "context_encoding": context_encoding_schema(features)}, model_id="categorical")
     monkeypatch.setattr(runtime, "_MODEL_PATH", artifact.model_path)
     monkeypatch.setattr(runtime, "_META_PATH", artifact.meta_path)
     low = {"entry_lane": "pump_early_paper_bootstrap_micro", "gate_profile": "paper_bootstrap", "price_pct_5m": 5}

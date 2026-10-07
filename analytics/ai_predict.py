@@ -36,6 +36,7 @@ from ml.financial_targets import supported_financial_training
 from features.builder import ALLOWED_FEATURES
 from analytics.inference_scope import scoped_snapshot, scoped_prediction
 from features.context_encoding import checked_context_schema
+from ml.entry_probability import supported_entry_probability, supported_entry_model
 
 # Logger del módulo
 log = logging.getLogger("ai_predict")
@@ -186,9 +187,13 @@ def _load_model_unscoped():
             payload = model_path.read_bytes()
             if sha256(payload).hexdigest() != metadata.get("model_sha256"):
                 raise ValueError("model/metadata checksum mismatch")
+            if not supported_entry_probability(metadata):
+                raise ValueError("unproved primary calibrated probability")
             # Deserialize precisely the bytes that passed the checksum, never
             # a replacement path from a concurrent promotion.
             _model = joblib.load(io.BytesIO(payload))
+            if not supported_entry_model(_model, metadata):
+                raise ValueError("primary probability model/calibration mismatch")
             _FEATURES = list(features)
             _model_mtime, _model_path_loaded = model_stat.st_mtime, model_path
         except Exception as exc:
@@ -425,6 +430,9 @@ def model_runtime_status() -> dict[str, Any]:
                                  and supported_financial_training(meta, entry=True)),
         "financial_training": meta.get("financial_training"),
         "financial_training_ready": supported_financial_training(meta, entry=True),
+        "probability_validation_ready": bool(model is not None and supported_entry_probability(meta)),
+        "probability_contract_version": meta.get("probability_contract_version"),
+        "probability_evaluation": meta.get("probability_evaluation"),
         "dataset_quality_passed": dataset_quality_passed,
         "threshold_metric": meta.get("threshold_metric") or train_status.get("threshold_metric"),
         "training_scope": meta.get("training_scope") or train_status.get("training_scope"),

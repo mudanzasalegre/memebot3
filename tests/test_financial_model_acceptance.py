@@ -89,15 +89,17 @@ def test_financial_metadata_flags_cannot_override_broken_basis(field, value):
 
 def test_primary_enforcement_needs_net_population_and_uniform_positive_threshold():
     from ml.train import _enforcement_gates
+    from primary_probability_fixtures import primary_probability_parts
     quality = SimpleNamespace(passed=True, holdout_rows=100, holdout_positives=50)
     tune = {"activation_ready": True, "objective_applied": "expected_pnl_precision_floor", "precision_at_picked": 1.,
             "avg_realized_pnl_pct_at_picked": 100., "realized_selected_rows_at_picked": 100}
     assert not _enforcement_gates(quality, tune)["activation_ready"]
     proof = checked_financial_frame(net_frame(frame(4)))[1]
     split = {"label_availability_purged": True}
-    assert _enforcement_gates(quality, tune, proof, split)["activation_ready"]
+    probability = primary_probability_parts()[1]
+    assert _enforcement_gates(quality, tune, proof, split, probability)["activation_ready"]
     proof["positive_pnl_ratios"] = [0., .1]
-    assert not _enforcement_gates(quality, tune, proof, split)["activation_ready"]
+    assert not _enforcement_gates(quality, tune, proof, split, probability)["activation_ready"]
 
 
 def setup_entry(root, monkeypatch, *, proof=True):
@@ -106,8 +108,9 @@ def setup_entry(root, monkeypatch, *, proof=True):
     monkeypatch.setattr(registry, "MODELS_DIR", root / "models")
     monkeypatch.setattr(registry, "REGISTRY_PATH", root / "registry.json")
     monkeypatch.setattr(registry, "CFG", SimpleNamespace(STRATEGY_OPTIMIZATION_LOCK=False))
-    model = DummyClassifier(strategy="prior").fit([[0], [1]], [0, 1])
-    metadata = {"features": ["price_pct_5m"], "activation_ready": True,
+    from primary_probability_fixtures import primary_probability_parts
+    model, probability = primary_probability_parts()
+    metadata = {**probability, "features": ["price_pct_5m"], "activation_ready": True,
                 "validation_split": {"label_availability_purged": True}}
     if proof:
         metadata["financial_training"] = checked_financial_frame(net_frame(frame(4)))[1]

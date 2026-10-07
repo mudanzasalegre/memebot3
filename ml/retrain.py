@@ -4,6 +4,7 @@ import json
 import logging
 import pathlib
 import shutil
+import math
 from typing import Optional, Tuple
 
 from utils.venv_bootstrap import ensure_project_venv
@@ -12,6 +13,7 @@ ensure_project_venv(__file__, module_name=__spec__.name if __spec__ else None)
 
 from config.config import CFG
 from ml.train import RECOMMENDED_JSON, TRAIN_STATUS_JSON, TrainResult, train_and_save
+from ml.entry_probability import supported_entry_probability
 
 log = logging.getLogger("ml.retrain")
 
@@ -23,7 +25,8 @@ def _load_meta(meta_path: pathlib.Path) -> dict:
     if not meta_path.exists():
         return {}
     try:
-        return json.loads(meta_path.read_text(encoding="utf-8")) or {}
+        payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
     except Exception:
         return {}
 
@@ -31,10 +34,10 @@ def _load_meta(meta_path: pathlib.Path) -> dict:
 def _selection(metric_meta: dict) -> tuple[str | None, float | None]:
     metric = metric_meta.get("model_selection_metric")
     score = metric_meta.get("model_selection_score")
-    if isinstance(metric, str) and isinstance(score, (int, float)):
+    if isinstance(metric, str) and isinstance(score, (int, float)) and not isinstance(score, bool) and math.isfinite(score):
         return metric, float(score)
     auc_pr = metric_meta.get("auc_pr_forward_or_cv_mean")
-    if isinstance(auc_pr, (int, float)):
+    if isinstance(auc_pr, (int, float)) and not isinstance(auc_pr, bool) and math.isfinite(auc_pr):
         return "auc_pr_forward_or_cv_mean", float(auc_pr)
     return None, None
 
@@ -100,15 +103,20 @@ def retrain_if_better() -> bool:
         _cleanup_backups(b_model, b_meta, b_thr)
         raise
 
-    if not result.trained:
+    if not result.trained or getattr(result, "active_promoted", False) is not True:
         _cleanup_backups(b_model, b_meta, b_thr)
         log.info("⚪ Retrain omitido: %s (ver %s)", result.status, TRAIN_STATUS_JSON)
         return False
 
     new_meta = _load_meta(META_PATH)
     new_metric, new_score = _selection(new_meta)
+    if not supported_entry_probability(new_meta):
+        _restore_backup(MODEL_PATH, META_PATH, RECOMMENDED_JSON, b_model, b_meta, b_thr)
+        _cleanup_backups(b_model, b_meta, b_thr)
+        log.warning("Nuevo artefacto sin contrato de probabilidad temporal; se conserva el anterior")
+        return False
 
-    if prev_score is None or prev_metric is None:
+    if not supported_entry_probability(prev_meta) or prev_score is None or prev_metric is None:
         _cleanup_backups(b_model, b_meta, b_thr)
         log.info(
             "✅ Modelo entrenado por primera vez (%s=%s, activation_ready=%s)",

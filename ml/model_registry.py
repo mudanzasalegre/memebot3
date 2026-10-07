@@ -14,6 +14,7 @@ from hashlib import sha256
 from config.config import CFG, PROJECT_ROOT
 from ml.financial_targets import supported_financial_training, financial_target
 from features.context_encoding import checked_context_schema
+from ml.entry_probability import supported_entry_probability, supported_entry_model
 
 
 MODELS_DIR = PROJECT_ROOT / "ml" / "models"
@@ -112,6 +113,8 @@ def _ensure_financial_artifact(meta, path, *, entry=False):
             raise RuntimeError("purged financial label availability required for model promotion")
     if meta.get("model_sha256") != sha256(path.read_bytes()).hexdigest():
         raise RuntimeError("model/metadata checksum mismatch blocks promotion")
+    if entry and not supported_entry_probability(meta):
+        raise RuntimeError("checked temporal probability evidence required for model promotion")
 
 
 def promote_candidate(artifact: ModelArtifactSet, *, active_model_path: Path | None = None) -> dict[str, Any]:
@@ -124,7 +127,9 @@ def promote_candidate(artifact: ModelArtifactSet, *, active_model_path: Path | N
     _ensure_activation_ready(meta)
     _ensure_financial_artifact(meta, artifact.model_path, entry=True)
     # Validate load and JSON before touching active files.
-    joblib.load(artifact.model_path)
+    candidate_model = joblib.load(artifact.model_path)
+    if not supported_entry_model(candidate_model, meta):
+        raise RuntimeError("checked primary probability model/calibration required for model promotion")
 
     registry = _load_registry()
     previous = registry.get("active_model_id")

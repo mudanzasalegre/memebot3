@@ -23,11 +23,11 @@ def test_model_registry_promotes_atomically(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(registry, "MODELS_DIR", tmp_path / "models")
     monkeypatch.setattr(registry, "REGISTRY_PATH", tmp_path / "model_registry.json")
     monkeypatch.setattr(registry, "CFG", SimpleNamespace(STRATEGY_OPTIMIZATION_LOCK=False))
-    model = DummyClassifier(strategy="constant", constant=1)
-    model.fit(np.array([[0], [1]]), np.array([1, 1]))
+    from primary_probability_fixtures import primary_probability_parts
+    model, probability = primary_probability_parts()
     artifact = write_candidate(
         model=model,
-        meta={"features": ["price_pct_5m"], "feature_set_hash": "abc", "activation_ready": True,
+        meta={**probability, "features": ["price_pct_5m"], "feature_set_hash": "abc", "activation_ready": True,
               "financial_training": financial_meta(), "validation_split": {"label_availability_purged": True}},
         model_id="m1",
     )
@@ -68,13 +68,14 @@ def test_candidate_thresholds_publish_only_after_promotion(tmp_path, monkeypatch
     recommended_path.write_text(json.dumps({"picked": 0.41}), encoding="utf-8")
     lanes_path.write_text(json.dumps({"global": {"threshold": 0.41}}), encoding="utf-8")
 
-    model = DummyClassifier(strategy="constant", constant=1)
-    model.fit(np.array([[0], [1]]), np.array([1, 1]))
+    from primary_probability_fixtures import primary_probability_parts
+    model, probability = primary_probability_parts()
     new_threshold = {"picked": 0.73, "activation_ready": True}
     new_lane_thresholds = {"global": {"threshold": 0.73}, "by_lane": {}}
     artifact = write_candidate(
         model=model,
         meta={
+            **probability,
             "features": ["price_pct_5m"],
             "feature_set_hash": "abc",
             "activation_ready": True,

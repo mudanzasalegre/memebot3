@@ -6,7 +6,7 @@ import json
 import os
 import pathlib
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Optional, Sequence
 
 from utils.venv_bootstrap import ensure_project_venv
@@ -17,7 +17,6 @@ import joblib
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.pipeline import Pipeline
@@ -38,6 +37,8 @@ from features.context_encoding import (CONTEXT_FEATURES, augment_context_frame,
 from ml.model_registry import ACTIVATION_READY_PROMOTION_ERROR, ModelArtifactSet, promote_candidate, write_candidate
 from ml.segment_report import SEGMENT_JSON, build_segment_report, write_segment_outputs
 from ml.tune_threshold import tune_from_frame
+from ml.entry_probability import (fit_primary_probability, checked_outer_boundary,
+    evaluate_probabilities, probability_metadata, supported_entry_probability)
 
 DATA_DIR: pathlib.Path = CFG.FEATURES_DIR
 MODEL_PATH: pathlib.Path = CFG.MODEL_PATH
@@ -132,6 +133,7 @@ class TrainResult:
     meta_path: str | None = None
     val_preds_path: str | None = None
     recommended_threshold_path: str | None = None
+    active_promoted: bool = False
 
 
 @dataclass
@@ -144,6 +146,7 @@ class CandidateResult:
     precision_at_k: float
     val_preds: pd.DataFrame
     feature_signal: list[dict[str, float]]
+    probability_evaluation: dict[str, Any] = field(default_factory=dict)
 
     @property
     def selection_metric(self) -> str | None:
@@ -168,6 +171,7 @@ class CandidateResult:
             "precision_at_k_val": self.precision_at_k,
             "threshold_result": _json_safe(self.tune_result),
             "feature_signal_top": self.feature_signal[:15],
+            "probability_evaluation": _json_safe(self.probability_evaluation),
         }
 
 
@@ -963,7 +967,8 @@ def _float_or_none(value: Any) -> float | None:
     return value_f if np.isfinite(value_f) else None
 
 
-def _enforcement_gates(quality: DatasetQuality, tune_result: dict[str, Any], financial_training=None, split_meta=None) -> dict[str, Any]:
+def _enforcement_gates(quality: DatasetQuality, tune_result: dict[str, Any], financial_training=None, split_meta=None,
+                       probability_contract=None) -> dict[str, Any]:
     min_holdout_rows = int(getattr(CFG, "ML_MIN_HOLDOUT_ROWS", 40))
     min_holdout_positives = int(getattr(CFG, "ML_MIN_HOLDOUT_POSITIVES", 8))
     min_realized_selected = int(getattr(CFG, "ML_TUNE_MIN_REALIZED_SELECTED", 5))
@@ -971,17 +976,24 @@ def _enforcement_gates(quality: DatasetQuality, tune_result: dict[str, Any], fin
     precision = _float_or_none(tune_result.get("precision_at_picked"))
     avg_realized = _float_or_none(tune_result.get("avg_realized_pnl_pct_at_picked"))
     realized_selected = _float_or_none(tune_result.get("realized_selected_rows_at_picked"))
+    probability_eval = (probability_contract or {}).get("probability_evaluation") or {}
+    evaluated_rows = probability_eval.get("rows")
+    evaluated_positives = probability_eval.get("positives")
+    actual_holdout_rows = min(int(quality.holdout_rows), evaluated_rows) if type(evaluated_rows) is int else 0
+    actual_holdout_positives = min(int(quality.holdout_positives), evaluated_positives) if type(evaluated_positives) is int else 0
 
     blockers: list[str] = []
     if not supported_financial_training({"financial_training": financial_training}, entry=True):
         blockers.append("checked_net_financial_training")
     if (split_meta or {}).get("label_availability_purged") is not True:
         blockers.append("financial_label_availability_purging")
+    if not supported_entry_probability(probability_contract or {}):
+        blockers.append("temporal_calibrated_probability_evidence")
     if not bool(quality.passed):
         blockers.append("dataset_quality")
-    if int(quality.holdout_rows) < min_holdout_rows:
+    if actual_holdout_rows < min_holdout_rows:
         blockers.append("holdout_rows")
-    if int(quality.holdout_positives) < min_holdout_positives:
+    if actual_holdout_positives < min_holdout_positives:
         blockers.append("holdout_positives")
     if str(tune_result.get("objective_applied") or "") != "expected_pnl_precision_floor":
         blockers.append("precision_floor_objective")
@@ -1000,9 +1012,12 @@ def _enforcement_gates(quality: DatasetQuality, tune_result: dict[str, Any], fin
         "blockers": unique_blockers,
         "checks": {
             "dataset_quality_passed": bool(quality.passed),
-            "holdout_rows": int(quality.holdout_rows),
+            "temporal_probability_ready": supported_entry_probability(probability_contract or {}),
+            "holdout_rows": actual_holdout_rows,
+            "dataset_split_holdout_rows": int(quality.holdout_rows),
             "min_holdout_rows": min_holdout_rows,
-            "holdout_positives": int(quality.holdout_positives),
+            "holdout_positives": actual_holdout_positives,
+            "dataset_split_holdout_positives": int(quality.holdout_positives),
             "min_holdout_positives": min_holdout_positives,
             "objective_applied": tune_result.get("objective_applied"),
             "threshold_activation_ready": bool(tune_result.get("activation_ready")),
@@ -1149,11 +1164,12 @@ def _quality_public_summary(quality: DatasetQuality, readiness: dict[str, Any]) 
 
 def _predict_scores(model: Any, frame: pd.DataFrame, x_cols: Sequence[str]) -> np.ndarray:
     X = coerce_feature_frame(frame, x_cols)
-    try:
-        scores = model.predict_proba(X)[:, 1]
-    except AttributeError:
-        scores = model.predict(X)
-    return np.asarray(scores, dtype=float)
+    if list(model.classes_) != [0, 1]:
+        raise ValueError("Primary probability model requires ordered binary classes")
+    scores = np.asarray(model.predict_proba(X)[:, 1], dtype=float)
+    if scores.shape != (len(frame),) or not np.isfinite(scores).all() or np.any((scores < 0) | (scores > 1)):
+        raise ValueError("Invalid primary probability predictions")
+    return scores
 
 
 def _fit_logreg_calibrated(train_df: pd.DataFrame, x_cols: list[str]) -> Any:
@@ -1179,13 +1195,7 @@ def _fit_logreg_calibrated(train_df: pd.DataFrame, x_cols: list[str]) -> Any:
             ),
         ]
     )
-    calib_cv = min(3, pos, neg)
-    if calib_cv >= 2:
-        model = CalibratedClassifierCV(estimator=base, method="sigmoid", cv=calib_cv)
-    else:
-        model = base
-    model.fit(X, y)
-    return model
+    return fit_primary_probability(base, X, pd.Series(y), train_df)
 
 
 def _fit_lightgbm_small(train_df: pd.DataFrame, x_cols: list[str]) -> Any:
@@ -1210,22 +1220,25 @@ def _fit_lightgbm_small(train_df: pd.DataFrame, x_cols: list[str]) -> Any:
         lambda_l1=1.0,
         lambda_l2=2.0,
         min_gain_to_split=0.05,
-        is_unbalance=True,
+        class_weight="balanced",
         feature_pre_filter=False,
         verbosity=-1,
         seed=42,
     )
     rounds = int(max(80, min(220, max(len(train_df) // 2, 80))))
-    train_set = lgb.Dataset(X, y, feature_name=list(x_cols), free_raw_data=True)
-    return lgb.train(params, train_set, num_boost_round=rounds)
+    base = lgb.LGBMClassifier(**params, n_estimators=rounds, n_jobs=1)
+    return fit_primary_probability(base, X, pd.Series(y), train_df)
 
 
 def _extract_feature_signal(model: Any, x_cols: list[str], *, limit: int = 20) -> list[dict[str, float]]:
     pairs: list[tuple[str, float]] = []
+    model = getattr(model, "base_model", model)
     try:
         if hasattr(model, "feature_importance"):
             imp = np.asarray(model.feature_importance(), dtype=float)
             pairs = list(zip(x_cols, imp.tolist()))
+        elif hasattr(model, "feature_importances_"):
+            pairs = list(zip(x_cols, np.asarray(model.feature_importances_, dtype=float).tolist()))
         else:
             coef_vectors: list[np.ndarray] = []
             calibrated = getattr(model, "calibrated_classifiers_", None)
@@ -1295,6 +1308,8 @@ def _evaluate_candidate(
     val_preds_rows: list[pd.DataFrame] = []
     auc_values: list[float] = []
     ap_values: list[float] = []
+    probability_folds: list[dict[str, Any]] = []
+    skipped_probability_folds: list[dict[str, Any]] = []
 
     if use_forward:
         assert tr_df is not None and te_df is not None
@@ -1303,7 +1318,9 @@ def _evaluate_candidate(
         if tr_df["label"].nunique(dropna=False) < 2:
             raise ValueError(f"{name}: train forward sin ambas clases")
 
+        boundary = checked_outer_boundary(tr_df, te_df)
         model = builder(tr_df, x_cols)
+        probability_folds.append({"outer_boundary": boundary, "calibration": model.calibration_})
         y_val = te_df["label"].to_numpy(dtype=int)
         y_prob = _predict_scores(model, te_df, x_cols)
         try:
@@ -1320,6 +1337,7 @@ def _evaluate_candidate(
                 "mint": te_df["mint"].values,
                 "y_true": y_val,
                 "y_prob": y_prob,
+                "baseline_probability": float(tr_df["label"].mean()),
                 "timestamp": te_df["timestamp"].values,
             }
         )
@@ -1341,7 +1359,13 @@ def _evaluate_candidate(
             if fold_train["label"].nunique(dropna=False) < 2:
                 continue
 
+            boundary = checked_outer_boundary(fold_train, fold_val)
             model = builder(fold_train, x_cols)
+            if model.calibrated_model is None:
+                skipped_probability_folds.append({"fold": fold, "outer_boundary": boundary,
+                    "calibration": model.calibration_, "reason": "unsupported_inner_temporal_calibration"})
+                continue
+            probability_folds.append({"outer_boundary": boundary, "calibration": model.calibration_})
             y_val = fold_val["label"].to_numpy(dtype=int)
             y_prob = _predict_scores(model, fold_val, x_cols)
             try:
@@ -1358,6 +1382,7 @@ def _evaluate_candidate(
                     "mint": fold_val["mint"].values,
                     "y_true": y_val,
                     "y_prob": y_prob,
+                    "baseline_probability": float(fold_train["label"].mean()),
                     "timestamp": fold_val["timestamp"].values,
                     "fold": fold,
                 }
@@ -1377,6 +1402,7 @@ def _evaluate_candidate(
         "mint",
         "y_true",
         "y_prob",
+        "baseline_probability",
         "target_total_pnl_pct",
         "sample_type",
         "entry_lane",
@@ -1393,6 +1419,8 @@ def _evaluate_candidate(
     ]
     ordered = [col for col in ordered if col in val_preds.columns]
     val_preds = val_preds[ordered]
+    probability_evaluation = evaluate_probabilities(val_preds, probability_folds)
+    probability_evaluation["skipped_folds"] = skipped_probability_folds
 
     tune_result = tune_from_frame(
         val_preds,
@@ -1425,6 +1453,7 @@ def _evaluate_candidate(
         precision_at_k=prec_at_k,
         val_preds=val_preds,
         feature_signal=feature_signal,
+        probability_evaluation=probability_evaluation,
     )
 
 
@@ -1433,6 +1462,7 @@ def _candidate_rank(candidate: CandidateResult) -> tuple[float, ...]:
     selection_score = candidate.selection_score if candidate.selection_score is not None else -1e9
     selection_metric_bonus = 1.0 if candidate.selection_metric == "avg_realized_pnl_pct_at_picked" else 0.0
     return (
+        1.0 if candidate.probability_evaluation.get("validation_ready") is True else 0.0,
         1.0 if bool(tune.get("activation_ready")) else 0.0,
         selection_metric_bonus,
         float(selection_score),
@@ -1696,7 +1726,8 @@ def train_and_save() -> TrainResult:
     tune_result = dict(selected.tune_result)
     threshold_activation_ready = bool(tune_result.get("activation_ready"))
     financial_training = checked_financial_frame(df_trainable)[1]
-    enforcement_gates = _enforcement_gates(quality, tune_result, financial_training, split_meta)
+    probability_contract = probability_metadata(final_model, selected.probability_evaluation)
+    enforcement_gates = _enforcement_gates(quality, tune_result, financial_training, split_meta, probability_contract)
     tune_result["threshold_activation_ready"] = threshold_activation_ready
     tune_result["enforcement_gates"] = enforcement_gates
     tune_result["activation_ready"] = bool(enforcement_gates.get("activation_ready"))
@@ -1721,6 +1752,7 @@ def train_and_save() -> TrainResult:
         "threshold_metric": tune_result.get("objective_applied"),
         "activation_ready": tune_result.get("activation_ready"),
         "financial_training": financial_training,
+        **probability_contract,
         "threshold_result": tune_result,
         "enforcement_gates": enforcement_gates,
         "dataset_quality_passed": quality.passed,
@@ -1805,6 +1837,7 @@ def train_and_save() -> TrainResult:
             "threshold_metric": tune_result.get("objective_applied"),
             "activation_ready": tune_result.get("activation_ready"),
             "financial_training": financial_training,
+            **probability_contract,
             "threshold_result": tune_result,
             "enforcement_gates": enforcement_gates,
             "promotion": promotion_status,
@@ -1845,6 +1878,7 @@ def train_and_save() -> TrainResult:
         meta_path=str(META_PATH if promotion_status.get("promoted") else artifact.meta_path),
         val_preds_path=str(VAL_PREDS_CSV),
         recommended_threshold_path=str(RECOMMENDED_JSON) if promotion_status.get("promoted") else None,
+        active_promoted=bool(promotion_status.get("promoted")),
     )
 
 

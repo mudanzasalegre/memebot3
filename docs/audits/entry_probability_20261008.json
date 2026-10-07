@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "stage": "Primary chronological calibration and checked OOS probability acceptance",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "working_checkout": "D:/Dev/Python/memebot3",
+  "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
+  "findings": [
+    "The logistic primary used ordinary CalibratedClassifierCV inner folds, not later token-disjoint label-mature calibration. The outer net split did not correct the internal chronological calibration boundary",
+    "The LightGBM primary used a class-weighted Booster score directly as a probability without held-out calibration",
+    "Primary artifact inference and promotion checked net financial population, outer label purging and checksum but did not require supported probability semantics or actual matching calibration",
+    "The automatic retrain wrapper inferred activation from trained=true and could compare an unsupported legacy incumbent's old score against a newly checked model"
+  ],
+  "implementation": {
+    "contract_version": "entry_temporal_probability_v1",
+    "primary_models": "Both logistic regression and sklearn LightGBM classifier use the existing later, token-disjoint, label-mature sigmoid calibration helper. Base estimators and scaling fit only on earlier eligible observations and are not refit after calibration. Minimum calibration support includes distinct tokens per binary class. LightGBM fitting uses one worker to bound daemon CPU concurrency",
+    "outer_evaluation": "Every actual outer split is independently checked for known settled event/label times, disjoint case-sensitive tokens and labels available before the next decision with a 60-second embargo. Each outer fit performs its own inner calibration. Raw scores and predict-class fallbacks cannot become primary probabilities",
+    "probability_acceptance": "Persist OOS probabilities, the earlier mature train prevalence baseline, Brier loss/skill, reliability bins, class-specific token support, paired token-cluster loss uncertainty and separate inner/outer boundaries. Acceptance requires at least 30 independent outer tokens, at least five positive and negative tokens and positive baseline-relative loss skill with positive historical bootstrap lower improvement",
+    "artifact_binding": "PrimaryCalibratedRanker carries the exact version and calibration metadata digest. Readers and promotion check metadata structure, row/token support, chronological folds and loss evidence, then verify actual model type and attached calibration identity against checksum-checked model bytes. Ordered binary classes and a single fitted calibrator bound to the same base estimator are required. Missing, old, uncalibrated, inconsistent or unsupported artifacts are unknown, not zero",
+    "candidate_and_entry_policy": "Primary selection prefers candidates with supported OOS probabilities over unsupported higher reported EV. Unsupported early inner-calibration windows are explicitly skipped without discarding supported later windows or inventing probabilities/returns for omitted rows. Financial net, quality, purging, threshold and selected-return gates remain required; holdout acceptance counts only actual supported OOS prediction rows and positives. Unknown primary probabilities do not enforce a buy veto or create AI sizing points; independently enforced execution/risk safeguards remain unchanged",
+    "automatic_cycle": "TrainResult explicitly reports active_promoted. The retrain daemon no longer reports a stored/unpromoted candidate as an active update, rejects unproved promoted metadata and cannot restore an unsupported legacy primary merely because its old incomparable metric was larger. Nonfinite and boolean selection metrics are not valid comparisons",
+    "upside_and_size": "No new take-profit/runner ceiling, entry momentum cap, trade-size experiment or live activation. The exact requested 0.1 SOL paper order contract is unchanged",
+    "existing_artifacts": "Existing runtime models are not trained, rewritten, promoted or deleted in this stage. Old primary artifacts without the new acceptance contract are deliberately unavailable as probabilities; only a future separately gated automatic training cycle can create supported replacements"
+  },
+  "verification": {
+    "status": "FULL_SOFTWARE_REGRESSION_PASSED_RUNTIME_OFF",
+    "new_cases": 75,
+    "focused_final": "308 passed in 26.42s after final model/calibrator binding, supported-later-window and class-count checks",
+    "pre_binding_working": "1872 passed in 232.41s before four final binding cases",
+    "pre_binding_publishing": "1872 passed in 222.43s before four final binding cases",
+    "pre_sparse_working": "1876 passed in 216.50s before final supported-later-window and class-count checks",
+    "pre_sparse_publishing": "1876 passed in 213.51s before final supported-later-window and class-count checks",
+    "full_working": "1881 passed in 206.47s after final supported-later-window and class-count checks",
+    "full_publishing": "1881 passed in 205.06s after final checks, without personal .env or local .venv using the existing working-checkout Python runtime",
+    "preflight": {"working": "PASS", "publishing_without_personal_env": "PASS", "compile_errors": 0, "config_import_rc": 0, "paper_profile_ok": true, "empty_data_report_builders": 7, "all_report_builders_ok": true},
+    "artifact_snapshot": {"checked_at_utc": "2026-10-07T23:33:25Z", "change_window_start_utc": "2026-10-07T23:08:00Z", "both_checkouts": {"changed_models_and_ml_artifacts": 0, "changed_feature_parquet_csv": 0, "managed_financial_and_forward_json_cells": 0, "data_active_policy_json": 0}, "scope": "Current named artifact file counts and change-window check, not a historical checksum audit or observation of live profitability"},
+    "source_sync": {"source_paths_before_evidence": 10, "deleted": 0, "applied_plan_sha256": "06d631cbf779df538493bc6f44cfb09f36e45ca75157cbc0c669ed87a3d671ee", "final_reviewed_copy": ["ml/entry_probability.py", "ml/train.py", "tests/test_entry_probability.py"], "personal_env_data_logs_models_excluded": true},
+    "scope": "Actual synthetic logistic/LightGBM calibration, frozen base/scaler fitting, later calibration with reentry and unsettled-label purging, unordered source rows, missing/future/backwards timing rejection, independent class support, separate outer/inner windows, mature-only reference prevalence, repeated-token support, malformed metadata/model identity, pre-deserialization rejection, promotion preservation, neutral entry behavior, actual isolated train/save/checked promotion and retrain migration/activation status. Temporary synthetic artifacts are not runtime financial or profitability evidence"
+  },
+  "runtime": {"bot_started": false, "live_activated": false, "runtime_model_training_started": false, "final_shutdown_verification": {"checked_at_utc": "2026-10-07T23:33:24.9845775Z", "stop_stack": "killed=0 remaining=0", "remaining_bot_processes": 0, "both_checkout_root_and_data_locks": false, "sqlite_bot_runtime_state": [["main", "stopped", "idle", "idle"]]}},
+  "limitations_and_next_work": [
+    "Historical loss skill and calibration are not guaranteed future probability calibration, executable profitability or a maximum-profit strategy",
+    "Candidate/threshold selection and final refitting are algorithm validation, not an untouched prospective full-strategy evaluation. Primary incumbent/challenger same-later-cohort acceptance and transactionally consistent rollback across model, metadata, registry and thresholds remain separate architecture work",
+    "Rare/extreme runner targets still require adequate independent positive evidence; no percentage is fabricated from insufficient observations and no maximum token return is promised",
+    "Complete auxiliary source-age/numeric-missingness/subprofile contracts, diagnostic multiclass exit acceptance, atomic multi-head/full-strategy decision provenance, capital/admission/execution invariants and error paths",
+    "Complete provider market-asof/depth, wallet/raw quantity/finality and separately authorized costed full-strategy forward evidence before any live or profitability claim"
+  ],
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO"
+}
