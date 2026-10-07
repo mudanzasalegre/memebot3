@@ -1,0 +1,37 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
+  "branch": "main",
+  "implementation_commit": "0c7aa6c0d2bc10462d29b1d8207a68a23fc7fbb8",
+  "remote_main_verified_equal_to_implementation_commit": true,
+  "implementation_files_committed": 243,
+  "publication_scope": "Reviewed source, templates, tests and audit documentation; no personal .env, runtime data, logs, model weights, dependencies or generated candidate profiles; no file deletions",
+  "verification": {
+    "working_checkout_pytest": "1031 passed in 78.41s",
+    "publishing_checkout_pytest_without_personal_env": "1031 passed in 71.96s",
+    "publishing_local_preflight": "PASS",
+    "publishing_ui_typescript_and_vite_build": "PASS; bundle-size warning remains",
+    "dependency_check": "No broken requirements found",
+    "staged_diff_check": "PASS",
+    "staged_scope_check": "243 source files, 0 excluded paths, 0 deletions",
+    "credential_scan": "No suspected secret locations in non-test staged source; reviewed environment templates contain no operational secrets"
+  },
+  "shutdown": {
+    "requested_by": "user",
+    "stop_stack_completed_at_utc": "2026-10-07T12:19:02Z",
+    "process_and_lock_verification_at_utc": "2026-10-07T12:19:34.1253934Z",
+    "roots_checked": ["D:/Dev/Python/memebot3", "C:/Users/monmo10/Documents/GitHub/memebot3"],
+    "remaining_runtime_processes": 0,
+    "bot_locks_present": 0,
+    "database_process_state": "stopped",
+    "database_retrain_state": "idle",
+    "database_reports_refresh_state": "idle"
+  },
+  "limits": [
+    "The complete goal is not finished: actual automatic trading-policy champion/challenger paper transport and active-policy rollback remain to be implemented",
+    "Historical observed peaks and synthetic runner exits do not establish executable future profits",
+    "Rare extreme-runner models remain unvalidated; no guarantee of profitability or zero future errors is made",
+    "No bot services, live policy or real-money transactions were started by this publication stage"
+  ]
+}
