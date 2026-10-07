@@ -143,6 +143,12 @@ except Exception:
 _REQUIRED_FOR_FULL  : Tuple[str, ...] = ("price_usd", "liquidity_usd")  # validación completa
 _REQUIRED_FOR_PRICE : Tuple[str, ...] = ("price_usd",)                  # solo precio (cierres)
 _REQUIRED_FOR_LIQUIDITY: Tuple[str, ...] = ("liquidity_usd",)
+# These are collection goals, not mandatory admission requirements. Optional
+# gaps remain None and existing lane-specific gates decide their usability.
+_ENTRY_COLLECTION_FIELDS: Tuple[str, ...] = (
+    "price_usd", "liquidity_usd", "market_cap_usd", "volume_24h_usd",
+    "txns_last_5m", "txns_last_5m_buys", "txns_last_5m_sells", "price_pct_5m",
+)
 
 
 # ─────────────────────────────────── utils ────────────────────────────────────
@@ -460,7 +466,7 @@ def _merge_market_fields(primary: dict | None, secondary: dict, source: str) -> 
         out["market_observation"] = proof
     incoming = secondary.get("market_observation", {})
     incoming_fields = incoming.get("fields", {}) if isinstance(incoming, dict) else {}
-    for field in _MERGE_FIELDS + ["price_native", "liquidity_usd_is_proxy", "liquidity_is_proxy"]:
+    for field in _MERGE_FIELDS + ["price_native"]:
         missing = (market_number(out.get(field), field) is None if field in MARKET_FIELDS
                    else out.get(field) is None or out.get(field) == "")
         if not missing:
@@ -471,6 +477,11 @@ def _merge_market_fields(primary: dict | None, secondary: dict, source: str) -> 
         if value is None:
             continue
         out[field] = deepcopy(value)
+        if field == "liquidity_usd":
+            # These flags describe the chosen liquidity, not a later fallback
+            # whose liquidity was ignored. Move them with that field's receipt.
+            for key in ("liquidity_usd_is_proxy", "liquidity_is_proxy"):
+                out[key] = deepcopy(secondary.get(key))
         if field in MARKET_FIELDS:
             proof["fields"].pop(field, None)
             record = incoming_fields.get(field) if isinstance(incoming_fields, dict) else None
@@ -505,7 +516,7 @@ async def get_jupiter_price_snapshot(address: str) -> dict | None:
 
 
 async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str, ...],
-                         force_refresh: bool = False) -> Optional[Dict[str, Any]]:
+                         force_refresh: bool = False, entry_snapshot: bool = False) -> Optional[Dict[str, Any]]:
     """
     Ejecuta la cadena de fuentes y devuelve `tok` con los campos pedidos
     en 'fields_needed' completados en la medida de lo posible. No cachea.
@@ -532,7 +543,8 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
         if jup_price and not _is_missing(jup_price):
             tok = fresh_jup if force_refresh else {"address": address, "price_usd": float(jup_price), "price_source": "jupiter"}
             # Intentar impacto (no bloqueante)
-            tok = await _attach_jupiter_impact(tok, address)
+            if not entry_snapshot:
+                tok = await _attach_jupiter_impact(tok, address)
             tok = _coerce_tick_numbers(tok)
             if not _needs_fields(tok, fields_needed):
                 return _strip_non_t0_keys(tok)
@@ -623,6 +635,26 @@ async def _query_sources(address: str, *, use_gt: bool, fields_needed: Tuple[str
 
 
 # ───────────────────────── API principal ──────────────────────────
+async def get_entry_snapshot(address: str, *, use_gt: bool = False) -> dict | None:
+    """One fresh collection pass for decisions, without exploratory cache gates.
+
+    Collect fast activity even if Jupiter/Birdeye already supplied price+liq.
+    Do not repeat the entire chain merely because optional metrics are absent,
+    or quote a diagnostic amount different from the eventual entry amount.
+    Provider cooldowns, budget controls and hard timeouts remain in effect.
+    """
+    address = normalize_mint(address)
+    if not address or not _is_solana_address(address):
+        return None
+    tick = await _query_sources(address, use_gt=use_gt, fields_needed=_ENTRY_COLLECTION_FIELDS,
+                                force_refresh=True, entry_snapshot=True)
+    tick = retain_fresh_market_fields(tick)
+    return _strip_non_t0_keys(_stamp_price_confidence(
+        tick, address=address, fields_needed=_REQUIRED_FOR_FULL,
+        reason="partial_entry_snapshot" if _needs_fields(tick, _ENTRY_COLLECTION_FIELDS) else None,
+    ))
+
+
 async def get_price(
     address: str,
     *,

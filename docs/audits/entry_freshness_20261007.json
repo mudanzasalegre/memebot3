@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "stage": "Current scanner/sniper market inputs and transient full-decision reevaluation",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "working_checkout": "D:/Dev/Python/memebot3",
+  "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
+  "findings": [
+    "Queued exploratory price snapshots could become actual gate, rank and model inputs. The final fresh Jupiter-price guard did not reevaluate these earlier signals",
+    "Ordinary price+liquidity collection could return before collecting five-minute activity and momentum. Exploratory negative caches could prevent a legacy queue candidate from reaching the common entry evaluator",
+    "Queued scores, lane decisions, proxy flags and auxiliary model inputs could survive into a new evaluation; canonical stale market aliases and an old dex_id could override fresh provider fields. Liquidity proxy flags could also be merged from a fallback whose liquidity was not selected",
+    "Paper liquidity proxy helpers treated observed zero as absence, and one helper converted an unknown route into verified true",
+    "Admission route/impact probes used 0.05 SOL rather than the configured exact 0.1 SOL paper purchase",
+    "Async social, risk, lane, capacity and provider work could outlive the original market receipt before a buy intent. Ordinary retry exhaustion or queue expiry could permanently blacklist a temporarily uncertain mint"
+  ],
+  "implementation": {
+    "discovery_only_queue": "Queued payloads carry detached discovery/identity context and the guarded checked paper-policy snapshot, not reusable market values, scores, prior lanes, proxy decisions, labels or risk/model conclusions. The legacy queue dispatches identity directly into the common fresh evaluator",
+    "entry_collection": "A dedicated cache-bypassing one-pass snapshot collects price, liquidity, market cap, daily volume, five-minute buys/sells/activity and momentum where available. It retains original per-field HTTP receipts, normal provider priority/cooldowns/budgets/timeouts, meaningful zero and optional absence. It does not retry the complete chain for optional gaps or attach a different-sized diagnostic impact quote",
+    "normalization": "All market aliases consumed by subsequent normalizers are removed after receipt rejection. Rejected field receipts are detached and removed from the current sanitized snapshot, leaving original input/cache objects unchanged. Fresh venue metadata wins over queued canonical aliases. Liquidity's provider-derived flags move with the selected liquidity and its receipt, not an ignored fallback, and remain frozen in both market and model inputs",
+    "frozen_inputs": "Immutable market values and original source/receipt identities are frozen before lane and model evaluation. Post-social, post-risk, pre-model and pre-buy checks reject expired or changed market inputs. The final model vector's available market columns must match these frozen decision values; no late price replacement bypass is permitted",
+    "temporary_wait": "Missing fresh price/collection, quota waits and expired/changed observations clear pending vectors, emit a wait rather than a negative target, and requeue the entire decision after five seconds. These waits preserve retry budget regardless of customized environment prefixes. Existing absolute queue age/capacity remain bounded, but expiring a receipt wait does not permanently blacklist that mint",
+    "paper_proxy": "Only explicitly generated paper estimates can fill unknown liquidity. They carry a separate configured-proxy basis, kind, value and generation time, never HTTP liquidity proof. Observed zero is not replaced. Route-backed proxies require route true, not unknown; live cannot consume the paper-proxy observation contract",
+    "exact_probe": "Entry route/impact probes use the configured exact paper amount, currently 0.1 SOL; other profiles use their configured base amount. Invalid/nonfinite/bool amounts or impacts are not accepted. Actual order/fill guards remain separate",
+    "final_jupiter_evidence": "The separate final Jupiter-price admission guard no longer overwrites the already-evaluated source/price-confidence metadata. It remains independent evidence, not a replacement for earlier decision inputs",
+    "extreme_upside": "No new return, observed-peak, momentum or take-profit ceiling was introduced. New synthetic market-vector tests retain momentum values through +1000000 percent; earlier runner tests retain uncapped extreme peaks with duration/drawdown/liquidity protection. These are software checks, not earned returns"
+  },
+  "verification": {
+    "status": "SOFTWARE_VALIDATED_OFF_NO_PROFITABILITY_CLAIM",
+    "new_cases": 63,
+    "focused_final": "131 passed in 4.03s",
+    "intermediate_full_working": "1600 passed in 180.33s before final alias-receipt, fresh-venue and non-permanent bounded-queue expiry hardening",
+    "pre_proxy_basis_full_working": "1610 passed in 202.13s before final selected-provider liquidity-basis hardening",
+    "pre_proxy_basis_full_publishing": "1610 passed in 201.57s before final selected-provider liquidity-basis hardening, without personal .env or local .venv",
+    "final_full_working": "1616 passed in 186.06s after final selected-liquidity proxy-basis preservation",
+    "final_full_publishing": "1616 passed in 184.13s after final selected-liquidity proxy-basis preservation, without personal .env or local .venv, using existing working-checkout Python",
+    "preflight_both": {"ok": true, "compile_errors": 0, "configuration_import_returncode": 0, "paper_profile_ok": true, "empty_data_report_builders": 7, "all_report_builders_ok": true},
+    "source_sync": {"source_paths": 8, "deleted": 0, "initial_applied_plan_sha256": "742f9962a5ef06a936d584ea33a0c6a7060b6a0cad180073c09b99e22a62e106", "later_copy_scope": "Reviewed source and evidence paths only, with absolute workspace containment checks; publishing changes are exclusively this stage", "personal_env_data_logs_models_excluded": true},
+    "scope": "Synthetic provider replies, direct current-snapshot and feature-builder execution, original AST-extracted production entry prefix/pre-buy/defer/proxy/probe-amount/queue-consumer branches, real queue retry/expiry/capacity rules, detached provenance and missing/zero/extreme observations. No runtime provider request, new trading run, model training or active model/policy write"
+  },
+  "runtime": {
+    "bot_started": false,
+    "live_activated": false,
+    "runtime_model_training_started": false,
+    "final_shutdown_verified_at_utc": "2026-10-07T22:08:29.2445568Z",
+    "remaining_bot_processes_both_checkouts": 0,
+    "root_and_data_bot_locks_both_checkouts": false,
+    "sqlite_process_state": {"bot_id": "main", "process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"},
+    "artifact_snapshot_verified_at_utc": "2026-10-07T22:06:56.5904659Z",
+    "financial_and_runner_json_cells_both_checkouts": 0,
+    "active_policy_json_both_checkouts": 0,
+    "runtime_model_artifacts_changed_since_214000_utc": 0,
+    "runtime_feature_files_changed_since_214000_utc": 0,
+    "personal_env_preserved_in_working_and_absent_from_publishing": true,
+    "stop_stack": {"completed_at_utc": "2026-10-07T22:08:28Z", "requested_by": "user", "killed": 0, "remaining": 0, "runtime_finalizer": "ok"}
+  },
+  "limitations_and_next_work": [
+    "Client HTTP receipt age does not establish provider market-as-of time, truthful pool depth, on-chain freshness or executable fill profitability",
+    "This stage validates and freezes market inputs, not every auxiliary social/rug/cluster provider's age contract or every lane-dependent model inference recomputation",
+    "Current candidate receipts are checked during evaluation; durable full-strategy prospective provenance and all research/export failure paths remain separate acceptance work",
+    "Live wallet/raw quantity/finality reconciliation, production response contracts, full-strategy capital/admission/execution constraints and first-launch evidence remain to be completed",
+    "Extreme-runner targets and uncapped upside do not guarantee opportunities will be found, bought profitably or sold profitably. Costed prospective full-strategy closed evidence remains necessary before any financial claim"
+  ],
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO"
+}

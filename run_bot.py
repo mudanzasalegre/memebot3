@@ -140,6 +140,10 @@ from runtime.state_models import RuntimeStateSnapshot  # noqa: E402
 from runtime.state_publisher import count_open_positions, publish_runtime_state  # noqa: E402
 from runtime.single_instance import SingleInstanceLock, SingleInstanceLockError  # noqa: E402
 from runtime.fast_enrichment import enrich_fast  # noqa: E402
+from runtime.entry_observation import (  # noqa: E402
+    discovery_candidate, prepare_entry_candidate, apply_paper_liquidity_proxy,
+    freeze_entry_observation, entry_observation_problem,
+)
 from runtime.hot_queue import GLOBAL_HOT_QUEUE  # noqa: E402
 from runtime import live_canary  # noqa: E402
 from runtime.live_canary_guard import LiveCanaryGuardError, ensure_live_start_allowed  # noqa: E402
@@ -4413,15 +4417,18 @@ async def _probe_jupiter_route(output_mint: str, amount_sol: float) -> Dict[str,
     try:
         if _JUP_ROUTER_AVAILABLE and jupiter is not None:
             SOL_MINT = "So11111111111111111111111111111111111111112"
-            amt = max(0.005, min(float(amount_sol or 0.01), 0.2))
+            amt = float(amount_sol)
+            if isinstance(amount_sol, bool) or not math.isfinite(amt) or amt <= 0:
+                return probe
             q = await jupiter.get_quote(input_mint=SOL_MINT, output_mint=output_mint, amount_sol=amt)
             impact_bps = getattr(q, "price_impact_bps", None)
             impact_pct = None
-            if isinstance(impact_bps, (int, float)):
+            if (isinstance(impact_bps, (int, float)) and not isinstance(impact_bps, bool)
+                    and math.isfinite(float(impact_bps)) and impact_bps >= 0):
                 impact_pct = float(impact_bps) / 100.0
             probe = {
                 "has_route": bool(getattr(q, "ok", False)),
-                "price_impact_bps": float(impact_bps) if isinstance(impact_bps, (int, float)) else None,
+                "price_impact_bps": float(impact_bps) if impact_pct is not None else None,
                 "price_impact_pct": impact_pct,
                 "price_available": None,
             }
@@ -4444,6 +4451,29 @@ async def _probe_jupiter_route(output_mint: str, amount_sol: float) -> Dict[str,
     return probe
 
 
+def _entry_probe_amount_sol() -> float:
+    if DRY_RUN and bool(getattr(CFG, "PAPER_EXACT_TRADE_SIZE_ENABLED", True)):
+        return float(getattr(CFG, "PAPER_EXACT_TRADE_SIZE_SOL", 0.1))
+    return max(float(MIN_BUY_SOL), float(TRADE_AMOUNT_SOL_CFG))
+
+
+def _defer_entry_observation(token: dict, *, reason: str, stage: str) -> None:
+    """Temporary uncertainty: retry the whole decision, without negative labels."""
+    addr = token["address"]
+    _pending_ai_vectors.pop(addr, None)
+    reason = f"entry_observation:{reason}"
+    _research_decision(token, action="wait", reason=reason, stage=stage, dedup_ttl_s=5)
+    _ensure_requeue_with_stats(addr, reason=reason, backoff=5, token=token)
+
+
+def _entry_observation_is_current(token: dict, observation, *, stage: str, vector=None) -> bool:
+    problem = entry_observation_problem(token, observation, paper=bool(DRY_RUN), vector=vector)
+    if problem is None:
+        return True
+    _defer_entry_observation(token, reason=problem, stage=stage)
+    return False
+
+
 async def _maybe_apply_paper_sniper_liquidity_proxy(token: dict, addr: str) -> bool:
     if not (
         DRY_RUN
@@ -4451,7 +4481,7 @@ async def _maybe_apply_paper_sniper_liquidity_proxy(token: dict, addr: str) -> b
         and _PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_ENABLED
     ):
         return False
-    if token.get("liquidity_usd"):
+    if token.get("liquidity_usd") is not None:
         return False
     if str(token.get("entry_regime") or "").strip().lower() != "pump_early":
         return False
@@ -4462,23 +4492,23 @@ async def _maybe_apply_paper_sniper_liquidity_proxy(token: dict, addr: str) -> b
 
     route_probe = await _probe_jupiter_route(
         addr,
-        max(float(MIN_BUY_SOL), min(float(TRADE_AMOUNT_SOL_CFG), 0.05)),
+        _entry_probe_amount_sol(),
     )
-    if route_probe.get("has_route") is False:
+    if route_probe.get("has_route") is not True:
         return False
     impact = route_probe.get("price_impact_pct")
     if impact is not None and float(impact) > _PUMP_EARLY_SNIPER_MAX_PRICE_IMPACT_PCT:
         return False
 
-    token["has_jupiter_route"] = int(route_probe.get("has_route") is not False)
+    token["has_jupiter_route"] = 1
     if impact is not None:
         token["price_impact_pct"] = float(impact)
-    token["liquidity_usd"] = max(
+    proxy_liquidity = max(
         _PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_LIQUIDITY_USD,
         _PUMP_EARLY_SNIPER_MIN_LIQUIDITY_USD,
     )
-    token["liquidity_usd_is_proxy"] = 1
-    token["sniper_liquidity_proxy"] = 1
+    if not apply_paper_liquidity_proxy(token, proxy_liquidity, "sniper_route", paper=bool(DRY_RUN)):
+        return False
     log.info(
         "Paper sniper liquidity proxy %s liq=%.0f route=%s impact=%s",
         addr[:6],
@@ -4496,18 +4526,15 @@ async def _maybe_apply_green_sniper_liquidity_proxy(token: dict, addr: str) -> b
         and bool(getattr(CFG, "GREEN_SNIPER_PAPER_ROUTE_PROXY_ENABLED", True))
     ):
         return False
-    if token.get("liquidity_usd"):
+    if token.get("liquidity_usd") is not None:
         return False
     if str(token.get("entry_regime") or "").strip().lower() != "pump_early":
         return False
     if not token.get("price_usd") and token.get("price_pct_5m") is None:
         return False
     min_proxy_liq = float(getattr(CFG, "GREEN_SNIPER_PAPER_ROUTE_PROXY_MIN_LIQUIDITY_USD", 1200.0) or 1200.0)
-    token["liquidity_usd"] = min_proxy_liq
-    token["liquidity_usd_is_proxy"] = 1
-    token["liquidity_is_proxy"] = 1
-    token["sniper_liquidity_proxy"] = 1
-    token.setdefault("has_jupiter_route", 0)
+    if not apply_paper_liquidity_proxy(token, min_proxy_liq, "green_sniper", paper=bool(DRY_RUN)):
+        return False
     log.info("Green sniper paper liquidity proxy %s liq=%.0f", addr[:6], min_proxy_liq)
     return True
 
@@ -4656,7 +4683,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     """Evalúa un token y, si pasa los filtros + IA, lanza la compra."""
     global _wallet_sol_balance
 
-    token = sanitize_token_data(token)
+    token = sanitize_token_data(discovery_candidate(token))
     addr = token["address"]
     _stats["raw_discovered"] += 1
     if str(token.get("discovered_via") or "").strip().lower() == "pumpfun" and _stream_candidate_is_cooled(addr):
@@ -4682,6 +4709,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     stored_discovered_via = str(meta.get("discovered_via") or "").strip().lower()
     if stored_discovered_via and not str(token.get("discovered_via") or "").strip():
         token["discovered_via"] = stored_discovered_via
+    for key in ("discovered_at", "symbol"):
+        if token.get(key) is None and meta.get(key) is not None:
+            token[key] = meta[key]
     token.setdefault("discovered_via", "dex")
     stored_dex_id = _norm_dex_id(token.get("dex_id") or token.get("dexId") or meta.get("dex_id"))
     if stored_dex_id:
@@ -4712,28 +4742,31 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         _remove_from_queue_if_present(addr)
         return
 
-    # ★ Pump.fun: intento rápido de precio con cuota/cooldown antes de requeue
-    if token.get("discovered_via") == "pumpfun" and not token.get("liquidity_usd"):
-        if _pf_can_try_now(addr):
-            try:
-                tok2 = await price_service.get_price(addr, use_gt=_PUMPFUN_PRICE_USE_GECKO, allow_partial=True)
-                if tok2:
-                    token.update(tok2)
-                if token.get("liquidity_usd"):
-                    pass  # ya tenemos liq/vol/mcap/price_usd
-                elif await _maybe_apply_green_sniper_liquidity_proxy(token, addr):
-                    pass
-                elif await _maybe_apply_paper_sniper_liquidity_proxy(token, addr):
-                    pass
-                else:
-                    _remember_stream_candidate_cooldown(addr, _PUMPFUN_STREAM_COOLDOWN_NO_LIQ_S)
-                    return
-            except Exception:
-                _remember_stream_candidate_cooldown(addr, _PUMPFUN_STREAM_COOLDOWN_NO_LIQ_S)
-                return
-        else:
-            _remember_stream_candidate_cooldown(addr, _PUMPFUN_STREAM_COOLDOWN_NO_LIQ_S)
-            return
+    # Every production source enters here. A cached queue snapshot is discovery
+    # context only, never the market input used by gates, ranking or learning.
+    is_pumpfun = token.get("discovered_via") == "pumpfun"
+    if is_pumpfun and not _pf_can_try_now(addr):
+        _defer_entry_observation(token, reason="provider_quota", stage="entry_snapshot")
+        return
+    use_gt = (_PUMPFUN_PRICE_USE_GECKO if is_pumpfun else
+              queue_attempts >= _GECKO_MIN_QUEUE_ATTEMPTS
+              and time.time() - first_seen_epoch_s >= _GECKO_MIN_QUEUE_AGE_S)
+    try:
+        entry_snapshot = await price_service.get_entry_snapshot(addr, use_gt=use_gt)
+    except Exception as exc:
+        log.debug("Fresh entry snapshot unavailable %s: %s", addr[:6], type(exc).__name__)
+        entry_snapshot = None
+    fresh_candidate = prepare_entry_candidate(token, entry_snapshot)
+    if fresh_candidate is None:
+        _defer_entry_observation(token, reason="snapshot_unavailable", stage="entry_snapshot")
+        return
+    token = sanitize_token_data(fresh_candidate)
+    token["queue_attempts"] = queue_attempts
+    token["queue_age_minutes"] = max(0.0, (time.time() - first_seen_epoch_s) / 60.0)
+    token["entry_regime"] = entry_sizing.classify_entry_regime(token, queue_attempts=queue_attempts)
+    require_jup_for_buy = filters.effective_require_jupiter_for_buy(token, _REQUIRE_JUP_FOR_BUY)
+    token["require_jupiter_for_buy"] = int(require_jup_for_buy)
+    _remember_queue_context(addr, token)
 
     # 4) — incomplete (sin liquidez) ---------------------------------
     if not token.get("liquidity_usd"):
@@ -4766,6 +4799,10 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             _remove_from_queue_if_present(addr)
         else:
             _requeue_with_stats(addr, reason="no_liq", backoff=backoff, token=token)
+        return
+
+    entry_observation = freeze_entry_observation(token, paper=bool(DRY_RUN))
+    if not _entry_observation_is_current(token, entry_observation, stage="entry_snapshot"):
         return
 
     # 5) — rellenar defaults y métricas opcionales —
@@ -4810,7 +4847,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     if str(token.get("entry_regime") or "").strip().lower() == "pump_early" and bool(getattr(CFG, "GREEN_SNIPER_ENABLED", True)):
         fast = enrich_fast(token)
         token.update(fast.token)
-        token.setdefault("score_total", filters.total_score(token))
+        token["score_total"] = filters.total_score(token)
         green_decision = evaluate_green_sniper(token, dry_run=DRY_RUN, live=not DRY_RUN)
         if green_decision.action in {"buy", "shadow", "delay"}:
             apply_green_sniper_context(token, green_decision)
@@ -4936,6 +4973,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         token["insider_sig"] = await insider.insider_alert(addr)
         token["score_total"] = filters.total_score(token)
 
+    if not _entry_observation_is_current(token, entry_observation, stage="post_social_enrichment"):
+        return
+
     # 7) — filtro duro —
     basic_filter_result = filters.basic_filters(token)
     if (
@@ -4989,6 +5029,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         token["rug_score"]   = await rugcheck.check_token(addr)
         token["cluster_bad"] = await clusters.suspicious_cluster(addr)
     token["score_total"] = filters.total_score(token)
+    if not _entry_observation_is_current(token, entry_observation, stage="post_risk_enrichment"):
+        return
     if moonshot_fast_path:
         moonshot_decision = evaluate_moonshot_micro_lottery(token, dry_run=DRY_RUN, live=not DRY_RUN)
         if not moonshot_decision.allowed:
@@ -5051,12 +5093,11 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
     route_probe = await _probe_jupiter_route(
         addr,
-        max(MIN_BUY_SOL, min(float(TRADE_AMOUNT_SOL_CFG), 0.05)),
+        _entry_probe_amount_sol(),
     )
-    if route_probe.get("has_route") is not None:
-        token["has_jupiter_route"] = int(bool(route_probe["has_route"]))
-    if token.get("price_impact_pct") in (None, 0, 0.0) and route_probe.get("price_impact_pct") is not None:
-        token["price_impact_pct"] = route_probe["price_impact_pct"]
+    token["has_jupiter_route"] = (None if route_probe.get("has_route") is None
+                                  else int(bool(route_probe["has_route"])))
+    token["price_impact_pct"] = route_probe.get("price_impact_pct")
     if moonshot_fast_path:
         moonshot_decision = evaluate_moonshot_micro_lottery(token, dry_run=DRY_RUN, live=not DRY_RUN)
         if moonshot_decision.allowed:
@@ -5145,6 +5186,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             return
         elif _shadow_followup_micro_event_worthy(token, shadow_followup_decision):
             _record_shadow_followup_micro_event("shadow_followup_micro_blocked", addr, token, shadow_followup_decision)
+
+    if not _entry_observation_is_current(token, entry_observation, stage="pre_model"):
+        return
 
     # 9) — IA + soft score gate —
     vec = build_feature_vector(token)
@@ -6713,9 +6757,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 backoff=max(90, _DEX_MATURE_QUALITY_BACKOFF_S),
             )
             return
-        token["price_confidence"] = jtok.get("price_confidence")
-        token["price_confidence_reason"] = jtok.get("price_confidence_reason")
-        token["price_provider_degraded"] = bool(jtok.get("price_provider_degraded"))
+        # Separate route-admission evidence must not overwrite the decision's
+        # price/source/metadata after ranking and the frozen learning vector.
+        token["jupiter_entry_price_confidence"] = jtok.get("price_confidence")
 
     if _runtime_buys_paused or _BUY_RECOVERY.pending_addresses or _SELL_RECOVERY.pending_addresses:
         log.info("BUY omitido por pause flag %s", addr[:6])
@@ -6745,6 +6789,12 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             shadow_kind="execution",
         )
         _remove_from_queue_if_present(addr)
+        return
+
+    # Re-evaluate from the start if any decision input expired/changed during
+    # async risk/capacity/provider work. No rate-limit slot or buy intent yet.
+    final_vec_payload = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+    if not _entry_observation_is_current(token, entry_observation, stage="pre_buy", vector=final_vec_payload):
         return
 
     # 12.5) — Rate limiter de BUY (no bloqueante): cooldown si no permite —
@@ -9754,17 +9804,11 @@ async def main_loop(*, positions_ready: asyncio.Event | None = None) -> None:
 
         async def validate_address(addr):
             try:
-                meta    = lista_pares.meta(addr) or {}
-                queue_age_s = max(0.0, time.time() - float(meta.get("first_seen", time.time()) or time.time()))
-                attempts = int(meta.get("attempts", 0) or 0)
-                use_gt  = attempts >= _GECKO_MIN_QUEUE_ATTEMPTS and queue_age_s >= _GECKO_MIN_QUEUE_AGE_S
-                tok     = await price_service.get_price(addr, use_gt=use_gt, allow_partial=True)
-                if tok:
-                    await _evaluate_and_buy_guarded(tok, None, source="queue")
-                else:
-                    _requeue_with_stats(addr, reason="dex_nil")
+                # Discovery identity only; the common entry path obtains the
+                # fresh snapshot. Exploratory NIL caches cannot suppress it.
+                await _evaluate_and_buy_guarded({"address": addr}, None, source="queue")
             except Exception as exc:
-                log.error("get_price %s → %s", addr[:6], exc)
+                log.error("queue entry %s → %s", addr[:6], exc)
         from runtime.loop_scheduler import evaluate_ready_queue
         await evaluate_ready_queue(next_ready_pair, validate_address,
             max_items=VALIDATION_BATCH_SIZE, budget_s=SLEEP_SECONDS)

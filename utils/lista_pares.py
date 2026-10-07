@@ -65,6 +65,15 @@ def _persist(addr: str) -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("[lista_pares] No se pudo escribir cache: %s", exc)
 
+
+def _drop_bounded_candidate(addr: str) -> None:
+    """Expire temporary receipt waits without permanently banning the mint."""
+    item = _pair_watch.get(addr) or {}
+    if str(item.get("reason") or "").startswith("entry_observation:"):
+        _pair_watch.pop(addr, None)
+    else:
+        eliminar_par(addr)
+
 # ─── API pública ───────────────────────────────────────────────
 def agregar_si_nuevo(addr: str, retries: int | None = None) -> bool:
     """
@@ -88,7 +97,7 @@ def agregar_si_nuevo(addr: str, retries: int | None = None) -> bool:
             retries_left=int(meta_old.get("retries", 0) or 0),
             first_seen_epoch_s=float(meta_old.get("first_seen", time.time()) or time.time()),
         )
-        eliminar_par(old)
+        _drop_bounded_candidate(old)
 
     now = time.time()
     retries_eff = retries if retries is not None else MAX_RETRIES
@@ -121,7 +130,7 @@ def obtener_pares() -> list[str]:
                 retries_left=int(meta.get("retries", 0) or 0),
                 first_seen_epoch_s=first_seen,
             )
-            eliminar_par(addr)
+            _drop_bounded_candidate(addr)
             continue
 
         if float(meta.get("next_try", now) or now) <= now:
@@ -148,9 +157,11 @@ def next_ready_pair() -> str | None:
 def _preserve_retry_budget(reason: str) -> bool:
     """Temporary waits should not consume the scarce queue retry budget."""
     normalized = str(reason or "").strip()
-    return bool(normalized) and any(
+    # Freshness/provider uncertainty is not a negative trading observation.
+    # Keep absolute queue age/capacity limits, but do not burn scarce retries.
+    return normalized.startswith("entry_observation:") or (bool(normalized) and any(
         normalized.startswith(prefix) for prefix in NON_DECREMENT_REASON_PREFIXES
-    )
+    ))
 
 
 def requeue(addr: str, *, reason: str = "", backoff: int | None = None) -> bool:
@@ -190,7 +201,7 @@ def requeue(addr: str, *, reason: str = "", backoff: int | None = None) -> bool:
             retries_left=int(meta.get("retries", 0) or 0),
             first_seen_epoch_s=float(meta.get("first_seen", time.time()) or time.time()),
         )
-        eliminar_par(addr)
+        _drop_bounded_candidate(addr)
         return True
 
     # timeout de incompleto
@@ -203,7 +214,7 @@ def requeue(addr: str, *, reason: str = "", backoff: int | None = None) -> bool:
             retries_left=int(meta.get("retries", 0) or 0),
             first_seen_epoch_s=float(meta.get("first_seen", time.time()) or time.time()),
         )
-        eliminar_par(addr)
+        _drop_bounded_candidate(addr)
     return True
 
 def eliminar_par(addr: str) -> None:

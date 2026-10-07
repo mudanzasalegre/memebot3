@@ -14,6 +14,13 @@ MARKET_FIELDS = (
     "txns_last_5m_sells", "holders", "price_pct_1m", "price_pct_5m",
     "volume_pct_5m",
 )
+# All legacy market aliases consumed by data_utils/price_service. Once a field
+# fails its receipt check, subsequent normalization must not resurrect an alias.
+MARKET_ALIASES = (
+    "priceUsd", "priceNative", "liquidity", "liquidityUsd", "liq_usd",
+    "volume", "vol24h", "vol24h_usd", "volume24h", "volume_24h", "volume_usd",
+    "fdv", "mcap", "market_cap",
+)
 _SIGNED_FIELDS = {"price_pct_1m", "price_pct_5m", "volume_pct_5m"}
 
 
@@ -93,10 +100,14 @@ def retain_fresh_market_fields(payload: dict | None, *, max_age_s: float = DEFAU
     if not isinstance(payload, dict):
         return None
     out = deepcopy(payload)
+    proof = out.get("market_observation")
+    fields = proof.get("fields") if isinstance(proof, dict) else None
     for field in MARKET_FIELDS:
         out[field] = fresh_market_value(payload, field, max_age_s=max_age_s)
+        if out[field] is None and isinstance(fields, dict):
+            fields.pop(field, None)
     # Remove aliases too, so coercion cannot resurrect rejected raw values.
-    for key in ("priceUsd", "priceNative", "liquidity", "volume", "fdv", "mcap"):
+    for key in MARKET_ALIASES:
         out.pop(key, None)
     return out
 
