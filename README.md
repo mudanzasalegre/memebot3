@@ -353,6 +353,16 @@ La orden real sigue su validacion y reconciliacion independientes. Desactivar
 explicitamente el modo managed conserva Metis V1, sin fallback silencioso entre
 protocolos. Evidencia: `docs/audits/jupiter_all_router_observations_20261008.json`.
 
+Price V3 es evidencia de precio, no de ruta: `has_route` y `routes_count`
+permanecen desconocidos. Solo una omision en un mapa V3 valido entra en la
+cache negativa; HTTP, JSON, campos duplicados, unidades invalidas o payloads
+mal formados quedan como ERR y se pueden consultar de nuevo. Se limita el
+cuerpo a 1 MiB y se conserva el recibo HTTP original tambien en cache, junto
+con `blockId` y `decimals` cuando existen. El recibo no demuestra la recencia
+del ultimo swap; los atajos fijos de estables son supuestos, no observaciones.
+La policy de precio fiable y las cotizaciones independientes no se relajan.
+Evidencia reproducible: `docs/audits/jupiter_price_quality_20261008.ipynb`.
+
 ## Machine Learning
 
 ML es opcional y seguro por defecto:

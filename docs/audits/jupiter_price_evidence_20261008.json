@@ -1,0 +1,85 @@
+{
+  "stage": "Price V3 point quality, original receipts and independent route semantics",
+  "status": "PASS_SOFTWARE_ONLY",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "previous_stage_evidence": "docs/audits/jupiter_all_router_observations_20261008.json",
+  "parent_publication_commit": "a81eabade78711e15ae8d90fa5455c49baa77627",
+  "requested_trade_size_sol": 0.1,
+  "uncapped_extreme_runner_objective_unchanged": true,
+  "runtime_requirement": "Bot/API/UI/training/research stay OFF. No operator wallet/key, provider trading request, order, active fit/promotion or policy activation.",
+  "sources": [
+    "https://developers.jup.ag/docs/price",
+    "https://developers.jup.ag/docs/api-reference/price",
+    "fetcher/jupiter_price.py",
+    "utils/price_service.py",
+    "run_bot.py required-price guard",
+    "tests/test_jupiter_price_evidence.py"
+  ],
+  "analysis_grain": "One requested canonical mint per original bounded HTTP response. OK prices, documented omissions and unknown faults remain distinct. This is software-contract analysis, not a market/trade sample.",
+  "findings": [
+    {
+      "issue": "HTTP200 malformed shapes, invalid present points and error envelopes could be returned as NIL and cached with increasing negative backoff.",
+      "evidence": "The parent status reader initialized every HTTP200 result as NIL, accepted a legacy wrapper/price alias and caught malformed point exceptions without changing that default. Current synthetic cases show errors remain ERR and the next valid request recovers.",
+      "severity": "high",
+      "confidence": "direct_source_and_synthetic_reproduction",
+      "risk": "Unproved provider faults could suppress further price inquiries and opportunities. No historical causal attribution or future return estimate is established."
+    },
+    {
+      "issue": "PriceInfo and the deprecated price-only get_quote_status alias fabricated has_route=true and routes_count=1 from any price, including stable constants.",
+      "evidence": "Parent _pi callers set these fields directly; current consumers use separate actual routing quotes. New actual price/status outputs leave both fields null.",
+      "severity": "high_contract_misstatement",
+      "confidence": "direct_source_and_actual_API_tests",
+      "risk": "Price is not exact-size executable depth or fill evidence. This stage does not assert that the current scanner consumed these false flags."
+    },
+    {
+      "issue": "The caller assigned the HTTP receipt after the fetch/context teardown and discarded optional blockId/decimals.",
+      "evidence": "A controlled delayed context teardown now retains the earlier body receipt through positive cache; stale actual PriceService snapshots are refused. Optional metadata is retained without a provider market-asof claim.",
+      "severity": "medium",
+      "confidence": "direct_source_and_controlled_clock_test",
+      "risk": "Consumption time could make an older response look newer; blockId needs an independent recency comparison and is not itself current-market proof."
+    }
+  ],
+  "implemented": [
+    "Pure canonical Price V3 response/body contract, strict positive numeric usdPrice, original exact mint population and at most50 IDs. Accept documented absent keys as NIL; malformed/enveloped/unrequested maps as batch ERR; bad present points as point ERR while preserving other valid points.",
+    "Bound decompressed body to1 MiB, reject duplicate JSON fields/mints, invalid UTF8, nonfinite constants and truncation. Never fall back to unbounded response.json or another protocol.",
+    "Use one shared checked transport for legacy scalar and enriched status reads, retaining original budget/header/redirect/timeout/cancellation contracts. Errors are not cached; only a checked original omission enters negative backoff.",
+    "Carry original receipt plus typed public blockId/decimals through the cache and PriceService. Clear old metadata on expiration or failed force refresh. Preserve explicit unknown market-asof, routing and stable-constant assumptions.",
+    "Keep actual required-price deferral, independent all-router quotes, exact0.1 SOL PAPER size and uncapped extreme-runner/partial/trailing policy unchanged.",
+    "Add an executed12-case diagnostic notebook and restrict notebook publication to docs/audits, keeping runtime/operator notebooks outside the source allowlist. Add the new price parser to first-launch critical compilation."
+  ],
+  "verification": {
+    "status": "PASS_SOFTWARE_ONLY",
+    "initial_fixture_failures": "Initial run263 passed,4 failed,2 errors: missing json import in the amended synthetic HTTP fixture and excessive pytest byte-parameter IDs. Corrected without weakening transport assertions.",
+    "focused": "294 passed in65.48s before final log/preflight-only amendments; both final complete regressions include those final amendments.",
+    "working_full_suite": "3442 passed in371.37s, exit0",
+    "publishing_full_suite": "3442 passed in357.51s, exit0; using existing D Python without C personal.env/local.venv/runtime DB",
+    "both_final_preflights": "PASS: compile_errors empty, config returncode0, exact paper profile true, all7 empty-source report builders pass. No daemon or provider started.",
+    "notebook": "12/12 synthetic cases; four code cells executed top-to-bottom with the existing workspace Python, outputs saved, schema validated. First Windows ZMQ shutdown warning was followed by a clean WindowsSelector-policy rerun. Local HTML preview showed12 rows and the summary; full-page screenshot visually inspected. No chart was needed for this small contract matrix.",
+    "source_freeze": {
+      "scope": "Publishable source/config/tests excluding docs and README",
+      "files_each_root": 731,
+      "normalized_sha256": "b6569f7d874bcb95b264a2841c26f9f7ab183917952775df168240126e263cd4",
+      "before_and_after_both_full_runs_match": true
+    }
+  },
+  "publication": {"status": "SOURCE_VALIDATED_COMMIT_PUSH_NEXT_AT_THIS_SNAPSHOT", "scope": "Audit is written before its own commit. Final remote revision and clean-checkout proof must be checked independently after publication.", "source_sync": "Reviewed11-file initial plan applied without deletion; final3-file docs update uses contained explicit paths and matching hashes."},
+  "shutdown": {
+    "status": "VERIFIED_OFF",
+    "at_utc": "2026-10-08T15:47:08.6001390Z",
+    "requested_stop": "D-only scripts/stop_stack.ps1 -RequestedBy user, exit0; logged15:46:39Z stop_stack done killed=0 remaining=0; no C stop finalizer",
+    "both_roots_scoped_runtime_processes": 0,
+    "both_roots_all_four_actual_compatibility_locks": 0,
+    "global_bot_training_research_api_processes": 0,
+    "memebot_scheduled_tasks": 0,
+    "memebot_services": 0,
+    "read_only_sql_main": "stopped/idle/idle",
+    "sql_updated_at": "2026-10-08 15:46:38.843561",
+    "protected_mtime_inventory": "2026-10-08T15:37:26.2292837Z:3763 D/27 C files, changed0 since15:07:02Z; not a cryptographic historical census. Includes models/registries/policies/features/portfolio/archives/learning/research/buy-sell recovery/personal.env. Authorized stopped-state SQL and stop log excluded."
+  },
+  "limitations": [
+    "No real current provider response/access, last-swap/block recency, executable depth, wallet, fill, chain finality or production latency was tested.",
+    "These defects are current contract issues. They do not establish why a historical run bought nothing, and removing them is not profitability proof.",
+    "Full-strategy prospective costed financial acceptance, complete architecture/input-generation and applicable provider/research boundaries remain incomplete. Higher runner targets do not predict which tokens will explode; future profit and zero errors cannot be guaranteed."
+  ]
+}

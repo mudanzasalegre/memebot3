@@ -512,7 +512,14 @@ async def get_jupiter_price_snapshot(address: str) -> dict | None:
         if getattr(info, "status", None) != "OK" or price is None or received is None:
             return None
         tick = stamp_market_observation(
-            {"address": address, "price_usd": price, "price_source": "jupiter"},
+            {"address": address, "price_usd": price, "price_source": "jupiter",
+             "jupiter_price_evidence": {
+                 "block_id": getattr(info, "block_id", None),
+                 "decimals": getattr(info, "decimals", None),
+                 "evidence_kind": getattr(info, "evidence_kind", "unknown"),
+                 "market_asof_verified": False,
+                 "has_route": None,
+             }},
             "jupiter", received_at=received,
         )
         if fresh_market_value(tick, "price_usd", source="jupiter") is None:

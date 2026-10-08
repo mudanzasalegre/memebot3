@@ -201,7 +201,7 @@ async def test_jupiter_scalar_force_refresh_preserves_receipt_on_cache_read(monk
     calls = []
     async def fetch(mints):
         calls.append(mints)
-        return {MINT: ("OK", 2)}
+        return jupiter_price.parse_price_payload({MINT: {"usdPrice": 2}}, mints, received_at=time.time())
     monkeypatch.setattr(jupiter_price, "_fetch_batch_with_status", fetch)
     jupiter_price._cache_set_ok(MINT, 123)
     first = await jupiter_price.get_price(MINT, force_refresh=True)
@@ -216,7 +216,9 @@ async def test_jupiter_scalar_force_refresh_preserves_receipt_on_cache_read(monk
 @pytest.mark.asyncio
 @pytest.mark.parametrize("value", [True, float("nan"), float("inf"), 0, -1])
 async def test_jupiter_batch_rejects_invalid_provider_values(monkeypatch, value):
-    async def fetch(mints): return {MINT: ("OK", value), OTHER: ("OK", 999)}
+    async def fetch(mints):
+        return jupiter_price.PriceBatch({MINT: jupiter_price.PricePoint("OK", value),
+                                        OTHER: jupiter_price.PricePoint("OK", 999)}, received_at=time.time())
     monkeypatch.setattr(jupiter_price, "_fetch_batch_with_status", fetch)
     result = await jupiter_price.get_many_prices([MINT], force_refresh=True)
     assert result[MINT].price_usd is None and OTHER not in result
@@ -225,7 +227,8 @@ async def test_jupiter_batch_rejects_invalid_provider_values(monkeypatch, value)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", ["NIL", "ERR"])
 async def test_failed_jupiter_refresh_cannot_resurrect_old_ok_cache(monkeypatch, status):
-    async def fetch(mints): return {MINT: (status, None)}
+    async def fetch(mints):
+        return jupiter_price.PriceBatch({MINT: jupiter_price.PricePoint(status)}, received_at=time.time())
     monkeypatch.setattr(jupiter_price, "_fetch_batch_with_status", fetch)
     jupiter_price._cache_set_ok(MINT, 123, received_at=time.time())
     result = await jupiter_price.get_price(MINT, force_refresh=True)

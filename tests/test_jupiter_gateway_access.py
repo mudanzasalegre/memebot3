@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import copy
+import json
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -274,10 +275,18 @@ async def test_actual_buyer_selects_keyless_managed_route_without_legacy_probe(g
 async def test_price_and_quote_share_actual_budget_and_scoped_uncached_headers(monkeypatch, custom, status_reader):
     budget = isolate_budget(monkeypatch)
     requests = []
-    mint = "A" * 44
+    mint = TOKEN
     class Reply:
         status, headers = 200, {}
-        def __init__(self, value): self.value = value
+        def __init__(self, value):
+            self.value = value
+            self.body = json.dumps(value).encode()
+            self.offset = 0
+            self.content = self
+        async def read(self, size):
+            chunk = self.body[self.offset:self.offset + size]
+            self.offset += len(chunk)
+            return chunk
         async def __aenter__(self): return self
         async def __aexit__(self, *args): pass
         async def json(self, **kwargs): return copy.deepcopy(self.value)

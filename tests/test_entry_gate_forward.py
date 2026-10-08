@@ -216,7 +216,8 @@ def test_fresh_price_mode_bypasses_both_positive_and_negative_caches(monkeypatch
     mint = token()["address"]
     monkeypatch.setattr(prices, "_cache_get_ok", lambda _: pytest.fail("positive cache read"))
     monkeypatch.setattr(prices, "_cache_get_nil", lambda _: pytest.fail("negative cache read"))
-    async def fetched(tokens): return {key: ("OK", 2.) for key in tokens}
+    async def fetched(tokens):
+        return prices.parse_price_payload({key: {"usdPrice": 2.} for key in tokens}, tokens)
     monkeypatch.setattr(prices, "_fetch_batch_with_status", fetched)
     assert asyncio.run(prices.get_many_usd_prices([mint], force_refresh=True))[mint] == 2.
 
@@ -227,7 +228,7 @@ def test_fresh_price_mode_does_not_fabricate_a_fixed_stable_price(monkeypatch):
     called = []
     async def fetched(tokens):
         called.append(tokens)
-        return {key: ("OK", .91) for key in tokens}
+        return prices.parse_price_payload({key: {"usdPrice": .91} for key in tokens}, tokens)
     monkeypatch.setattr(prices, "_fetch_batch_with_status", fetched)
     assert asyncio.run(prices.get_many_usd_prices([mint], force_refresh=True))[mint] == .91
     assert called == [[mint]]

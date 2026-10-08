@@ -35,6 +35,8 @@ def allowed_source(relative: Path) -> bool:
         return False
     if relative.suffix == ".env":
         return parts[:2] == ("config", "profiles") and not relative.name.startswith("paper_research_candidate_")
+    if relative.suffix == ".ipynb":
+        return parts[:2] == ("docs", "audits")
     return relative.suffix in SUFFIXES or relative.name == ".gitkeep"
 
 
