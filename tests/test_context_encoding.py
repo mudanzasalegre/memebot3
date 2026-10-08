@@ -15,6 +15,7 @@ from features.context_encoding import (CONTEXT_FEATURES, DOMAINS, FEATURE_SOURCE
     available_context_features, checked_context_schema, context_encoding_schema,
     encode_context_row, independent_input_count)
 from ml.feature_matrix import coerce_feature_frame
+from features.numeric_encoding import numeric_encoding_schema
 
 
 @pytest.mark.parametrize("source,value", [(s, v) for s, values in DOMAINS.items() for v in values])
@@ -178,7 +179,8 @@ def test_primary_fit_and_reader_can_distinguish_lanes_with_identical_numeric_obs
         tr_df=data.iloc[:120], te_df=data.iloc[120:])
     artifact = registry.write_candidate(model=model,
         meta={**original, **probability_metadata(model, candidate.probability_evaluation),
-              "features": features, "context_encoding": context_encoding_schema(features)}, model_id="categorical")
+              "features": features, "context_encoding": context_encoding_schema(features),
+              "numeric_encoding": numeric_encoding_schema(features)}, model_id="categorical")
     monkeypatch.setattr(runtime, "_MODEL_PATH", artifact.model_path)
     monkeypatch.setattr(runtime, "_META_PATH", artifact.meta_path)
     low = {"entry_lane": "pump_early_paper_bootstrap_micro", "gate_profile": "paper_bootstrap", "price_pct_5m": 5}

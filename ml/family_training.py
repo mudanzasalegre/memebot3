@@ -23,6 +23,7 @@ from config.config import CFG, PROJECT_ROOT
 from ml.feature_matrix import coerce_feature_frame
 from features.context_encoding import (augment_context_frame, available_context_features,
     context_encoding_schema, FEATURE_SOURCES)
+from features.numeric_encoding import augment_numeric_frame, available_numeric_features, numeric_encoding_schema
 from ml.feature_sets import feature_set, feature_set_hash
 from ml.label_builder import attach_labels
 from ml.outcome_targets import enrich_outcome_targets
@@ -155,7 +156,8 @@ def _save_family_model(model, path: Path, metadata: dict[str, Any]) -> None:
     try:
         joblib.dump(model, temporary)
         payload = {**metadata, "model_sha256": sha256(temporary.read_bytes()).hexdigest(),
-                   "context_encoding": context_encoding_schema(metadata.get("features") or [])}
+                   "context_encoding": context_encoding_schema(metadata.get("features") or []),
+                   "numeric_encoding": numeric_encoding_schema(metadata.get("features") or [])}
         meta_tmp.write_text(json.dumps(_json_safe(payload), indent=2, allow_nan=False), encoding="utf-8")
         os.replace(temporary, path)
         os.replace(meta_tmp, meta_path)
@@ -198,6 +200,7 @@ def train_classifier_family(
                 raise ValueError("configured_risk_requires_explicit_net_target_definition")
             df["severe_loss_configured"] = df["target_total_pnl_pct"].le(threshold).astype("Int64")
     df = augment_context_frame(df, available_context_features(df))
+    df = augment_numeric_frame(df, available_numeric_features(df))
     features = list(dict.fromkeys(column for column in feature_set(feature_set_name) if column in df.columns))
     report: dict[str, Any] = {
         "family": family,
@@ -355,6 +358,7 @@ def train_regressor_family(
     df = _settled_training_frame(load_training_frame(frame))
     # Mixed opportunity/financial target lists are handled independently below.
     df = augment_context_frame(df, available_context_features(df))
+    df = augment_numeric_frame(df, available_numeric_features(df))
     features = list(dict.fromkeys(column for column in feature_set(feature_set_name) if column in df.columns))
     report: dict[str, Any] = {
         "family": family,
@@ -469,6 +473,7 @@ def train_exit_classifier(
         risk = pd.to_numeric(df.get("target_total_pnl_pct"), errors="coerce").fillna(0)
         df["best_exit_profile"] = np.where(peak >= 300, "moonbag", np.where(peak >= 100, "runner", np.where(risk < -30, "defensive", "balanced")))
     df = augment_context_frame(df, available_context_features(df))
+    df = augment_numeric_frame(df, available_numeric_features(df))
     features = [column for column in feature_set("exit_features") if column in df.columns
                 and column != "exit_profile" and FEATURE_SOURCES.get(column) != "exit_profile"]
     report: dict[str, Any] = {"family": "exit", "rows": int(len(df)), "targets": {}}

@@ -17,6 +17,7 @@ from ml.feature_matrix import coerce_feature_frame
 from ml.financial_targets import financial_target, supported_financial_training
 from analytics.inference_scope import scoped_value, scoped_snapshot, scoped_prediction
 from features.context_encoding import checked_context_schema
+from features.numeric_encoding import checked_numeric_schema
 from features.builder import ALLOWED_FEATURES
 
 log = logging.getLogger(__name__)
@@ -108,7 +109,7 @@ def _load_unscoped(path: Path, *, require_temporal_validation: bool):
             if (not isinstance(features, list) or not features or len(set(features)) != len(features)
                     or any(name not in ALLOWED_FEATURES for name in features)):
                 raise ValueError("model feature schema is absent")
-            if not checked_context_schema(metadata, features):
+            if not checked_context_schema(metadata, features) or not checked_numeric_schema(metadata, features):
                 raise ValueError("unproved specialized context encoding")
             model = joblib.load(io.BytesIO(payload))
         except Exception as exc:

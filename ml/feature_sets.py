@@ -5,6 +5,7 @@ from typing import Iterable
 
 from features.builder import ALLOWED_FEATURES
 from features.context_encoding import CONTEXT_FEATURES
+from features.numeric_encoding import RULES, PREFIX
 
 _COMMON = [
     "entry_regime_code",
@@ -63,7 +64,8 @@ FEATURE_SETS: dict[str, list[str]] = {
     "continuation_features": _COMMON + ["price_pct_5m", "txns_last_5m", "price_impact_pct", "route_proxy"],
     "exit_features": _COMMON + ["exit_profile"],
 }
-FEATURE_SETS = {name: list(dict.fromkeys([*values, *CONTEXT_FEATURES])) for name, values in FEATURE_SETS.items()}
+FEATURE_SETS = {name: list(dict.fromkeys([*values, *CONTEXT_FEATURES,
+    *(PREFIX + value for value in values if value in RULES)])) for name, values in FEATURE_SETS.items()}
 
 _FORBIDDEN_SUBSTR = (
     "future",

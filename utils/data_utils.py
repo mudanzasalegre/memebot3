@@ -5,7 +5,9 @@ import logging
 import math
 from typing import Any, Dict
 
+import numpy as np
 import pandas as pd
+from utils.numeric_types import binary_value
 
 from utils.solana_addr import is_probably_mint, normalize_mint
 from utils.time import utc_now, parse_iso_utc
@@ -67,7 +69,7 @@ _TREND_STR_TO_INT = {
     "flat": 0,
     "sideways": 0,
     "neutral": 0,
-    "unknown": 0,
+    "unknown": None,
 }
 _PREF_KEYS = ("usd", "h24", "24h", "quote", "base", "value")
 
@@ -140,7 +142,7 @@ def _extract_from_dict(d: dict, ctx: str) -> float | None:
 
 
 def _to_float(value: Any, ctx: str = "") -> float | None:
-    if value is None:
+    if value is None or isinstance(value, (bool, np.bool_, complex, np.complexfloating)):
         return None
     if isinstance(value, dict):
         return _extract_from_dict(value, ctx)
@@ -151,7 +153,7 @@ def _to_float(value: Any, ctx: str = "") -> float | None:
         if math.isnan(out) or math.isinf(out):
             return None
         return out
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         log.debug("No convertible a float [%s] -> %s (%s)", ctx, value, type(value).__name__)
         return None
 
@@ -174,10 +176,10 @@ def is_missing_value(value: Any, *, treat_zero_as_missing: bool = False) -> bool
 def _normalize_trend(v: Any) -> int | None:
     if is_missing_value(v):
         return None
-    if isinstance(v, (int, float)):
-        return int(max(min(v, 1), -1))
+    if isinstance(v, (int, float, np.integer, np.floating)):
+        return int(v) if not isinstance(v, (bool, np.bool_)) and v in (-1, 0, 1) else None
     if isinstance(v, str):
-        return _TREND_STR_TO_INT.get(v.lower().strip(), 0)
+        return _TREND_STR_TO_INT.get(v.lower().strip())
     return None
 
 
@@ -275,11 +277,12 @@ def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
         if field not in clean:
             continue
         num = _to_float(clean.get(field), ctx)
-        clean[field] = None if is_missing_value(num) else int(num)
+        clean[field] = (int(num) if num is not None and not isinstance(clean.get(field), bool)
+                        and 0 <= num <= 2**31 - 1 and num.is_integer() else None)
 
     for field in _BOOL_INT_FIELDS:
         if field in clean:
-            clean[field] = None if is_missing_value(clean[field]) else int(bool(clean[field]))
+            clean[field] = binary_value(clean[field])
 
     if "trend" in clean:
         clean["trend"] = _normalize_trend(clean["trend"])
@@ -289,7 +292,7 @@ def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
 
     age_val = _minutes_since(created_at)
     if age_val is None:
-        raw_age = _to_float(clean.get("age_minutes") or clean.get("age_min"), ctx)
+        raw_age = _to_float(clean.get("age_minutes") if clean.get("age_minutes") is not None else clean.get("age_min"), ctx)
         clean["age_minutes"] = clean["age_min"] = raw_age
     else:
         clean["age_minutes"] = clean["age_min"] = age_val

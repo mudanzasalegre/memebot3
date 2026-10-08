@@ -31,6 +31,8 @@ from ml.financial_targets import checked_financial_frame, supported_financial_tr
 from features.builder import ALLOWED_FEATURES
 from features.context_encoding import (CONTEXT_FEATURES, augment_context_frame,
     available_context_features, context_encoding_schema, independent_input_count)
+from features.numeric_encoding import (RULES as NUMERIC_RULES, PREFIX as NUMERIC_PREFIX,
+    augment_numeric_frame, available_numeric_features, numeric_encoding_schema)
 from ml.model_registry import ACTIVATION_READY_PROMOTION_ERROR, ModelArtifactSet, promote_candidate, write_candidate
 from ml.segment_report import SEGMENT_JSON, build_segment_report, write_segment_outputs
 from ml.tune_threshold import tune_from_frame
@@ -688,6 +690,7 @@ def _filter_outcome_training_rows(
 
 def _select_feature_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str], list[str]]:
     df = augment_context_frame(df, available_context_features(df))
+    df = augment_numeric_frame(df, available_numeric_features(df))
     excluded_effective: list[str] = []
     keep_candidate: list[str] = []
 
@@ -709,6 +712,12 @@ def _select_feature_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str], 
         zero_cols = []
 
     x_cols = [c for c in keep_candidate if c not in zero_cols]
+    # Keep complete pairs even when the missingness bit (or raw value) was
+    # constant in this fit. Never count two columns as two independent inputs.
+    paired = {value for source in NUMERIC_RULES if source in x_cols or NUMERIC_PREFIX + source in x_cols
+              for value in (source, NUMERIC_PREFIX + source)}
+    x_cols = [c for c in keep_candidate if c in x_cols or c in paired]
+    zero_cols = [c for c in zero_cols if c not in paired]
     excluded_effective.extend(zero_cols)
     return df, x_cols, excluded_effective
 
@@ -847,7 +856,9 @@ def _initial_quality(
         reasons.append(f"unique_tokens<{CFG.ML_MIN_UNIQUE_TOKENS}")
     if realized_return_rows < int(getattr(CFG, "ML_MIN_REALIZED_RETURN_ROWS", 50)):
         reasons.append(f"realized_return_rows<{CFG.ML_MIN_REALIZED_RETURN_ROWS}")
-    input_sources = independent_input_count(x_cols)
+    matrix = coerce_feature_frame(df_train, x_cols)
+    nonconstant = [name for name, variance in matrix.var(ddof=0).items() if variance > 0.0]
+    input_sources = independent_input_count(nonconstant)
     min_inputs = int(getattr(CFG, "ML_MIN_NON_CONSTANT_FEATURES", 12))
     if input_sources < min_inputs:
         reasons.append(f"non_constant_input_sources<{min_inputs}")
@@ -866,7 +877,7 @@ def _initial_quality(
         policy_reject_rows=int(filtering_meta.get("policy_reject_rows", 0)),
         realized_return_rows=realized_return_rows,
         numeric_feature_candidates=len(x_cols),
-        non_constant_numeric_features=len(x_cols),
+        non_constant_numeric_features=len(nonconstant),
         non_constant_input_sources=input_sources,
         holdout_rows=0,
         holdout_positives=0,
@@ -1782,6 +1793,7 @@ def train_and_save() -> TrainResult:
         **readiness,
         "features": x_cols,
         "context_encoding": context_encoding_schema(x_cols),
+        "numeric_encoding": numeric_encoding_schema(x_cols),
         "feature_set_hash": feat_hash,
         "excluded_columns": sorted(excluded_effective),
         "model_path": str(MODEL_PATH),

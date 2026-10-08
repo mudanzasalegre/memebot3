@@ -21,6 +21,7 @@ from utils.data_utils import (
 )
 from utils.time import utc_now
 from features.context_encoding import CONTEXT_FEATURES
+from features.numeric_encoding import MISSINGNESS_FEATURES, RULES as NUMERIC_RULES, binary_value, numeric_value
 
 COLUMNS: list[str] = [
     "address",
@@ -241,6 +242,7 @@ ALLOWED_FEATURES: set[str] = {
 }
 FORBIDDEN_FEATURES: set[str] = set()
 ALLOWED_FEATURES.update(CONTEXT_FEATURES)
+ALLOWED_FEATURES.update(MISSINGNESS_FEATURES)
 _FORBIDDEN_SUBSTR: tuple[str, ...] = (
     "pnl",
     "future",
@@ -336,13 +338,9 @@ def _price5m_bucket(value: Any) -> tuple[str, int]:
     return ">=180", 6
 
 
-def _as_bool_int(value: Any) -> int:
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, (int, float)):
-        return int(value != 0)
-    raw = str(value or "").strip().lower()
-    return int(raw in {"1", "true", "yes", "y", "on"})
+def _as_bool_int(value: Any) -> int | float:
+    parsed = binary_value(value)
+    return np.nan if parsed is None else parsed
 
 
 def _price_source_quality(source: Any) -> int:
@@ -393,9 +391,7 @@ def _coverage_metrics(tok: Dict[str, Any], missing_flags: Dict[str, int]) -> Dic
 def _feature_value(tok: Dict[str, Any], col: str) -> Any:
     val = tok.get(col, None)
     if col in _BOOL_COLS:
-        if is_missing_value(val):
-            return np.nan
-        return int(bool(val))
+        return _as_bool_int(val)
     if is_missing_value(val):
         return np.nan
     return val
@@ -423,6 +419,7 @@ def build_feature_vector(tok: Dict[str, Any], *, now: dt.datetime | None = None)
     missing_flags = _missing_flags(tok)
     coverage = _coverage_metrics(tok, missing_flags)
     social = social_signal_from_token(tok)
+    impact = numeric_value(tok.get("price_impact_pct"), "price_impact_pct")
 
     values: Dict[str, Any] = {
         "address": tok.get("address"),
@@ -439,7 +436,7 @@ def build_feature_vector(tok: Dict[str, Any], *, now: dt.datetime | None = None)
         "price_source": normalize_price_source(tok.get("price_source")),
         "price_source_quality": _price_source_quality(tok.get("price_source")),
         "age_minutes": age_min,
-        "liquidity_is_proxy": _as_bool_int(tok.get("liquidity_is_proxy") or tok.get("liquidity_usd_is_proxy")),
+        "liquidity_is_proxy": _as_bool_int(tok.get("liquidity_is_proxy") if tok.get("liquidity_is_proxy") is not None else tok.get("liquidity_usd_is_proxy")),
         "route_proxy": _as_bool_int(tok.get("route_proxy")),
         "green_sniper_risk_level": tok.get("green_sniper_risk_level"),
         "green_sniper_risk_reasons": tok.get("green_sniper_risk_reasons"),
@@ -456,7 +453,7 @@ def build_feature_vector(tok: Dict[str, Any], *, now: dt.datetime | None = None)
         "green_sniper_reason": tok.get("green_sniper_reason"),
         "green_sniper_paper_birth_probe": _as_bool_int(tok.get("green_sniper_paper_birth_probe")),
         "profit_pnl_guard_failures": tok.get("profit_pnl_guard_failures"),
-        "impact_zero_flag": int(float(tok.get("price_impact_pct") or 0.0) == 0.0),
+        "impact_zero_flag": np.nan if impact is None else int(impact == 0.0),
         "social_status": social.status,
         "social_ok": social.social_ok,
         "twitter_present": int(social.twitter_present),
@@ -481,5 +478,11 @@ def build_feature_vector(tok: Dict[str, Any], *, now: dt.datetime | None = None)
         values[col] = _feature_value(tok, col)
 
     values["is_incomplete"] = int(token_is_incomplete(tok))
+
+    # Preserve invalid-input absence before the fixed Parquet schema can
+    # truncate fractional integers or cast Boolean observations to numbers.
+    for col in NUMERIC_RULES:
+        parsed = numeric_value(values.get(col), col)
+        values[col] = np.nan if parsed is None else parsed
 
     return pd.Series([values.get(c, np.nan) for c in COLUMNS], index=COLUMNS)

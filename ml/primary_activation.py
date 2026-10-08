@@ -17,6 +17,7 @@ from utils.atomic_json import read_json_strict, write_json_atomic
 from ml.entry_probability import supported_entry_model
 from ml.financial_targets import supported_financial_training
 from features.context_encoding import checked_context_schema
+from features.numeric_encoding import checked_numeric_schema
 
 VERSION = "atomic_primary_bundle_v1"
 COMPONENTS = {"model.pkl", "model.meta.json", "thresholds.by_lane.json", "threshold.json", "acceptance.json"}
@@ -128,6 +129,7 @@ def read_bundle(reference: dict, registry_path: Path, models_dir: Path):
             or sha256(payloads["model.pkl"]).hexdigest() != meta.get("model_sha256")
             or not supported_financial_training(meta, entry=True)
             or not checked_context_schema(meta, meta.get("features") or [])
+            or not checked_numeric_schema(meta, meta.get("features") or [])
             or not supported_approval(documents["acceptance.json"], payloads["model.pkl"], payloads["model.meta.json"])
             or documents["threshold.json"] != (meta.get("threshold_result") or {})
             or documents["thresholds.by_lane.json"] != (meta.get("thresholds_by_lane") or {})):

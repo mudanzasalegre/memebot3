@@ -36,6 +36,7 @@ from ml.financial_targets import supported_financial_training
 from features.builder import ALLOWED_FEATURES
 from analytics.inference_scope import scoped_snapshot, scoped_prediction
 from features.context_encoding import checked_context_schema
+from features.numeric_encoding import checked_numeric_schema
 from ml.entry_probability import supported_entry_probability, supported_entry_model
 from ml.primary_activation import selected_reference, read_bundle
 
@@ -156,7 +157,7 @@ def _load_model_unscoped():
             if (not isinstance(features, list) or not features or len(set(features)) != len(features)
                     or any(feature not in ALLOWED_FEATURES for feature in features)):
                 raise ValueError("unproved entry feature schema")
-            if not checked_context_schema(metadata, features):
+            if not checked_context_schema(metadata, features) or not checked_numeric_schema(metadata, features):
                 raise ValueError("unproved entry context encoding")
             payload = model_path.read_bytes()
             if sha256(payload).hexdigest() != metadata.get("model_sha256"):

@@ -27,9 +27,10 @@ from ml.label_builder import RUNNER_THRESHOLDS
 from ml.model_validation_warnings import precision_at_k
 from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
 from features.context_encoding import checked_context_schema, SCHEMA_SHA256
+from features.numeric_encoding import checked_numeric_schema, SCHEMA_SHA256 as NUMERIC_SCHEMA_SHA256
 
 ROLE = "scanner_ranking_only"
-PIPELINE_VERSION = 3  # Checked static context encoding is part of comparison identity.
+PIPELINE_VERSION = 4  # Both fixed context and typed numeric missingness identities.
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -71,7 +72,7 @@ def _safe_model_path(family_dir: Path, relative: Any) -> Path:
 
 def _evaluate(model: Any, features: list[str], cohort: pd.DataFrame, target: str,
               *, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    if not checked_context_schema(metadata or {}, features):
+    if not checked_context_schema(metadata or {}, features) or not checked_numeric_schema(metadata or {}, features):
         raise ValueError("Unproved advisory context encoding")
     observed = pd.to_numeric(cohort[target], errors="coerce")
     mask = observed.isin([0, 1])
@@ -155,6 +156,7 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
             "pipeline_version": PIPELINE_VERSION, "cohort": _cohort_digest(df),
             "feature_set_hash": feature_set_hash("runner_features"),
             "context_encoding_sha256": SCHEMA_SHA256,
+            "numeric_encoding_sha256": NUMERIC_SCHEMA_SHA256,
             "min_rows": min_rows, "min_lift_delta": delta,
             "targets": list(RUNNER_THRESHOLDS),
         }, sort_keys=True).encode()).hexdigest()
@@ -266,6 +268,7 @@ def rollback_runner_advisory(*, root: Path | None = None) -> bool:
             metadata = _read_json(model_path.with_suffix(".meta.json"))
             if (model_path.stem != target or metadata.get("activation_role") != ROLE
                     or not checked_context_schema(metadata, metadata.get("features") or [])
+                    or not checked_numeric_schema(metadata, metadata.get("features") or [])
                     or sha256(model_path.read_bytes()).hexdigest() != entry.get("model_sha256")
                     or metadata.get("model_sha256") != entry.get("model_sha256")):
                 return False

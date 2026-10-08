@@ -18,6 +18,9 @@ from ml.feature_matrix import coerce_feature_frame
 from ml.financial_targets import checked_financial_frame, supported_financial_training
 from ml.prediction_validation import paired_token_loss_check
 from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
+from features.builder import ALLOWED_FEATURES
+from features.context_encoding import checked_context_schema
+from features.numeric_encoding import checked_numeric_schema
 
 VERSION = "same_later_primary_champion_v1"
 PROVENANCE_VERSION = "primary_training_population_v1"
@@ -91,7 +94,16 @@ def current_incumbent(*, registry_path: Path, models_dir: Path, model_alias: Pat
     return {"epoch": epoch, "model": None, "metadata": None, "acceptance": None}
 
 
+def _ensure_input_encoding(meta):
+    features = meta.get("features")
+    if (not isinstance(features, list) or not features or len(set(features)) != len(features)
+            or any(name not in ALLOWED_FEATURES for name in features)
+            or not checked_context_schema(meta, features) or not checked_numeric_schema(meta, features)):
+        raise ValueError("Unproved primary comparison input encoding")
+
+
 def _predictions(model, meta, cohort):
+    _ensure_input_encoding(meta)
     if not supported_entry_model(model, meta) or not supported_financial_training(meta, entry=True):
         raise ValueError("Unsupported primary model for same-cohort evaluation")
     from analytics.ml_policy import _snapshot_threshold_payload
@@ -128,6 +140,7 @@ def authorize_candidate(artifact, cohort, *, incumbent: dict, min_rows=30, min_s
     meta = json.loads(meta_bytes)
     if sha256(model_bytes).hexdigest() != meta.get("model_sha256") or meta.get("activation_ready") is not True:
         raise ValueError("Primary candidate is not internally ready or has changed")
+    _ensure_input_encoding(meta)
     model = joblib.load(io.BytesIO(model_bytes))
     checked, financial = checked_financial_frame(cohort)
     result = {"version": VERSION, "accepted": False, "reason": "insufficient_later_cohort",

@@ -17,6 +17,7 @@ from hashlib import sha256
 from config.config import CFG, PROJECT_ROOT
 from ml.financial_targets import supported_financial_training, financial_target
 from features.context_encoding import checked_context_schema
+from features.numeric_encoding import checked_numeric_schema
 from ml.entry_probability import supported_entry_probability, supported_entry_model
 from ml.primary_activation import (registry_lock, read_registry, active_epoch, write_bundle, read_bundle,
     selected_reference, legacy_archive, commit_selection, refresh_legacy_mirrors)
@@ -100,7 +101,7 @@ def _ensure_activation_ready(meta: dict[str, Any]) -> None:
 
 
 def _ensure_financial_artifact(meta, path, *, entry=False, model_bytes=None):
-    if not checked_context_schema(meta, meta.get("features") or []):
+    if not checked_context_schema(meta, meta.get("features") or []) or not checked_numeric_schema(meta, meta.get("features") or []):
         raise RuntimeError("checked T0 context encoding required for model promotion")
     if not supported_financial_training(meta, entry=entry):
         raise RuntimeError("checked net financial training required for model promotion")
@@ -210,7 +211,7 @@ def _promote_family_candidate_locked(
     _ensure_activation_ready(meta)
     if financial_target(family, meta.get("target")):
         _ensure_financial_artifact(meta, artifact.model_path)
-    elif not checked_context_schema(meta, meta.get("features") or []):
+    elif not checked_context_schema(meta, meta.get("features") or []) or not checked_numeric_schema(meta, meta.get("features") or []):
         raise RuntimeError("checked T0 context encoding required for model promotion")
     joblib.load(artifact.model_path)
     family_dir.mkdir(parents=True, exist_ok=True)

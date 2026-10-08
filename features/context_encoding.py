@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from ml.lane_taxonomy import TRAINABLE_LANES, normalize_entry_lane
+from features.numeric_encoding import FEATURE_SOURCES as NUMERIC_SOURCES
 
 VERSION = "fixed_t0_context_onehot_v1"
 PREFIX = "t0ctx_"
@@ -118,4 +119,4 @@ def checked_context_schema(metadata: dict[str, Any], features: Iterable[str]) ->
 
 
 def independent_input_count(features: Iterable[str]) -> int:
-    return len({FEATURE_SOURCES.get(name, name) for name in features})
+    return len({FEATURE_SOURCES.get(name, NUMERIC_SOURCES.get(name, name)) for name in features})
