@@ -332,7 +332,8 @@ def test_no_probability_contract_is_neutral_not_an_entry_veto(tmp_path, monkeypa
     assert prediction is None and action.allow_buy and not action.enforce and action.sizing_multiplier == 1
 
 
-def test_actual_train_save_and_checked_promotion_persist_probability_evidence(tmp_path, monkeypatch):
+@pytest.mark.parametrize("post_commit_failure", [None, "diagnostic", "mirror"])
+def test_actual_train_save_and_checked_promotion_persist_probability_evidence(tmp_path, monkeypatch, post_commit_failure):
     from ml import train, model_registry as registry
     from net_financial_fixtures import net_frame
     from test_ml_pipeline_reliability_pr10 import _patch_train_paths
@@ -361,37 +362,44 @@ def test_actual_train_save_and_checked_promotion_persist_probability_evidence(tm
     monkeypatch.setattr(train, "SEGMENT_JSON", tmp_path / "segment.json")
     monkeypatch.setattr(train, "write_segment_outputs", lambda *args, **kw: None)
     monkeypatch.setattr(train, "_candidate_builders", lambda: [("logreg_calibrated", "sklearn_logreg", train._fit_logreg_calibrated)])
+    if post_commit_failure == "diagnostic":
+        original_write = train._write_json
+        def fail_status(path, payload):
+            if path == train.TRAIN_STATUS_JSON:
+                raise OSError("synthetic post-commit diagnostic failure")
+            return original_write(path, payload)
+        monkeypatch.setattr(train, "_write_json", fail_status)
+    elif post_commit_failure == "mirror":
+        def fail_mirror(*args, **kwargs):
+            raise OSError("synthetic post-commit mirror failure")
+        monkeypatch.setattr(registry, "refresh_legacy_mirrors", fail_mirror)
     result = train.train_and_save()
     assert result.trained and result.active_promoted
     metadata = json.loads(Path(result.meta_path).read_text())
     assert probability.supported_entry_probability(metadata)
     assert probability.supported_entry_model(joblib.load(result.model_path), metadata)
     assert metadata["enforcement_gates"]["checks"]["temporal_probability_ready"]
+    assert metadata["rows"] == metadata["training_provenance"]["rows"] == 180
+    assert metadata["champion_reservation"]["reserved_rows"] == 60
+    assert bool(result.publication_warnings) == bool(post_commit_failure)
     assert "baseline_probability" in pd.read_csv(result.val_preds_path)
 
 
-@pytest.mark.parametrize("promoted,new_valid,old_valid,expected", [(False, True, False, False),
-    (True, True, False, True), (True, False, True, False)])
-def test_retrain_reports_actual_promotion_and_cannot_restore_legacy_from_an_incomparable_score(
-        tmp_path, monkeypatch, promoted, new_valid, old_valid, expected):
+@pytest.mark.parametrize("trained,promoted,expected", [(True, False, False), (True, True, True), (False, False, False)])
+def test_retrain_reports_atomic_trainer_outcome_without_posthoc_rollback(
+        tmp_path, monkeypatch, trained, promoted, expected):
     from ml import retrain
     model_path, meta_path, threshold_path = tmp_path / "model.pkl", tmp_path / "model.meta.json", tmp_path / "threshold.json"
     good = primary_probability_parts()[1]
-    old = {**(deepcopy(good) if old_valid else {}), "model_selection_metric": "avg_realized_pnl_pct_at_picked", "model_selection_score": 99999.}
+    old = {**deepcopy(good), "model_selection_metric": "avg_realized_pnl_pct_at_picked", "model_selection_score": 99999.}
     model_path.write_bytes(b"old")
     meta_path.write_text(json.dumps(old))
     threshold_path.write_text(json.dumps({"picked": .4}))
-    monkeypatch.setattr(retrain, "MODEL_PATH", model_path)
-    monkeypatch.setattr(retrain, "META_PATH", meta_path)
-    monkeypatch.setattr(retrain, "RECOMMENDED_JSON", threshold_path)
     def attempt():
-        if promoted:
-            model_path.write_bytes(b"new")
-            meta_path.write_text(json.dumps({**(good if new_valid else {}), "model_selection_metric": "avg_realized_pnl_pct_at_picked", "model_selection_score": 100.}))
-        return SimpleNamespace(trained=True, active_promoted=promoted, status="trained")
+        return SimpleNamespace(trained=trained, active_promoted=promoted, status="trained")
     monkeypatch.setattr(retrain, "train_and_save", attempt)
     assert retrain.retrain_if_better() is expected
-    assert model_path.read_bytes() == (b"new" if expected else b"old")
+    assert model_path.read_bytes() == b"old"
     assert not list(tmp_path.glob("*.bkup.*"))
 
 

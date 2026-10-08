@@ -23,16 +23,10 @@ def test_model_registry_promotes_atomically(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(registry, "MODELS_DIR", tmp_path / "models")
     monkeypatch.setattr(registry, "REGISTRY_PATH", tmp_path / "model_registry.json")
     monkeypatch.setattr(registry, "CFG", SimpleNamespace(STRATEGY_OPTIMIZATION_LOCK=False))
-    from primary_probability_fixtures import primary_probability_parts
-    model, probability = primary_probability_parts()
-    artifact = write_candidate(
-        model=model,
-        meta={**probability, "features": ["price_pct_5m"], "feature_set_hash": "abc", "activation_ready": True,
-              "financial_training": financial_meta(), "validation_split": {"label_availability_purged": True}},
-        model_id="m1",
-    )
-    active = tmp_path / "model.pkl"
-    reg = promote_candidate(artifact, active_model_path=active)
+    from primary_champion_fixtures import champion_artifact
+    registry, artifact, approval, _, active = champion_artifact(tmp_path, monkeypatch, name="m1")
+    assert approval["accepted"]
+    reg = promote_candidate(artifact, active_model_path=active, approval=approval)
     assert active.exists()
     assert active.with_suffix(".meta.json").exists()
     assert reg["active_model_id"] == "m1"
@@ -68,29 +62,15 @@ def test_candidate_thresholds_publish_only_after_promotion(tmp_path, monkeypatch
     recommended_path.write_text(json.dumps({"picked": 0.41}), encoding="utf-8")
     lanes_path.write_text(json.dumps({"global": {"threshold": 0.41}}), encoding="utf-8")
 
-    from primary_probability_fixtures import primary_probability_parts
-    model, probability = primary_probability_parts()
     new_threshold = {"picked": 0.73, "activation_ready": True}
-    new_lane_thresholds = {"global": {"threshold": 0.73}, "by_lane": {}}
-    artifact = write_candidate(
-        model=model,
-        meta={
-            **probability,
-            "features": ["price_pct_5m"],
-            "feature_set_hash": "abc",
-            "activation_ready": True,
-            "financial_training": financial_meta(),
-            "validation_split": {"label_availability_purged": True},
-            "threshold_result": new_threshold,
-        },
-        thresholds=new_lane_thresholds,
-        model_id="m1",
-    )
+    new_lane_thresholds = {"global": {"threshold": 0.73, "activation_ready": True}, "by_lane": {}}
+    from primary_champion_fixtures import champion_artifact
+    registry, artifact, approval, _, active = champion_artifact(tmp_path, monkeypatch, name="m1")
 
     assert json.loads(recommended_path.read_text(encoding="utf-8"))["picked"] == 0.41
     assert json.loads(lanes_path.read_text(encoding="utf-8"))["global"]["threshold"] == 0.41
 
-    promote_candidate(artifact, active_model_path=tmp_path / "model.pkl")
+    promote_candidate(artifact, active_model_path=active, approval=approval)
 
     assert json.loads(recommended_path.read_text(encoding="utf-8")) == new_threshold
     assert json.loads(lanes_path.read_text(encoding="utf-8")) == new_lane_thresholds

@@ -13,7 +13,7 @@
   ],
   "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
   "historical_initial_publication_state": {"branch": "main", "origin_main_commit_before_sync": "3479e24", "working_tree_clean_before_sync": true, "remote_fetch_completed": true, "source_sync_completed": true, "implementation_commit": "0c7aa6c0d2bc10462d29b1d8207a68a23fc7fbb8", "commit_push": "COMPLETE", "remote_revision_verified": true, "scope": "Initial publication proof, not the current Git HEAD after later source stages"},
-  "latest_stage_evidence": "docs/audits/entry_probability_20261008.json",
+  "latest_stage_evidence": "docs/audits/primary_champion_20261008.json",
   "implemented_this_stage": [
     "Restore observed peak targets through a bounded causal historical join; preserve all entry features unchanged",
     "Persist observed peak and outcome-availability timestamp as outcome-only Parquet columns on future shadow and real closes",
@@ -128,6 +128,10 @@
     "features/context_encoding.py",
     "tests/test_context_encoding.py",
     "docs/audits/entry_probability_20261008.json",
+    "docs/audits/primary_champion_20261008.json",
+    "ml/primary_champion.py",
+    "ml/primary_activation.py",
+    "tests/test_primary_champion_lifecycle.py",
     "ml/entry_probability.py",
     "tests/test_entry_probability.py"
   ],
@@ -154,7 +158,8 @@
     "previous_entry_freshness_working_suite": "1616 passed in 186.06s after common fresh scanner/sniper inputs, immutable decision observations, transient full reevaluation, selected-provider proxy-basis preservation and non-permanent bounded queue expiry",
     "previous_entry_inference_working_suite": "1670 passed after per-entry checked model snapshots, current-vector forecasts/model-bound thresholds/sizing and final ML/risk/quality guard",
     "previous_context_working_suite": "1806 passed in 217.78s after final fixed-vocabulary T0 context encoding, checked training/inference/advisory identity and equivalent NumPy indicator optimization",
-    "final_working_suite": "1881 passed in 206.47s after final primary chronological calibration, OOS probability/model binding acceptance, real promotion status and supported-later-window/class-count checks",
+    "previous_entry_probability_working_suite": "1881 passed in 206.47s after final primary temporal probability checks",
+    "final_working_suite": "1953 passed in 329.53s after primary same-later-cohort comparison, atomic model/meta/threshold approval/rollback and final API mode/snapshot checks",
     "previous_sizing_publishing_suite": "1031 passed in 71.96s without personal .env",
     "previous_runner_forward_publishing_suite": "1068 passed in 62.78s without personal .env",
     "previous_uncertainty_publishing_suite": "1097 passed in 74.08s without personal .env using existing working-checkout Python runtime",
@@ -173,7 +178,8 @@
     "previous_entry_freshness_publishing_suite": "1616 passed in 184.13s after common fresh scanner/sniper inputs and final liquidity-basis preservation, without personal .env or local .venv using existing working-checkout Python runtime",
     "previous_entry_inference_publishing_suite": "1670 passed after per-entry model/input/final-decision coherence, without personal .env or local .venv using existing working-checkout Python runtime",
     "previous_context_publishing_suite": "1806 passed in 207.72s after final fixed-vocabulary context encoding and checked lifecycle, without personal .env or local .venv using existing working-checkout Python runtime",
-    "final_publishing_suite": "1881 passed in 205.06s after final primary probability checks, without personal .env or local .venv using existing working-checkout Python runtime",
+    "previous_entry_probability_publishing_suite": "1881 passed in 205.06s after final primary temporal probability checks",
+    "final_publishing_suite": "1953 passed in 324.94s after final primary champion/atomic lifecycle checks, without personal .env or local .venv using existing working-checkout Python runtime",
     "publishing_preflight": "PASS: both checkouts, compilation, configuration, paper profile and seven report builders",
     "publishing_ui_build": "Previously passed with bundle-size warning; UI unchanged in uncertainty, transport, collector, incumbent-successor, composition, independent-monitor, buy-integrity, sell-integrity, paper-archive, runner-intake, net-learning, financial-model and market-freshness stages",
     "focused_runner_and_forward_suite": "147 passed in 59.65s in previous runner stage",
@@ -199,8 +205,9 @@
     "previous_remaining_bot_processes": 0,
     "previous_bot_lock_present": false,
     "previous_sqlite_process_state": "stopped",
-    "final_shutdown": "VERIFIED_OFF_2026-10-07T23:33:24.9845775Z",
-    "current_shutdown_evidence": "docs/audits/entry_probability_20261008.json"
+    "primary_champion_suite": "72 new isolated cases and 330 focused tests cover reserved later mature token-disjoint target-matched net cohorts before feature/model selection, unchanged frozen comparison thresholds, original T0 restoration, actual same-population probabilities/admissions and cluster uncertainty, unused prior fit/selection tokens/boundaries, invalid approval evidence, stale CAS/OS writer locks, immutable candidate IDs, first-launch unknown/no candidate fallback, complete atomic promotion/rollback with retained family headers, every bundle component corruption, precommit preservation and postcommit mirror/diagnostic warnings, entry-local pinning, and honest API mode/threshold snapshot diagnostics. Temporary artifacts only; no runtime model or provider activation and no full-strategy profit is established",
+    "final_shutdown": "VERIFIED_OFF_2026-10-08T00:15:02.7306654Z",
+    "current_shutdown_evidence": "docs/audits/primary_champion_20261008.json"
   },
   "isolated_advisory_result": {"source_period": "2026-07-13 through 2026-07-15", "settled_source_rows": 2147, "comparison_rows": 536, "selected_ranking_targets": ["runner_50", "runner_100"], "active_runtime_models_changed": false, "bot_started": false, "interpretation": "Useful historical ranking discrimination only; rare higher targets remain unvalidated and no costed future profits are established"},
   "remaining_required_work": [
@@ -208,7 +215,7 @@
     "Complete uncertainty, rare-runner and risk/continuation model validation on fresh evidence; calibrated event probabilities are not financial profitability evidence",
     "Complete scanner/feed follow-up and first-launch execution constraints; exact 0.1 SOL paper sizing and frozen runner exits are integrated but trading-policy activation remains separate",
     "Owned buy/sell intents, primary paper JSON/SQL fill recovery, durable closed-trade archival/reentry protection, original first-partial research intake/recovery, managed paper T0/net-label export, checked net-only financial model acceptance and primary fallback/monitor HTTP-receipt freshness are implemented; complete independently checked live wallet/quantity/finality reconciliation, provider market-asof/depth and production response contracts, other research/export error paths, full-strategy forward-source integrity and prospective financial acceptance. No client receipt, submission receipt or green paper test certifies these separate financial integrity boundaries",
-    "Independent paper entry-component composition, checked incumbent/successor lifecycle, actual late-router consumption, common fresh market preparation, current-vector inference under pinned models, versioned fixed-vocabulary context encoding and primary temporal probability calibration/acceptance are implemented; complete auxiliary source ages, additional subprofile/numeric missingness contracts, primary same-later-cohort incumbent/challenger comparison and transactionally consistent model/metadata/registry/threshold rollback, diagnostic multiclass exit acceptance, atomic multi-head provenance, durable full-strategy decision provenance and full-strategy capital/admission/execution constraints. Obtain separately authorized fresh full-strategy closed evidence before a profitability claim",
+    "Independent paper entry-component composition, checked incumbent/successor lifecycle, actual late-router consumption, common fresh market preparation, current-vector inference under pinned models, fixed-vocabulary context encoding, primary temporal probability acceptance and primary same-later-cohort comparison with complete atomic model/meta/threshold selection/rollback are implemented; complete auxiliary source ages, additional subprofile/numeric missingness contracts, diagnostic multiclass exit acceptance, atomic multi-head provenance, durable full-strategy decision provenance and full-strategy capital/admission/execution constraints. Primary historical admission-label-proxy acceptance is not full-strategy profitability. Obtain separately authorized fresh full-strategy closed evidence before a profitability claim",
     "Perform proportionate integration, first-launch and failure-path validation while keeping trading disabled",
     "Keep future implementation commits synchronized and leave all runtime services stopped after each verification stage"
   ],

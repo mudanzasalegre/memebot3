@@ -37,6 +37,7 @@ from features.builder import ALLOWED_FEATURES
 from analytics.inference_scope import scoped_snapshot, scoped_prediction
 from features.context_encoding import checked_context_schema
 from ml.entry_probability import supported_entry_probability, supported_entry_model
+from ml.primary_activation import selected_reference, read_bundle
 
 # Logger del módulo
 log = logging.getLogger("ai_predict")
@@ -86,7 +87,8 @@ _META_PATH: Path = _resolve_meta_path(_MODEL_PATH)
 _TRAIN_STATUS_PATH: Path = (PROJECT_ROOT / "data" / "metrics" / "train_status.json").resolve()
 _THRESHOLDS_BY_LANE_PATH: Path = (PROJECT_ROOT / "data" / "metrics" / "recommended_thresholds.by_lane.json").resolve()
 _LEGACY_THRESHOLD_PATH: Path = (PROJECT_ROOT / "data" / "metrics" / "recommended_threshold.json").resolve()
-_CANDIDATE_FAMILY_DIRS = {"risk", "ev", "runner", "continuation", "exit"}
+_REGISTRY_PATH = PROJECT_ROOT / "ml" / "model_registry.json"
+_MODELS_DIR = PROJECT_ROOT / "ml" / "models"
 
 # ──────────────────── estado global ───────────────────────────
 _model_lock = threading.Lock()
@@ -102,66 +104,33 @@ _meta_path_loaded: Optional[Path] = None
 
 
 # ╭────────────────── helpers internos ─────────────────╮
-def _candidate_fallback_allowed() -> bool:
-    if not bool(getattr(CFG, "ML_SHADOW_CANDIDATE_MODEL_FALLBACK_ENABLED", True)):
-        return False
-    mode = str(getattr(CFG, "ML_GATE_MODE", "shadow") or "shadow").strip().lower()
-    if mode in {"enforce", "legacy"}:
-        return False
-    if mode == "lane_aware":
-        lane_modes = {
-            str(getattr(CFG, "ML_RESEARCH_MODE", "shadow") or "shadow").strip().lower(),
-            str(getattr(CFG, "ML_LIVE_PROFIT_MODE", "sizing_only") or "sizing_only").strip().lower(),
-            str(getattr(CFG, "ML_UNKNOWN_LANE_MODE", "shadow") or "shadow").strip().lower(),
-        }
-        if "enforce" in lane_modes:
-            return False
-    return True
-
-
-def _latest_candidate_model_paths() -> tuple[Path, Path] | None:
-    root = PROJECT_ROOT / "ml" / "models"
-    if not root.exists():
-        return None
-    candidates: list[tuple[float, Path, Path]] = []
-    for child in root.iterdir():
-        if not child.is_dir() or child.name in _CANDIDATE_FAMILY_DIRS:
-            continue
-        model_path = child / "model.pkl"
-        meta_path = child / "model.meta.json"
-        if not model_path.exists() or not meta_path.exists():
-            continue
-        try:
-            mtime = max(model_path.stat().st_mtime, meta_path.stat().st_mtime)
-        except OSError:
-            continue
-        candidates.append((mtime, model_path.resolve(), meta_path.resolve()))
-    if not candidates:
-        return None
-    _mtime, model_path, meta_path = max(candidates, key=lambda item: item[0])
-    return model_path, meta_path
-
-
 def _effective_model_paths() -> tuple[Path, Path, bool]:
-    if _MODEL_PATH.exists():
-        return _MODEL_PATH, _META_PATH, False
-    if _candidate_fallback_allowed():
-        candidate = _latest_candidate_model_paths()
-        if candidate is not None:
-            return candidate[0], candidate[1], True
+    # Candidates are research artifacts, never runtime authority by mtime.
+    try:
+        selected = selected_reference(_REGISTRY_PATH, _MODELS_DIR, _MODEL_PATH)
+        if selected is not None:
+            return selected["paths"]["model.pkl"], selected["paths"]["model.meta.json"], False
+    except Exception:
+        pass  # Diagnostic paths only; loader fails closed on selector errors.
     return _MODEL_PATH, _META_PATH, False
 
 
 def _load_model_unscoped():
     """One checksum-checked net-model snapshot; absence is neutral/unknown."""
     global _model, _model_mtime, _model_path_loaded, _FEATURES, _model_signature, _loaded_meta
-    model_path, meta_path, _candidate_fallback = _effective_model_paths()
     with _model_lock:
         try:
+            selected = selected_reference(_REGISTRY_PATH, _MODELS_DIR, _MODEL_PATH)
+            model_path = selected["paths"]["model.pkl"] if selected else _MODEL_PATH
+            meta_path = selected["paths"]["model.meta.json"] if selected else _META_PATH
             model_stat, meta_stat = model_path.stat(), meta_path.stat()
             signature = (str(model_path), str(meta_path), model_stat.st_mtime_ns, model_stat.st_size,
                          meta_stat.st_mtime_ns, meta_stat.st_size)
-        except OSError:
+            if selected:
+                signature += (selected["revision"], json.dumps(selected["reference"], sort_keys=True),
+                    tuple((name, path.stat().st_mtime_ns, path.stat().st_size)
+                          for name, path in sorted(selected["paths"].items())))
+        except Exception:
             signature = None
         if signature is not None and signature == _model_signature:
             return _model, list(_FEATURES or []), copy.deepcopy(_loaded_meta)
@@ -170,7 +139,12 @@ def _load_model_unscoped():
         if signature is None:
             return None, [], {}
         try:
-            metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+            if selected:
+                _model, metadata, documents, _ = read_bundle(selected["reference"], _REGISTRY_PATH, _MODELS_DIR)
+                metadata["_primary_runtime"] = {"revision": selected["revision"], "model_path": str(model_path),
+                    "meta_path": str(meta_path), "acceptance": documents["acceptance.json"]}
+            else:
+                metadata = json.loads(meta_path.read_text(encoding="utf-8"))
             if not isinstance(metadata, dict):
                 raise ValueError("model metadata must be an object")
             _loaded_meta = metadata
@@ -191,7 +165,8 @@ def _load_model_unscoped():
                 raise ValueError("unproved primary calibrated probability")
             # Deserialize precisely the bytes that passed the checksum, never
             # a replacement path from a concurrent promotion.
-            _model = joblib.load(io.BytesIO(payload))
+            if not selected:
+                _model = joblib.load(io.BytesIO(payload))
             if not supported_entry_model(_model, metadata):
                 raise ValueError("primary probability model/calibration mismatch")
             _FEATURES = list(features)
@@ -207,61 +182,7 @@ def _load_model():
 
 
 def _load_meta() -> dict[str, Any]:
-    global _meta_cache, _meta_mtime, _meta_path_loaded
-
-    _model_path, meta_path, candidate_fallback = _effective_model_paths()
-    if candidate_fallback:
-        if not meta_path.exists():
-            _meta_cache = {}
-            _meta_mtime = None
-            _meta_path_loaded = None
-            return {}
-        mtime = meta_path.stat().st_mtime
-        if _meta_cache is not None and _meta_mtime == mtime and _meta_path_loaded == meta_path:
-            return dict(_meta_cache)
-        with _model_lock:
-            current_mtime = meta_path.stat().st_mtime if meta_path.exists() else None
-            if current_mtime is None:
-                _meta_cache = {}
-                _meta_mtime = None
-                _meta_path_loaded = None
-                return {}
-            if _meta_cache is None or _meta_mtime != current_mtime or _meta_path_loaded != meta_path:
-                try:
-                    _meta_cache = json.loads(meta_path.read_text(encoding="utf-8")) or {}
-                except Exception as exc:
-                    log.warning("No se pudo leer meta %s: %s", meta_path, exc)
-                    _meta_cache = {}
-                _meta_mtime = current_mtime
-                _meta_path_loaded = meta_path
-        return dict(_meta_cache or {})
-
-    if not _META_PATH.exists():
-        _meta_cache = {}
-        _meta_mtime = None
-        _meta_path_loaded = None
-        return {}
-
-    mtime = _META_PATH.stat().st_mtime
-    if _meta_cache is not None and _meta_mtime == mtime and _meta_path_loaded == _META_PATH:
-        return dict(_meta_cache)
-
-    with _model_lock:
-        current_mtime = _META_PATH.stat().st_mtime if _META_PATH.exists() else None
-        if current_mtime is None:
-            _meta_cache = {}
-            _meta_mtime = None
-            _meta_path_loaded = None
-            return {}
-        if _meta_cache is None or _meta_mtime != current_mtime or _meta_path_loaded != _META_PATH:
-            try:
-                _meta_cache = json.loads(_META_PATH.read_text(encoding="utf-8")) or {}
-            except Exception as exc:
-                log.warning("No se pudo leer meta %s: %s", _META_PATH, exc)
-                _meta_cache = {}
-            _meta_mtime = current_mtime
-            _meta_path_loaded = _META_PATH
-    return dict(_meta_cache or {})
+    return copy.deepcopy(_load_model()[2])
 
 
 def _load_train_status() -> dict[str, Any]:
@@ -416,7 +337,13 @@ def model_runtime_status() -> dict[str, Any]:
     if blocker is None and skip_reasons:
         blocker = ",".join(str(item) for item in skip_reasons if str(item))
     effective_model_path, effective_meta_path, candidate_fallback = _effective_model_paths()
+    selection = meta.get("_primary_runtime") or {}
+    if selection:
+        effective_model_path, effective_meta_path = Path(selection["model_path"]), Path(selection["meta_path"])
     return {
+        "primary_selection_revision": selection.get("revision"),
+        "primary_champion_acceptance": selection.get("acceptance"),
+        "threshold_result": copy.deepcopy(meta.get("threshold_result")),
         "model_exists": effective_model_path.exists(),
         "meta_exists": effective_meta_path.exists(),
         "active_model_exists": _MODEL_PATH.exists(),
@@ -464,6 +391,19 @@ def model_runtime_status() -> dict[str, Any]:
 
 def threshold_runtime_metadata() -> dict[str, Any]:
     """Threshold metadata with by-lane support and legacy fallback."""
+    meta = _load_model()[2]
+    if meta.get("_primary_runtime"):
+        by_lane = meta.get("thresholds_by_lane") or {}
+        return {"source": "atomic_primary_bundle", "path": meta["_primary_runtime"]["meta_path"],
+            "global": by_lane.get("global") or {"threshold": (meta.get("threshold_result") or {}).get("picked"),
+                "activation_ready": meta.get("activation_ready") is True},
+            "by_lane": by_lane.get("by_lane") or {}, "revision": meta["_primary_runtime"]["revision"]}
+    try:
+        if selected_reference(_REGISTRY_PATH, _MODELS_DIR, _MODEL_PATH) is not None:
+            return {"source": "unavailable_atomic_primary_bundle", "path": str(_REGISTRY_PATH),
+                    "global": {}, "by_lane": {}}
+    except Exception:
+        return {"source": "invalid_primary_selector", "path": str(_REGISTRY_PATH), "global": {}, "by_lane": {}}
     by_lane = _load_json_file(_THRESHOLDS_BY_LANE_PATH)
     if by_lane:
         return {

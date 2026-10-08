@@ -84,6 +84,10 @@ def _scorecard_status_with_consistency(settings: APISettings, consistency: dict[
 
 def _merge_runtime_payload(runtime: dict[str, Any], runtime_gate: dict[str, Any]) -> dict[str, Any]:
     merged = dict(runtime)
+    if runtime.get("primary_selection_revision"):
+        # A worker's previous diagnostic snapshot cannot overwrite the current
+        # immutable model/threshold bundle displayed by this process.
+        return merged
     for key in _RUNTIME_GATE_RUNTIME_KEYS:
         value = runtime_gate.get(key)
         if value is not None:
@@ -97,12 +101,14 @@ def _effective_gate(
     runtime_gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     mode = str(getattr(CFG, "ML_GATE_MODE", "legacy") or "legacy").strip().lower()
-    if mode not in {"legacy", "shadow", "enforce", "off"}:
+    if mode not in {"legacy", "shadow", "enforce", "off", "lane_aware", "sizing_only", "risk_veto_only"}:
         mode = "legacy"
 
     activation_ready_raw = runtime.get("activation_ready")
     activation_ready = bool(activation_ready_raw) if activation_ready_raw is not None else False
-    if mode in {"off", "shadow"}:
+    if mode in {"off", "shadow", "sizing_only", "risk_veto_only", "lane_aware"}:
+        # A per-lane policy is not a uniform primary probability gate. Risk-only
+        # vetoes and sizing also must not be labelled primary enforcement.
         enforced = False
     elif mode == "enforce":
         enforced = activation_ready
@@ -120,8 +126,9 @@ def _effective_gate(
         "enforced": bool(enforced),
         "threshold": float(threshold),
         "activation_ready": activation_ready_raw,
+        "enforcement_scope": "per_lane" if mode == "lane_aware" else "global_primary_probability",
     }
-    if isinstance(runtime_gate, dict):
+    if isinstance(runtime_gate, dict) and not runtime.get("primary_selection_revision"):
         for key in _RUNTIME_GATE_KEYS:
             value = runtime_gate.get(key)
             if value is not None:
@@ -225,6 +232,10 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
     if runtime_gate:
         runtime = _merge_runtime_payload(runtime, runtime_gate)
     recommended = read_json_file(settings.recommended_threshold_json)
+    recommended_path = settings.recommended_threshold_json
+    if runtime.get("primary_selection_revision"):
+        recommended = runtime.get("threshold_result")
+        recommended_path = Path(runtime["meta_path"]).with_name("threshold.json")
     train_status = read_json_file(settings.train_status_json)
     dataset_quality = read_json_file(settings.dataset_quality_json)
     if runtime.get("dataset_quality_passed") is None and isinstance(dataset_quality, dict) and "passed" in dataset_quality:
@@ -445,7 +456,7 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
         *_model_source_status(runtime),
         json_status(
             source_key="metrics.recommended_threshold",
-            path=settings.recommended_threshold_json,
+            path=recommended_path,
             optional=True,
             empty_when_missing=True,
         ),

@@ -62,7 +62,7 @@ def train_once() -> bool:
             updated = retrain_if_better()
         except Exception as exc:
             errors["entry_training"] = type(exc).__name__
-            log.exception("Entry training failed; previous model preserved")
+            log.exception("Entry training failed; inspect the atomic primary selector for authoritative state")
         advisory = {"status": "missing_dataset", "updated": False}
         if feature_dataset_snapshot().get("usable"):
             try:

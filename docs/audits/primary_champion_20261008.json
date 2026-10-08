@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "stage": "Primary same-later-cohort comparison and atomic model/threshold lifecycle",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "working_checkout": "D:/Dev/Python/memebot3",
+  "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
+  "findings": [
+    "The trainer promoted its candidate before the retrain wrapper compared reported scores from different populations",
+    "Post-hoc rollback restored model/meta/global threshold aliases, but not the registry and per-lane thresholds",
+    "Model/meta/threshold aliases were replaced separately, allowing a partially updated reader snapshot",
+    "A newest-by-timestamp candidate could become the primary inference fallback without explicit activation",
+    "Primary registry rewrites could discard independently maintained family headers; corrupt registry reads could silently reset state",
+    "A worker diagnostic gate snapshot could overwrite the current model/threshold view, and per-lane modes were not distinguished from uniform primary enforcement"
+  ],
+  "implementation": {
+    "comparison_contract": "same_later_primary_champion_v1",
+    "training_provenance": "primary_training_population_v1",
+    "atomic_selector": "atomic_primary_bundle_v1",
+    "reservation": "Reserve a later settled token-disjoint net-outcome cohort before feature/model/threshold selection. Final fitting/calibration never uses the reserved cohort. Earlier fit labels must mature before the next decision with a 60-second embargo",
+    "freshness": "Exclude all previous incumbent fit and approval tokens and require decisions after both previous label-availability boundaries. Replaying the same cohort cannot create fresh approval",
+    "comparison": "Evaluate frozen candidate and incumbent probability models/thresholds on exactly the same later checked net population with the same positive-label target. Ignore old reported AUC/EV scores. Without a checked incumbent, compare with an explicitly zero-admission label-proxy baseline; archive legacy bytes without pretending they are a comparable champion",
+    "support": "At least 30 independent tokens, five positive and five negative tokens, configured selected-row/precision support and five selected tokens. Require positive selected average net labels, probability loss skill against older fit prevalence and positive paired token-cluster lower net-label-proxy improvement above configured ML_SELECTION_MIN_DELTA",
+    "atomic_bundle": "Write immutable fsync-backed model, metadata, global threshold, per-lane thresholds and exact checksummed approval. One atomic registry replacement selects the complete bundle. An OS-owned nonblocking writer lock plus expected-incumbent compare-and-swap prevents stale/concurrent overwrite",
+    "readers": "Primary inference resolves the checked selector bundle, verifies all component hashes, schema, chronological probability/model/calibrator binding and approval, then pins it per entry decision. Corrupt selection/components are unknown; good stale mirrors and newer unapproved candidates cannot resurrect inference",
+    "rollback": "Validate the checked previous bundle before atomically swapping complete references. Keep family/custom registry headers. A corrupt previous bundle cannot replace a healthy active one. Compatibility aliases are post-commit mirrors, not authority",
+    "acknowledgement": "Mirror or train-status export failures after selector commit are publication warnings, not an instruction to restore old aliases. TrainResult returns actual immutable selected paths and promotion outcome; retrain no longer backs up/restores files or compares unrelated run scores",
+    "diagnostics": "API current model/threshold view cannot be overwritten by an older worker gate snapshot. Per-lane and sizing/risk-only modes are not presented as a uniform primary probability gate",
+    "migration": "Legacy artifacts remain untouched in this stage. First future gated promotion archives legacy model/meta/threshold bytes. Legacy artifacts without primary probability evidence remain unknown; candidate fallback configuration is deprecated and ignored",
+    "upside_and_size": "Exact requested 0.1 SOL paper orders and uncapped runner upside are unchanged. Existing synthetic exit tests exercise 500, 1000, 5000, 10000 and 100000 percent peaks, distinguish peak-price drawdown from profit points and retain liquidity/holding safeguards"
+  },
+  "verification": {
+    "status": "FULL_SOFTWARE_REGRESSION_PASSED_RUNTIME_OFF",
+    "new_cases": 72,
+    "focused_final": "330 passed in 59.66s",
+    "full_working": "1953 passed in 329.53s after final atomic API mode/snapshot checks",
+    "full_publishing": "1953 passed in 324.94s after final checks, without personal .env or local .venv using the existing working-checkout Python runtime",
+    "before_final_api_mode_repair": {"working": "1946 passed in 337.40s", "publishing": "1946 passed in 320.56s"},
+    "focused_before_final_api_mode_repair": "320 passed in 42.98s",
+    "preflight": {"working": "PASS", "publishing": "PASS", "compile_errors": 0, "config_import_rc": 0, "paper_profile_ok": true, "empty_data_report_builders": 7},
+    "source_sync": {"initial_files": 16, "deleted": 0, "initial_plan_sha256": "05a8af6e54b2e70f2a089dca15ed658cfa593eb15b7f6067e1961686bd97a41c", "final_reviewed_copy": ["api/services/ml.py", "tests/test_primary_champion_lifecycle.py", "docs/audits/architecture_goal_20261007.json", "docs/audits/primary_champion_20261008.json"], "private_env_data_logs_models_excluded": true},
+    "unchanged_artifacts_check": {"checked_at_utc": "2026-10-08T00:17:44.7910444Z", "since_utc": "2026-10-07T23:35:00Z", "changed_runtime_model_artifacts": 0, "changed_feature_artifacts": 0, "changed_managed_trade_forward_sources": 0, "changed_active_policies": 0},
+    "scope": "Synthetic temporary training, reserved future cohorts, original frozen-input restoration, insufficient/in-sample/shared/future/rare/weak evidence, incomparable scores, cohort reuse, uncertainty metadata corruption, immutable IDs, stale CAS/OS locks, precommit preservation, postcommit publication faults, atomic promotion/rollback, all-component corruption, first launch without active artifacts and per-entry pinning across promotion/rollback. No provider requests or runtime model activation"
+  },
+  "runtime": {"bot_started": false, "live_activated": false, "runtime_model_training_started": false, "final_shutdown_verification": {"checked_at_utc": "2026-10-08T00:15:02.7306654Z", "working_stop_stack": "killed=0 remaining=0", "remaining_bot_processes_both_roots": 0, "both_checkout_root_and_data_locks": false, "working_sqlite_bot_runtime_state": [["main", "stopped", "idle", "idle"]], "publishing_stop_stack": "killed=0 remaining=1: missing local .venv finalizer, not a remaining bot process", "publishing_runtime_database_exists": false, "publishing_scope": "Source publication checkout, not an independently configured runtime; process/lock inventory confirms no bot is active there", "active_primary_registry_exists": false, "new_real_primary_bundle_archive_files": 0, "private_working_env_modified_this_stage": false}},
+  "limitations_and_next_work": [
+    "Admission-weighted historical executed-population fixed-unit net labels are not full-strategy profit, available capital simulation, counterfactual fills, prospective acceptance or a guarantee of future maximum return",
+    "Bootstrap support and probability loss skill do not establish future calibration or live execution profitability. Repeated model search/reuse selection risk still requires independent full-strategy forward acceptance",
+    "Keep extreme runner targets as checkpoints, not ceilings. Rare/extreme event probability remains unknown without independent positive evidence; observed token peaks are not realised cash returns",
+    "Complete auxiliary source ages, numeric missingness/subprofile contracts, diagnostic multiclass exits, atomic multi-head and full-strategy decision provenance, capital/admission/execution invariants and other error paths",
+    "Complete live wallet/raw-quantity/finality and provider market-asof/depth boundaries, and obtain separately authorized fresh costed full-strategy closed evidence before any profitability/live claim"
+  ],
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO"
+}

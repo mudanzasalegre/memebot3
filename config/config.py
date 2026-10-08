@@ -362,9 +362,10 @@ class _Config:
     MIN_THRESHOLD_CHANGE: float = _num_env("MIN_THRESHOLD_CHANGE", float, 0.01)  # 0.01 = 1 p.p.
     PRECISION_AT_K_PCT: float = _num_env("PRECISION_AT_K_PCT", float, 0.10)
     ML_GATE_MODE: str = (os.getenv("ML_GATE_MODE", "shadow") or "shadow").strip().lower()
+    # Deprecated compatibility setting: candidates never select runtime models.
     ML_SHADOW_CANDIDATE_MODEL_FALLBACK_ENABLED: bool = _bool_env(
         "ML_SHADOW_CANDIDATE_MODEL_FALLBACK_ENABLED",
-        True,
+        False,
     )
     ML_LIVE_PROFIT_MODE: str = (os.getenv("ML_LIVE_PROFIT_MODE", "sizing_only") or "sizing_only").strip().lower()
     ML_RESEARCH_MODE: str = (os.getenv("ML_RESEARCH_MODE", "shadow") or "shadow").strip().lower()

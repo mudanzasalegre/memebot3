@@ -16,7 +16,7 @@ def _candidate(root, name: str) -> tuple[object, object]:
     return model.resolve(), meta.resolve()
 
 
-def test_candidate_fallback_uses_latest_non_family_candidate(monkeypatch, tmp_path) -> None:
+def test_newest_candidate_is_never_runtime_authority_even_in_shadow(monkeypatch, tmp_path) -> None:
     old_model, old_meta = _candidate(tmp_path, "20260513_100000_logreg_calibrated")
     new_model, new_meta = _candidate(tmp_path, "20260513_110000_logreg_calibrated")
     family = tmp_path / "ml" / "models" / "risk"
@@ -33,6 +33,7 @@ def test_candidate_fallback_uses_latest_non_family_candidate(monkeypatch, tmp_pa
     os.utime(new_meta, (newer_time, newer_time))
 
     monkeypatch.setattr(ai_predict, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(ai_predict, "_REGISTRY_PATH", tmp_path / "absent_registry.json")
     monkeypatch.setattr(ai_predict, "_MODEL_PATH", (tmp_path / "ml" / "model.pkl").resolve())
     monkeypatch.setattr(ai_predict, "_META_PATH", (tmp_path / "ml" / "model.meta.json").resolve())
     monkeypatch.setattr(
@@ -43,9 +44,9 @@ def test_candidate_fallback_uses_latest_non_family_candidate(monkeypatch, tmp_pa
 
     model_path, meta_path, fallback = ai_predict._effective_model_paths()
 
-    assert fallback is True
-    assert model_path == new_model
-    assert meta_path == new_meta
+    assert fallback is False
+    assert model_path == ai_predict._MODEL_PATH
+    assert meta_path == ai_predict._META_PATH
 
 
 def test_candidate_fallback_disabled_for_enforced_gate(monkeypatch, tmp_path) -> None:

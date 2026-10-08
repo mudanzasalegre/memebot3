@@ -3,9 +3,7 @@ from __future__ import annotations
 import glob
 import hashlib
 import json
-import os
 import pathlib
-import tempfile
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Optional, Sequence
 
@@ -13,7 +11,6 @@ from utils.venv_bootstrap import ensure_project_venv
 
 ensure_project_venv(__file__, module_name=__spec__.name if __spec__ else None)
 
-import joblib
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
@@ -39,6 +36,9 @@ from ml.segment_report import SEGMENT_JSON, build_segment_report, write_segment_
 from ml.tune_threshold import tune_from_frame
 from ml.entry_probability import (fit_primary_probability, checked_outer_boundary,
     evaluate_probabilities, probability_metadata, supported_entry_probability)
+from ml.primary_champion import current_incumbent, reserve_later_cohort, training_provenance, authorize_candidate
+from ml import model_registry as primary_registry
+from ml.primary_activation import reference_paths
 
 DATA_DIR: pathlib.Path = CFG.FEATURES_DIR
 MODEL_PATH: pathlib.Path = CFG.MODEL_PATH
@@ -134,6 +134,7 @@ class TrainResult:
     val_preds_path: str | None = None
     recommended_threshold_path: str | None = None
     active_promoted: bool = False
+    publication_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1038,6 +1039,7 @@ def _build_training_context(
     entry_lane_allowlist: Any | None = None,
     dex_allowlist: Any | None = None,
     allow_missing_entry_lane: bool | None = None,
+    incumbent: dict | None = None,
 ) -> dict[str, Any]:
     from ml.financial_targets import declared_financial_rows
     checked_source, financial_filtering = checked_financial_frame(df_source)
@@ -1056,6 +1058,15 @@ def _build_training_context(
         df_trainable = checked
     filtering_meta["financial_training"] = financial_training
     filtering_meta["financial_filtering"] = financial_filtering
+    champion_cohort = pd.DataFrame()
+    champion_reservation = {"reason": "not_reserved"}
+    if incumbent is not None and not checked.empty:
+        # Reserve before any data-dependent feature/model/threshold selection.
+        df_trainable, champion_cohort, champion_reservation = reserve_later_cohort(
+            checked, min_train_rows=int(getattr(CFG, "ML_MIN_DATASET_ROWS", 190)),
+            incumbent_metadata=incumbent.get("metadata"), incumbent_acceptance=incumbent.get("acceptance"))
+        filtering_meta["financial_training"] = checked_financial_frame(df_trainable)[1]
+        champion_reservation.update(training_rows=len(df_trainable), reserved_rows=len(champion_cohort))
     df_trainable, x_cols, excluded_effective = _select_feature_columns(df_trainable)
     if not checked.empty:
         excluded_effective.extend(column for column in x_cols if column not in ALLOWED_FEATURES)
@@ -1106,6 +1117,7 @@ def _build_training_context(
         )
 
     quality = _finalize_quality(base_quality, val_quality_df)
+    split_meta["champion_reservation"] = champion_reservation
     if use_forward and tr_df.empty:
         quality = DatasetQuality(
             passed=False,
@@ -1143,6 +1155,8 @@ def _build_training_context(
         "split_meta": split_meta,
         "quality": quality,
         "readiness": _quality_readiness(quality),
+        "champion_cohort": champion_cohort,
+        "champion_reservation": champion_reservation,
     }
 
 
@@ -1471,19 +1485,12 @@ def _candidate_rank(candidate: CandidateResult) -> tuple[float, ...]:
     )
 
 
-def _save_model(model: Any) -> None:
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=MODEL_PATH.parent, prefix=".tmp_model_", suffix=".pkl")
-    os.close(tmp_fd)
-    joblib.dump(model, tmp_path)
-    pathlib.Path(tmp_path).replace(MODEL_PATH)
-
-
 def _promote_trained_candidate(
     artifact: ModelArtifactSet,
     *,
     activation_ready: Any,
     active_model_path: pathlib.Path | None = None,
+    approval: dict | None = None,
 ) -> dict[str, Any]:
     status: dict[str, Any] = {
         "attempted": False,
@@ -1496,10 +1503,13 @@ def _promote_trained_candidate(
     if activation_ready is not True:
         status["reason"] = ACTIVATION_READY_PROMOTION_ERROR
         return status
+    if not isinstance(approval, dict) or approval.get("accepted") is not True:
+        status["reason"] = (approval or {}).get("reason") or "same_later_cohort_approval_missing"
+        return status
 
     status["attempted"] = True
     try:
-        registry_payload = promote_candidate(artifact, active_model_path=active_model_path or MODEL_PATH)
+        registry_payload = promote_candidate(artifact, active_model_path=active_model_path or MODEL_PATH, approval=approval)
         status.update(
             {
                 "promoted": True,
@@ -1508,7 +1518,8 @@ def _promote_trained_candidate(
             }
         )
     except RuntimeError as exc:
-        if "STRATEGY_OPTIMIZATION_LOCK=true blocks model promotion" not in str(exc):
+        if not any(message in str(exc) for message in ("STRATEGY_OPTIMIZATION_LOCK=true blocks model promotion",
+                "Primary incumbent changed", "Model registry mutation already active")):
             raise
         status["reason"] = str(exc)
     return status
@@ -1553,7 +1564,9 @@ def train_and_save() -> TrainResult:
         )
 
     df_source = _apply_training_window(df_source)
-    context = _build_training_context(df_source, training_scope="productive_strict")
+    incumbent = current_incumbent(registry_path=primary_registry.REGISTRY_PATH,
+        models_dir=primary_registry.MODELS_DIR, model_alias=MODEL_PATH)
+    context = _build_training_context(df_source, training_scope="productive_strict", incumbent=incumbent)
     strict_context = context
     bootstrap_context: dict[str, Any] | None = None
     bootstrap_used = False
@@ -1568,6 +1581,7 @@ def train_and_save() -> TrainResult:
             entry_lane_allowlist=getattr(CFG, "ML_BOOTSTRAP_ENTRY_LANE_ALLOWLIST", ""),
             dex_allowlist=getattr(CFG, "ML_BOOTSTRAP_DEX_ALLOWLIST", ""),
             allow_missing_entry_lane=getattr(CFG, "ML_TRAIN_ALLOW_MISSING_ENTRY_LANE", True),
+            incumbent=incumbent,
         )
         if bool(bootstrap_context["quality"].passed):
             context = bootstrap_context
@@ -1752,6 +1766,8 @@ def train_and_save() -> TrainResult:
         "threshold_metric": tune_result.get("objective_applied"),
         "activation_ready": tune_result.get("activation_ready"),
         "financial_training": financial_training,
+        "training_provenance": training_provenance(df_trainable),
+        "champion_reservation": context["champion_reservation"],
         **probability_contract,
         "threshold_result": tune_result,
         "enforcement_gates": enforcement_gates,
@@ -1796,10 +1812,18 @@ def train_and_save() -> TrainResult:
         val_preds_path=VAL_PREDS_CSV,
         segment_report_path=SEGMENT_JSON,
     )
+    approval = {"accepted": False, "reason": "internal_activation_not_ready"}
+    if meta_payload.get("activation_ready") is True:
+        approval = authorize_candidate(artifact, context["champion_cohort"], incumbent=incumbent,
+            min_rows=max(30, int(getattr(CFG, "ML_MIN_HOLDOUT_ROWS", 40))),
+            min_selected=int(getattr(CFG, "ML_TUNE_MIN_SELECTED", 10)),
+            precision_floor=float(getattr(CFG, "ML_TUNE_PRECISION_FLOOR", .6)),
+            min_delta=float(getattr(CFG, "ML_SELECTION_MIN_DELTA", .25)))
     promotion_status = _promote_trained_candidate(
         artifact,
         activation_ready=meta_payload.get("activation_ready"),
         active_model_path=MODEL_PATH,
+        approval=approval,
     )
     if not promotion_status.get("promoted"):
         print(f"[ML] Promocion activa omitida: {promotion_status.get('reason')}")
@@ -1841,12 +1865,20 @@ def train_and_save() -> TrainResult:
             "threshold_result": tune_result,
             "enforcement_gates": enforcement_gates,
             "promotion": promotion_status,
+            "champion_acceptance": approval,
             "candidate_summaries": {candidate.name: candidate.summary() for candidate in candidates},
             "candidate_errors": candidate_errors,
             "outcome_sample_types": list(OUTCOME_SAMPLE_TYPES),
         },
     )
-    _write_json(TRAIN_STATUS_JSON, train_status)
+    publication_warnings = list((promotion_status.get("registry") or {}).get("mirror_errors") or [])
+    try:
+        _write_json(TRAIN_STATUS_JSON, train_status)
+    except OSError:
+        if not promotion_status.get("promoted"):
+            raise
+        publication_warnings.append("train_status_after_atomic_commit")
+        print("[ML] Seleccion confirmada; fallo de publicacion diagnostica posterior al commit")
 
     print(
         "[VAL] model={} AUC={:.4f} AP={:.4f} Prec@{:.0f}%={:.4f} picked_thr={} objective={} activation_ready={}".format(
@@ -1868,17 +1900,22 @@ def train_and_save() -> TrainResult:
             f"(promocion no aplicada: {promotion_status.get('reason')})"
         )
 
+    active_paths = None
+    if promotion_status.get("promoted"):
+        active_paths = reference_paths(promotion_status["registry"]["primary_activation"]["active"],
+            primary_registry.REGISTRY_PATH, primary_registry.MODELS_DIR)
     return TrainResult(
         trained=True,
         status="trained",
         dataset_quality=quality,
         selection_metric=selected.selection_metric,
         selection_score=selected.selection_score,
-        model_path=str(MODEL_PATH if promotion_status.get("promoted") else artifact.model_path),
-        meta_path=str(META_PATH if promotion_status.get("promoted") else artifact.meta_path),
+        model_path=str(active_paths["model.pkl"] if active_paths else artifact.model_path),
+        meta_path=str(active_paths["model.meta.json"] if active_paths else artifact.meta_path),
         val_preds_path=str(VAL_PREDS_CSV),
-        recommended_threshold_path=str(RECOMMENDED_JSON) if promotion_status.get("promoted") else None,
+        recommended_threshold_path=str(active_paths["threshold.json"]) if active_paths else None,
         active_promoted=bool(promotion_status.get("promoted")),
+        publication_warnings=publication_warnings,
     )
 
 

@@ -118,6 +118,8 @@ def setup_entry(root, monkeypatch, *, proof=True):
     monkeypatch.setattr(runtime, "_MODEL_PATH", artifact.model_path)
     monkeypatch.setattr(runtime, "_META_PATH", artifact.meta_path)
     monkeypatch.setattr(runtime, "_TRAIN_STATUS_PATH", root / "absent.json")
+    monkeypatch.setattr(runtime, "_REGISTRY_PATH", registry.REGISTRY_PATH)
+    monkeypatch.setattr(runtime, "_MODELS_DIR", registry.MODELS_DIR)
     monkeypatch.setattr(runtime, "_model_signature", None)
     return runtime, registry, artifact
 
