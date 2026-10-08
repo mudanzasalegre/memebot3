@@ -21,7 +21,10 @@ from sklearn.metrics import brier_score_loss
 
 from config.config import CFG, PROJECT_ROOT
 from ml.feature_matrix import coerce_feature_frame
-from features.auxiliary_semantics import prepare_training_frame, population_proof, semantics_schema
+from features.auxiliary_semantics import (prepare_training_frame, population_proof, semantics_schema,
+    checked_semantics_schema, semantic_sources)
+from features.strategy_context import (population_proof as strategy_population_proof,
+    checked_population as checked_strategy_population, SOURCE as STRATEGY_SOURCE)
 from features.context_encoding import (augment_context_frame, available_context_features,
     context_encoding_schema, FEATURE_SOURCES)
 from features.numeric_encoding import augment_numeric_frame, available_numeric_features, numeric_encoding_schema
@@ -149,6 +152,18 @@ def _forward_predictions(df, X, y, model, *, min_rows: int, classifier: bool):
     return np.asarray(truths), np.asarray(predictions), np.asarray(positions, dtype=int), details
 
 
+def _supported_target_features(features, frame):
+    """A larger parent cohort cannot supply evidence missing from this target."""
+    metadata = {"target_rows": len(frame), "auxiliary_semantics": semantics_schema(features),
+        "auxiliary_semantics_training": population_proof(frame),
+        "strategy_context_training": strategy_population_proof(frame)}
+    auxiliary_ok = checked_semantics_schema(metadata, features)
+    strategy_ok = checked_strategy_population(metadata)
+    return [name for name in features
+            if (strategy_ok or FEATURE_SOURCES.get(name) != STRATEGY_SOURCE)
+            and (auxiliary_ok or not semantic_sources([name]))]
+
+
 def _save_family_model(model, path: Path, metadata: dict[str, Any]) -> None:
     """Atomic files plus checksum let readers reject a mixed model/meta pair."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -228,7 +243,7 @@ def train_classifier_family(
             details={"mode": "in_sample_only", "min_rows": int(min_rows), "feature_count": len(features)},
         )
         return report
-    X = coerce_feature_frame(df, features)
+    base_features = features
     target_dir = output_dir or PROJECT_ROOT / "ml" / "models" / family
     target_dir.mkdir(parents=True, exist_ok=True)
     for target in targets:
@@ -244,7 +259,8 @@ def train_classifier_family(
         observed = pd.to_numeric(df[target], errors="coerce")
         mask = observed.isin([0, 1])
         target_df = df.loc[mask].reset_index(drop=True)
-        target_X = X.loc[mask].reset_index(drop=True)
+        features = _supported_target_features(base_features, target_df)
+        target_X = coerce_feature_frame(target_df, features)
         y = observed.loc[mask].astype(int).reset_index(drop=True)
         if len(y) < min_rows:
             report["targets"][target] = {
@@ -252,6 +268,10 @@ def train_classifier_family(
                 "target_rows": len(y), "unlabelled_rows": int((~mask).sum()),
                 "validation": target_validation_payload(warnings=[WARNING_NOT_ENOUGH_ROWS]),
             }
+            continue
+        if not features:
+            report["targets"][target] = {"status": "skipped", "reason": "no_supported_target_features",
+                                         "target_rows": len(y)}
             continue
         if y.nunique() < 2:
             report["targets"][target] = {
@@ -320,6 +340,7 @@ def train_classifier_family(
             "precision_at_k_pct": float(getattr(CFG, "PRECISION_AT_K_PCT", 0.10) or 0.10),
             "features": features,
             "auxiliary_semantics_training": population_proof(target_df),
+            "strategy_context_training": strategy_population_proof(target_df),
             "validation": target_validation_payload(
                 warnings=target_warnings,
                 details={
@@ -388,7 +409,7 @@ def train_regressor_family(
             details={"mode": "in_sample_only", "min_rows": int(min_rows), "feature_count": len(features)},
         )
         return report
-    X = coerce_feature_frame(df, features)
+    base_features = features
     target_dir = output_dir or PROJECT_ROOT / "ml" / "models" / family
     target_dir.mkdir(parents=True, exist_ok=True)
     for target in targets:
@@ -427,6 +448,11 @@ def train_regressor_family(
             continue
         model = RandomForestRegressor(n_estimators=50, max_depth=5, random_state=42, min_samples_leaf=5)
         target_df = target_source.loc[mask].reset_index(drop=True)
+        features = _supported_target_features(base_features, target_df)
+        if not features:
+            report["targets"][target] = {"status": "skipped", "reason": "no_supported_target_features",
+                                         "target_rows": len(target_df)}
+            continue
         target_X = coerce_feature_frame(target_df, features)
         target_y = y.loc[mask].reset_index(drop=True)
         truth, pred, positions, temporal = _forward_predictions(target_df, target_X, target_y, model, min_rows=min_rows, classifier=False)
@@ -450,6 +476,7 @@ def train_regressor_family(
             "financial_target_parameters": financial_target_parameters if financial is not None else None,
             "features": features,
             "auxiliary_semantics_training": population_proof(target_df),
+            "strategy_context_training": strategy_population_proof(target_df),
             "validation": target_validation_payload(
                 warnings=target_warnings,
                 details={"mode": "purged_token_walk_forward" if len(pred) else "in_sample_only", "temporal": temporal, "lane_stability": lane_details},
@@ -489,6 +516,7 @@ def train_exit_classifier(
     df = augment_numeric_frame(df, available_numeric_features(df))
     features = [column for column in feature_set("exit_features") if column in df.columns
                 and column != "exit_profile" and FEATURE_SOURCES.get(column) != "exit_profile"]
+    features = _supported_target_features(features, df)
     report: dict[str, Any] = {"family": "exit", "rows": len(df), "source_rows": source_rows,
         "excluded_invalid_timing_or_identity_rows": int((~valid).sum()), "unknown_or_invalid_label_rows": unknown_rows,
         "label_source": label_source, "label_contract": LABEL_CONTRACT,
@@ -509,6 +537,7 @@ def train_exit_classifier(
         "classification_evaluation": evaluation,
         "classification_validation_ready": evaluation["validation_ready"],
         "auxiliary_semantics_training": population_proof(df),
+        "strategy_context_training": strategy_population_proof(df),
         "trained_at_utc": datetime.now(timezone.utc).isoformat(),
         "validation": target_validation_payload(warnings=[WARNING_NOT_READY_FOR_ENFORCEMENT],
             details={"mode": "purged_token_walk_forward" if temporal["out_of_sample_rows"] else "in_sample_only", "temporal": temporal})}

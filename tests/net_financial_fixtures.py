@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+from copy import deepcopy
 
 import pandas as pd
 
@@ -23,8 +24,11 @@ def net_frame(frame):
         opened = pd.to_datetime(row["timestamp"], utc=True)
         closed = pd.to_datetime(row.get("ts", opened + pd.Timedelta(minutes=2)), utc=True)
         identity, exit_id = f"{index + 1:032x}", f"{index + 100000:032x}"
-        entry = learning.freeze_entry_features(row, address=row["address"], captured_at=opened,
-                                               positive_pnl_ratio=0.)
+        from features.auxiliary_semantics import checked_row_receipt
+        original_entry = checked_row_receipt(row)
+        entry = (deepcopy(original_entry) if original_entry is not None else
+                 learning.freeze_entry_features(row, address=row["address"], captured_at=opened,
+                                                positive_pnl_ratio=0.))
         pnl, fees = net / 10, .005
         gross = pnl + fees
         peak = row.get("max_pnl_pct_seen")

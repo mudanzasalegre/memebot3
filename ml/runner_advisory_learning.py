@@ -26,13 +26,13 @@ from ml.feature_sets import feature_set_hash
 from ml.label_builder import RUNNER_THRESHOLDS
 from ml.model_validation_warnings import precision_at_k
 from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
-from features.context_encoding import checked_context_schema, SCHEMA_SHA256
+from features.context_encoding import checked_context_schema, SCHEMA_SHA256, STRATEGY_SCHEMA_SHA256
 from features.numeric_encoding import checked_numeric_schema, SCHEMA_SHA256 as NUMERIC_SCHEMA_SHA256
 from features.auxiliary_semantics import (checked_semantics_schema, checked_model_frame,
     prepare_training_frame, SCHEMA_SHA256 as AUXILIARY_SCHEMA_SHA256)
 
 ROLE = "scanner_ranking_only"
-PIPELINE_VERSION = 6  # Bind original auxiliary meanings and complete head approvals.
+PIPELINE_VERSION = 7  # Original selected subprofiles are a distinct causal input generation.
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -162,6 +162,7 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
             "pipeline_version": PIPELINE_VERSION, "cohort": _cohort_digest(df),
             "feature_set_hash": feature_set_hash("runner_features"),
             "context_encoding_sha256": SCHEMA_SHA256,
+            "strategy_context_encoding_sha256": STRATEGY_SCHEMA_SHA256,
             "numeric_encoding_sha256": NUMERIC_SCHEMA_SHA256,
             "auxiliary_semantics_sha256": AUXILIARY_SCHEMA_SHA256,
             "min_rows": min_rows, "min_lift_delta": delta,

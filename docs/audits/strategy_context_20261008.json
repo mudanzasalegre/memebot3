@@ -1,0 +1,50 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "scope": "Original selected entry subprofiles in causal T0 learning, actual pre-buy durability, restart/export replay and feature-generation acceptance. No active bot or real model training.",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "findings": [
+    "The actual sniper/fallback producer sets entry_subprofile and sniper_research_subprofile, but the fixed 77-column vector did not contain that distinction. Gate profiles and reason text are not proof of the explicit original choice.",
+    "Adding a domain to the existing global v1 context checksum would invalidate previously approved v1 models. New descriptors need a separate feature-dependent encoding generation while preserving old meanings.",
+    "The pre-buy caller converted the original vector to a dictionary and filled absent descriptors from the SQL position. The original inference Series is the authoritative pre-buy vector; a later position must not repair its missing T0 values.",
+    "A training target can have fewer original labelled tokens than its parent cohort. Its metadata and supported changed-meaning predictors must be derived from the actual target population, not the larger parent population."
+  ],
+  "implementation": {
+    "selection": "Capture the two explicit producer aliases, require agreement, preserve bounded original unknown strings and distinguish absent choices. Never infer selection from reason text, gate/profile, peak, close outcome or SQL position.",
+    "durability": "A strict v4 entry receipt adds the selected strategy context alongside all five original auxiliary receipts. The existing complete parent payload hash binds the context, original 77-vector and clocks. The actual pre-buy journal stores the original inference Series and its already captured selection before invoking the buyer. Changed aliases after vector capture are rejected.",
+    "recovery_and_export": "Existing buy recovery, complete costed close source, Parquet proof column, CSV and checked financial restore transport the whole v4 receipt. Replay can recover it from the original checked financial source without rewriting old data. Post-close SQL/raw descriptor changes cannot replace the chosen context.",
+    "encoding": "Fixed one-hot domain: momentum ignition, deep reversal, micro fallback, exploration quota and paper bootstrap, plus separate unobserved/unrecognized categories. No ordinal codes, learned future vocabulary or predictor hashes. Every indicator counts as one original input source. The raw predictor/store schema remains 77 columns.",
+    "compatibility": "The original v1 context version and checksum stay exact for old feature lists. v1-v3 frozen receipts remain valid under their original contracts. A v4 compatible auxiliary extension does not relabel old auxiliary meanings. New subprofile features use a separate v2 context schema and require original v4 training evidence.",
+    "cohorts": "New subprofile training uses only a supported original-v4 cohort meeting configured row minimum and at least 30 independent tokens. Otherwise unchanged historical predictors and compatible v3 auxiliary observations remain usable without invented subprofiles. Mutable physical source/one-hot columns are never authoritative.",
+    "target_acceptance": "Primary and classifier/regressor/exit metadata contain the exact target-specific original context population digest. New context artifacts require matching schema, receipt generation, row counts and at least 30 independent tokens before deserialization, comparison, promotion or rollback. Family targets lacking this support exclude changed predictors while retaining stable inputs.",
+    "automatic_advisory": "Advisory pipeline version 7 and its fingerprint include the new input-generation hash. Original complete approvals and checked rollback remain required. This remains scanner ranking only, not buy/exit permission or full-strategy financial acceptance.",
+    "financial_behavior": "Exact 0.1 SOL paper buys, existing safety boundaries and uncapped proportional runner exits are unchanged. No active artifact, policy, wallet or order is changed; no profit ceiling or claim is introduced."
+  },
+  "verification": {
+    "status": "PASS_ISOLATED_SOFTWARE_ONLY",
+    "new_isolated_cases": 38,
+    "additional_fixed_domain_parameter_cases": 7,
+    "initial_new_cases": "35 passed in 32.75s before the actual v4 pre-buy/restart cases",
+    "pre_target_support_new_cases": "37 passed in 33.83s before final target-specific feature support",
+    "final_focused_suite": "336 passed in 91.66s before comment-only cleanup",
+    "final_working_suite": "2418 passed in 345.17s on final source",
+    "final_publishing_suite": "2418 passed in 334.13s on final source without personal .env, local .venv or runtime DB, using the existing working-checkout Python",
+    "preflight_final_source": "PASS in both checkouts: compilation errors 0, configuration import return code 0, paper profile true and all seven empty-data report builders true",
+    "coverage": [
+      "Actual producer-to-builder encoding of all five known profiles, absent and bounded unknown choices, exact 77-column shape and single independent input count.",
+      "Invalid scalar aliases, conflicts, changed post-vector selection, receipt hash/version/keys/full auxiliary population and causal clock faults are rejected.",
+      "Post-close source/one-hot/outcome/SQL mutations cannot invent or replace the original selection. Old v1 schema and v3 observations remain compatible without historical relabeling.",
+      "Small, duplicate-token and mixed-generation populations, target-specific unknown labels and model metadata rejection before deserialization.",
+      "Durable pre-buy/close/export, checked net restore, CSV and pre-column replay preserve original proof. Actual entry execution tail and SQL-failure restart keep exact 0.1 SOL size and never submit a recovery order.",
+      "Real temporary primary calibrated fitting/inference and promotion rejection, classifier/regressor costed target fitting, advisory same-cohort comparison, pipeline-fingerprint invalidation and checked rollback."
+    ],
+    "qualification": "Synthetic isolated files/SQLite/calibration only; no real dataset fitting, successful provider/access/depth acceptance, market trading or prospective profit measurement. Source-only publishing checkout validation uses the existing working Python, not newly provisioned machine acceptance."
+  },
+  "preservation": {"status": "CHECKED_UNCHANGED", "checked_at_utc": "2026-10-08T05:55:58.4000696Z", "publishing_checked_at_utc": "2026-10-08T05:55:58.4328724Z", "stage_boundary_utc": "2026-10-08T05:21:00Z", "runtime_started": false, "active_model_trained_or_promoted": false, "provider_calls": 0, "live_orders": 0, "personal_env_changed": false, "both_checkouts_changed_files": {"models": 0, "ml/models": 0, "data/features": 0, "data/paper_closed_trades": 0, "data/learning/trade_closes": 0, "data/research": 0, "data/research_runs": 0, "data/metrics/buy_recovery": 0, "data/paper_portfolio.json": 0, "active_policy.json": 0, "all_data_active_policy_json": 0, "root_compatibility_models_and_registry": 0, ".env": 0}, "qualification": "Observed modification-time inventory since the stage boundary with existing directory reads failing explicitly on errors, not a complete cryptographic census. Requested stop changes its log and authoritative stopped/idle SQL state."},
+  "shutdown": {"status": "VERIFIED_OFF", "required_lock_path": "data/run_bot.lock", "lock_paths_checked_in_both_checkouts": ["bot.lock", "run_bot.lock", "data/bot.lock", "data/run_bot.lock"], "stop_command_exit_code": 0, "stop_log_at_utc": "2026-10-08T05:55:57Z", "killed": 0, "remaining": 0, "working_process_inventory_at_utc": "2026-10-08T05:56:24.1659402Z", "publishing_process_inventory_at_utc": "2026-10-08T05:56:24.2032232Z", "global_inventory_at_utc": "2026-10-08T05:56:25.0549205Z", "working_scoped_runtime_processes": 0, "publishing_scoped_runtime_processes": 0, "global_bot_training_research_api_processes": 0, "bot_lock_files_present": 0, "memebot_scheduled_tasks": 0, "memebot_services": 0, "sql_read_only_check_at_utc": "2026-10-08T05:56:25.715536+00:00", "sql_main": {"process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"}, "publishing_checkout": "Source only: no runtime DB or personal .env/.venv; no stop finalizer run there."},
+  "publication_contract": {"publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3", "previous_commit": "cad84495bf6484d005fed21cd3879fa9d8e38e27", "scope": "Reviewed source, tests and technical evidence only; no .env, runtime data or active model artifacts.", "final_identity": "Verify actual HEAD, origin/main and ls-remote after commit/push; report actual identity rather than a self-referential commit field."},
+  "remaining_goal_requirements": [
+    "Bind complete immutable full-strategy decision provenance to original causal entries, durable execution results and learning/export; subprofile capture and primary model logging are not the complete cross-family strategy lineage.",
+    "Complete applicable full-strategy capital/admission/execution constraints, production provider/access/market-asof/depth contracts and independently checked live wallet/quantity/finality boundaries without treating mocks as acceptance.",
+    "Obtain separately authorized fresh costed full-strategy closed evidence before any profitability or extreme-runner capture claim. Keep all services off while the user requires it."
+  ]
+}

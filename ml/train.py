@@ -28,6 +28,7 @@ from ml.data_contract import (
 )
 from ml.feature_matrix import coerce_feature_frame
 from features.auxiliary_semantics import prepare_training_frame, population_proof, semantics_schema, PROOF_COLUMN
+from features.strategy_context import population_proof as strategy_population_proof
 from ml.financial_targets import checked_financial_frame, supported_financial_training
 from features.builder import ALLOWED_FEATURES
 from features.context_encoding import (CONTEXT_FEATURES, augment_context_frame,
@@ -94,6 +95,9 @@ _META_COLS = (
     "discovered_via",
     "entry_regime",
     "entry_lane",
+    "entry_subprofile",
+    "sniper_research_subprofile",
+    "strategy_context_training",
     "gate_profile",
     "profit_lane_tier",
     "dex_id",
@@ -1808,6 +1812,7 @@ def train_and_save() -> TrainResult:
         "numeric_encoding": numeric_encoding_schema(x_cols),
         "auxiliary_semantics": semantics_schema(x_cols),
         "auxiliary_semantics_training": population_proof(df_trainable),
+        "strategy_context_training": strategy_population_proof(df_trainable),
         "feature_set_hash": feat_hash,
         "excluded_columns": sorted(excluded_effective),
         "model_path": str(MODEL_PATH),

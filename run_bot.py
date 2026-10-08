@@ -6913,9 +6913,11 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["exit_profile"] = token.get("runner_exit_profile")
     token["config_hash"] = _config_hash()
     pos = _build_entry_position(token, size_decision, addr=addr, amount_sol=amount_sol, proba=proba)
+    from features.strategy_context import entry_strategy_context
     attempt = _BUY_RECOVERY.begin(pos, paper=bool(DRY_RUN), amount_sol=float(amount_sol),
-        feature_vector=_entry_vector_for_close(vec, pos), positive_pnl_ratio=float(ML_POSITIVE_PNL_RATIO),
-        auxiliary_observations=entry_auxiliary_observations(entry_observation))
+        feature_vector=vec, positive_pnl_ratio=float(ML_POSITIVE_PNL_RATIO),
+        auxiliary_observations=entry_auxiliary_observations(entry_observation),
+        strategy_context=entry_strategy_context(vec, token))
     if DRY_RUN:
         token["_actual_paper_buy_attempted"] = 1
         _stats["actual_paper_buy_attempts"] += 1

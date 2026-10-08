@@ -14,10 +14,14 @@ import numpy as np
 import pandas as pd
 
 from features.numeric_encoding import PREFIX, RULES, numeric_value
+from features.strategy_context import (ENTRY_VERSION as STRATEGY_ENTRY_VERSION,
+    SOURCE as STRATEGY_SOURCE, capture_strategy_context)
 
 VERSION = "fresh_snapshot_momentum_and_normalised_risk_v1"
 PROOF_COLUMN = "t0_auxiliary_semantics_proof"
 ENTRY_VERSION = "frozen_entry_features_with_auxiliary_receipts_v3"
+# v4 preserves these exact auxiliary meanings and adds original strategy context;
+# accepting the extension does not fabricate a new meaning for any v1-v3 row.
 MEANINGS = {
     "trend": "fresh_snapshot_m5_percentage_point_momentum_not_ema",
     "rug_score": "rugcheck_score_normalised_0_100_higher_is_more_risk",
@@ -86,8 +90,9 @@ def bind_vector_receipt(vector, token):
         return vector
     try:
         proof = freeze_entry_features(vector, address=token.get("address"),
-            captured_at=vector["timestamp"], auxiliary_observations={"social": social, **observations})
-        if proof["version"] == ENTRY_VERSION:
+            captured_at=vector["timestamp"], auxiliary_observations={"social": social, **observations},
+            strategy_context=capture_strategy_context(token))
+        if proof["version"] == STRATEGY_ENTRY_VERSION:
             vector.attrs[PROOF_COLUMN] = json.dumps(proof, sort_keys=True, separators=(",", ":"), allow_nan=False)
     except (ValueError, TypeError, KeyError, RuntimeError):
         pass  # Unproved auxiliary inputs remain unavailable to a semantic model.
@@ -129,12 +134,12 @@ def checked_row_receipt(row):
             original = row.get("outcome_execution_proof")
             source = json.loads(original) if isinstance(original, str) else None
             entry = source.get("entry_features") if isinstance(source, dict) else None
-            if isinstance(entry, dict) and entry.get("version") == ENTRY_VERSION:
+            if isinstance(entry, dict) and entry.get("version") in {ENTRY_VERSION, STRATEGY_ENTRY_VERSION}:
                 from ml.financial_targets import checked_net_return
                 if checked_net_return(row) is not None:
                     raw = entry
         proof = json.loads(raw) if isinstance(raw, str) else raw
-        if not isinstance(proof, dict) or proof.get("version") != ENTRY_VERSION:
+        if not isinstance(proof, dict) or proof.get("version") not in {ENTRY_VERSION, STRATEGY_ENTRY_VERSION}:
             return None
         validate_entry_features(proof, address=row.get("address"))
         if any(not _same_value(name, row.get(name), value) for name, value in proof["vector"].items()):
@@ -146,17 +151,23 @@ def checked_row_receipt(row):
 
 def checked_model_frame(frame, features):
     """A model with changed inputs only consumes matching causal receipts."""
-    if not semantic_sources(features):
+    from features.context_encoding import FEATURE_SOURCES
+    features = list(features)
+    strategy = any(FEATURE_SOURCES.get(name) == STRATEGY_SOURCE for name in features)
+    if not semantic_sources(features) and not strategy:
         return frame
     records = []
     for row in frame.to_dict(orient="records"):
         proof = checked_row_receipt(row)
-        if proof is None:
+        if proof is None or strategy and proof["version"] != STRATEGY_ENTRY_VERSION:
             raise ValueError("Unproved auxiliary input generation")
         restored = {**row, **proof["vector"]}
+        if strategy:
+            restored[STRATEGY_SOURCE] = proof["strategy_context"][STRATEGY_SOURCE]
         restored["timestamp"] = pd.to_datetime(restored["timestamp"], utc=True)
         records.append(restored)
-    out = pd.DataFrame(records, columns=frame.columns, index=frame.index)
+    columns = list(dict.fromkeys([*frame.columns, *([STRATEGY_SOURCE] if strategy else [])]))
+    out = pd.DataFrame(records, columns=columns, index=frame.index)
     out.attrs = deepcopy(frame.attrs)
     return out
 
@@ -180,7 +191,15 @@ def prepare_training_frame(frame, *, min_current_rows=30):
     positions = [i for i, proof in enumerate(proofs) if proof is not None]
     tokens = {proofs[i]["vector"]["address"] for i in positions}
     minimum = max(30, int(min_current_rows))
-    if len(positions) >= minimum and len(tokens) >= 30:
+    strategy_positions = [i for i in positions if proofs[i]["version"] == STRATEGY_ENTRY_VERSION]
+    strategy_tokens = {proofs[i]["vector"]["address"] for i in strategy_positions}
+    # New predictors need their own original population, not later SQL labels
+    # attached to old v3 rows. Stable v3 auxiliary meanings remain compatible.
+    if len(strategy_positions) >= minimum and len(strategy_tokens) >= 30:
+        out = checked_model_frame(frame.iloc[strategy_positions].copy(),
+            [*MEANINGS, f"t0ctx_{STRATEGY_SOURCE}__unobserved"])
+        report = population_proof(out)
+    elif len(positions) >= minimum and len(tokens) >= 30:
         out = checked_model_frame(frame.iloc[positions].copy(), list(MEANINGS))
         report = population_proof(out)
     else:
@@ -189,5 +208,8 @@ def prepare_training_frame(frame, *, min_current_rows=30):
         report = {"version": VERSION, "mode": "unchanged_historical_inputs_only",
                   "rows": len(frame), "current_rows": len(positions), "unique_tokens": len(tokens),
                   "minimum_current_rows": minimum, "excluded_features": incompatible}
+    if not (len(strategy_positions) >= minimum and len(strategy_tokens) >= 30):
+        out = out.drop(columns=[name for name in out if name == STRATEGY_SOURCE
+            or isinstance(name, str) and name.startswith(f"t0ctx_{STRATEGY_SOURCE}__")], errors="ignore")
     out.attrs["auxiliary_semantics_training"] = report
     return out.reset_index(drop=True), report

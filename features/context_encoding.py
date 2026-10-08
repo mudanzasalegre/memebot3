@@ -11,6 +11,8 @@ import pandas as pd
 
 from ml.lane_taxonomy import TRAINABLE_LANES, normalize_entry_lane
 from features.numeric_encoding import FEATURE_SOURCES as NUMERIC_SOURCES
+from features.strategy_context import (SOURCE as STRATEGY_SOURCE, VALUES as STRATEGY_VALUES,
+    ENTRY_VERSION as STRATEGY_ENTRY_VERSION, checked_population, context_values)
 
 VERSION = "fixed_t0_context_onehot_v1"
 PREFIX = "t0ctx_"
@@ -50,8 +52,15 @@ DOMAINS: dict[str, tuple[str, ...]] = {
 DOMAINS = {source: tuple(dict.fromkeys((*values, MISSING, OTHER))) for source, values in DOMAINS.items()}
 FEATURE_SOURCES = {f"{PREFIX}{source}__{value}": source
     for source, values in DOMAINS.items() for value in values}
-CONTEXT_FEATURES = tuple(FEATURE_SOURCES)
 SCHEMA_SHA256 = sha256(json.dumps(DOMAINS, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+# Preserve the exact v1 vocabulary/hash for every previously approved feature list.
+STRATEGY_VERSION = "fixed_t0_context_onehot_with_selected_subprofile_v2"
+DOMAINS[STRATEGY_SOURCE] = (*STRATEGY_VALUES, MISSING, OTHER)
+STRATEGY_SCHEMA_SHA256 = sha256(json.dumps({"domains": DOMAINS,
+    "entry_receipt_version": STRATEGY_ENTRY_VERSION}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+FEATURE_SOURCES.update({f"{PREFIX}{STRATEGY_SOURCE}__{value}": STRATEGY_SOURCE
+                       for value in DOMAINS[STRATEGY_SOURCE]})
+CONTEXT_FEATURES = tuple(FEATURE_SOURCES)
 DOMAINS = MappingProxyType(DOMAINS)
 FEATURE_SOURCES = MappingProxyType(FEATURE_SOURCES)
 
@@ -80,7 +89,10 @@ def encode_context_row(row: dict[str, Any]) -> dict[str, int]:
 
 def available_context_features(frame: pd.DataFrame) -> list[str]:
     """Training cannot create apparent input evidence from absent descriptors."""
-    return [name for name, source in FEATURE_SOURCES.items() if source in frame]
+    _, proofs = context_values(frame) if STRATEGY_SOURCE in frame else ([], [])
+    original_strategy = bool(proofs) and all(proof is not None for proof in proofs)
+    return [name for name, source in FEATURE_SOURCES.items() if source in frame
+            and (source != STRATEGY_SOURCE or original_strategy)]
 
 
 def augment_context_frame(frame: pd.DataFrame, features: Iterable[str] | None = None) -> pd.DataFrame:
@@ -90,7 +102,9 @@ def augment_context_frame(frame: pd.DataFrame, features: Iterable[str] | None = 
     out = frame.copy()
     additions = {}
     for source in dict.fromkeys(FEATURE_SOURCES[name] for name in requested):
-        raw = frame[source] if source in frame else pd.Series(None, index=frame.index, dtype=object)
+        raw = (pd.Series(context_values(frame)[0], index=frame.index, dtype=object)
+               if source == STRATEGY_SOURCE else frame[source] if source in frame
+               else pd.Series(None, index=frame.index, dtype=object))
         keys = raw.map(lambda value: category_key(value, source)).to_numpy()
         for name in requested:
             if FEATURE_SOURCES[name] == source:
@@ -107,13 +121,17 @@ def context_encoding_schema(features: Iterable[str]) -> dict[str, Any] | None:
         return None
     if any(name not in FEATURE_SOURCES for name in encoded):
         raise ValueError("unknown T0 context feature")
+    if any(FEATURE_SOURCES[name] == STRATEGY_SOURCE for name in encoded):
+        return {"version": STRATEGY_VERSION, "schema_sha256": STRATEGY_SCHEMA_SHA256,
+                "entry_receipt_version": STRATEGY_ENTRY_VERSION, "encoded_features": encoded}
     return {"version": VERSION, "schema_sha256": SCHEMA_SHA256, "encoded_features": encoded}
 
 
 def checked_context_schema(metadata: dict[str, Any], features: Iterable[str]) -> bool:
     try:
         expected = context_encoding_schema(features)
-        return metadata.get("context_encoding") == expected
+        return (metadata.get("context_encoding") == expected
+                and (expected is None or expected["version"] == VERSION or checked_population(metadata)))
     except (TypeError, ValueError, AttributeError):
         return False
 

@@ -100,9 +100,13 @@ async def closed(paper, tmp_path, monkeypatch, request):
             auxiliary.update(records)
             original.update(price_pct_5m=100000., trend=1, rug_score=12, cluster_bad=False,
                 txns_last_5m_buys=10, liquidity_usd=10000., liquidity_is_proxy=0)
+    strategy_context = None
+    if isinstance(param, dict) and param.get("strategy"):
+        from features.strategy_context import capture_strategy_context
+        strategy_context = capture_strategy_context({"entry_subprofile": param["strategy"]})
     with journal.scope():
         attempt = journal.begin(prototype, paper=True, amount_sol=.1, feature_vector=original,
-            positive_pnl_ratio=.1, auxiliary_observations=auxiliary)
+            positive_pnl_ratio=.1, auxiliary_observations=auxiliary, strategy_context=strategy_context)
         response = await paper.buy(MINT, .1, entry_intent_id=attempt.intent_id)
         attempt.receive(response)
         pos = Position(id=1, address=MINT, token_mint=MINT, qty=response["qty_lamports"],
@@ -150,11 +154,12 @@ def test_actual_pre_buy_path_freezes_original_features_before_submission():
         and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
         and node.func.value.id == "_BUY_RECOVERY" and node.func.attr == "begin")
     keywords = {item.arg: item.value for item in begin.keywords}
-    assert isinstance(keywords["feature_vector"], ast.Call)
-    assert keywords["feature_vector"].func.id == "_entry_vector_for_close"
-    assert keywords["feature_vector"].args[0].id == "vec"
+    assert isinstance(keywords["feature_vector"], ast.Name)
+    assert keywords["feature_vector"].id == "vec"  # Never fill missing T0 fields from the SQL position.
     assert "positive_pnl_ratio" in keywords
     assert "auxiliary_observations" in keywords
+    assert keywords["strategy_context"].func.id == "entry_strategy_context"
+    assert [node.id for node in keywords["strategy_context"].args] == ["vec", "token"]
     buys = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
         and node.func.value.id == "buyer" and node.func.attr == "buy"]

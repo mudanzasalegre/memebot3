@@ -23,6 +23,7 @@ VERSION = "paper_costed_trade_learning_v1"
 ENTRY_VERSION = "frozen_entry_features_v1"
 ENTRY_AUX_VERSION = "frozen_entry_features_with_auxiliary_receipts_v2"
 ENTRY_ALL_AUX_VERSION = "frozen_entry_features_with_auxiliary_receipts_v3"
+ENTRY_STRATEGY_VERSION = "frozen_entry_features_with_strategy_context_v4"
 _REPAIR_STATE: dict[str, tuple[float, int]] = {}
 FINANCIAL_FIELDS = frozenset("""
 entry_intent_id source_position_key buy_signature token_address run_id dry_run closed opened_at closed_at
@@ -54,7 +55,8 @@ def _number(value):
     return result
 
 
-def freeze_entry_features(vector, *, address, captured_at, positive_pnl_ratio=0., auxiliary_observations=None):
+def freeze_entry_features(vector, *, address, captured_at, positive_pnl_ratio=0., auxiliary_observations=None,
+                          strategy_context=None):
     """Whitelist T0 features before the existing durable pre-buy journal write."""
     raw = vector.to_dict() if hasattr(vector, "to_dict") else dict(vector)
     values = {}
@@ -74,6 +76,11 @@ def freeze_entry_features(vector, *, address, captured_at, positive_pnl_ratio=0.
                               and set(auxiliary_observations) == {"social", "trend", "early_accumulation", "rug", "cluster"}
                               else ENTRY_AUX_VERSION)
         payload["auxiliary_observations"] = copy.deepcopy(auxiliary_observations)
+    if strategy_context is not None:
+        if payload["version"] != ENTRY_ALL_AUX_VERSION:
+            raise TradeLearningError("Strategy context requires complete original auxiliary receipts")
+        payload["version"] = ENTRY_STRATEGY_VERSION
+        payload["strategy_context"] = copy.deepcopy(strategy_context)
     payload["payload_sha256"] = _hash(payload)
     validate_entry_features(payload, address=address)
     return payload
@@ -81,21 +88,29 @@ def freeze_entry_features(vector, *, address, captured_at, positive_pnl_ratio=0.
 
 def validate_entry_features(payload, *, address):
     keys = {"version", "captured_at", "positive_pnl_ratio", "vector", "payload_sha256"}
-    if isinstance(payload, dict) and payload.get("version") in {ENTRY_AUX_VERSION, ENTRY_ALL_AUX_VERSION}:
+    if isinstance(payload, dict) and payload.get("version") in {ENTRY_AUX_VERSION, ENTRY_ALL_AUX_VERSION, ENTRY_STRATEGY_VERSION}:
         keys.add("auxiliary_observations")
+    if isinstance(payload, dict) and payload.get("version") == ENTRY_STRATEGY_VERSION:
+        keys.add("strategy_context")
     if (not isinstance(payload, dict) or set(payload) != keys
-            or payload.get("version") not in {ENTRY_VERSION, ENTRY_AUX_VERSION, ENTRY_ALL_AUX_VERSION} or not isinstance(payload.get("vector"), dict)
+            or payload.get("version") not in {ENTRY_VERSION, ENTRY_AUX_VERSION, ENTRY_ALL_AUX_VERSION, ENTRY_STRATEGY_VERSION} or not isinstance(payload.get("vector"), dict)
             or set(payload["vector"]) != set(COLUMNS)
             or payload["vector"].get("address") != address
             or payload["payload_sha256"] != _hash({k: v for k, v in payload.items() if k != "payload_sha256"})
             or _time(payload["vector"]["timestamp"]) > _time(payload["captured_at"])
             or _number(payload["positive_pnl_ratio"]) < 0):
         raise TradeLearningError("Invalid frozen entry feature proof")
-    if payload["version"] in {ENTRY_AUX_VERSION, ENTRY_ALL_AUX_VERSION}:
+    if payload["version"] == ENTRY_STRATEGY_VERSION:
+        from features.strategy_context import validate_strategy_context
+        try:
+            validate_strategy_context(payload["strategy_context"])
+        except ValueError as exc:
+            raise TradeLearningError("Invalid frozen strategy context") from exc
+    if payload["version"] in {ENTRY_AUX_VERSION, ENTRY_ALL_AUX_VERSION, ENTRY_STRATEGY_VERSION}:
         from runtime.entry_observation import social_observation_problem, auxiliary_observation_problem
         from utils.auxiliary_observation import KINDS, clock_after
         observations = payload["auxiliary_observations"]
-        expected = {"social"} | (KINDS if payload["version"] == ENTRY_ALL_AUX_VERSION else set())
+        expected = {"social"} | (KINDS if payload["version"] in {ENTRY_ALL_AUX_VERSION, ENTRY_STRATEGY_VERSION} else set())
         if not isinstance(observations, dict) or set(observations) != expected:
             raise TradeLearningError("Unsupported frozen auxiliary observation schema")
         social = observations["social"]
@@ -105,7 +120,7 @@ def validate_entry_features(payload, *, address):
                                      and clock_after(social[field], captured)
                                      for field in ("received_at", "risk_checked_at"))):
             raise TradeLearningError("Invalid or noncausal frozen social observation")
-        if payload["version"] == ENTRY_ALL_AUX_VERSION:
+        if payload["version"] in {ENTRY_ALL_AUX_VERSION, ENTRY_STRATEGY_VERSION}:
             problem = auxiliary_observation_problem({k: observations[k] for k in KINDS},
                 address=address, vector=payload["vector"], now=captured, causal=True)
             if problem is not None:
