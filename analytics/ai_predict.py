@@ -37,6 +37,7 @@ from features.builder import ALLOWED_FEATURES
 from analytics.inference_scope import scoped_snapshot, scoped_prediction
 from features.context_encoding import checked_context_schema
 from features.numeric_encoding import checked_numeric_schema
+from features.auxiliary_semantics import checked_semantics_schema, checked_model_frame, input_frame
 from ml.entry_probability import supported_entry_probability, supported_entry_model
 from ml.primary_activation import selected_reference, read_bundle
 
@@ -157,7 +158,8 @@ def _load_model_unscoped():
             if (not isinstance(features, list) or not features or len(set(features)) != len(features)
                     or any(feature not in ALLOWED_FEATURES for feature in features)):
                 raise ValueError("unproved entry feature schema")
-            if not checked_context_schema(metadata, features) or not checked_numeric_schema(metadata, features):
+            if (not checked_context_schema(metadata, features) or not checked_numeric_schema(metadata, features)
+                    or not checked_semantics_schema(metadata, features)):
                 raise ValueError("unproved entry context encoding")
             payload = model_path.read_bytes()
             if sha256(payload).hexdigest() != metadata.get("model_sha256"):
@@ -238,8 +240,7 @@ def should_buy(vec: Any) -> float | None:
     if model is None:
         return None
     try:
-        row = vec.to_dict() if hasattr(vec, "to_dict") and not isinstance(vec, pd.DataFrame) else vec
-        X = coerce_feature_frame(row if isinstance(row, pd.DataFrame) else pd.DataFrame([row]), features)
+        X = coerce_feature_frame(checked_model_frame(input_frame(vec), features), features)
         if hasattr(model, "predict_proba"):
             classes = list(model.classes_)
             if classes != [0, 1]:

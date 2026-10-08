@@ -28,9 +28,11 @@ from ml.model_validation_warnings import precision_at_k
 from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
 from features.context_encoding import checked_context_schema, SCHEMA_SHA256
 from features.numeric_encoding import checked_numeric_schema, SCHEMA_SHA256 as NUMERIC_SCHEMA_SHA256
+from features.auxiliary_semantics import (checked_semantics_schema, checked_model_frame,
+    prepare_training_frame, SCHEMA_SHA256 as AUXILIARY_SCHEMA_SHA256)
 
 ROLE = "scanner_ranking_only"
-PIPELINE_VERSION = 4  # Both fixed context and typed numeric missingness identities.
+PIPELINE_VERSION = 5  # Also bind the current auxiliary source meanings.
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -72,12 +74,14 @@ def _safe_model_path(family_dir: Path, relative: Any) -> Path:
 
 def _evaluate(model: Any, features: list[str], cohort: pd.DataFrame, target: str,
               *, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    if not checked_context_schema(metadata or {}, features) or not checked_numeric_schema(metadata or {}, features):
+    if (not checked_context_schema(metadata or {}, features) or not checked_numeric_schema(metadata or {}, features)
+            or not checked_semantics_schema(metadata or {}, features)):
         raise ValueError("Unproved advisory context encoding")
     observed = pd.to_numeric(cohort[target], errors="coerce")
     mask = observed.isin([0, 1])
     y = observed[mask].astype(int).to_numpy()
-    scores = np.asarray(model.rank_score(coerce_feature_frame(cohort.loc[mask], features)), dtype=float) if len(y) else np.asarray([])
+    scores = np.asarray(model.rank_score(coerce_feature_frame(
+        checked_model_frame(cohort.loc[mask], features), features)), dtype=float) if len(y) else np.asarray([])
     if len(scores) != len(y) or not np.isfinite(scores).all():
         raise ValueError("Invalid holdout ranking predictions")
     precision = precision_at_k(y, scores)
@@ -142,6 +146,8 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
         result["excluded_unsettled_or_invalid_rows"] = int((~valid).sum())
         df = df.loc[valid].copy().reset_index(drop=True)
         min_rows = max(20, int(getattr(CFG, "ML_RUNNER_ADVISORY_MIN_ROWS", 40)))
+        df, semantics_filtering = prepare_training_frame(df, min_current_rows=min_rows)
+        result["auxiliary_semantics_filtering"] = semantics_filtering
         delta = float(getattr(CFG, "ML_RUNNER_ADVISORY_MIN_LIFT_DELTA", 0.05))
         if not math.isfinite(delta) or delta < 0:
             raise ValueError("ML_RUNNER_ADVISORY_MIN_LIFT_DELTA must be finite and nonnegative")
@@ -157,6 +163,7 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
             "feature_set_hash": feature_set_hash("runner_features"),
             "context_encoding_sha256": SCHEMA_SHA256,
             "numeric_encoding_sha256": NUMERIC_SCHEMA_SHA256,
+            "auxiliary_semantics_sha256": AUXILIARY_SCHEMA_SHA256,
             "min_rows": min_rows, "min_lift_delta": delta,
             "targets": list(RUNNER_THRESHOLDS),
         }, sort_keys=True).encode()).hexdigest()
@@ -201,6 +208,10 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
                 continue
             path = version_dir / f"{target}.pkl"
             metadata = _read_json(path.with_suffix(".meta.json"))
+            if (not checked_context_schema(metadata, metadata.get("features") or [])
+                    or not checked_numeric_schema(metadata, metadata.get("features") or [])
+                    or not checked_semantics_schema(metadata, metadata.get("features") or [])):
+                raise ValueError("Candidate auxiliary generation is unsupported")
             if sha256(path.read_bytes()).hexdigest() != metadata.get("model_sha256"):
                 raise ValueError("Candidate artifact checksum mismatch")
             model = joblib.load(path)
@@ -211,14 +222,24 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
             if incumbent:
                 old_path = _safe_model_path(family_dir, incumbent.get("path"))
                 old_meta = _read_json(old_path.with_suffix(".meta.json"))
+                checksum = sha256(old_path.read_bytes()).hexdigest()
+                if checksum != old_meta.get("model_sha256") or checksum != incumbent.get("model_sha256"):
+                    raise ValueError("Incumbent artifact checksum mismatch; preserve it for diagnosis")
+                if (not checked_context_schema(old_meta, old_meta.get("features") or [])
+                        or not checked_numeric_schema(old_meta, old_meta.get("features") or [])):
+                    raise ValueError("Incumbent input encoding is unsupported")
+                if not checked_semantics_schema(old_meta, old_meta.get("features") or []):
+                    # Retained on disk/previous_heads, but unavailable at runtime.
+                    # Only the independently validated later-cohort candidate
+                    # can replace this obsolete interpretation.
+                    decision["obsolete_incumbent_generation"] = True
+                    incumbent = None
+            if incumbent:
                 old_available = pd.to_datetime(old_meta.get("training_label_latest"), utc=True, errors="coerce")
                 old_tokens = set(old_meta.get("training_token_hashes") or [])
                 if pd.isna(old_available) or old_available >= test_start or not old_tokens or old_tokens & test_hashes:
                     decision["reason"] = "no_fresh_token_disjoint_incumbent_comparison"
                     continue
-                checksum = sha256(old_path.read_bytes()).hexdigest()
-                if checksum != old_meta.get("model_sha256") or checksum != incumbent.get("model_sha256"):
-                    raise ValueError("Incumbent artifact checksum mismatch; not replacing it silently")
                 incumbent_evaluation = _evaluate(joblib.load(old_path), old_meta["features"], holdout, target, metadata=old_meta)
                 decision["incumbent"] = incumbent_evaluation
             selected, reason = _candidate_decision(candidate, evaluation, incumbent_evaluation, min_lift_delta=delta)
@@ -269,6 +290,7 @@ def rollback_runner_advisory(*, root: Path | None = None) -> bool:
             if (model_path.stem != target or metadata.get("activation_role") != ROLE
                     or not checked_context_schema(metadata, metadata.get("features") or [])
                     or not checked_numeric_schema(metadata, metadata.get("features") or [])
+                    or not checked_semantics_schema(metadata, metadata.get("features") or [])
                     or sha256(model_path.read_bytes()).hexdigest() != entry.get("model_sha256")
                     or metadata.get("model_sha256") != entry.get("model_sha256")):
                 return False

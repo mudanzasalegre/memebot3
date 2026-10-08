@@ -18,6 +18,7 @@ from ml.financial_targets import financial_target, supported_financial_training
 from analytics.inference_scope import scoped_value, scoped_snapshot, scoped_prediction
 from features.context_encoding import checked_context_schema
 from features.numeric_encoding import checked_numeric_schema
+from features.auxiliary_semantics import checked_semantics_schema, checked_model_frame, input_frame
 from features.builder import ALLOWED_FEATURES
 
 log = logging.getLogger(__name__)
@@ -109,7 +110,8 @@ def _load_unscoped(path: Path, *, require_temporal_validation: bool):
             if (not isinstance(features, list) or not features or len(set(features)) != len(features)
                     or any(name not in ALLOWED_FEATURES for name in features)):
                 raise ValueError("model feature schema is absent")
-            if not checked_context_schema(metadata, features) or not checked_numeric_schema(metadata, features):
+            if (not checked_context_schema(metadata, features) or not checked_numeric_schema(metadata, features)
+                    or not checked_semantics_schema(metadata, features)):
                 raise ValueError("unproved specialized context encoding")
             model = joblib.load(io.BytesIO(payload))
         except Exception as exc:
@@ -134,8 +136,7 @@ def _predict_snapshot(path: Path, model: Any, features: list[str], metadata: dic
         identity = {**metadata, **(expected_metadata or {})}
         if financial_target(identity.get("family"), identity.get("target")) and not supported_financial_training(metadata):
             return None
-        row = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec or {})
-        X = coerce_feature_frame(pd.DataFrame([row]), features)
+        X = coerce_feature_frame(checked_model_frame(input_frame(vec), features), features)
         if hasattr(model, "predict_proba"):
             if metadata.get("activation_role") == "scanner_ranking_only":
                 return None
@@ -240,8 +241,7 @@ def predict_ranking_score(family: str, target: str, vec: Any) -> float | None:
         reference = np.asarray(metadata.get("rank_reference_quantiles") or [], dtype=float)
         if len(reference) < 2 or not np.isfinite(reference).all() or np.any(np.diff(reference) < 0):
             return None
-        row = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec or {})
-        X = coerce_feature_frame(pd.DataFrame([row]), features)
+        X = coerce_feature_frame(checked_model_frame(input_frame(vec), features), features)
         value = float(scoped_prediction(("ranking", id(model), metadata.get("model_sha256")),
                                        X, lambda: model.rank_score(X)[0]))
         if not np.isfinite(value):

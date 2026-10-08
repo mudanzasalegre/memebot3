@@ -18,6 +18,7 @@ from ml.entry_probability import supported_entry_model
 from ml.financial_targets import supported_financial_training
 from features.context_encoding import checked_context_schema
 from features.numeric_encoding import checked_numeric_schema
+from features.auxiliary_semantics import checked_semantics_schema, AuxiliarySemanticsError
 
 VERSION = "atomic_primary_bundle_v1"
 COMPONENTS = {"model.pkl", "model.meta.json", "thresholds.by_lane.json", "threshold.json", "acceptance.json"}
@@ -134,6 +135,8 @@ def read_bundle(reference: dict, registry_path: Path, models_dir: Path):
             or documents["threshold.json"] != (meta.get("threshold_result") or {})
             or documents["thresholds.by_lane.json"] != (meta.get("thresholds_by_lane") or {})):
         raise ValueError("Primary bundle approval/threshold/metadata mismatch")
+    if not checked_semantics_schema(meta, features):
+        raise AuxiliarySemanticsError("Primary bundle auxiliary generation is incompatible")
     model = joblib.load(io.BytesIO(payloads["model.pkl"]))
     if not supported_entry_model(model, meta):
         raise ValueError("Primary bundle model/calibrator mismatch")

@@ -241,6 +241,8 @@ def publish_close(identity, *, root):
     net = validate_source(source)
     entry, trade = source["entry_features"], source["trade"]
     vector = {**entry["vector"], "timestamp": _time(entry["vector"]["timestamp"])}
+    from features.auxiliary_semantics import PROOF_COLUMN
+    vector[PROOF_COLUMN] = json.dumps(entry, sort_keys=True, separators=(",", ":"), allow_nan=False)
     written = store.append(vector, int(net / 100 >= entry["positive_pnl_ratio"]),
         target_total_pnl_pct=net, sample_type="trade_close", strict=True,
         partition_at=_time(trade["closed_at"]), outcome_targets={

@@ -189,6 +189,7 @@ async def test_v2_social_receipt_survives_actual_buy_close_export_restart_and_ch
 @pytest.mark.parametrize("closed", [{"auxiliary": True}], indirect=True)
 async def test_v3_original_auxiliary_receipts_survive_buy_close_export_restart_and_training(closed):
     from ml.financial_targets import checked_financial_frame
+    from features.auxiliary_semantics import PROOF_COLUMN, checked_row_receipt, checked_model_frame
     source = learning.prepare_close(closed.identity, root=closed.root)
     proof = source["entry_features"]
     assert proof["version"] == learning.ENTRY_ALL_AUX_VERSION
@@ -207,6 +208,20 @@ async def test_v3_original_auxiliary_receipts_survive_buy_close_export_restart_a
     assert checked_net_return(row) == pytest.approx(-3.)  # Extreme observed momentum is not a profit label.
     assert learning.prepare_close(closed.identity, root=closed.root) == source
     assert learning.publish_close(closed.identity, root=closed.root)["status"] == "already_written"
+    assert json.loads(row[PROOF_COLUMN]) == proof
+    from features.auxiliary_semantics import _same_value
+    assert checked_row_receipt(row) == proof, [name for name, value in proof["vector"].items()
+        if not _same_value(name, row.get(name), value)]
+    assert checked_model_frame(pd.DataFrame([row]), ["trend", "rug_score"]).iloc[0]["rug_score"] == 12
+    # A pre-column v3 export is already bound by its original net-close source.
+    # Replaying it must not create a duplicate, conflict or rewrite history.
+    path = next((closed.root / "data" / "features").glob("features_*.parquet"))
+    pq.write_table(pq.read_table(path).drop([PROOF_COLUMN]), path)
+    before = path.read_bytes()
+    legacy_row = dataset(closed.root).iloc[0]
+    assert checked_row_receipt(legacy_row) == proof
+    assert learning.publish_close(closed.identity, root=closed.root)["status"] == "already_written"
+    assert path.read_bytes() == before
 
 
 @pytest.mark.asyncio

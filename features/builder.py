@@ -476,4 +476,6 @@ def build_feature_vector(tok: Dict[str, Any], *, now: dt.datetime | None = None)
         parsed = numeric_value(values.get(col), col)
         values[col] = np.nan if parsed is None else parsed
 
-    return pd.Series([values.get(c, np.nan) for c in COLUMNS], index=COLUMNS)
+    vector = pd.Series([values.get(c, np.nan) for c in COLUMNS], index=COLUMNS)
+    from features.auxiliary_semantics import bind_vector_receipt
+    return bind_vector_receipt(vector, tok)

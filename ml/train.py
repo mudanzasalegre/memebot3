@@ -27,6 +27,7 @@ from ml.data_contract import (
     normalize_sample_type,
 )
 from ml.feature_matrix import coerce_feature_frame
+from features.auxiliary_semantics import prepare_training_frame, population_proof, semantics_schema
 from ml.financial_targets import checked_financial_frame, supported_financial_training
 from features.builder import ALLOWED_FEATURES
 from features.context_encoding import (CONTEXT_FEATURES, augment_context_frame,
@@ -1069,6 +1070,14 @@ def _build_training_context(
         df_trainable = checked
     filtering_meta["financial_training"] = financial_training
     filtering_meta["financial_filtering"] = financial_filtering
+    df_trainable, semantics_filtering = prepare_training_frame(df_trainable,
+        min_current_rows=int(getattr(CFG, "ML_MIN_DATASET_ROWS", 190)))
+    filtering_meta["auxiliary_semantics"] = semantics_filtering
+    # Generation selection precedes every split, fit and feature selection.
+    # An older financial population remains usable with unchanged inputs.
+    if not checked.empty:
+        checked = df_trainable
+        filtering_meta["financial_training"] = checked_financial_frame(df_trainable)[1]
     champion_cohort = pd.DataFrame()
     champion_reservation = {"reason": "not_reserved"}
     if incumbent is not None and not checked.empty:
@@ -1794,6 +1803,8 @@ def train_and_save() -> TrainResult:
         "features": x_cols,
         "context_encoding": context_encoding_schema(x_cols),
         "numeric_encoding": numeric_encoding_schema(x_cols),
+        "auxiliary_semantics": semantics_schema(x_cols),
+        "auxiliary_semantics_training": population_proof(df_trainable),
         "feature_set_hash": feat_hash,
         "excluded_columns": sorted(excluded_effective),
         "model_path": str(MODEL_PATH),

@@ -1,0 +1,115 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "scope": "Auxiliary input-generation acceptance through original T0 storage, training, inference, champion comparison, promotion and rollback; not full-strategy financial acceptance.",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "version": "fresh_snapshot_momentum_and_normalised_risk_v1",
+  "schema_sha256": "ea4923e6bbb713d0023c2b1ae17785a2c4e75035dfcc53ee6dd2a19ddc1cca84",
+  "findings": [
+    "The token's auxiliary generation marker was discarded by the 77-column vector and could not prevent old models from consuming newly interpreted trend/risk/composite inputs.",
+    "Checking numeric and categorical encoding alone did not prove compatible meanings for normalized risk, nullable concentration, snapshot momentum, soft scores or their coverage/missingness.",
+    "A retained incompatible incumbent could otherwise block every automatic successor comparison.",
+    "Normal Parquet float32/categorical projections and CSV empty-string decoding must not invalidate an original receipt, while modified identities, values, bases, hashes and future clocks must be rejected.",
+    "Retrying an already exported pre-column managed v3 close must not create a conflicting row or rewrite history."
+  ],
+  "implementation": {
+    "raw_predictor_columns": 77,
+    "storage_metadata_column": "t0_auxiliary_semantics_proof",
+    "metadata_is_predictor": false,
+    "original_entry_protocol": "frozen_entry_features_with_auxiliary_receipts_v3",
+    "affected_sources": [
+      "trend",
+      "rug_score",
+      "cluster_bad",
+      "score_total",
+      "missing_rug_score",
+      "missing_trend",
+      "coverage_core_fields",
+      "snapshot_missing_fields"
+    ],
+    "transport": "Bind detached original causal v3 entry receipts in Series attrs before conversion, persist them as nonpredictor Parquet/CSV metadata, and restore the same receipt from checked managed closes. No new receipt clocks or metadata-only restamping.",
+    "compatibility": "Replay original receipts and compare the entire original T0 vector, allowing only declared storage projections. Rebuild original raw precision for checked model inputs. Plain vectors, decorative version markers, mismatched sources and corrupt proofs cannot establish the current generation.",
+    "training": "Use at least 30 distinct current-generation tokens and the applicable minimum row requirement (including the primary dataset requirement). Until then, retain historical rows with unchanged predictors and exclude changed raw inputs and their numeric missingness partners. Once supported, train and validate on the current receipt population, not a mixture of old and new meanings.",
+    "model_acceptance": "Bind selected meanings and generation/population proof into primary/family metadata; check these before deserialization, inference, same-cohort comparison, promotion, atomic primary bundle reads and advisory rollback.",
+    "unavailable_models": "Return unknown rather than an invented negative probability or new admission veto. Unchanged-input legacy models remain compatible.",
+    "successor_lifecycle": "Preserve incompatible incumbent bytes and the real primary CAS epoch; allow only an independently checked bootstrap successor. Advisory replacement still validates incumbent checksums, retains previous pointers and refuses rollback into incompatible meanings.",
+    "advisory_fingerprint": "Pipeline version 5 includes the auxiliary semantic schema identity; source join diagnostics remain preserved.",
+    "history": "Pre-column managed v3 exports reuse their checked original net-close entry receipt. Idempotent retries preserve the original file bytes; no mass migration or historical relabelling is performed."
+  },
+  "verification": {
+    "new_isolated_cases": 29,
+    "focused_working_suite": "101 passed in 34.53s",
+    "focused_final_publishing_suite": "450 passed in 94.15s",
+    "final_working_suite": "2287 passed in 343.13s",
+    "final_publishing_suite": "2287 passed in 337.10s",
+    "preflight_both": {
+      "ok": true,
+      "compile_errors": 0,
+      "config_import_rc": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true
+    },
+    "actual_managed_v3_close_test": "Original causal buy/close/export/restart source persists; original generation replays after removing the new metadata column; retry returns already_written with unchanged historical bytes.",
+    "actual_isolated_advisory_test": "Train current generation, read accepted ranking, retain ranking-only role, rollback to no heads and back, detect obsolete intact metadata, accept a separately validated replacement and refuse obsolete rollback.",
+    "synthetic_single_row_replay": {
+      "checks": 500,
+      "mean_ms": 8.948,
+      "p95_ms": 11.665,
+      "condition": "Two concurrent pytest suites; local diagnostic, not production latency assurance",
+      "provider_calls": 0,
+      "orders": 0
+    },
+    "repaired_during_validation": [
+      "Correct synthetic fixture API arguments",
+      "Preserve exact float32/categorical storage projections and CSV absence",
+      "Preserve source-join attrs",
+      "Match the primary minimum current-generation population to its configured dataset requirement"
+    ],
+    "qualification": "Software and isolated deterministic synthetic training evidence, not real market predictive skill, profitable fills or full-strategy forward acceptance."
+  },
+  "preservation": {
+    "checked_at_utc": "2026-10-08T03:15:10.3938985Z",
+    "since_utc": "2026-10-08T02:38:00Z",
+    "protected_artifact_changes": 0,
+    "active_policy_changes": 0,
+    "registry_changed": false,
+    "personal_env_changed": false,
+    "runtime_started": false,
+    "active_model_trained_or_promoted": false,
+    "live_orders": 0,
+    "publishing_checkout_has_personal_env": false,
+    "publishing_checkout_has_local_venv": false,
+    "publishing_checkout_has_runtime_database": false
+  },
+  "shutdown": {
+    "command": "scripts/stop_stack.ps1 -RequestedBy user",
+    "stop_result": "2026-10-08T03:13:34Z stop_stack done killed=0 remaining=0",
+    "process_inventory_at_utc": "2026-10-08T03:13:35.7359979Z",
+    "both_checkout_runtime_processes": 0,
+    "global_bot_training_research_processes": 0,
+    "root_and_data_locks_present": false,
+    "sqlite_state": [
+      [
+        "main",
+        "stopped",
+        "idle",
+        "idle"
+      ]
+    ],
+    "related_scheduled_tasks": 0,
+    "related_windows_services": 0,
+    "scheduled_service_inventory_at_utc": "2026-10-08T03:05:53.3039850Z"
+  },
+  "publication_contract": {
+    "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
+    "previous_commit": "81b728a977d1fcdbe4a4d70a5d84a2a7d6a5e2d6",
+    "scope": "Reviewed source, tests and audit evidence only; no .env, runtime data or active model artifacts.",
+    "final_commit_and_remote_identity": "Verify Git HEAD, origin/main and ls-remote after committing this evidence; report the actual identity at handoff rather than a self-referential commit field."
+  },
+  "remaining_goal_requirements": [
+    "Complete other input-generation/source contracts and strategy-subprofile descriptors.",
+    "Complete diagnostic multiclass exit acceptance, atomic multi-head provenance and full-strategy decision/capital/admission/execution constraints.",
+    "Validate successful provider access and separately authorized fresh full-strategy costed closed evidence before a profitability claim.",
+    "Keep future implementation stages synchronized, published and all bot services stopped."
+  ]
+}

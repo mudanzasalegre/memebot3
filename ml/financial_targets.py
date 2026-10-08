@@ -10,6 +10,7 @@ import pandas as pd
 
 from runtime.trade_learning import VERSION, validate_source
 from features.builder import COLUMNS
+from features.auxiliary_semantics import PROOF_COLUMN
 from ml.data_contract import normalize_sample_type
 
 TRAINING_VERSION = "checked_net_training_population_v1"
@@ -48,6 +49,7 @@ def checked_financial_frame(frame):
         row, net = copies[0]
         source = json.loads(row["outcome_execution_proof"])
         restored = {**row, **source["entry_features"]["vector"]}
+        restored[PROOF_COLUMN] = json.dumps(source["entry_features"], sort_keys=True, separators=(",", ":"), allow_nan=False)
         restored["timestamp"] = pd.to_datetime(restored["timestamp"], utc=True)
         restored["mint"] = restored["address"]
         restored["outcome_closed_at"] = pd.to_datetime(source["trade"]["closed_at"], utc=True)
@@ -63,7 +65,7 @@ def checked_financial_frame(frame):
         population.append([identity, source["payload_sha256"]])
     out = pd.DataFrame(selected, columns=frame.columns.union(
         pd.Index(COLUMNS + ["mint", "realized_pnl_pct", "total_pnl_pct", "pnl_pct", "target_total_pnl_pct",
-                          "label", "ts", "outcome_closed_at"]), sort=False))
+                          "label", "ts", "outcome_closed_at", PROOF_COLUMN]), sort=False))
     report = {
         "version": TRAINING_VERSION, "return_basis": VERSION, "scope": TRAINING_SCOPE,
         "source_rows": len(frame), "rows": len(out), "unique_trades": len(out),

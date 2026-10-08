@@ -21,6 +21,7 @@ from sklearn.metrics import brier_score_loss
 
 from config.config import CFG, PROJECT_ROOT
 from ml.feature_matrix import coerce_feature_frame
+from features.auxiliary_semantics import prepare_training_frame, population_proof, semantics_schema
 from features.context_encoding import (augment_context_frame, available_context_features,
     context_encoding_schema, FEATURE_SOURCES)
 from features.numeric_encoding import augment_numeric_frame, available_numeric_features, numeric_encoding_schema
@@ -157,7 +158,8 @@ def _save_family_model(model, path: Path, metadata: dict[str, Any]) -> None:
         joblib.dump(model, temporary)
         payload = {**metadata, "model_sha256": sha256(temporary.read_bytes()).hexdigest(),
                    "context_encoding": context_encoding_schema(metadata.get("features") or []),
-                   "numeric_encoding": numeric_encoding_schema(metadata.get("features") or [])}
+                   "numeric_encoding": numeric_encoding_schema(metadata.get("features") or []),
+                   "auxiliary_semantics": semantics_schema(metadata.get("features") or [])}
         meta_tmp.write_text(json.dumps(_json_safe(payload), indent=2, allow_nan=False), encoding="utf-8")
         os.replace(temporary, path)
         os.replace(meta_tmp, meta_path)
@@ -199,6 +201,7 @@ def train_classifier_family(
             if threshold is None or not np.isfinite(threshold) or not -100 <= threshold < 0:
                 raise ValueError("configured_risk_requires_explicit_net_target_definition")
             df["severe_loss_configured"] = df["target_total_pnl_pct"].le(threshold).astype("Int64")
+    df, semantics_filtering = prepare_training_frame(df, min_current_rows=min_rows)
     df = augment_context_frame(df, available_context_features(df))
     df = augment_numeric_frame(df, available_numeric_features(df))
     features = list(dict.fromkeys(column for column in feature_set(feature_set_name) if column in df.columns))
@@ -209,6 +212,7 @@ def train_classifier_family(
         "feature_set_hash": feature_set_hash(feature_set_name),
         "rows": int(len(df)),
         "financial_training": financial,
+        "auxiliary_semantics_filtering": semantics_filtering,
         "targets": {},
         "validation": target_validation_payload(
             warnings=[WARNING_IN_SAMPLE_ONLY, WARNING_NOT_READY_FOR_ENFORCEMENT],
@@ -314,6 +318,7 @@ def train_classifier_family(
             "recall_at_k": r_at_k,
             "precision_at_k_pct": float(getattr(CFG, "PRECISION_AT_K_PCT", 0.10) or 0.10),
             "features": features,
+            "auxiliary_semantics_training": population_proof(target_df),
             "validation": target_validation_payload(
                 warnings=target_warnings,
                 details={
@@ -357,6 +362,7 @@ def train_regressor_family(
         raise ValueError("validation_prediction_export_requires_one_target")
     df = _settled_training_frame(load_training_frame(frame))
     # Mixed opportunity/financial target lists are handled independently below.
+    df, semantics_filtering = prepare_training_frame(df, min_current_rows=min_rows)
     df = augment_context_frame(df, available_context_features(df))
     df = augment_numeric_frame(df, available_numeric_features(df))
     features = list(dict.fromkeys(column for column in feature_set(feature_set_name) if column in df.columns))
@@ -366,6 +372,7 @@ def train_regressor_family(
         "feature_set": feature_set_name,
         "feature_set_hash": feature_set_hash(feature_set_name),
         "rows": int(len(df)),
+        "auxiliary_semantics_filtering": semantics_filtering,
         "targets": {},
         "validation": target_validation_payload(
             warnings=[WARNING_IN_SAMPLE_ONLY, WARNING_NOT_READY_FOR_ENFORCEMENT],
@@ -441,6 +448,7 @@ def train_regressor_family(
             "financial_training": checked_financial_frame(target_df)[1] if financial is not None else None,
             "financial_target_parameters": financial_target_parameters if financial is not None else None,
             "features": features,
+            "auxiliary_semantics_training": population_proof(target_df),
             "validation": target_validation_payload(
                 warnings=target_warnings,
                 details={"mode": "purged_token_walk_forward" if len(pred) else "in_sample_only", "temporal": temporal, "lane_stability": lane_details},
@@ -468,6 +476,7 @@ def train_exit_classifier(
     min_rows: int = 20,
 ) -> dict[str, Any]:
     df = load_training_frame(frame)
+    df, _ = prepare_training_frame(df, min_current_rows=min_rows)
     if "best_exit_profile" not in df.columns:
         peak = pd.to_numeric(df.get("max_pnl_pct_seen", df.get("target_total_pnl_pct")), errors="coerce").fillna(0)
         risk = pd.to_numeric(df.get("target_total_pnl_pct"), errors="coerce").fillna(0)

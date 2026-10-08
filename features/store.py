@@ -40,6 +40,7 @@ import pyarrow.parquet as pq
 
 from config.config import CFG
 from features.builder import COLUMNS as _FEAT_COLS
+from features.auxiliary_semantics import PROOF_COLUMN
 from ml.data_contract import (
     normalize_dex_id,
     normalize_entry_lane,
@@ -56,7 +57,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 _OUTCOME_COLS = ["max_pnl_pct_seen", "outcome_closed_at", "outcome_trade_id", "outcome_source_sha256",
                  "outcome_return_basis", "outcome_gross_pnl_pct", "outcome_execution_proof"]
-_PARQUET_COLS = _FEAT_COLS + ["label", "target_total_pnl_pct", "sample_type", "ts"] + _OUTCOME_COLS
+_PARQUET_COLS = _FEAT_COLS + [PROOF_COLUMN, "label", "target_total_pnl_pct", "sample_type", "ts"] + _OUTCOME_COLS
 
 # —— esquema fijo ——————————————————————————————
 # Nota: Si añades nuevas columnas en builder.COLUMNS, debes reflejarlas aquí
@@ -147,6 +148,7 @@ _COL_TYPES = OrderedDict(
         ("config_hash", pa.string()),
         # flag
         ("is_incomplete", pa.int8()),
+        (PROOF_COLUMN, pa.string()),
         # label + ts
         ("label", pa.int8()),
         ("target_total_pnl_pct", pa.float32()),
@@ -320,9 +322,16 @@ def _write(table: pa.Table, path: Path) -> bool:
                     if len(matching) != 1:
                         raise ValueError("Duplicate causal close rows already exist")
                     prior, current = existing.slice(matching[0], 1).to_pylist()[0], table.to_pylist()[0]
+                    receipt_upgrade = False
+                    if prior.get(PROOF_COLUMN) is None and current.get(PROOF_COLUMN) is not None:
+                        from features.auxiliary_semantics import checked_row_receipt
+                        old_proof, new_proof = checked_row_receipt(prior), checked_row_receipt(current)
+                        receipt_upgrade = (old_proof is not None and new_proof is not None
+                                           and old_proof == new_proof)
                     # Availability time differs on a retry; every original feature,
                     # result and proof must remain identical after schema casting.
-                    if any(prior[key] != current[key] for key in _PARQUET_COLS if key != "ts"):
+                    if any(prior[key] != current[key] for key in _PARQUET_COLS
+                           if key != "ts" and not (key == PROOF_COLUMN and receipt_upgrade)):
                         raise ValueError("Conflicting causal close export")
                     return False
             table = pa.concat_tables(
@@ -351,6 +360,7 @@ def append(
     """
     global _ROW_COUNT
 
+    proof = getattr(vec, "attrs", {}).get(PROOF_COLUMN)
     if isinstance(vec, pd.Series):
         vec = vec.to_dict()
 
@@ -358,6 +368,7 @@ def append(
     row: dict[str, object] = {}
     for c in _FEAT_COLS:
         row[c] = _normalize_scalar(vec.get(c, None))
+    row[PROOF_COLUMN] = _normalize_scalar(proof if proof is not None else vec.get(PROOF_COLUMN))
 
     row["entry_regime"] = normalize_entry_regime(row.get("entry_regime"))
     row["entry_lane"] = normalize_entry_lane(row.get("entry_lane"))

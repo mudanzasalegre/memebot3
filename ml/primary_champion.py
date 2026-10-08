@@ -21,6 +21,7 @@ from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
 from features.builder import ALLOWED_FEATURES
 from features.context_encoding import checked_context_schema
 from features.numeric_encoding import checked_numeric_schema
+from features.auxiliary_semantics import checked_semantics_schema, checked_model_frame, AuxiliarySemanticsError
 
 VERSION = "same_later_primary_champion_v1"
 PROVENANCE_VERSION = "primary_training_population_v1"
@@ -86,7 +87,14 @@ def current_incumbent(*, registry_path: Path, models_dir: Path, model_alias: Pat
     epoch = active_epoch(registry, model_alias)
     selected = selected_reference(registry_path, models_dir, model_alias)
     if selected is not None:
-        model, meta, documents, _ = read_bundle(selected["reference"], registry_path, models_dir)
+        try:
+            model, meta, documents, _ = read_bundle(selected["reference"], registry_path, models_dir)
+        except AuxiliarySemanticsError:
+            # Preserve its bytes and the actual CAS epoch. An incompatible
+            # incumbent is not a financial comparison or a reason to prevent
+            # a new independently validated bootstrap candidate forever.
+            return {"epoch": epoch, "model": None, "metadata": None, "acceptance": None,
+                    "unavailable_reason": "auxiliary_semantics_changed"}
         _provenance(meta)
         return {"epoch": epoch, "model": model, "metadata": meta, "acceptance": documents["acceptance.json"]}
     # Legacy bytes are archived on migration. Missing provenance is not an
@@ -98,7 +106,8 @@ def _ensure_input_encoding(meta):
     features = meta.get("features")
     if (not isinstance(features, list) or not features or len(set(features)) != len(features)
             or any(name not in ALLOWED_FEATURES for name in features)
-            or not checked_context_schema(meta, features) or not checked_numeric_schema(meta, features)):
+            or not checked_context_schema(meta, features) or not checked_numeric_schema(meta, features)
+            or not checked_semantics_schema(meta, features)):
         raise ValueError("Unproved primary comparison input encoding")
 
 
@@ -108,7 +117,8 @@ def _predictions(model, meta, cohort):
         raise ValueError("Unsupported primary model for same-cohort evaluation")
     from analytics.ml_policy import _snapshot_threshold_payload
     from ml.lane_taxonomy import normalize_entry_lane
-    values = np.asarray(model.predict_proba(coerce_feature_frame(cohort, meta["features"]))[:, 1], dtype=float)
+    values = np.asarray(model.predict_proba(coerce_feature_frame(
+        checked_model_frame(cohort, meta["features"]), meta["features"]))[:, 1], dtype=float)
     if values.shape != (len(cohort),) or not np.isfinite(values).all() or np.any((values < 0) | (values > 1)):
         raise ValueError("Invalid primary comparison probability")
     decisions = []
