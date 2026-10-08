@@ -46,8 +46,9 @@ certifica proteccion de este contador entre reinicios; la durabilidad y
 reconciliacion de riesgo se revisan por separado. Esto no habilita live.
 
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
-de runners con cantidades/caja cotizadas, la procedencia duradera de cada
-valoracion y la aceptacion prospectiva de la estrategia completa siguen
+de runners y de la investigacion de entradas con su propia caja cotizada ya
+esta integrada. La procedencia de la estrategia completa, el cambio original
+de cada fill en todos los caminos y la aceptacion financiera prospectiva siguen
 pendientes. Las compras de 0.1 SOL PAPER y los runners sin techo de beneficio
 no se han cambiado. Vease `docs/audits/sol_usd_quality_20261008.ipynb` para las
 comprobaciones reproducibles con datos sinteticos, no trades del operador.
@@ -370,6 +371,16 @@ El objetivo de runners no se limita al +100% o +200%: incluye +500%, +1.000%,
 +5.000% y superiores. Los umbrales de aprendizaje no son techos de venta.
 Las posiciones PAPER de 0,1 SOL conservan la politica congelada de parciales y
 proteccion de precio, sin prometer capturar el maximo ni eliminar el riesgo.
+
+La investigacion prospectiva de entradas valora su propia cantidad restante,
+no el precio de pantalla. Conserva el recibo original SOL/USD de la entrada y
+los fills nuevos, y separa la cotizacion de valoracion de la posterior venta
+virtual. Los casos sin prueba financiera completa no certifican el autoajuste.
+El presupuesto compartido sigue acotado; una falta de cobertura se rechaza,
+no se convierte en una ganancia o perdida ficticia. El hook de la salida PAPER
+principal aun entrega solo un cambio escalar y no puede certificar estos fills
+nuevos; la sonda de investigacion con recibo original funciona por separado.
+Evidencia de software: `docs/audits/entry_gate_cash_forward_20261008.json`.
 
 Una cotizacion no disponible no equivale a ausencia de ruta. Las sondas
 revalidan el payload, el importe y el recibo original (maximo 10 segundos);

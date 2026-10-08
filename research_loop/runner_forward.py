@@ -354,11 +354,12 @@ def _set_intent(arm: dict, **arguments) -> bool:
 
 
 def _apply_quote(case: dict[str, Any], arm: dict[str, Any], quote: Any, sol_usd: float,
-                 now: dt.datetime, *, quote_started_at: dt.datetime | None = None) -> bool:
+                 now: dt.datetime, *, quote_started_at: dt.datetime | None = None, fx_observation=None) -> bool:
     """Apply only a checked original intent; invalid evidence never mutates cash."""
     try:
         updated = copy.deepcopy(arm)
-        if not _apply_quote_checked(case, updated, quote, sol_usd, now, quote_started_at=quote_started_at):
+        if not _apply_quote_checked(case, updated, quote, sol_usd, now, quote_started_at=quote_started_at,
+                                    fx_observation=fx_observation):
             return False
         arm.clear()
         arm.update(updated)
@@ -368,7 +369,7 @@ def _apply_quote(case: dict[str, Any], arm: dict[str, Any], quote: Any, sol_usd:
 
 
 def _apply_quote_checked(case: dict[str, Any], arm: dict[str, Any], quote: Any, sol_usd: float,
-                         now: dt.datetime, *, quote_started_at: dt.datetime | None = None) -> bool:
+                         now: dt.datetime, *, quote_started_at: dt.datetime | None = None, fx_observation=None) -> bool:
     intent = arm.get("intent")
     if not isinstance(intent, dict) or not isinstance(arm.get("fills"), list):
         return False
@@ -390,6 +391,10 @@ def _apply_quote_checked(case: dict[str, Any], arm: dict[str, Any], quote: Any, 
         return False
     if not _positive(sol_usd):
         return False
+    if fx_observation is not None:
+        from utils.sol_price import fresh_sol_usd
+        if fresh_sol_usd(fx_observation, now=now.timestamp()) != sol_usd:
+            return False
     impact, routes = receipt["impact_bps"], receipt["route_count"]
     model = subject["execution_cost_model"]
     proceeds_sol = quote.out_amount / 1e9 * (1 - model["slippage_bps"] / 10000)
@@ -415,6 +420,8 @@ def _apply_quote_checked(case: dict[str, Any], arm: dict[str, Any], quote: Any, 
                          "intent_at": intent["requested_at"], "reason": intent["reason"],
                          "proceeds_sol": proceeds_sol, "proceeds_usd": proceeds_usd,
                          "fee_sol": model["fee_sol_per_fill"], "observed_execution": False})
+    if fx_observation is not None:
+        arm["fills"][-1]["fx_observation"] = fx_observation.to_dict()
     if subject["qty_lamports"] == 0:
         arm["closed"] = True
         arm["closed_at"] = now.isoformat()
@@ -437,9 +444,11 @@ def paper_exit_request(arm: dict[str, Any], price: Any, now: dt.datetime, *, liq
 
 
 def apply_paper_exit_quote(case: dict[str, Any], arm: dict[str, Any], quote: Any,
-                          sol_usd: float, now: dt.datetime, *, quote_started_at: dt.datetime | None = None) -> bool:
+                          sol_usd: float, now: dt.datetime, *, quote_started_at: dt.datetime | None = None,
+                          fx_observation=None) -> bool:
     """Shared exact-quantity quote/cash engine; never signs or sends a swap."""
-    return _apply_quote(case, arm, quote, sol_usd, now, quote_started_at=quote_started_at)
+    return _apply_quote(case, arm, quote, sol_usd, now, quote_started_at=quote_started_at,
+                        fx_observation=fx_observation)
 
 
 def active_tokens(root: Path | str | None = None) -> set[str]:
@@ -708,6 +717,10 @@ def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt
                 or _number(fill.get("impact_bps")) is None
                 or not isinstance(fill["input_raw_spl"], int) or not isinstance(fill["output_lamports"], int)):
             return False
+        if "fx_observation" in fill:
+            from utils.sol_price import SolUsdObservation, fresh_sol_usd
+            if fresh_sol_usd(SolUsdObservation(**fill["fx_observation"]), now=filled.timestamp()) != fill["sol_usd"]:
+                return False
         receipt = fill.get("route_quote")
         original_intent = fill.get("exit_intent")
         if (not valid_intent(original_intent, generation)

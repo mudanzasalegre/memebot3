@@ -115,7 +115,10 @@ def _gate_decision(gate: str, features: dict[str, Any], cfg: Any) -> bool | None
 
 
 def _entry_cash(case: dict[str, Any], plan: dict[str, Any], now: dt.datetime) -> tuple[float, float]:
-    from research_loop.runner_forward import validate_paper_cash_terminal
+    from research_loop import runner_forward, entry_gate_forward
+    from execution import paper_cash_mark as cash
+    from analytics.runner_price_policy import parse_policy
+    from utils.sol_price import SolUsdObservation, fresh_sol_usd
     from execution.quote_receipt import valid_summary
     from execution.quote_observation import impact_within_limit
     from fetcher.jupiter_router import SOL_MINT
@@ -125,7 +128,17 @@ def _entry_cash(case: dict[str, Any], plan: dict[str, Any], now: dt.datetime) ->
     quantity = prefix["entry_qty"]
     slippage, fee = policy.number(model["slippage_bps"]), policy.number(model["fee_sol_per_fill"])
     entry_sol_usd = policy.number(prefix["entry_sol_usd"])
+    opened = _time(prefix["opened_at"])
+    original_fx = fresh_sol_usd(SolUsdObservation(**prefix["entry_fx_observation"]), now=opened.timestamp())
+    received = _time(route["observation_receipt"]["other"]["received_at_utc"])
+    parameters = parse_policy(plan["runner_exit_policy"])
     if (prefix.get("dry_run") is not True or prefix.get("test_event")
+            or plan.get("financial_policy_version") != cash.VERSION or case.get("financial_policy_version") != cash.VERSION
+            or prefix.get("closed") is not False or prefix.get("token_address") != case["token"]
+            or original_fx is None or original_fx != entry_sol_usd
+            or not decision_at <= _time(prefix["entry_quote_started_at"]) <= received <= opened
+            or parameters is None or terminal.get("parameters") != parameters
+            or parse_policy(prefix.get("runner_trailing_policy")) != parameters
             or prefix.get("run_id") != plan["run_id"]
             or prefix.get("run_started_at") != plan["run_started_at"]
             or not decision_at <= _time(prefix["opened_at"]) <= decision_at + dt.timedelta(seconds=30)
@@ -133,7 +146,7 @@ def _entry_cash(case: dict[str, Any], plan: dict[str, Any], now: dt.datetime) ->
             or isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0
             or not isinstance(route.get("out_amount"), int) or route["out_amount"] <= 0
             or not valid_summary(route, input_mint=SOL_MINT, output_mint=case["token"],
-                amount=100000000, not_after=_time(prefix["opened_at"]), allow_legacy=True)
+                amount=100000000, not_after=_time(prefix["opened_at"]))
             or isinstance(route["out_amount"], bool)
             or policy.number(route["max_impact_pct"]) <= 0
             or not impact_within_limit(policy.number(route["impact_bps"]), policy.number(route["max_impact_pct"]),
@@ -155,9 +168,15 @@ def _entry_cash(case: dict[str, Any], plan: dict[str, Any], now: dt.datetime) ->
             or case.get("cash_rule") != ("one_common_frozen_entry_and_exit_for_all_gate_arms"
                 if plan.get("comparison_version") else "one_common_frozen_entry_and_exit_for_both_gate_arms")):
         raise ValueError("incomplete or incomparable counterfactual coverage")
-    cash_case = {"prefix": prefix, "token": case["token"], "registered_at": prefix["opened_at"],
-                 "cohort_ends_at": plan["cohort_ends_at"]}
-    if not validate_paper_cash_terminal(cash_case, terminal, now):
+    row, arm_id = entry_gate_forward.cash_case(case, cohort_ends_at=plan["cohort_ends_at"])
+    if not runner_forward._valid_cash_coverage(row, arm_id, terminal):
+        raise ValueError("missing own original cash observation coverage")
+    for fill in terminal.get("fills") or []:
+        if (not isinstance(fill.get("fx_observation"), dict)
+                or (not str(fill.get("reason", "")).startswith("TIMEOUT")
+                    and fill.get("reason") != "LIQUIDITY_CRUSH" and not fill.get("exit_intent", {}).get("cash_valuation"))):
+            raise ValueError("unknown original FX or financial decision mark")
+    if not runner_forward.validate_paper_cash_terminal(row, terminal, now):
         raise ValueError("unresolved or nonconserved quoted cash")
     return policy.number(terminal["net_pnl_sol"]), policy.number(terminal["net_pnl_usd"])
 
@@ -170,6 +189,9 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
         stamp = now or dt.datetime.now(dt.timezone.utc)
         if getattr(cfg, "DRY_RUN", False) is not True:
             raise ValueError("paper-only component")
+        from execution.paper_cash_mark import VERSION as CASH_VERSION
+        if plan.get("financial_policy_version") != CASH_VERSION:
+            raise ValueError("unknown original financial policy contract")
         gate = plan["gate"]
         incumbent_parameters = incumbent_profile(plan, cfg)
         candidate = (policy.validate_transition(cfg, incumbent_parameters, plan["parameters"], gate=gate)

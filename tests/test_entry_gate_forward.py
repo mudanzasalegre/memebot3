@@ -2,6 +2,7 @@
 import asyncio
 import datetime as dt
 import json
+from unittest.mock import AsyncMock
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -13,8 +14,27 @@ from analytics import exit_policy, api_budget
 from config.config import CFG
 from research_loop import entry_gate_forward as bank, entry_gate_policy as evaluator, forward_budget as store
 from runtime import paper_entry_policy as policy
+from utils.sol_price import SolUsdObservation
 
 T0 = dt.datetime(2026, 10, 1, tzinfo=dt.timezone.utc)
+
+
+def fx(stamp, **changes):
+    return SolUsdObservation(**{"status": "OK", "price_usd": 100., "received_at": stamp.timestamp(),
+                               "market_updated_at": stamp.timestamp(), **changes})
+
+
+def synthetic_cash_decision(record, stamp, output):
+    """Explicit synthetic full-cadence fixture using the actual cash consumer."""
+    from research_loop import runner_forward
+    row, arm_id = bank.cash_case(record)
+    arm = row["arms"][arm_id]
+    arm.update(cash_observation_count=1559, cash_last_observed_at=(stamp - dt.timedelta(seconds=60)).isoformat(),
+               cash_observation_gap_limit_exceeded=False)
+    q = quote(quantity=arm["subject"]["qty_lamports"], output=output, source=record["token"], now=stamp)
+    assert runner_forward._observe_cash(row, arm_id, q, fx(stamp), stamp, request_decision=False, quote_started_at=stamp)
+    return {"current": arm["cash_last_mark"], "remaining_peak": arm["cash_peak_mark"],
+            "total_peak": arm["cash_total_peak_mark"], "quote_started_at": stamp.isoformat()}
 
 
 def config(**changes):
@@ -39,6 +59,9 @@ def isolated(monkeypatch):
     monkeypatch.setattr(exit_policy, "CFG", replace(CFG, TP_PARTIAL_ENABLED=False))
     api_budget.reset_provider_circuits()
     evaluator._VERIFIED_CACHE.clear()
+    from utils import sol_price
+    monkeypatch.setattr(sol_price, "get_sol_usd_observation",
+        AsyncMock(side_effect=AssertionError("Synthetic entry tests must not call an FX provider")))
     yield
     api_budget.reset_provider_circuits()
 
@@ -58,9 +81,10 @@ def quote(quantity=100000000, output=1000, *, source=None, target=None, now=T0, 
 def fill(root, cfg, case_id, now=T0 + dt.timedelta(seconds=1), changes=None):
     async def prices(tokens): return {mint: 1. for mint in tokens}
     async def sol(): return 100.
+    async def rate(): return fx(now)
     async def quoted(**kwargs): return quote(source=kwargs["input_mint"], target=kwargs["output_mint"], now=now, **(changes or {}))
     return asyncio.run(bank.fill_entry(case_id, root=root, cfg=cfg, now=now,
-        prices_func=prices, quote_func=quoted, sol_price_func=sol))
+        prices_func=prices, quote_func=quoted, sol_price_func=sol, fx_func=rate))
 
 
 def test_entry_fx_unavailable_after_quote_cannot_create_cash_prefix(tmp_path):
@@ -184,7 +208,7 @@ def test_virtual_case_survives_primary_absence_and_requires_exact_pending_quote(
     store.write(bank.directory(tmp_path) / "active" / f"{identity}.json", record)
     mint = record["token"]
     assert bank.observe_quote(mint, quote(quantity=q - 1, output=200000000, now=T0 + dt.timedelta(minutes=2)), 100., root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(minutes=2), quote_started_at=T0 + dt.timedelta(minutes=2)) == 0
-    assert bank.observe_quote(mint, quote(quantity=q, output=200000000, now=T0 + dt.timedelta(minutes=2)), 100., root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(minutes=2), quote_started_at=T0 + dt.timedelta(minutes=2)) == 1
+    assert bank.observe_quote(mint, quote(quantity=q, output=200000000, now=T0 + dt.timedelta(minutes=2)), 100., root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(minutes=2), quote_started_at=T0 + dt.timedelta(minutes=2), fx_observation=fx(T0 + dt.timedelta(minutes=2))) == 1
     assert not (bank.directory(tmp_path) / "active" / f"{identity}.json").exists()
     assert case(tmp_path, identity, "closed")["cash"]["terminal"]["net_pnl_sol"] == pytest.approx(.09995)
 
@@ -209,11 +233,12 @@ def complete(root, cfg, *, start=T0, losing=False, gate="rank_canary", features_
         record["observation_count"] = 1560
         quantity = record["cash"]["prefix"]["entry_qty"]
         closed = start + dt.timedelta(hours=26, seconds=i)
-        record["cash"]["terminal"]["intent"] = make_intent(record["cash"]["terminal"]["subject"],
-            quantity=quantity, reason="synthetic_common_exit", now=closed)
-        store.write(bank.directory(root) / "active" / f"{identity}.json", record)
         output = 30000000 if losing and i < 30 else 200000000
-        assert bank.observe_quote(record["token"], quote(quantity=quantity, output=output, source=record["token"], now=closed), 100., root=root, cfg=cfg, now=closed, quote_started_at=closed) == 1
+        evidence = synthetic_cash_decision(record, closed, output)
+        record["cash"]["terminal"]["intent"] = make_intent(record["cash"]["terminal"]["subject"],
+            quantity=quantity, reason="synthetic_common_exit", now=closed, cash_valuation=evidence)
+        store.write(bank.directory(root) / "active" / f"{identity}.json", record)
+        assert bank.observe_quote(record["token"], quote(quantity=quantity, output=output, source=record["token"], now=closed), 100., root=root, cfg=cfg, now=closed, quote_started_at=closed, fx_observation=fx(closed)) == 1
     base = bank.directory(root)
     plan_id = store.read(base / "open_plan.json")["plan_id"]
     store.write(base / "heartbeats" / f"{plan_id}.json", {"times": [(start + dt.timedelta(minutes=i)).isoformat() for i in range(1441)]})
@@ -414,12 +439,13 @@ def successor_fixture(root, cfg, *, normal_output=30000000, priority_output=2000
         record["observation_count"] = 1560  # Synthetic complete cadence only.
         closed = start + dt.timedelta(hours=26, seconds=i)
         quantity = record["cash"]["prefix"]["entry_qty"]
-        record["cash"]["terminal"]["intent"] = make_intent(record["cash"]["terminal"]["subject"],
-            quantity=quantity, reason="synthetic_three_arm_exit", now=closed)
-        store.write(base / "active" / f"{identity}.json", record)
         output = normal_output if i < 20 else priority_output if i < 40 else 200000000
+        evidence = synthetic_cash_decision(record, closed, output)
+        record["cash"]["terminal"]["intent"] = make_intent(record["cash"]["terminal"]["subject"],
+            quantity=quantity, reason="synthetic_three_arm_exit", now=closed, cash_valuation=evidence)
+        store.write(base / "active" / f"{identity}.json", record)
         assert bank.observe_quote(row["address"], quote(quantity=quantity, output=output, source=row["address"], now=closed), 100.,
-            root=root, cfg=cfg, now=closed, quote_started_at=closed) == 1
+            root=root, cfg=cfg, now=closed, quote_started_at=closed, fx_observation=fx(closed)) == 1
     plan_id = store.read(base / "open_plan.json")["plan_id"]
     store.write(base / "heartbeats" / f"{plan_id}.json", {"times": [(start + dt.timedelta(minutes=i)).isoformat() for i in range(1441)]})
     return plan_id, start + dt.timedelta(hours=27)

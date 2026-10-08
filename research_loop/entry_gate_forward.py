@@ -24,6 +24,7 @@ from typing import Any
 from config.config import CFG, PROJECT_ROOT
 from runtime import paper_entry_policy as policy
 from research_loop import entry_gate_policy as evaluator, forward_budget as storage
+from execution import paper_cash_mark as cash
 
 COLLECTOR = "sampled_entry_gate_collector_v1"
 SCHEDULE = "entry_components_round_robin_v1"
@@ -62,10 +63,13 @@ def directory(root: Path | str | None = None) -> Path:
 def exit_rule_id() -> str:
     """A changed exit configuration/code invalidates, never retunes, a trial."""
     from analytics import exit_policy, runner_ladder, bird_runner_exit, runner_price_policy
+    from research_loop import runner_forward, paper_exit_receipt
+    import sys
     global _CODE_ID
-    modules = (exit_policy, runner_ladder, bird_runner_exit, runner_price_policy)
+    modules = (exit_policy, runner_ladder, bird_runner_exit, runner_price_policy,
+               runner_forward, paper_exit_receipt, cash, sys.modules[__name__])
     if _CODE_ID is None:
-        _CODE_ID = policy.digest([hashlib.sha256(Path(m.__file__).read_bytes()).hexdigest() for m in modules])
+        _CODE_ID = policy.digest([hashlib.sha256(Path(m.__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest() for m in modules])
     configurations = []
     for module in modules:
         cfg = getattr(module, "CFG", CFG)
@@ -217,7 +221,9 @@ def _plan(root: Path, cfg: Any, ctx: dict[str, Any], gate: str, stamp: dt.dateti
         if plan is None or _plan_id(plan) != pointer["plan_id"]:
             return None  # Never reset a corrupt/incomplete registered population.
         if (plan["run_id"] != ctx["run_id"] or stamp >= storage.time(plan["cohort_ends_at"])
-                or plan["configured_hash"] != policy.configured_hash(cfg, plan["gate"])):
+                or plan["configured_hash"] != policy.configured_hash(cfg, plan["gate"])
+                or plan.get("financial_policy_version") != cash.VERSION
+                or plan.get("exit_configuration_id") != exit_rule_id()):
             return None
         return (pointer["plan_id"], plan) if plan["gate"] == gate else None
     grouped: dict[str, list[dict[str, float]]] = {}
@@ -277,6 +283,7 @@ def _plan(root: Path, cfg: Any, ctx: dict[str, Any], gate: str, stamp: dt.dateti
             return None
         storage.write(history_path, active)  # Original checked predecessor, before future outcomes.
     plan = {"version": evaluator.VERSION, "role": evaluator.ROLE, "collector_version": COLLECTOR,
+        "financial_policy_version": cash.VERSION,
         "proposal_schedule": {"version": SCHEDULE, "index": state["index"], "component_index": component_index},
         "comparison_version": evaluator.COMPARISON_VERSION,
         "incumbent": {"parameters": incumbent, "manifest": copy.deepcopy(active) if selected else None},
@@ -305,9 +312,34 @@ def active_tokens(root: Path | str | None = None) -> set[str]:
 def has_quote_demand(root: Path | str | None = None) -> bool:
     for path in (directory(root) / "active").glob("*.json"):
         case = storage.read(path)
-        if case and (case.get("cash") or {}).get("terminal", {}).get("intent"):
-            return True
+        if case and case.get("cash"):
+            terminal = case["cash"]["terminal"]
+            if terminal.get("intent") or _valuation_quoteable(case):
+                return True
     return False
+
+
+def cash_case(case: dict, *, cohort_ends_at: str | None = None) -> tuple[dict, str]:
+    """One shared virtual position, independently owned by this original case."""
+    from research_loop import runner_forward
+    prefix, terminal = case["cash"]["prefix"], case["cash"]["terminal"]
+    parameters = terminal.get("parameters")
+    arm_id = runner_forward._policy_id(parameters) if parameters else "legacy_unknown"
+    row = {"case_id": case["case_id"], "token": case["token"], "prefix": prefix,
+        "registered_at": prefix["opened_at"], "cohort_ends_at": cohort_ends_at,
+        "arms": {arm_id: terminal}}
+    return row, arm_id
+
+
+def _valuation_quoteable(case: dict) -> bool:
+    from research_loop import runner_forward
+    try:
+        if case.get("financial_policy_version") != cash.VERSION:
+            return False
+        row, arm_id = cash_case(case)
+        return runner_forward._cash_quoteable(row, arm_id, row["arms"][arm_id])
+    except (KeyError, ValueError, TypeError, AttributeError):
+        return False
 
 
 def capture_gate(gate: str, row: dict[str, Any], cfg: Any, *, now: dt.datetime | None = None) -> str | None:
@@ -392,7 +424,7 @@ def _archive(base: Path, path: Path, case: dict[str, Any], state: str) -> None:
 
 
 async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt.datetime | None = None,
-                     prices_func=None, quote_func=None, sol_price_func=None) -> bool:
+                     prices_func=None, quote_func=None, sol_price_func=None, fx_func=None) -> bool:
     cfg = CFG if cfg is None else cfg
     if getattr(cfg, "DRY_RUN", False) is not True or re.fullmatch(r"[0-9a-f]{64}", str(case_id)) is None:
         return False
@@ -400,6 +432,14 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
     path = base / "active" / f"{case_id}.json"
     case = storage.read(path)
     if not case or case.get("cash") is not None or case.get("entry_quote_dispatched"):
+        return False
+    original_plan = storage.read(base / "plans" / f"{case['plan_id']}.json")
+    if (not original_plan or _plan_id(original_plan) != case["plan_id"]
+            or original_plan.get("financial_policy_version") != cash.VERSION
+            or original_plan.get("exit_configuration_id") != exit_rule_id()
+            or policy.digest([case["plan_id"], case["token"], case["decision_at"], case["features"]]) != case_id):
+        case["invalid_reason"] = "unknown_original_entry_financial_contract"
+        _archive(base, path, case, "invalid")
         return False
     stamp = now or dt.datetime.now(dt.timezone.utc)
     if not 0 <= (stamp - storage.time(case["decision_at"])).total_seconds() <= 30:
@@ -413,7 +453,7 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
     storage.write(path, case)  # A duplicate/restarted dispatcher cannot send another entry quote.
     from analytics.api_budget import provider_status, record_provider_event
     from fetcher import jupiter_price, jupiter_router
-    from utils.sol_price import get_sol_usd
+    from utils.sol_price import get_sol_usd, get_sol_usd_observation, fresh_sol_usd
     from trader.papertrading import _cost_model, quote_impact_limit_pct
     from analytics import runner_ladder
     from research_loop import runner_forward
@@ -426,12 +466,15 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
     prices_func = prices_func or fresh_prices
     quote_func = quote_func or jupiter_router.get_routing_quote
     sol_price_func = sol_price_func or get_sol_usd
+    fx_func = fx_func or get_sol_usd_observation
     try:
         prices, sol_usd = await asyncio.gather(prices_func([case["token"]]), sol_price_func())
         price, sol_usd = policy.number(prices.get(case["token"])), policy.number(sol_usd)
         model = _cost_model()
         if price <= 0 or sol_usd <= 0 or model is None:
             raise ValueError("unknown entry price or costs")
+        quote_started_at = now or dt.datetime.now(dt.timezone.utc)
+        requested_slippage = jupiter_router.routing_quote_slippage_bps()
         quote = await quote_func(input_mint=jupiter_router.SOL_MINT, output_mint=case["token"], amount_lamports=100000000)
         sol_usd = policy.number(await sol_price_func())
         if sol_usd <= 0:
@@ -441,26 +484,40 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
         limit = policy.number(quote_impact_limit_pct(cfg))
         from execution.quote_receipt import capture_summary
         filled = now or dt.datetime.now(dt.timezone.utc)
+        fx = await fx_func()
+        filled = now or dt.datetime.now(dt.timezone.utc)
+        original_fx = fresh_sol_usd(fx, now=filled.timestamp())
+        if original_fx is None or original_fx != sol_usd:
+            raise ValueError("unknown or conflicting original entry FX receipt")
         route = capture_summary(quote, input_mint=jupiter_router.SOL_MINT, output_mint=case["token"],
-            amount=100000000, slippage=jupiter_router.routing_quote_slippage_bps(), limit=limit, now=filled)
+            amount=100000000, slippage=requested_slippage, limit=limit, now=filled)
+        received = storage.time(route["observation_receipt"]["other"]["received_at_utc"])
+        if received is None or not storage.time(case["decision_at"]) <= quote_started_at <= received <= filled:
+            raise ValueError("entry quote did not follow the original decision/request")
         output = route["out_amount"]
         if limit <= 0:
             raise ValueError("invalid exact 0.1 SOL entry quote")
         latest = storage.read(path)
         if not latest or latest.get("cash") is not None:
             return False
+        immutable = ("case_id", "token", "plan_id", "decision_at", "features", "baseline_buy",
+                     "challenger_buy", "incumbent_buy", "exit_rule_id", "cash_rule")
+        if any(latest.get(key) != case.get(key) for key in immutable):
+            raise ValueError("original entry decision changed during quote await")
         if (filled - storage.time(case["decision_at"])).total_seconds() > 30:
             raise ValueError("entry quote too late")
         plan = storage.read(base / "plans" / f"{case['plan_id']}.json")
-        if not plan or plan["exit_configuration_id"] != exit_rule_id():
+        if not plan or plan != original_plan or plan["exit_configuration_id"] != exit_rule_id():
             raise ValueError("exit rule changed")
         quantity = int(output / (1 + model["slippage_bps"] / 10000))
         if quantity <= 0:
             raise ValueError("empty raw SPL entry")
         lanes = {"rank_canary": "pump_early_research_rank_canary", "sniper_subprofile": "pump_early_sniper_research",
                  "late_momentum": "pump_early_late_momentum_watch", "moonshot": "pump_early_moonshot_micro_lottery"}
-        prefix = {"dry_run": True, "run_id": plan["run_id"], "run_started_at": plan["run_started_at"],
+        prefix = {"dry_run": True, "closed": False, "token_address": case["token"],
+            "run_id": plan["run_id"], "run_started_at": plan["run_started_at"],
             "opened_at": filled.isoformat(), "amount_sol": .1, "entry_sol_usd": sol_usd, "entry_notional_usd": .1 * sol_usd,
+            "entry_fx_observation": fx.to_dict(), "entry_quote_started_at": quote_started_at.isoformat(),
             "buy_price_usd": price * (1 + model["slippage_bps"] / 10000), "entry_qty": quantity,
             "qty_lamports": quantity, "realized_qty": 0, "realized_proceeds_sol": 0., "realized_proceeds_usd": 0.,
             "execution_fill_count": 1, "estimated_fees_sol": model["fee_sol_per_fill"],
@@ -471,7 +528,16 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
             "partial_count": 0, "partial_fill_events": 0, "highest_pnl_pct": 0., "max_pnl_pct_seen": 0.,
             "runner_trailing_policy": plan["runner_exit_policy"]}
         prefix["partial_ladder_state"] = runner_ladder.encode_ladder_state(runner_ladder.initial_ladder_state())
-        latest["cash"] = {"prefix": prefix, "terminal": {"subject": copy.deepcopy(prefix), "fills": [], "closed": False}}
+        from analytics.runner_price_policy import parse_policy
+        parameters = parse_policy(plan["runner_exit_policy"])
+        if parameters is None or plan.get("financial_policy_version") != cash.VERSION:
+            raise ValueError("unknown original financial exit policy")
+        arm_id = runner_forward._policy_id(parameters)
+        prefix["paper_cash_owner"] = "case:" + runner_forward._hash([case_id, arm_id])
+        latest["financial_policy_version"] = cash.VERSION
+        latest["cash"] = {"prefix": prefix, "terminal": {"subject": copy.deepcopy(prefix), "fills": [], "closed": False,
+            "parameters": parameters, "cash_observation_count": 0, "cash_last_observed_at": filled.isoformat(),
+            "cash_observation_gap_limit_exceeded": False}}
         latest["last_observed_at"] = filled.isoformat()
         latest["observation_count"] = 1
         storage.write(path, latest)
@@ -497,11 +563,13 @@ def _observe(case: dict[str, Any], price: Any, stamp: dt.datetime, plan: dict[st
         price = policy.number(price)
     except (TypeError, ValueError):
         price = None
-    if price is not None and price > 0 and stamp > previous:
+    if stamp > previous:
         case["last_observed_at"] = stamp.isoformat()
         case["observation_count"] += 1
     if configuration_unchanged:
-        paper_exit_request(case["cash"]["terminal"], price, stamp, liq_now=liq_now)
+        # Raw spot is diagnostic only; independent time/liquidity safeguards
+        # still operate without fabricating a current financial valuation.
+        paper_exit_request(case["cash"]["terminal"], None, stamp, liq_now=liq_now)
 
 
 @_best_effort(lambda: 0)
@@ -524,7 +592,8 @@ def observe_market(token: str, price: Any, *, root: Path | str, cfg: Any = None,
 
 @_best_effort(lambda: 0)
 def observe_quote(token: str, quote: Any, sol_usd: float, *, root: Path | str, cfg: Any = None,
-                  now: dt.datetime | None = None, quote_started_at: dt.datetime | None = None) -> int:
+                  now: dt.datetime | None = None, quote_started_at: dt.datetime | None = None,
+                  fx_observation=None) -> int:
     from research_loop.runner_forward import apply_paper_exit_quote
     cfg = CFG if cfg is None else cfg
     if getattr(cfg, "DRY_RUN", False) is not True or getattr(cfg, "PAPER_ENTRY_RESEARCH_ENABLED", False) is not True:
@@ -535,8 +604,13 @@ def observe_quote(token: str, quote: Any, sol_usd: float, *, root: Path | str, c
         if case and case["token"] == token and case.get("cash"):
             terminal = case["cash"]["terminal"]
             if terminal.get("intent", {}).get("quantity") == getattr(quote, "in_amount", None):
-                cash_case = {"prefix": case["cash"]["prefix"], "token": case["token"]}
-                if apply_paper_exit_quote(cash_case, terminal, quote, sol_usd, stamp, quote_started_at=quote_started_at):
+                from utils.sol_price import fresh_sol_usd
+                if case.get("financial_policy_version") == cash.VERSION and fresh_sol_usd(
+                        fx_observation, now=stamp.timestamp()) != sol_usd:
+                    continue
+                row, _ = cash_case(case)
+                if apply_paper_exit_quote(row, terminal, quote, sol_usd, stamp, quote_started_at=quote_started_at,
+                                          fx_observation=fx_observation):
                     count += 1
                     if terminal["closed"]:
                         case["outcomes_complete"] = True
@@ -616,15 +690,15 @@ def evaluate_plan(root: Path | str, cfg: Any, plan_id: str, *, now: dt.datetime)
 
 
 async def tick(*, root: Path | str, cfg: Any = None, now: dt.datetime | None = None,
-               prices_func=None, quote_func=None, sol_price_func=None) -> dict[str, Any]:
+               prices_func=None, quote_func=None, sol_price_func=None, fx_func=None) -> dict[str, Any]:
     cfg = CFG if cfg is None else cfg
     if getattr(cfg, "DRY_RUN", False) is not True or getattr(cfg, "PAPER_ENTRY_RESEARCH_ENABLED", False) is not True:
         return {"status": "disabled", "quote_calls": 0}
     async with _LOCK:
         from research_loop import runner_forward
         from analytics.api_budget import provider_status, record_provider_event
-        from fetcher import jupiter_price, jupiter_router
-        from utils.sol_price import get_sol_usd
+        from fetcher import jupiter_router
+        from utils.sol_price import get_sol_usd, get_sol_usd_observation
         base, stamp = directory(root), now or dt.datetime.now(dt.timezone.utc)
         pointer = storage.read(base / "open_plan.json")
         if not pointer:
@@ -658,13 +732,11 @@ async def tick(*, root: Path | str, cfg: Any = None, now: dt.datetime | None = N
         storage.write(base / "tick_clock.json", {"last_tick_at": stamp.isoformat()})
         paths = sorted((base / "active").glob("*.json"))[:evaluator.MAX_CASES]
         cases = [(p, c) for p in paths if (c := storage.read(p)) is not None]
-        async def fresh_prices(tokens):
-            return await jupiter_price.get_many_usd_prices(tokens, force_refresh=True)
-        prices_func = prices_func or fresh_prices
         quote_func = quote_func or jupiter_router.get_routing_quote
         sol_price_func = sol_price_func or get_sol_usd
+        fx_func = fx_func or get_sol_usd_observation
         try:
-            prices = {} if provider_status("jupiter").get("degraded") else await prices_func(sorted({c["token"] for _, c in cases if c.get("cash")}))
+            prices = await prices_func(sorted({c["token"] for _, c in cases if c.get("cash")})) if prices_func else {}
         except Exception:
             prices = {}
         requests = []
@@ -681,21 +753,53 @@ async def tick(*, root: Path | str, cfg: Any = None, now: dt.datetime | None = N
             terminal = case["cash"]["terminal"]
             storage.write(path, case)  # Intent persists before any network await.
             if terminal.get("intent"):
-                requests.append((terminal["intent"]["requested_at"], case["case_id"], case["token"], terminal["intent"]["quantity"]))
+                requests.append((0, terminal["intent"]["requested_at"], case["case_id"], case["token"],
+                                 terminal["intent"]["quantity"], copy.deepcopy(case)))
+            elif plan.get("exit_configuration_id") == exit_rule_id() and _valuation_quoteable(case):
+                requests.append((1, terminal["cash_last_observed_at"], case["case_id"], case["token"],
+                                 terminal["subject"]["qty_lamports"], copy.deepcopy(case)))
         requests.sort()
         quote_calls = 0
         if (requests and not provider_status("jupiter").get("degraded")
                 and storage.claim(root, "entry_gate", other_pending=runner_forward.has_quote_demand(root), now=stamp)):
-            _, _, mint, quantity = requests[0]
+            role, _, _, mint, quantity, _ = requests[0]
             try:
-                sol_usd = await sol_price_func()
+                sol_usd = await sol_price_func() if role == 0 else None
                 quote_calls = 1
                 quote_started_at = now or dt.datetime.now(dt.timezone.utc)
+                requested_slippage = jupiter_router.routing_quote_slippage_bps()
                 quote = await quote_func(input_mint=mint, output_mint=jupiter_router.SOL_MINT, amount_lamports=quantity)
-                sol_usd = await sol_price_func()  # recheck FX after network wait
+                sol_usd = await sol_price_func() if role == 0 else None  # recheck fill FX after network wait
+                fx = await fx_func()
+                sampled_at = now or dt.datetime.now(dt.timezone.utc)
                 if (getattr(quote, "other", None) or {}).get("status") == 429:
                     record_provider_event("jupiter", "429")
-                observe_quote(mint, quote, sol_usd, root=root, cfg=cfg, now=now, quote_started_at=quote_started_at)
+                if role == 0:
+                    observe_quote(mint, quote, sol_usd, root=root, cfg=cfg, now=sampled_at,
+                                  quote_started_at=quote_started_at, fx_observation=fx)
+                else:
+                    latest_plan = storage.read(base / "plans" / f"{plan_id}.json")
+                    if latest_plan != plan or plan.get("exit_configuration_id") != exit_rule_id():
+                        raise ValueError("original exit plan changed during valuation await")
+                    for request_role, _, identity, token, own_quantity, original in requests:
+                        if request_role != role or token != mint or own_quantity != quantity:
+                            continue
+                        path = base / "active" / f"{identity}.json"
+                        latest = storage.read(path)
+                        if not latest or not latest.get("cash"):
+                            continue
+                        current = latest["cash"]["terminal"]
+                        immutable = ("case_id", "token", "plan_id", "decision_at", "features", "baseline_buy",
+                                     "challenger_buy", "incumbent_buy", "exit_rule_id", "cash_rule", "financial_policy_version")
+                        if (current.get("intent")
+                                or any(latest.get(key) != original.get(key) for key in immutable)
+                                or latest["cash"]["prefix"] != original["cash"]["prefix"]
+                                or not runner_forward._same_cash_generation(current, original["cash"]["terminal"])):
+                            continue
+                        row, arm_id = cash_case(latest, cohort_ends_at=plan["cohort_ends_at"])
+                        if runner_forward._observe_cash(row, arm_id, quote, fx, sampled_at,
+                                quote_started_at=quote_started_at, slippage_bps=requested_slippage):
+                            storage.write(path, latest)  # Persist decision; never fill with this valuation quote.
             except Exception:
                 pass  # Pending quantities stay unknown, not filled or zero-return.
         deadline = storage.time(plan["cohort_ends_at"]) + dt.timedelta(hours=48)

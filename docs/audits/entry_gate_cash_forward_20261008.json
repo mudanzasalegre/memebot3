@@ -1,0 +1,55 @@
+{
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "financial_acceptance": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "requested_trade_size_sol": 0.1,
+  "parent_commit": "9fe339c89ad5360c499cfadf9f9382ab6bb1df4a",
+  "scope": "Own exact-remaining quoted cash in prospective PAPER entry-gate research, including its entry/exit FX and downstream cohort/manifest consumers. No live execution, active operator model/policy or environment activation.",
+  "implementation": [
+    "New original plans predeclare paper_exact_cash_mark_v1. Existing incompatible plans are preserved without relabelling or appending; exit identity pins normalized source for the actual financial helpers as well as the existing exit engine.",
+    "The virtual entry remains exactly 0.1 SOL. The original typed SOL/USD observation, actual pre-await quote-start clock and checked public entry quote are retained. Original registration and plan must remain unchanged across awaits; cached quotes predating the request are rejected.",
+    "One common virtual position remains shared by the gate comparison arms. Its cash owner derives from the original case and normalized frozen runner policy; the financial engine cannot confuse it with another case or an actual SQL position.",
+    "Raw market spot can no longer generate financial peaks or price-driven exit intents. Actual tick requests exact remaining-quantity valuations with original typed FX. Original remaining-leg and whole-trade net cash peaks and the checked financial decision context reuse the shared runner cash engine. Independent no-price time and liquidity safeguards remain available.",
+    "Pending fills have priority, followed by the oldest cash valuations. The existing shared one-extra-quote-per-minute budget and runner alternation are preserved. A valuation can create an intent but cannot fill it with the already-received quote; a separate later exact-size quote is mandatory.",
+    "Valuation generation, original registration, entry prefix and original plan/configuration are rechecked after provider waits. Provider/FX/size/chronology faults stay unknown and do not create a zero-return financial outcome.",
+    "New entry-gate exit fills require the original typed FX, matching the scalar at the original fill clock. The shared receipt engine stores and historically rechecks that FX when present; legacy runner fills remain accounting-only and are not retroactively upgraded.",
+    "Entry-gate financial cohort acceptance and checked manifest replay require original entry FX/quote chronology, the declared cash contract, frozen policy equality, independent original owned cash coverage, original financial decision marks except explicit timeout/liquidity safeguards, and conserved cash/receipt replay. Legacy data and active selections are not rewritten."
+  ],
+  "synthetic_regressions": {
+    "new_cases": 43,
+    "extreme_cash_returns_pct": [300, 1000, 10000, 1000000],
+    "extreme_fixture_tail_fraction": 0.03,
+    "fixture_tail_is_not_an_operator_setting_change": true,
+    "coverage": ["actual entry and own cash tick", "uncapped extreme cash and residual position", "separate valuation/fill quotes", "four Swap V2 quote families", "entry/fill typed FX faults", "wrong quantity", "quote preceding original request", "original registration/prefix/plan mutation during await", "financial generation changes", "provider failures", "owned mark tampering", "per-case cash coverage gaps", "incompatible legacy preservation", "strict financial consumer and unchanged manifest fallback"]
+  },
+  "verification": {
+    "preliminary_existing_entry_router_policy_suite": "157 passed in 214.62s before final added post-await plan/registration/prefix guards",
+    "new_final_cases": "43 passed in 12.63s",
+    "related_suite": "284 passed in 446.31s; collected before adding the four final extreme-entry cases, which passed separately in the final 43-case suite",
+    "compile_changed_modules": "PASS",
+    "complete_regressions": {"working": {"passed": 3826, "seconds": 778.94}, "publishing": {"passed": 3826, "seconds": 759.17}},
+    "both_first_launch_preflights": {"working": {"ok": true, "generated_at_utc": "2026-10-08T20:48:39.705562Z"}, "publishing": {"ok": true, "generated_at_utc": "2026-10-08T20:48:38.734629Z"}, "each": {"compile_errors": 0, "config_import_return_code": 0, "paper_profile_ok": true, "empty_report_builders_ok": 7, "external_complete_pytest_return_code": 0}},
+    "frozen_source_fingerprint": {"files_each": 738, "sha256_each": "4c8b936c48232026eced703aed17debaa1812b0ccfb945e50cbc9fd8dd257cd7", "scope": "Normalized allowed verification source; excludes docs, README and all operator state. Identical before and after both complete suites, first-launch preflights and requested D-only stop."},
+    "tooling_notes": ["One preliminary test command named a nonexistent test file; pytest ran zero tests and this is not a pass. The corrected related command passed284 tests. A preflight orchestration syntax error invoked no commands; the corrected parallel call passed both preflights."],
+    "publication": "VERIFIED_READY_FOR_COMMIT_PUSH; precommit evidence only. Actual final commit, clean checkout and remote revision are checked separately in the handoff."
+  },
+  "runtime": {
+    "must_remain_off": true,
+    "readonly_working_configuration": {"checked_at_utc": "2026-10-08T20:41:05.4639023Z", "dry_run": true, "configured_tail_fraction": 0.15, "paper_runner_activation_peak_pct": 300, "paper_runner_max_price_drawdown_pct": 20, "paper_runner_max_holding_h": 24, "scope": "Configured settings read without changing .env or open positions. Activation is not an upside cap; the synthetic extreme fixture deliberately uses a separate 3 percent tail."},
+    "real_provider_wallet_order_calls": 0,
+    "bot_api_ui_training_research_daemon_starts": 0,
+    "final_requested_stop_utc": "2026-10-08T20:49:09Z",
+    "final_requested_stop_result": "killed=0 remaining=0; completed2026-10-08T20:49:12Z, exit0",
+    "final_post_verification_inventory": {"checked_at_utc": "2026-10-08T20:49:38.6132065Z", "runtime_processes": 0, "matched_memebot_tasks": 0, "running_memebot_tasks": 0, "matched_memebot_services": 0, "running_memebot_services": 0, "actual_and_compatibility_locks_both_roots": 0},
+    "readonly_sql_main": {"process_state": "stopped", "reports_refresh_state": "idle", "retrain_state": "idle", "updated_at_utc": "2026-10-08T20:49:11.301217Z"},
+    "protected_operator_mtime_census": {"checked_at_utc": "2026-10-08T20:49:39.3752043Z", "boundary_utc": "2026-10-08T16:09:40Z", "working_entries": 3763, "publishing_entries": 27, "changed_since_boundary_each": 0, "scope": "Operator environment, portfolio, model/registry/policy/features/research/recovery/closed-trade file modification-time census, not cryptographic historical proof. Intended stop SQL/log and preflight metrics outputs are excluded."}
+  },
+  "limitations_and_remaining_work": [
+    "This stage completes the entry-gate own-cash software integration, not fresh prospective financial strategy acceptance. Synthetic extreme returns do not prove sell depth, maximum profit, optimal exits or future profits.",
+    "The original primary PAPER exit hook still supplies a scalar without the original typed FX receipt. It cannot settle a new entry-gate case without that receipt; the independent budgeted typed-FX research probe remains available. No extra provider call or fabricated receipt is inserted into primary execution.",
+    "Complete original typed per-entry/per-fill FX persistence across primary PAPER, runner fills, live execution/recovery, SQL and learning. Legacy runner fill support remains accounting-only, not newly certified original FX provenance.",
+    "The bounded quote budget cannot establish exhaustive fast-market opportunity/valuation coverage. Over-budget gaps must fail financial acceptance, not disappear from evidence. Own coverage fields and receipt checks are not an exhaustive original sampling/strategy-decision journal or cryptographic proof.",
+    "Complete durable canary risk reconciliation across restarts, remaining scanner/sniper/model architecture work, full-strategy decision provenance, current provider/wallet/finality checks and separately authorized fresh prospective full-strategy costed profitability acceptance.",
+    "Operator data, active models, active policies and secrets remain outside publication. No perfect detection, guaranteed winning, maximum profit or zero future error claim is made."
+  ]
+}

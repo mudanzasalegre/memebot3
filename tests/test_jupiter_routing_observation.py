@@ -227,7 +227,7 @@ def test_runner_research_accepts_checked_opaque_quotes_and_rejects_stripped_proo
 @pytest.mark.parametrize("family", ["metis", "jupiterz", "dflow", "okx"])
 def test_entry_gate_research_costs_complete_v2_quotes_without_claiming_live_profit(tmp_path, family):
     from research_loop import entry_gate_forward as bank, entry_gate_policy as evaluator, forward_budget as storage
-    from test_entry_gate_forward import capture, config, case as read_case, token
+    from test_entry_gate_forward import capture, config, case as read_case, token, fx, synthetic_cash_decision
     cfg = config()
     mint = token()["address"]
     identity = capture(tmp_path, cfg, token(), now=T0, start=T0)
@@ -235,18 +235,20 @@ def test_entry_gate_research_costs_complete_v2_quotes_without_claiming_live_prof
     async def quoted(**kwargs): return v2_quote(SOL, mint, now=entered, family=family, impact=-12)
     async def prices(_): return {mint: 1.}
     async def sol(): return 100.
+    async def rate(): return fx(entered)
     assert asyncio.run(bank.fill_entry(identity, root=tmp_path, cfg=cfg, now=entered,
-        quote_func=quoted, prices_func=prices, sol_price_func=sol))
+        quote_func=quoted, prices_func=prices, sol_price_func=sol, fx_func=rate))
     record = read_case(tmp_path, identity)
     quantity = record["cash"]["prefix"]["entry_qty"]
     stamp = T0 + dt.timedelta(minutes=2)
     from research_loop.paper_exit_receipt import make_intent
+    evidence = synthetic_cash_decision(record, stamp, 200000000)
     record["cash"]["terminal"]["intent"] = make_intent(record["cash"]["terminal"]["subject"],
-        quantity=quantity, reason="synthetic_close", now=stamp)
+        quantity=quantity, reason="synthetic_close", now=stamp, cash_valuation=evidence)
     record["observation_count"] = 2
     storage.write(bank.directory(tmp_path) / "active" / f"{identity}.json", record)
     assert bank.observe_quote(mint, v2_quote(mint, SOL, quantity, 200000000, now=stamp, family=family),
-        100., root=tmp_path, cfg=cfg, now=stamp, quote_started_at=stamp) == 1
+        100., root=tmp_path, cfg=cfg, now=stamp, quote_started_at=stamp, fx_observation=fx(stamp)) == 1
     closed = read_case(tmp_path, identity, "closed")
     plan = storage.read(bank.directory(tmp_path) / "plans" / f"{record['plan_id']}.json")
     sol_pnl, usd_pnl = evaluator._entry_cash(closed, plan, stamp)

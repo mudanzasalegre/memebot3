@@ -21,6 +21,9 @@ from quote_fixtures import v1_quote, SOL
 from execution.quote_receipt import capture_summary
 from runtime import paper_entry_policy as policy
 from runtime.buy_recovery import BuyRecoveryStore
+from execution import paper_cash_mark
+from analytics import runner_price_policy
+from test_entry_gate_forward import synthetic_cash_decision, fx
 
 
 class _GuardSession:
@@ -47,6 +50,8 @@ def cohort(cfg, *, start=None, gate="rank_canary", parameters=None, features_fun
     start = start or dt.datetime.now(dt.timezone.utc).replace(microsecond=0) - dt.timedelta(hours=27)
     parameters = PARAMETERS if parameters is None else parameters
     plan = {"version": transport.VERSION, "role": transport.ROLE, "gate": gate,
+        "financial_policy_version": paper_cash_mark.VERSION,
+        "runner_exit_policy": runner_price_policy.freeze_policy(cfg, dry_run=True),
         "collector_version": collector.COLLECTOR, "exit_configuration_id": collector.exit_rule_id(),
         "sampling": {"method": "first_eligible_after_interval_and_shared_quote_slot", "interval_s": 900,
                      "max_cases": transport.MAX_CASES, "future_outcome_used": False},
@@ -66,8 +71,11 @@ def cohort(cfg, *, start=None, gate="rank_canary", parameters=None, features_fun
             "market_cap_usd": 50000, "has_jupiter_route": True, "liquidity_is_proxy": False}
         if features_func is not None:
             features.update(features_func(i))
-        prefix = {"dry_run": True, "run_id": plan["run_id"], "run_started_at": plan["run_started_at"],
+        prefix = {"dry_run": True, "closed": False, "token_address": mint,
+            "run_id": plan["run_id"], "run_started_at": plan["run_started_at"],
             "opened_at": decision.isoformat(), "amount_sol": .1, "entry_notional_usd": 10., "entry_sol_usd": 100.,
+            "entry_fx_observation": fx(decision).to_dict(), "entry_quote_started_at": decision.isoformat(),
+            "runner_trailing_policy": plan["runner_exit_policy"],
             "entry_qty": 1000, "qty_lamports": 1000, "realized_qty": 0,
             "realized_proceeds_sol": 0., "realized_proceeds_usd": 0., "execution_fill_count": 1,
             "estimated_fees_sol": .000025, "estimated_fees_usd": .0025,
@@ -79,13 +87,20 @@ def cohort(cfg, *, start=None, gate="rank_canary", parameters=None, features_fun
         original_quote = v1_quote(SOL, mint, 100000000, 1000, now=decision)
         prefix["entry_route_quote"] = capture_summary(original_quote, input_mint=SOL, output_mint=mint,
             amount=100000000, slippage=original_quote.other["slippageBps"], limit=8., now=decision)
-        terminal = {"closed": False, "subject": copy.deepcopy(prefix), "fills": []}
+        identity = policy.digest([plan_id, mint, decision.isoformat(), features])
+        runner_parameters = runner_price_policy.parse_policy(plan["runner_exit_policy"])
+        arm_id = runner_forward._policy_id(runner_parameters)
+        prefix["paper_cash_owner"] = "case:" + runner_forward._hash([identity, arm_id])
+        terminal = {"closed": False, "subject": copy.deepcopy(prefix), "fills": [], "parameters": runner_parameters}
+        input_case = {"case_id": identity, "token": mint, "cash": {"prefix": prefix, "terminal": terminal}}
+        evidence = synthetic_cash_decision(input_case, close - dt.timedelta(seconds=10), 200000000)
         terminal["intent"] = runner_forward.make_intent(terminal["subject"], quantity=1000,
-            reason="synthetic_common_exit", now=close - dt.timedelta(seconds=10))
+            reason="synthetic_common_exit", now=close - dt.timedelta(seconds=10), cash_valuation=evidence)
         assert runner_forward.apply_paper_exit_quote({"token": mint}, terminal,
             v1_quote(mint, SOL, 1000, 200000000, now=close), 100., close,
-            quote_started_at=close - dt.timedelta(seconds=5))
+            quote_started_at=close - dt.timedelta(seconds=5), fx_observation=fx(close))
         case = {"plan_id": plan_id, "token": mint, "decision_at": decision.isoformat(), "features": features,
+            "financial_policy_version": paper_cash_mark.VERSION,
             "baseline_buy": transport.profile_decision(gate, features, cfg, {}),
             "challenger_buy": transport.profile_decision(gate, features, cfg, parameters), "outcomes_complete": True,
             "observation_gap_limit_exceeded": False, "observation_count": 1560,
