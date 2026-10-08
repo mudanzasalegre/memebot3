@@ -1101,6 +1101,7 @@ async def _sell_owned(
         try:
             from execution.quote_receipt import capture_summary
             slippage = jupiter_router.routing_quote_slippage_bps()
+            research_quote_started_at = utc_now()
             quote = await jupiter_router.get_routing_quote(input_mint=key, output_mint=SOL_MINT,
                 amount_lamports=take_qty, slippage_bps=slippage)
             exit_route_quote = capture_summary(quote, input_mint=key, output_mint=SOL_MINT,
@@ -1124,9 +1125,11 @@ async def _sell_owned(
                     "qty_sold": 0, "qty_left": total_qty}
         proceeds_usd = quote.out_amount / 1e9 * float(sol_usd)
         try:
-            runner_forward.observe_quote(key, quote, float(sol_usd), root=_research_root(), cfg=CFG)
+            runner_forward.observe_quote(key, quote, float(sol_usd), root=_research_root(), cfg=CFG,
+                quote_started_at=research_quote_started_at)
             from research_loop import entry_gate_forward
-            entry_gate_forward.observe_quote(key, quote, float(sol_usd), root=_research_root(), cfg=CFG)
+            entry_gate_forward.observe_quote(key, quote, float(sol_usd), root=_research_root(), cfg=CFG,
+                quote_started_at=research_quote_started_at)
         except Exception as exc:
             log.warning("[runner_forward] quote reuse unavailable: %s", type(exc).__name__)
         reference_tokens = (take_qty / int(entry["entry_qty"])) * float(entry["entry_notional_usd"]) / float(entry["buy_price_usd"])

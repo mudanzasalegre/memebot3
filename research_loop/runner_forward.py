@@ -27,6 +27,7 @@ from config.config import CFG, PROJECT_ROOT
 from utils.atomic_json import read_json_strict, write_json_atomic
 from runtime.paper_archive import entry_identity
 from execution.quote_receipt import capture_summary, valid_summary
+from research_loop.paper_exit_receipt import make_intent, valid_intent, causal_quote
 
 VERSION = "paired_paper_runner_forward_v1"
 MIN_TOKENS = 50
@@ -230,23 +231,46 @@ def _request(arm: dict[str, Any], price: Any, now: dt.datetime, *, liq_now: floa
         plan = exit_policy.partial_ladder_plan(subject, pnl)
         fraction = exit_policy.partial_sell_fraction(subject, pnl)
         quantity = min(subject["qty_lamports"], max(1, round(subject["qty_lamports"] * fraction)))
-        arm["intent"] = {"quantity": quantity, "reason": "partial_tp", "requested_at": now.isoformat(),
-                         "ladder_plan": plan}
+        _set_intent(arm, quantity=quantity, reason="partial_tp", now=now, ladder_plan=plan)
         return
     reason = exit_policy.should_exit(subject, price, now, pnl_pct=pnl, liq_now=liq_now)
     if reason is not None:
-        arm["intent"] = {"quantity": subject["qty_lamports"], "reason": reason, "requested_at": now.isoformat()}
+        _set_intent(arm, quantity=subject["qty_lamports"], reason=reason, now=now)
+
+
+def _set_intent(arm: dict, **arguments) -> bool:
+    try:
+        arm["intent"] = make_intent(arm["subject"], **arguments)
+        arm.pop("intent_error", None)
+        return True
+    except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
+        arm["intent_error"] = "unknown_original_financial_generation"
+        return False
 
 
 def _apply_quote(case: dict[str, Any], arm: dict[str, Any], quote: Any, sol_usd: float,
-                 now: dt.datetime) -> bool:
+                 now: dt.datetime, *, quote_started_at: dt.datetime | None = None) -> bool:
+    """Apply only a checked original intent; invalid evidence never mutates cash."""
+    try:
+        updated = copy.deepcopy(arm)
+        if not _apply_quote_checked(case, updated, quote, sol_usd, now, quote_started_at=quote_started_at):
+            return False
+        arm.clear()
+        arm.update(updated)
+        return True
+    except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
+        return False
+
+
+def _apply_quote_checked(case: dict[str, Any], arm: dict[str, Any], quote: Any, sol_usd: float,
+                         now: dt.datetime, *, quote_started_at: dt.datetime | None = None) -> bool:
     intent = arm.get("intent")
-    if not intent:
+    if not isinstance(intent, dict) or not isinstance(arm.get("fills"), list):
         return False
     quantity = intent["quantity"]
     subject = arm["subject"]
     requested = _time(intent.get("requested_at"))
-    if (arm.get("closed") or requested is None or now < requested
+    if (arm.get("closed") or requested is None or now < requested or not valid_intent(intent, subject)
             or not isinstance(quantity, int) or isinstance(quantity, bool)
             or not 0 < quantity <= subject["qty_lamports"]):
         return False
@@ -256,6 +280,8 @@ def _apply_quote(case: dict[str, Any], arm: dict[str, Any], quote: Any, sol_usd:
             amount=quantity, slippage=jupiter_router.routing_quote_slippage_bps(),
             limit=subject["entry_route_quote"]["max_impact_pct"], now=now)
     except (ValueError, TypeError, KeyError, OverflowError):
+        return False
+    if not causal_quote(intent, receipt, quote_started_at=quote_started_at, filled_at=now):
         return False
     if not _positive(sol_usd):
         return False
@@ -273,10 +299,14 @@ def _apply_quote(case: dict[str, Any], arm: dict[str, Any], quote: Any, sol_usd:
     subject["estimated_fees_sol"] += model["fee_sol_per_fill"]
     subject["estimated_fees_usd"] += model["fee_sol_per_fill"] * sol_usd
     subject["execution_fill_count"] += 1
+    if not all(_number(subject[key]) is not None for key in (
+            "realized_proceeds_sol", "realized_proceeds_usd", "estimated_fees_sol", "estimated_fees_usd")):
+        return False
     arm["fills"].append({"input_raw_spl": quantity, "output_lamports": quote.out_amount,
                          "route_count": routes,
                          "route_quote": receipt,
                          "impact_bps": impact, "sol_usd": sol_usd, "filled_at": now.isoformat(),
+                         "quote_started_at": quote_started_at.isoformat(), "exit_intent": copy.deepcopy(intent),
                          "intent_at": intent["requested_at"], "reason": intent["reason"],
                          "proceeds_sol": proceeds_sol, "proceeds_usd": proceeds_usd,
                          "fee_sol": model["fee_sol_per_fill"], "observed_execution": False})
@@ -300,9 +330,9 @@ def paper_exit_request(arm: dict[str, Any], price: Any, now: dt.datetime, *, liq
 
 
 def apply_paper_exit_quote(case: dict[str, Any], arm: dict[str, Any], quote: Any,
-                          sol_usd: float, now: dt.datetime) -> bool:
+                          sol_usd: float, now: dt.datetime, *, quote_started_at: dt.datetime | None = None) -> bool:
     """Shared exact-quantity quote/cash engine; never signs or sends a swap."""
-    return _apply_quote(case, arm, quote, sol_usd, now)
+    return _apply_quote(case, arm, quote, sol_usd, now, quote_started_at=quote_started_at)
 
 
 def active_tokens(root: Path | str | None = None) -> set[str]:
@@ -351,7 +381,8 @@ def observe_market(token: str, price: Any, *, root: Path | str | None = None,
 
 
 def observe_quote(token: str, quote: Any, sol_usd: float, *, root: Path | str | None = None,
-                  cfg: Any = None, now: dt.datetime | None = None) -> int:
+                  cfg: Any = None, now: dt.datetime | None = None,
+                  quote_started_at: dt.datetime | None = None) -> int:
     """Reuse only already-pending, exact-quantity exit probes; never infer intent.
 
     A quote of a smaller amount cannot prove liquidity for a larger sale. This
@@ -367,7 +398,7 @@ def observe_quote(token: str, quote: Any, sol_usd: float, *, root: Path | str | 
             changed = False
             for arm in case["arms"].values():
                 if arm.get("intent", {}).get("quantity") == getattr(quote, "in_amount", None):
-                    if _apply_quote(case, arm, quote, sol_usd, stamp):
+                    if _apply_quote(case, arm, quote, sol_usd, stamp, quote_started_at=quote_started_at):
                         changed = True
                         count += 1
             if changed:
@@ -440,6 +471,7 @@ async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datet
             if _positive(sol_usd):
                 quote_calls = 1
                 try:
+                    quote_started_at = now or _now()
                     quote = await quote_func(input_mint=token, output_mint=jupiter_router.SOL_MINT,
                                              amount_lamports=quantity)
                     sol_usd = await sol_price_func()  # recheck FX after network wait
@@ -457,7 +489,8 @@ async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datet
                         current_arm = latest["arms"].get(arm_id) if latest else None
                         if not current_arm or current_arm.get("intent") != arm["intent"]:
                             continue  # Already filled/replaced by the real-quote hook.
-                        if not _positive(sol_usd) or not _apply_quote(latest, current_arm, quote, float(sol_usd), filled_at):
+                        if not _positive(sol_usd) or not _apply_quote(latest, current_arm, quote, float(sol_usd), filled_at,
+                                quote_started_at=quote_started_at):
                             latest["quote_failures"] += 1
                         changed.add(case_id)
                 for case_id in changed:
@@ -523,6 +556,11 @@ def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt
     if any(value is None for value in (fees_sol, fees_usd, proceeds_sol, proceeds_usd)) or not isinstance(remaining, int):
         return False
     previous = registered
+    generation = copy.deepcopy(prefix)
+    if "runner_trailing_policy" in subject:
+        generation["runner_trailing_policy"] = subject["runner_trailing_policy"]
+    else:
+        generation.pop("runner_trailing_policy", None)
     for fill in arm["fills"]:
         filled, intent = _time(fill.get("filled_at")), _time(fill.get("intent_at"))
         if (filled is None or intent is None or not previous <= intent <= filled <= closed
@@ -532,6 +570,14 @@ def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt
                 or not isinstance(fill["input_raw_spl"], int) or not isinstance(fill["output_lamports"], int)):
             return False
         receipt = fill.get("route_quote")
+        original_intent = fill.get("exit_intent")
+        if (not valid_intent(original_intent, generation)
+                or original_intent.get("quantity") != fill["input_raw_spl"]
+                or original_intent.get("reason") != fill.get("reason")
+                or original_intent.get("requested_at") != fill.get("intent_at")
+                or not causal_quote(original_intent, receipt,
+                    quote_started_at=fill.get("quote_started_at"), filled_at=filled)):
+            return False
         if receipt is not None:
             from fetcher.jupiter_router import SOL_MINT
             if (not valid_summary(receipt, input_mint=case["token"], output_mint=SOL_MINT,
@@ -559,6 +605,11 @@ def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt
         proceeds_usd += expected_usd
         fees_sol += model["fee_sol_per_fill"]
         fees_usd += model["fee_sol_per_fill"] * fill["sol_usd"]
+        generation.update(qty_lamports=remaining,
+            realized_qty=generation["realized_qty"] + fill["input_raw_spl"],
+            realized_proceeds_sol=proceeds_sol, realized_proceeds_usd=proceeds_usd,
+            estimated_fees_sol=fees_sol, estimated_fees_usd=fees_usd,
+            execution_fill_count=generation["execution_fill_count"] + 1)
         previous = filled
     return (all(_number(value) is not None for value in (fees_sol, fees_usd, proceeds_sol, proceeds_usd))
             and remaining == 0

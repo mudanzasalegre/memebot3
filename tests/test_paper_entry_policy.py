@@ -16,6 +16,9 @@ import pytest
 from config.config import CFG
 from research_loop import entry_gate_policy as transport
 from research_loop import entry_gate_forward as collector
+from research_loop import runner_forward
+from quote_fixtures import v1_quote, SOL
+from execution.quote_receipt import capture_summary
 from runtime import paper_entry_policy as policy
 from runtime.buy_recovery import BuyRecoveryStore
 
@@ -73,14 +76,15 @@ def cohort(cfg, *, start=None, gate="rank_canary", parameters=None, features_fun
                                   "impact_bps": 20., "max_impact_pct": 8.},
             "execution_cost_model": {"version": "estimated-v1", "observed_execution": False,
                                      "slippage_bps": 0., "fee_sol_per_fill": .000025}}
-        subject = {**copy.deepcopy(prefix), "qty_lamports": 0, "realized_qty": 1000, "execution_fill_count": 2,
-                   "realized_proceeds_sol": .2, "realized_proceeds_usd": 20.,
-                   "estimated_fees_sol": .00005, "estimated_fees_usd": .005}
-        terminal = {"closed": True, "closed_at": close.isoformat(), "subject": subject,
-            "net_pnl_sol": .09995, "net_pnl_usd": 9.995, "fills": [{"filled_at": close.isoformat(),
-            "intent_at": (close - dt.timedelta(seconds=10)).isoformat(), "observed_execution": False,
-            "input_raw_spl": 1000, "output_lamports": 200000000, "sol_usd": 100., "impact_bps": 20.,
-            "route_count": 1, "proceeds_sol": .2, "proceeds_usd": 20., "fee_sol": .000025}]}
+        original_quote = v1_quote(SOL, mint, 100000000, 1000, now=decision)
+        prefix["entry_route_quote"] = capture_summary(original_quote, input_mint=SOL, output_mint=mint,
+            amount=100000000, slippage=original_quote.other["slippageBps"], limit=8., now=decision)
+        terminal = {"closed": False, "subject": copy.deepcopy(prefix), "fills": []}
+        terminal["intent"] = runner_forward.make_intent(terminal["subject"], quantity=1000,
+            reason="synthetic_common_exit", now=close - dt.timedelta(seconds=10))
+        assert runner_forward.apply_paper_exit_quote({"token": mint}, terminal,
+            v1_quote(mint, SOL, 1000, 200000000, now=close), 100., close,
+            quote_started_at=close - dt.timedelta(seconds=5))
         case = {"plan_id": plan_id, "token": mint, "decision_at": decision.isoformat(), "features": features,
             "baseline_buy": transport.profile_decision(gate, features, cfg, {}),
             "challenger_buy": transport.profile_decision(gate, features, cfg, parameters), "outcomes_complete": True,

@@ -11,6 +11,7 @@ import pytest
 
 from analytics import exit_policy, runner_price_policy
 from research_loop import runner_forward as rf
+from research_loop.paper_exit_receipt import make_intent
 from utils.solana_addr import is_valid_base58_32
 
 T0 = dt.datetime(2026, 10, 1, tzinfo=dt.timezone.utc)
@@ -95,8 +96,9 @@ def closed_cohort(root, *, n=50, baseline=20, start=T0, same_token=False):
             # Synthetic fixture quotes are deliberately not profitability evidence.
             out = {baseline - 5: 200000000, baseline: 160000000, baseline + 5: 120000000}.get(dd, 160000000)
             fill_at = start + dt.timedelta(hours=26, minutes=int((dd - baseline + 5) / 5))
-            arm["intent"] = {"quantity": 800, "reason": "TIMEOUT_RUNNER", "requested_at": fill_at.isoformat()}
-            assert rf._apply_quote(case, arm, quote(output=out, source=mint, now=fill_at), 100.0, fill_at)
+            arm["intent"] = make_intent(arm["subject"], quantity=800, reason="TIMEOUT_RUNNER", now=fill_at)
+            assert rf._apply_quote(case, arm, quote(output=out, source=mint, now=fill_at), 100.0, fill_at,
+                                   quote_started_at=fill_at)
         rf._write(rf._directory(root) / "closed" / path.name, case)
         path.unlink()
         result.append(case)
@@ -140,9 +142,10 @@ def test_bad_exit_quote_preserves_quantity_and_intent(tmp_path, changes):
     rf.register_partial(entry(), root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(minutes=1))
     case = read_active(tmp_path)
     arm = next(iter(case["arms"].values()))
-    arm["intent"] = {"quantity": 800, "requested_at": (T0 + dt.timedelta(minutes=2)).isoformat(), "reason": "stop"}
+    arm["intent"] = make_intent(arm["subject"], quantity=800, reason="stop", now=T0 + dt.timedelta(minutes=2))
     before = copy.deepcopy(arm)
-    assert not rf._apply_quote(case, arm, quote(now=T0 + dt.timedelta(minutes=3), **changes), 100.0, T0 + dt.timedelta(minutes=3))
+    assert not rf._apply_quote(case, arm, quote(now=T0 + dt.timedelta(minutes=3), **changes), 100.0,
+                               T0 + dt.timedelta(minutes=3), quote_started_at=T0 + dt.timedelta(minutes=3))
     assert arm == before
 
 
@@ -218,9 +221,10 @@ def test_paired_selection_applies_only_to_new_paper_entries_and_can_rollback(tmp
             arm["subject"]["runner_trailing_policy"] = json.dumps(arm["parameters"])
             arm.update(closed=False, fills=[])
             fill_at = later + dt.timedelta(hours=26, minutes=int(arm["parameters"]["max_price_drawdown_pct"]))
-            arm["intent"] = {"quantity": 800, "reason": "TIMEOUT_RUNNER", "requested_at": fill_at.isoformat()}
+            arm["intent"] = make_intent(arm["subject"], quantity=800, reason="TIMEOUT_RUNNER", now=fill_at)
             out = 240000000 if arm["parameters"]["max_price_drawdown_pct"] == 20 else 160000000
-            assert rf._apply_quote(case, arm, quote(output=out, source=case["token"], now=fill_at), 100.0, fill_at)
+            assert rf._apply_quote(case, arm, quote(output=out, source=case["token"], now=fill_at), 100.0, fill_at,
+                                   quote_started_at=fill_at)
         rf._write(rf._directory(tmp_path) / "closed" / f"{case['case_id']}.json", case)
     rollback = rf.evaluate_completed_cohorts(root=tmp_path, cfg=cfg(), now=later + dt.timedelta(hours=27))
     assert rollback["status"] == "selected" and rollback["action"] == "rollback"
@@ -396,9 +400,9 @@ def test_monitor_market_and_exact_quote_are_reused_without_extra_requests(tmp_pa
     rf.register_partial(entry(buy_liquidity_usd=10000), root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(minutes=1))
     stamp = T0 + dt.timedelta(hours=25)
     assert rf.observe_market(MINT, 1.1, liq_now=1, root=tmp_path, cfg=cfg(), now=stamp) == 1
-    assert rf.observe_quote(MINT, quote(quantity=799, now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp) == 0
-    assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp) == 3
-    assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp) == 0
+    assert rf.observe_quote(MINT, quote(quantity=799, now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp, quote_started_at=stamp) == 0
+    assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp, quote_started_at=stamp) == 3
+    assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp, quote_started_at=stamp) == 0
     assert all(len(arm["fills"]) == 1 and arm["subject"]["qty_lamports"] == 0
                for arm in read_active(tmp_path)["arms"].values())
 
@@ -409,7 +413,7 @@ def test_quote_hook_during_secondary_network_wait_cannot_duplicate_fill(tmp_path
     async def prices(_): return {}
     async def sol(): return 100.0
     async def interleaved(**kwargs):
-        assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp) == 3
+        assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp, quote_started_at=stamp) == 3
         return quote(now=stamp)
     asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=stamp, prices_func=prices,
                         quote_func=interleaved, sol_price_func=sol))

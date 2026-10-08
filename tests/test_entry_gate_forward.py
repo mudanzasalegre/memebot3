@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import base58
 import pytest
+from research_loop.paper_exit_receipt import make_intent
 
 from analytics import exit_policy, api_budget
 from config.config import CFG
@@ -178,11 +179,12 @@ def test_virtual_case_survives_primary_absence_and_requires_exact_pending_quote(
     assert fill(tmp_path, cfg, identity)
     record = case(tmp_path, identity)
     q = record["cash"]["prefix"]["entry_qty"]
-    record["cash"]["terminal"]["intent"] = {"quantity": q, "reason": "test_stop", "requested_at": (T0 + dt.timedelta(minutes=1)).isoformat()}
+    record["cash"]["terminal"]["intent"] = make_intent(record["cash"]["terminal"]["subject"],
+        quantity=q, reason="test_stop", now=T0 + dt.timedelta(minutes=1))
     store.write(bank.directory(tmp_path) / "active" / f"{identity}.json", record)
     mint = record["token"]
-    assert bank.observe_quote(mint, quote(quantity=q - 1, output=200000000, now=T0 + dt.timedelta(minutes=2)), 100., root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(minutes=2)) == 0
-    assert bank.observe_quote(mint, quote(quantity=q, output=200000000, now=T0 + dt.timedelta(minutes=2)), 100., root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(minutes=2)) == 1
+    assert bank.observe_quote(mint, quote(quantity=q - 1, output=200000000, now=T0 + dt.timedelta(minutes=2)), 100., root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(minutes=2), quote_started_at=T0 + dt.timedelta(minutes=2)) == 0
+    assert bank.observe_quote(mint, quote(quantity=q, output=200000000, now=T0 + dt.timedelta(minutes=2)), 100., root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(minutes=2), quote_started_at=T0 + dt.timedelta(minutes=2)) == 1
     assert not (bank.directory(tmp_path) / "active" / f"{identity}.json").exists()
     assert case(tmp_path, identity, "closed")["cash"]["terminal"]["net_pnl_sol"] == pytest.approx(.09995)
 
@@ -207,10 +209,11 @@ def complete(root, cfg, *, start=T0, losing=False, gate="rank_canary", features_
         record["observation_count"] = 1560
         quantity = record["cash"]["prefix"]["entry_qty"]
         closed = start + dt.timedelta(hours=26, seconds=i)
-        record["cash"]["terminal"]["intent"] = {"quantity": quantity, "reason": "synthetic_common_exit", "requested_at": closed.isoformat()}
+        record["cash"]["terminal"]["intent"] = make_intent(record["cash"]["terminal"]["subject"],
+            quantity=quantity, reason="synthetic_common_exit", now=closed)
         store.write(bank.directory(root) / "active" / f"{identity}.json", record)
         output = 30000000 if losing and i < 30 else 200000000
-        assert bank.observe_quote(record["token"], quote(quantity=quantity, output=output, source=record["token"], now=closed), 100., root=root, cfg=cfg, now=closed) == 1
+        assert bank.observe_quote(record["token"], quote(quantity=quantity, output=output, source=record["token"], now=closed), 100., root=root, cfg=cfg, now=closed, quote_started_at=closed) == 1
     base = bank.directory(root)
     plan_id = store.read(base / "open_plan.json")["plan_id"]
     store.write(base / "heartbeats" / f"{plan_id}.json", {"times": [(start + dt.timedelta(minutes=i)).isoformat() for i in range(1441)]})
@@ -274,12 +277,12 @@ def test_raw_exit_quote_never_accepts_boolean_amount_or_route_count(tmp_path, fa
     identity = capture(tmp_path, cfg)
     assert fill(tmp_path, cfg, identity)
     record = case(tmp_path, identity)
-    record["cash"]["terminal"]["intent"] = {"quantity": 1, "reason": "synthetic_partial",
-        "requested_at": (T0 + dt.timedelta(seconds=60)).isoformat()}
+    record["cash"]["terminal"]["intent"] = make_intent(record["cash"]["terminal"]["subject"],
+        quantity=1, reason="synthetic_partial", now=T0 + dt.timedelta(seconds=60))
     store.write(bank.directory(tmp_path) / "active" / f"{identity}.json", record)
     bad = quote(quantity=1, output=1000000, now=T0 + dt.timedelta(seconds=61), **fault)
     assert bank.observe_quote(record["token"], bad, 100., root=tmp_path, cfg=cfg,
-                              now=T0 + dt.timedelta(seconds=61)) == 0
+                              now=T0 + dt.timedelta(seconds=61), quote_started_at=T0 + dt.timedelta(seconds=61)) == 0
     assert case(tmp_path, identity)["cash"]["terminal"]["subject"]["realized_qty"] == 0
 
 
@@ -411,12 +414,12 @@ def successor_fixture(root, cfg, *, normal_output=30000000, priority_output=2000
         record["observation_count"] = 1560  # Synthetic complete cadence only.
         closed = start + dt.timedelta(hours=26, seconds=i)
         quantity = record["cash"]["prefix"]["entry_qty"]
-        record["cash"]["terminal"]["intent"] = {"quantity": quantity, "reason": "synthetic_three_arm_exit",
-                                                   "requested_at": closed.isoformat()}
+        record["cash"]["terminal"]["intent"] = make_intent(record["cash"]["terminal"]["subject"],
+            quantity=quantity, reason="synthetic_three_arm_exit", now=closed)
         store.write(base / "active" / f"{identity}.json", record)
         output = normal_output if i < 20 else priority_output if i < 40 else 200000000
         assert bank.observe_quote(row["address"], quote(quantity=quantity, output=output, source=row["address"], now=closed), 100.,
-            root=root, cfg=cfg, now=closed) == 1
+            root=root, cfg=cfg, now=closed, quote_started_at=closed) == 1
     plan_id = store.read(base / "open_plan.json")["plan_id"]
     store.write(base / "heartbeats" / f"{plan_id}.json", {"times": [(start + dt.timedelta(minutes=i)).isoformat() for i in range(1441)]})
     return plan_id, start + dt.timedelta(hours=27)

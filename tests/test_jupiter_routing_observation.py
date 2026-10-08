@@ -213,16 +213,15 @@ def test_runner_research_accepts_checked_opaque_quotes_and_rejects_stripped_proo
     assert case is not None
     arm = next(iter(case["arms"].values()))
     stamp = T0 + dt.timedelta(minutes=2)
-    arm["intent"] = {"quantity": 800, "requested_at": stamp.isoformat(), "reason": "synthetic_close"}
+    arm["intent"] = rf.make_intent(arm["subject"], quantity=800, reason="synthetic_close", now=stamp)
     assert rf.apply_paper_exit_quote(case, arm, v2_quote(TOKEN, SOL, 800, 200000000,
-        now=stamp, family=family, impact=-12), 100., stamp)
+        now=stamp, family=family, impact=-12), 100., stamp, quote_started_at=stamp)
     assert rf.validate_paper_cash_terminal(case, arm, stamp)
     damaged = copy.deepcopy(arm)
     damaged["fills"][0]["route_quote"]["observation_receipt"]["sha256"] = "0" * 64
     assert not rf.validate_paper_cash_terminal(case, damaged, stamp)
-    if family != "metis":
-        del damaged["fills"][0]["route_quote"]
-        assert not rf.validate_paper_cash_terminal(case, damaged, stamp)
+    del damaged["fills"][0]["route_quote"]
+    assert not rf.validate_paper_cash_terminal(case, damaged, stamp)
 
 
 @pytest.mark.parametrize("family", ["metis", "jupiterz", "dflow", "okx"])
@@ -241,11 +240,13 @@ def test_entry_gate_research_costs_complete_v2_quotes_without_claiming_live_prof
     record = read_case(tmp_path, identity)
     quantity = record["cash"]["prefix"]["entry_qty"]
     stamp = T0 + dt.timedelta(minutes=2)
-    record["cash"]["terminal"]["intent"] = {"quantity": quantity, "requested_at": stamp.isoformat(), "reason": "synthetic_close"}
+    from research_loop.paper_exit_receipt import make_intent
+    record["cash"]["terminal"]["intent"] = make_intent(record["cash"]["terminal"]["subject"],
+        quantity=quantity, reason="synthetic_close", now=stamp)
     record["observation_count"] = 2
     storage.write(bank.directory(tmp_path) / "active" / f"{identity}.json", record)
     assert bank.observe_quote(mint, v2_quote(mint, SOL, quantity, 200000000, now=stamp, family=family),
-        100., root=tmp_path, cfg=cfg, now=stamp) == 1
+        100., root=tmp_path, cfg=cfg, now=stamp, quote_started_at=stamp) == 1
     closed = read_case(tmp_path, identity, "closed")
     plan = storage.read(bank.directory(tmp_path) / "plans" / f"{record['plan_id']}.json")
     sol_pnl, usd_pnl = evaluator._entry_cash(closed, plan, stamp)

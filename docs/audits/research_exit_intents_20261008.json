@@ -1,0 +1,57 @@
+{
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "financial_acceptance": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Original PAPER runner/entry-gate exit intent chronology, immutable own financial generations, atomic estimated fill application and cohort/manifest consumption. This is not yet per-arm cash-mark decision alignment.",
+  "quality_grain": "One virtual PAPER arm, one original pending exit decision, its exact raw quantity/cash/cost/policy generation, one later quote request and one original public quote receipt.",
+  "confirmed_defects": [
+    {
+      "severity": "high",
+      "defect": "The previous estimated research fill accepted a still-fresh quote received before the exit decision.",
+      "reproduction": "Read-only extraction of the actual _apply_quote function from parent commit 1aec9f86, executed with the same isolated public quote fixture and synthetic original clocks: previous accepted=true, corrected accepted=false. No provider or operator record was accessed or mutated."
+    },
+    {
+      "severity": "high",
+      "defect": "The previous estimated research fill accepted an unchanged pending quantity/intent after the arm's realized cash generation changed during the provider wait.",
+      "reproduction": "The same parent-function reproduction changes the isolated arm's realized_proceeds_usd after intent creation: previous accepted=true, corrected accepted=false. Quantity equality alone was insufficient."
+    }
+  ],
+  "implemented": [
+    "Detached whitelisted paper_research_exit_intent_v1 receipts freeze the decision quantity, reason, original clock, ladder plan and own raw quantity/cash/frozen costs/entry route/policy identity. They are estimated intent evidence, not signatures, fills or strategy acceptance.",
+    "Runner and entry-gate actual exit engines create these receipts before quote dispatch. Both secondary ticks and actual primary reverse-quote reuse pass the original pre-await request-start clock; none is synthesized from the later receipt or fill.",
+    "The actual estimated fill checks the original intent checksum/decision and exact current financial generation, then enforces decision_at <= quote_started_at <= original_quote_received_at <= filled_at. Missing, naive, conflicting or predecision clocks remain unresolved.",
+    "Estimated fills are applied copy-on-write. Rejected or malformed receipts, stale generations, invalid partial metadata and nonfinite cash accumulation leave the original arm unchanged.",
+    "Every accepted estimated research fill retains its original intent receipt and request-start clock. The terminal cash validator reconstructs each generation from the shared prefix and earlier fills, independently checks the public quote and chronology, and rejects legacy fills lacking this original proof.",
+    "Both runner cohort selection/manifest consumption and entry-gate cash/cohort consumers use that terminal validator. Existing files remain inspectable; no old receipt, decision, quote clock or learned manifest is rewritten or retrospectively certified.",
+    "Exact 0.1 SOL PAPER size, the uncapped runner ladder and prospective statistical selection thresholds remain unchanged. No active model or policy promotion was performed."
+  ],
+  "verification": {
+    "new_synthetic_cases": 54,
+    "focused": "324 passed in98.18s before the final composition-fixture alignment; 104 affected composition/intent cases pass in19.82s on final sources",
+    "working_complete": "3733 passed in422.66s",
+    "publishing_complete": "3733 passed in412.07s",
+    "first_launch_working": {"checked_at_utc": "2026-10-08T19:28:52.366297Z", "ok": true, "compile_errors": 0, "config_exit": 0, "paper_profile": true, "empty_report_builders": 7, "failed_builders": 0},
+    "first_launch_publishing": {"checked_at_utc": "2026-10-08T19:28:51.406555Z", "ok": true, "compile_errors": 0, "config_exit": 0, "paper_profile": true, "empty_report_builders": 7, "failed_builders": 0},
+    "frozen_source": {"files_each": 736, "normalized_sha256": "79d23eedab124fe872785c5d78b52c59493d44336467a44fd1301173fd2bb0c1", "scope": "Executable/test verification sources excluding docs/README/operator artifacts"},
+    "router_families": ["metis", "jupiterz", "dflow", "okx"],
+    "sources_receipt": "Final shared Sources receipt rendered, initially collapsed interaction, deterministic two-case source preview, final evidence and mobile layout inspected; browser errors0. A preview wrapper initially refused to overwrite its existing destination; explicit --force regenerated it before final inspection.",
+    "tests": "tests/test_research_exit_receipt.py",
+    "intermediate_checks": [
+      "The initial new fixture supplied an unsupported requested-slippage value and failed before entering the intent consumer. Its exact original quote slippage was restored without changing production validation.",
+      "The standalone parent-function reproduction initially lacked the tests import path; the read-only command was rerun with the explicit tests path. It then confirmed both old=true/current=false results.",
+      "A rehashed recorded cost basis containing bool False was accepted as numerically equal to actual zero. An isolated reproduction confirmed it; recorded as well as current financial bases now undergo strict typed validation. Five additional cases pass. The two original full-suite processes were explicitly identified, stopped and their original handles closed before the source repair; both definitive full suites were restarted on the same final frozen sources.",
+      "The subsequent complete suites each exposed11 failed composition tests using a shared old synthetic fixture that manually constructed receiptless fills; D3720 passed/11 failed in421.45s and C3720 passed/11 failed in386.93s. The fixture now creates its original public entry quote and original exit intent and executes the real shared estimated fill consumer. Terminal reconstruction also preserves an absent policy field as absent, rather than silently inserting null; two explicit tests distinguish those states. No operator record was changed and no production validation was weakened. The104 affected tests pass before restarting both full suites on final sources.",
+      "The scoped data-quality companion uses the checked-in isolated test contracts and retained parent-function reproduction, rather than creating a second notebook or relabeling historical outcomes."
+    ]
+  },
+  "runtime": {"requirement": "OFF throughout and at handoff", "bot_started": false, "provider_called": false, "wallet_or_order_called": false, "active_models_or_policies_changed": false,
+    "stop_finalizer": "D-only scripts/stop_stack.ps1 -RequestedBy user, exit0, 2026-10-08T19:29:12Z, killed0/remaining0; no C finalizer",
+    "final_off_check": {"checked_at_utc": "2026-10-08T19:29:14.2028414Z", "global_bot_training_research_api": 0, "running_tasks": 0, "running_services": 0, "locks": 0, "sql_main": "stopped/idle/idle", "sql_updated_at": "2026-10-08 19:29:12.494757"},
+    "protected_artifacts": {"checked_at_utc": "2026-10-08T19:22:50.096677Z", "boundary_utc": "2026-10-08T16:09:40Z", "working_files": 3763, "publishing_files": 27, "changed_since_boundary": 0, "method": "Modification-time census, not cryptographic historical proof; expected stop log/runtime SQL/preflight outputs excluded"}},
+  "publication": {"state": "VERIFIED_READY_FOR_COMMIT_PUSH", "parent_commit": "1aec9f86aa9feb0599c15723acd3018ab5a82808", "note": "The final commit/remote revision must be verified separately at handoff."},
+  "remaining_required_work": [
+    "Prospective runner and entry-gate decisions still need each arm's own exact remaining-quantity cash mark and independent whole-net peak, with budgeted/fair valuation demand. This chronology/generation repair does not certify existing spot-based policy decisions.",
+    "Original typed per-entry/per-fill FX receipts, durable risk/restart provenance and the remaining scanner/sniper/model architecture audit remain required.",
+    "Current sell depth/latency and full-strategy prospective costed profitability remain unverified. Synthetic price/quote fixtures cannot establish maximum profit, future gains or zero future errors."
+  ]
+}

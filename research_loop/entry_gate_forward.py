@@ -524,7 +524,7 @@ def observe_market(token: str, price: Any, *, root: Path | str, cfg: Any = None,
 
 @_best_effort(lambda: 0)
 def observe_quote(token: str, quote: Any, sol_usd: float, *, root: Path | str, cfg: Any = None,
-                  now: dt.datetime | None = None) -> int:
+                  now: dt.datetime | None = None, quote_started_at: dt.datetime | None = None) -> int:
     from research_loop.runner_forward import apply_paper_exit_quote
     cfg = CFG if cfg is None else cfg
     if getattr(cfg, "DRY_RUN", False) is not True or getattr(cfg, "PAPER_ENTRY_RESEARCH_ENABLED", False) is not True:
@@ -536,7 +536,7 @@ def observe_quote(token: str, quote: Any, sol_usd: float, *, root: Path | str, c
             terminal = case["cash"]["terminal"]
             if terminal.get("intent", {}).get("quantity") == getattr(quote, "in_amount", None):
                 cash_case = {"prefix": case["cash"]["prefix"], "token": case["token"]}
-                if apply_paper_exit_quote(cash_case, terminal, quote, sol_usd, stamp):
+                if apply_paper_exit_quote(cash_case, terminal, quote, sol_usd, stamp, quote_started_at=quote_started_at):
                     count += 1
                     if terminal["closed"]:
                         case["outcomes_complete"] = True
@@ -690,11 +690,12 @@ async def tick(*, root: Path | str, cfg: Any = None, now: dt.datetime | None = N
             try:
                 sol_usd = await sol_price_func()
                 quote_calls = 1
+                quote_started_at = now or dt.datetime.now(dt.timezone.utc)
                 quote = await quote_func(input_mint=mint, output_mint=jupiter_router.SOL_MINT, amount_lamports=quantity)
                 sol_usd = await sol_price_func()  # recheck FX after network wait
                 if (getattr(quote, "other", None) or {}).get("status") == 429:
                     record_provider_event("jupiter", "429")
-                observe_quote(mint, quote, sol_usd, root=root, cfg=cfg, now=now)
+                observe_quote(mint, quote, sol_usd, root=root, cfg=cfg, now=now, quote_started_at=quote_started_at)
             except Exception:
                 pass  # Pending quantities stay unknown, not filled or zero-return.
         deadline = storage.time(plan["cohort_ends_at"]) + dt.timedelta(hours=48)
