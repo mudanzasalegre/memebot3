@@ -591,6 +591,39 @@ def observe_market(token: str, price: Any, *, root: Path | str, cfg: Any = None,
 
 
 @_best_effort(lambda: 0)
+def observe_cash_quote(token: str, quote: Any, fx_observation, *, root: Path | str,
+                       cfg: Any = None, now: dt.datetime | None = None,
+                       quote_started_at: dt.datetime | None = None, slippage_bps: int | None = None) -> int:
+    """A primary exact-size quote can value this case, never execute its intent."""
+    from research_loop import runner_forward
+    cfg = CFG if cfg is None else cfg
+    if getattr(cfg, "DRY_RUN", False) is not True or getattr(cfg, "PAPER_ENTRY_RESEARCH_ENABLED", False) is not True:
+        return 0
+    count, base, stamp = 0, directory(root), now or dt.datetime.now(dt.timezone.utc)
+    for path in (base / "active").glob("*.json"):
+        case = storage.read(path)
+        if not case or case.get("token") != token or not _valuation_quoteable(case):
+            continue
+        if re.fullmatch(r"[0-9a-f]{64}", str(case.get("plan_id"))) is None:
+            continue
+        plan = storage.read(base / "plans" / f"{case['plan_id']}.json")
+        try:
+            if (not plan or _plan_id(plan) != case["plan_id"]
+                    or plan.get("financial_policy_version") != cash.VERSION
+                    or plan.get("exit_configuration_id") != exit_rule_id()
+                    or policy.digest([case["plan_id"], token, case["decision_at"], case["features"]]) != case["case_id"]):
+                continue
+            row, arm_id = cash_case(case, cohort_ends_at=plan["cohort_ends_at"])
+        except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
+            continue
+        if runner_forward._observe_cash(row, arm_id, quote, fx_observation, stamp,
+                quote_started_at=quote_started_at, slippage_bps=slippage_bps):
+            storage.write(path, case)
+            count += 1
+    return count
+
+
+@_best_effort(lambda: 0)
 def observe_quote(token: str, quote: Any, sol_usd: float, *, root: Path | str, cfg: Any = None,
                   now: dt.datetime | None = None, quote_started_at: dt.datetime | None = None,
                   fx_observation=None) -> int:

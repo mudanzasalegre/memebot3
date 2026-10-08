@@ -1,0 +1,199 @@
+{
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "financial_acceptance": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "requested_trade_size_sol": 0.1,
+  "parent_commit": "6a400d5ffcf2a00dbc14979af24fd48ef194c35d",
+  "scope": "Reuse already-acquired authoritative PAPER exact-size reverse-quote valuations with original typed SOL/USD receipts in compatible prospective runner and entry-gate cases; audit secondary quota coverage without increasing market calls or activating runtime.",
+  "implementation": [
+    "The authoritative PAPER get_exit_cash_mark snapshots its original pre-await quote-start clock and shares only a successfully checked original quote and typed FX after unchanged portfolio/SQL generation checks.",
+    "Both research consumers independently reconstruct each eligible case or arm's own financial basis and owner. Token, exact raw remaining quantity, original request/receipt chronology, public route and typed FX freshness must match. No donor money, financial peaks, fill, SQL mutation or quote reservation is copied.",
+    "Pending or closed arms cannot use the valuation hook. A newly-created financial exit intent requires a separate subsequent exact-size execution quote. Same-time duplicate observations cannot renew counts or replace conflicting original cash marks.",
+    "Entry reuse validates the original plan identity, financial policy, current declared exit identity and original case identity. Malformed plan identities cannot leave the plan directory. Malformed sibling cases are skipped without modifying them or blocking a valid case.",
+    "Each research component is independently isolated from primary cash valuation failures. A secondary storage/component failure cannot abort the other consumer or change the original primary portfolio/mark.",
+    "Paired research no longer defaults to a separate spot-price HTTP request, which cannot prove executable cash. Explicit injected diagnostics remain supported; the original typed FX callback is passed through. The shared one-extra-quote-per-minute quota, priority and conservative alternation remain unchanged."
+  ],
+  "synthetic_regressions": {
+    "new_cases": 43,
+    "new_and_existing_paired_cases": 50,
+    "extreme_cash_returns_pct": [
+      300,
+      1000,
+      10000,
+      1000000
+    ],
+    "extreme_fixture_tail_fraction": 0.15,
+    "fixture_does_not_change_operator_settings": true,
+    "coverage": [
+      "four Swap V2 families in both banks",
+      "own owners/costs and unchanged quote quota",
+      "wrong raw quantity",
+      "scalar/stale original FX",
+      "quote predating or lacking request start",
+      "wrong cash version/owner/pending intent",
+      "duplicate and conflicting original receipts",
+      "changed original plan",
+      "malformed sibling isolation",
+      "uncapped extreme original cash valuations with residual tail",
+      "actual primary SQL/await generation checks and secondary failure isolation",
+      "no default paired spot call and original injected FX forwarding"
+    ]
+  },
+  "capacity_analysis": {
+    "notebook": "docs/audits/research_quote_capacity_20261008.ipynb",
+    "model": "Synthetic continuous demand with actual forward_budget.claim, runner-first ordering, oldest group within owner, strict two-owner alternation, isolated TemporaryDirectory, 384 ticks per scenario.",
+    "secondary_quota_seconds": 60,
+    "cash_gap_limit_seconds": 300,
+    "actual_market_coverage": null,
+    "research_directory_present_at_notebook_execution": false,
+    "results": [
+      {
+        "entry_groups": 1,
+        "runner_groups": 0,
+        "max_interval_s": 60,
+        "groups_over_gap_limit": 0
+      },
+      {
+        "entry_groups": 2,
+        "runner_groups": 2,
+        "max_interval_s": 240,
+        "groups_over_gap_limit": 0
+      },
+      {
+        "entry_groups": 3,
+        "runner_groups": 1,
+        "max_interval_s": 360,
+        "groups_over_gap_limit": 3
+      },
+      {
+        "entry_groups": 5,
+        "runner_groups": 0,
+        "max_interval_s": 300,
+        "groups_over_gap_limit": 0
+      },
+      {
+        "entry_groups": 6,
+        "runner_groups": 0,
+        "max_interval_s": 360,
+        "groups_over_gap_limit": 6
+      },
+      {
+        "entry_groups": 64,
+        "runner_groups": 64,
+        "max_interval_s": 7680,
+        "groups_over_gap_limit": 128
+      }
+    ],
+    "limitations": [
+      "These are capacity scenarios, not actual trades, token counts or a current observed market-coverage estimate.",
+      "No provider failure, pending fill, new entry or primary reuse is assumed; real coverage may differ.",
+      "Quota safety is not exhaustive opportunity coverage. Financial acceptance must reject incomplete own observations, not relax the coverage contract.",
+      "Primary reuse helps only while token and remaining raw quantity match; rejected tokens without a primary position may not benefit."
+    ]
+  },
+  "verification": {
+    "new_and_paired_suite": "50 passed in6.29s, including43 new cases plus7 existing paired cases on the final source; standalone new-file collection confirmed43 cases.",
+    "preliminary_related_suite": "361 passed in368.39s; collected before the two final malformed-sibling tests and before the final source guards. Not the final complete source acceptance.",
+    "complete_regressions": {
+      "working": {
+        "passed": 3869,
+        "seconds": 858.28
+      },
+      "publishing": {
+        "passed": 3869,
+        "seconds": 832.08
+      }
+    },
+    "both_first_launch_preflights": {
+      "working": {
+        "ok": true,
+        "generated_at_utc": "2026-10-08T21:31:21.318727+00:00"
+      },
+      "publishing": {
+        "ok": true,
+        "generated_at_utc": "2026-10-08T21:31:20.152416+00:00"
+      },
+      "each": {
+        "compile_errors": 0,
+        "config_import_return_code": 0,
+        "paper_profile_ok": true,
+        "empty_report_builders_ok": 7,
+        "external_complete_pytest_return_code": 0
+      }
+    },
+    "frozen_source_fingerprint": {
+      "files_each": 739,
+      "sha256_each": "d15774cd6c883f4ac3815099e7db53bb5d0843914007a45b8d19e1b5ec4e8f90",
+      "scope": "Normalized allowed executable/test verification source, excluding docs/README and operator state. Identical before and after both final3869-test full regressions, first-launch preflights and the requested D-only stop."
+    },
+    "notebook": {
+      "executed_code_cells": 4,
+      "execution_errors": 0,
+      "simulation_completed_at_utc": "2026-10-08T21:12:27.589914Z",
+      "kernel_python": "3.12.3",
+      "format_validated_by_nbconvert": true,
+      "saved_outputs": true,
+      "visual_inspection": "Saved notebook HTML and figure inspected at normal reading size. Native chart actual10 marks checked at736/360 px without runtime errors or horizontal overflow; overlapping optional narrow value labels removed and current root rechecked. Collapsed Sources receipt expanded and its definitions/caveats inspected.",
+      "preview_is_not_native_host_insertion_proof": true
+    },
+    "publication": "VERIFIED_READY_FOR_COMMIT_PUSH; precommit evidence only. Actual final commit, clean publishing checkout and remote revision are checked separately in the handoff.",
+    "tooling_notes": [
+      "Initial new-test failures were fixture issues: a legacy SOL-as-token mint, top-level instead of basis owner lookup, hardcoded SQL mint, and assuming a valid valuation never creates an intent. They were corrected without weakening production validation.",
+      "Initial preview assertions queried light DOM instead of the renderer's shadow DOM; current-root actual marks were inspected through the shadow root. An outdated preview instance was stopped after exact PID/parent/creation/command checks and the rebuilt current chart was verified.",
+      "The initial43-case file was mistakenly described as42 new cases before standalone collection. Collection confirmed43; with7 existing paired cases the focused command passes50, and both complete suites pass3869."
+    ]
+  },
+  "runtime": {
+    "must_remain_off": true,
+    "real_provider_wallet_order_calls": 0,
+    "bot_api_ui_training_research_daemon_starts": 0,
+    "operator_environment_portfolio_models_policies_modified": false,
+    "final_requested_stop": {
+      "requested_at_utc": "2026-10-08T21:31:39Z",
+      "completed_at_utc": "2026-10-08T21:31:42Z",
+      "exit_code": 0,
+      "killed": 0,
+      "remaining": 0,
+      "scope": "D-only stop_stack.ps1 -RequestedBy user"
+    },
+    "final_inventory": {
+      "checked_at_utc": "2026-10-08T21:31:44.0447040Z",
+      "runtime_processes": 0,
+      "matched_memebot_tasks": 0,
+      "running_memebot_tasks": 0,
+      "matched_memebot_services": 0,
+      "running_memebot_services": 0,
+      "actual_compatibility_locks_both_roots": 0,
+      "owned_preview_processes": 0
+    },
+    "readonly_working_configuration": {
+      "checked_at_utc": "2026-10-08T21:28:29.0648746Z",
+      "dry_run": true,
+      "configured_tail_fraction": 0.15,
+      "paper_runner_activation_peak_pct": 300,
+      "paper_runner_max_price_drawdown_pct": 20,
+      "paper_runner_max_holding_h": 24,
+      "scope": "Current configured values read without changing .env, models, policies or positions. Activation is not an upside cap; the15-percent synthetic fixture also is not an operator-setting change."
+    },
+    "readonly_sql_main": {
+      "process_state": "stopped",
+      "reports_refresh_state": "idle",
+      "retrain_state": "idle",
+      "updated_at_utc": "2026-10-08T21:31:42.122447Z"
+    },
+    "protected_operator_mtime_census": {
+      "checked_at_utc": "2026-10-08T21:32:11.0107069Z",
+      "boundary_utc": "2026-10-08T16:09:40Z",
+      "working_entries": 3763,
+      "publishing_entries": 27,
+      "changed_since_boundary_each": 0,
+      "scope": "Operator environment/portfolio/model/registry/policy/features/research/recovery/closed-trade modification-time census, not cryptographic historical proof. Intended stop SQL/log and preflight metrics excluded."
+    }
+  },
+  "limitations_and_remaining_work": [
+    "This stage improves original quote reuse and eliminates an unused spot request; it does not raise the quote budget, redesign fairness, certify all admitted128 groups, or prove current market coverage.",
+    "The separate primary PAPER execution/fill hook still supplies a scalar without original typed FX. The new valuation hook preserves typed FX but cannot certify those fills. Complete primary/runner/live original FX through recovery/SQL/learning remains necessary.",
+    "Complete durable canary risk reconciliation, full-strategy causal decision/sampling provenance, remaining scanner/sniper/model architecture work and separately authorized fresh costed prospective financial acceptance.",
+    "Synthetic extreme returns demonstrate uncapped policy calculations and residual position handling, not real sell depth, optimal timing, maximum profit or future winning performance. No guaranteed profits, zero future error, current provider/wallet/finality acceptance or live authorization."
+  ]
+}

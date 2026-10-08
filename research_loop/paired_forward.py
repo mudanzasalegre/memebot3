@@ -1,4 +1,4 @@
-"""Shared bounded market polling for secondary paper experiments."""
+"""Shared bounded cash polling, with optional injected market diagnostics."""
 from __future__ import annotations
 
 import datetime as dt
@@ -15,7 +15,7 @@ log = logging.getLogger("paired_forward")
 
 
 async def tick(*, root: Path | str, cfg: Any = None, now: dt.datetime | None = None,
-               prices_func=None, quote_func=None, sol_price_func=None) -> dict[str, Any]:
+               prices_func=None, quote_func=None, sol_price_func=None, fx_func=None) -> dict[str, Any]:
     cfg = CFG if cfg is None else cfg
     if (getattr(cfg, "DRY_RUN", False) is not True or not (
             getattr(cfg, "PAPER_ENTRY_RESEARCH_ENABLED", False) is True
@@ -44,11 +44,10 @@ async def tick(*, root: Path | str, cfg: Any = None, now: dt.datetime | None = N
             status = "shared_capacity_exceeded"
         else:
             from analytics.api_budget import provider_status
-            from fetcher import jupiter_price
-            async def fresh(tokens):
-                return await jupiter_price.get_many_usd_prices(tokens, force_refresh=True)
             try:
-                prices = {} if not tokens or provider_status("jupiter").get("degraded") else await (prices_func or fresh)(sorted(tokens))
+                # Both financial collectors value exact reverse-quote cash.
+                # An extra spot HTTP request cannot establish that cash basis.
+                prices = {} if not tokens or prices_func is None or provider_status("jupiter").get("degraded") else await prices_func(sorted(tokens))
                 if not isinstance(prices, dict):
                     prices = {}
             except Exception:
@@ -59,7 +58,7 @@ async def tick(*, root: Path | str, cfg: Any = None, now: dt.datetime | None = N
         # With the real clock, fills must be timestamped after their network
         # await; only explicit synthetic clocks freeze a tick's timestamp.
         common = {"root": root, "cfg": cfg, "now": now, "prices_func": shared_prices,
-                  "quote_func": quote_func, "sol_price_func": sol_price_func}
+                  "quote_func": quote_func, "sol_price_func": sol_price_func, "fx_func": fx_func}
         async def secondary(component):
             try:
                 return await component.tick(**common)

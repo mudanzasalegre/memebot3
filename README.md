@@ -382,6 +382,19 @@ principal aun entrega solo un cambio escalar y no puede certificar estos fills
 nuevos; la sonda de investigacion con recibo original funciona por separado.
 Evidencia de software: `docs/audits/entry_gate_cash_forward_20261008.json`.
 
+Las valoraciones PAPER principales ya comparten su cotizacion exacta y el
+recibo SOL/USD original con los bancos de entrada y runner compatibles.
+Cada brazo conserva su propia base financiera y solo acepta el mismo token,
+cantidad raw y cronologia. La reutilizacion no consume una sonda adicional
+ni ejecuta una intencion de venta recien creada. El polling pareado deja de
+consultar por defecto un precio spot que no certifica ese efectivo.
+La cuota no garantiza cobertura exhaustiva: una simulacion con la reserva
+original obtiene huecos de 360 segundos con 3 grupos de entrada y 1 runner,
+frente al limite financiero de 300 segundos. Son escenarios sinteticos,
+no trades ni rentabilidad observada. La aceptacion sigue rechazando huecos.
+Evidencia: `docs/audits/research_cash_reuse_20261008.json` y el notebook
+`docs/audits/research_quote_capacity_20261008.ipynb`.
+
 Una cotizacion no disponible no equivale a ausencia de ruta. Las sondas
 revalidan el payload, el importe y el recibo original (maximo 10 segundos);
 red, cuota, auth, payload invalido o caducidad quedan desconocidos. Si la ruta

@@ -499,6 +499,35 @@ def observe_market(token: str, price: Any, *, root: Path | str | None = None,
     return count
 
 
+def observe_cash_quote(token: str, quote: Any, fx_observation, *, root: Path | str | None = None,
+                       cfg: Any = None, now: dt.datetime | None = None,
+                       quote_started_at: dt.datetime | None = None, slippage_bps: int | None = None) -> int:
+    """Reuse a primary valuation, independently owned by each exact-size arm.
+
+    No provider call, fill, SQL mutation or transfer of the donor's money basis.
+    A newly-created intent needs a separate subsequent execution quote.
+    """
+    cfg = CFG if cfg is None else cfg
+    if getattr(cfg, "DRY_RUN", False) is not True or getattr(cfg, "PAPER_RUNNER_RESEARCH_ENABLED", False) is not True:
+        return 0
+    count, directory, stamp = 0, _directory(root), now or _now()
+    for path in list(_index(directory).get(token, [])):
+        case = _read(path)
+        if (not case or case.get("token") != token or case.get("financial_policy_version") != cash.VERSION
+                or not isinstance(case.get("arms"), dict)):
+            continue
+        changed = False
+        for arm_id, arm in case["arms"].items():
+            if (_cash_quoteable(case, arm_id, arm)
+                    and _observe_cash(case, arm_id, quote, fx_observation, stamp,
+                        quote_started_at=quote_started_at, slippage_bps=slippage_bps)):
+                changed = True
+                count += 1
+        if changed:
+            _write(path, case)
+    return count
+
+
 def observe_quote(token: str, quote: Any, sol_usd: float, *, root: Path | str | None = None,
                   cfg: Any = None, now: dt.datetime | None = None,
                   quote_started_at: dt.datetime | None = None) -> int:

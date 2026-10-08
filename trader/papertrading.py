@@ -891,6 +891,7 @@ async def get_exit_cash_mark(address: str, *, expected_position=None, quote_func
             if expected_position is not None and not paper_cash_mark.matches_sql(entry, expected_position, token=address):
                 return None
             slippage = jupiter_router.routing_quote_slippage_bps()
+            quote_started_at = utc_now()
             quote = await (quote_func or jupiter_router.get_routing_quote)(
                 input_mint=address, output_mint=SOL_MINT, amount_lamports=frozen["remaining_qty"],
                 slippage_bps=slippage)
@@ -900,15 +901,32 @@ async def get_exit_cash_mark(address: str, *, expected_position=None, quote_func
                 return None
             if expected_position is not None and not paper_cash_mark.matches_sql(current, expected_position, token=address):
                 return None
+            sampled_at = utc_now()
             mark = paper_cash_mark.capture(current, quote, fx, token=address, owner=owner,
-                                           now=utc_now(), slippage_bps=slippage)
-            return mark if checked_cash_price(address, mark, expected_position=expected_position) is not None else None
+                                           now=sampled_at, slippage_bps=slippage)
+            if checked_cash_price(address, mark, expected_position=expected_position) is None:
+                return None
+            _reuse_research_cash_quote(address, quote, fx, sampled_at,
+                                      quote_started_at=quote_started_at, slippage_bps=slippage)
+            return mark
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             log.debug("[papertrading] cash mark unavailable (%s)", type(exc).__name__)
             return None
     return await _serialized_paper_order(address, owned)
+
+
+def _reuse_research_cash_quote(address, quote, fx, sampled_at, *, quote_started_at, slippage_bps):
+    """Secondary observers cannot fail or alter the authoritative PAPER mark."""
+    import importlib
+    for name in ("runner_forward", "entry_gate_forward"):
+        try:
+            component = importlib.import_module("research_loop." + name)
+            component.observe_cash_quote(address, quote, fx, root=_research_root(), cfg=CFG, now=sampled_at,
+                quote_started_at=quote_started_at, slippage_bps=slippage_bps)
+        except Exception as exc:
+            log.warning("[%s] cash quote reuse unavailable: %s", name, type(exc).__name__)
 
 
 def record_cash_observation(address: str, mark, *, expected_position=None) -> bool:
