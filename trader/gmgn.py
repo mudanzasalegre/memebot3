@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import json
 import logging
+import asyncio
 from typing import Any, Dict
 
 import aiohttp
 import tenacity
 
 from config import exits              # ← sin cambios: módulos de riesgo
+from utils.raw_units import sol_to_lamports, U64_MAX
 
 log = logging.getLogger("gmgn")
 
@@ -31,6 +33,14 @@ def _pretty(d: Dict[str, Any]) -> str:
     return json.dumps(d, separators=(",", ":"))
 
 
+def _transient_route_error(exc: BaseException) -> bool:
+    if isinstance(exc, aiohttp.ClientResponseError):
+        return exc.status >= 500
+    return isinstance(exc, (aiohttp.ClientError, asyncio.TimeoutError))
+
+
+@tenacity.retry(wait=tenacity.wait_fixed(2), stop=tenacity.stop_after_attempt(3),
+                retry=tenacity.retry_if_exception(_transient_route_error), reraise=True)
 async def _route(
     token_in: str,
     token_out: str,
@@ -56,7 +66,6 @@ async def _route(
 
 
 # ───────────── Operaciones públicas ────────────────────────────
-@tenacity.retry(wait=tenacity.wait_fixed(2), stop=tenacity.stop_after_attempt(3))
 async def buy(token_addr: str, amount_sol: float) -> dict:
     """
     Compra *amount_sol* del token *token_addr*.
@@ -67,11 +76,13 @@ async def buy(token_addr: str, amount_sol: float) -> dict:
         log.info("[GMGN] Simulación BUY – amount=0")
         return {"route": {}, "signature": "SIMULATION"}
 
+    lamports_in = sol_to_lamports(amount_sol)
+    if lamports_in is None:
+        raise ValueError("Invalid raw SOL input")
     # Live-only dependency: loading paper entry/exit modules must not read a
     # wallet secret, create a keypair or fail a fresh keyless paper checkout.
     from . import sol_signer
     owner = str(sol_signer.PUBLIC_KEY)
-    lamports_in = int(amount_sol * LAMPORTS)
 
     route = await _route(SOL_MINT, token_addr, lamports_in, owner)
     unsigned_b64 = route["data"]["raw_tx"]["swapTransaction"]
@@ -86,13 +97,14 @@ async def buy(token_addr: str, amount_sol: float) -> dict:
     return {"route": route, "signature": sig}
 
 
-@tenacity.retry(wait=tenacity.wait_fixed(2), stop=tenacity.stop_after_attempt(3))
 async def sell(token_addr: str, qty_lamports: int) -> dict:
     """
     Vende *qty_lamports* unidades (lamports del SPL) del token *token_addr*.
 
     Devuelve {"route":<json>, "signature":<sig_b58>}
     """
+    if type(qty_lamports) is not int or qty_lamports > U64_MAX:
+        raise ValueError("Invalid raw sell quantity")
     if qty_lamports <= 0:
         log.info("[GMGN] Simulación SELL – qty=0")
         return {"route": {}, "signature": "SIMULATION"}

@@ -2,16 +2,17 @@
 """
 Capa delgada sobre ``gmgn.buy`` que añade comprobaciones de saldo,
 ventana horaria y guardas de precio antes de lanzar la orden real.
-100% compatible con el flujo original de MemeBot 3: la **firma** y
-las **claves del retorno** NO cambian.
+Conserva la firma pública y las claves del retorno; las guardas previas
+deben probar la ruta y nunca convertir fallos en autorización.
 
 • Cuando *amount_sol* ≤ 0  →  modo simulación (paper-trading).
 • Verifica saldo + reserva de gas antes de comprar.
 • En compra real, si está activo REQUIRE_JUPITER_FOR_BUY (o USE_JUPITER_PRICE heredado),
   **exige** precio/cotización de Jupiter para el mint: si no hay, NO compra.
-• Valida impacto/slippage de la ruta Jupiter (si hay router disponible) y aborta si supera
+• Valida una cotización Jupiter exacta cuando la política o la ejecución lo requieren y aborta si supera
   `IMPACT_MAX_PCT` (por defecto 8%, configurable en .env).
-• Si NO hay router, estima impacto con liquidez USD y/o divergencia de precio spot (heurístico conservador).
+• Un router ausente o un precio aislado no prueban una ruta. No se sustituye una
+  cotización exigida por un heurístico. El modo GMGN sin requisito Jupiter sigue separado.
 • Devuelve SIEMPRE un dict homogéneo:
 
     {
@@ -30,7 +31,7 @@ Cambios
   Jupiter no tiene ruta ejecutable**. Log:
     [trader] BUY bloqueado: sin ruta Jupiter (mint=..., src=real, reason=no_route)
 
-2026-01 (parche de integración con tu jupiter_router.py v6):
+2026-01 (parche de integración histórico):
 • FIX: jupiter_router.get_quote usa amount_lamports (no amount_sol) cuando input es SOL.
 • Se usa q.price_impact_bps directamente (bps) → % = bps/100.
 • Mantiene el contrato de retorno y flags simbólicos del buyer.
@@ -51,6 +52,7 @@ from db.database import SessionLocal
 from db.models import Position
 from sqlalchemy import select
 from runtime.buy_recovery import BuyOutcomeUncertain
+from utils.raw_units import sol_to_lamports
 
 # Precio: Jupiter Price v3 (Lite)
 from fetcher import jupiter_price
@@ -59,9 +61,11 @@ from utils import price_service
 # Router Jupiter (opcional): cotizaciones con price_impact (si existe)
 try:
     from fetcher import jupiter_router as jupiter  # type: ignore
+    from fetcher.jupiter_router import _checked_quote as _check_jupiter_quote
     _JUP_ROUTER_AVAILABLE = True
 except Exception:
     jupiter = None  # type: ignore
+    _check_jupiter_quote = None
     _JUP_ROUTER_AVAILABLE = False
 
 # gmgn SDK local
@@ -73,7 +77,7 @@ SOL_MINT = "So11111111111111111111111111111111111111112"
 
 # ─── Parámetros ──────────────────────────────────────────────
 GAS_RESERVE_SOL: Final[float] = float(getattr(CFG, "GAS_RESERVE_SOL", 0.0) or 0.0)
-_GAS_RESERVE_LAMPORTS: Final[int] = int(GAS_RESERVE_SOL * 1e9)
+_GAS_RESERVE_LAMPORTS: Final[int | None] = sol_to_lamports(GAS_RESERVE_SOL, allow_zero=True)
 
 # Retrocompat: si no existe REQUIRE_JUPITER_FOR_BUY en CFG, usar USE_JUPITER_PRICE
 _REQUIRE_JUP_PRICE: Final[bool] = bool(
@@ -85,12 +89,6 @@ try:
     _IMPACT_MAX_PCT_DEFAULT = float(os.getenv("IMPACT_MAX_PCT", "8"))
 except Exception:
     _IMPACT_MAX_PCT_DEFAULT = 8.0
-
-# Factor de prudencia para impacto estimado sin router (K). .env: IMPACT_EST_K=2.0
-try:
-    _IMPACT_EST_K = float(os.getenv("IMPACT_EST_K", "2.0"))
-except Exception:
-    _IMPACT_EST_K = 2.0
 
 # Divergencia máxima permitida entre DS y Jupiter (% absoluto). .env: PRICE_DIVERGENCE_MAX_PCT=15
 try:
@@ -158,7 +156,10 @@ async def _has_enough_funds(amount_sol: float) -> bool:
         return False
     try:
         balance_lp = await get_balance_lamports(_WALLET_PUBKEY)
-        needed_lp = int(amount_sol * 1e9) + _GAS_RESERVE_LAMPORTS
+        units = sol_to_lamports(amount_sol)
+        if units is None or type(_GAS_RESERVE_LAMPORTS) is not int or _GAS_RESERVE_LAMPORTS < 0:
+            return False
+        needed_lp = units + _GAS_RESERVE_LAMPORTS
         if not isinstance(balance_lp, int) or isinstance(balance_lp, bool) or balance_lp < 0:
             return False
         return balance_lp >= needed_lp
@@ -271,128 +272,42 @@ async def _resolve_entry_notional_usd(amount_sol: float) -> float:
 
 
 async def _jupiter_precheck_quote(token_mint: str, amount_sol: float) -> Tuple[bool, Optional[float]]:
-    """
-    Intenta obtener una cotización de Jupiter (si hay router disponible) y devuelve:
-    - ok: si existe ruta válida
-    - impact_pct: impacto estimado en %
-    Si no hay router o falla, devuelve (True, None) para no bloquear (policy aparte).
-
-    Integra con tu jupiter_router.py v6:
-      get_quote(input_mint, output_mint, amount_sol=...) → QuoteResult(price_impact_bps float|None)
-    """
-    if not _JUP_ROUTER_AVAILABLE or jupiter is None:
-        log.debug("[buyer] Jupiter router no disponible → omito precheck de impacto")
-        return True, None
+    """One exact-size quote. Unknown/malformed routing is never permission."""
+    units = sol_to_lamports(amount_sol)
+    if (not _JUP_ROUTER_AVAILABLE or jupiter is None or _check_jupiter_quote is None
+            or units is None or type(_JUP_BUY_SLIPPAGE_BPS) is not int
+            or not 0 <= _JUP_BUY_SLIPPAGE_BPS <= 65535):
+        return False, None
 
     try:
         q = await jupiter.get_quote(
             input_mint=SOL_MINT,
             output_mint=token_mint,
-            amount_sol=float(amount_sol),
-            slippage_bps=int(_JUP_BUY_SLIPPAGE_BPS),
+            amount_lamports=units,
+            slippage_bps=_JUP_BUY_SLIPPAGE_BPS,
             only_direct_routes=False,
         )
-        ok = bool(getattr(q, "ok", False))
+        if getattr(q, "ok", False) is not True:
+            return False, None
+        checked = _check_jupiter_quote(getattr(q, "raw", None), input_mint=SOL_MINT,
+            output_mint=token_mint, amount=units, slippage=_JUP_BUY_SLIPPAGE_BPS, direct=False)
         impact_bps = getattr(q, "price_impact_bps", None)
-        impact_pct = (float(impact_bps) / 100.0) if isinstance(impact_bps, (int, float)) else None
-        return ok, impact_pct
+        if (not checked.ok or type(getattr(q, "in_amount", None)) is not int
+                or type(getattr(q, "out_amount", None)) is not int
+                or q.in_amount != checked.in_amount or q.out_amount != checked.out_amount
+                or isinstance(impact_bps, bool) or not isinstance(impact_bps, (int, float))
+                or not math.isfinite(impact_bps) or impact_bps != checked.price_impact_bps):
+            return False, None
+        return True, float(impact_bps) / 100.0
     except Exception as exc:  # noqa: BLE001
-        log.debug("[buyer] Jupiter router error: %s", exc)
-        # Si falla el router, no forzamos bloqueo aquí (dejamos que REQUIRE_JUP_PRICE decida)
-        return True, None
+        log.debug("[buyer] Jupiter router unavailable: %s", type(exc).__name__)
+        return False, None
 
 
-async def _has_jupiter_route(token_mint: str) -> tuple[Optional[bool], str]:
-    """
-    Averigua si Jupiter tiene **ruta ejecutable** para el mint.
-    Devuelve (has_route | None si indeterminado, status_str en {OK,NIL,ERR}).
-
-    NOTA: Aquí “ruta” es una aproximación:
-      - Si jupiter_price da precio >0 → asumimos OK.
-      - Si da None/0 → NIL.
-      - Si error → ERR (indeterminado).
-    """
-    # 1) API enriquecida si el módulo la expone (status/has_route)
-    try:
-        if hasattr(jupiter_price, "get_quote_status"):
-            res = await getattr(jupiter_price, "get_quote_status")(token_mint)
-            hr = bool(res.get("has_route"))
-            st = str(res.get("status") or ("OK" if hr else "NIL"))
-            return hr, st
-        if hasattr(jupiter_price, "get_price_status"):
-            res = await getattr(jupiter_price, "get_price_status")(token_mint)
-            hr = bool(res.get("has_route"))
-            st = str(res.get("status") or ("OK" if hr else "NIL"))
-            return hr, st
-    except Exception:
-        pass
-
-    # 2) Fallback: precio > 0 ⇒ asumimos ruta; sin precio ⇒ NIL
-    try:
-        p = await jupiter_price.get_usd_price(token_mint)
-        if p is not None and p > 0:
-            return True, "OK"
-        return False, "NIL"
-    except Exception:
-        return None, "ERR"
-
-
-async def _impact_estimate_without_router(
-    *,
-    amount_sol: float,
-    token_mint: str,
-    jup_token_price_usd: Optional[float],
-    ds_price_usd: Optional[float],
-    liquidity_usd: Optional[float],
-) -> Tuple[bool, Optional[float], str]:
-    """
-    Heurística conservadora cuando REQUIRE_JUP_PRICE=True pero NO hay router:
-    - Si hay liquidity_usd: impact_est_pct ≈ 100 * (order_usd/liquidity_usd) * K
-    - Si no hay liquidity_usd: usa divergencia DS vs JUP (si hay DS) como proxy de riesgo.
-    Devuelve (blocked, metric_pct, reason).
-    """
-    sol_usd: Optional[float] = None
-    tok_usd: Optional[float] = jup_token_price_usd
-
-    try:
-        sol_usd = await get_sol_usd()
-    except Exception:
-        sol_usd = None
-
-    if tok_usd is None or tok_usd <= 0:
-        try:
-            tok_usd = await jupiter_price.get_usd_price(token_mint)
-        except Exception:
-            tok_usd = None
-
-    if not sol_usd or sol_usd <= 0:
-        return False, None, "no_sol_price"
-
-    order_usd = float(amount_sol) * float(sol_usd)
-
-    # 1) Con liquidez
-    if liquidity_usd and liquidity_usd > 0:
-        try:
-            impact_est_pct = 100.0 * (order_usd / float(liquidity_usd)) * float(_IMPACT_EST_K)
-            if impact_est_pct > float(_IMPACT_MAX_PCT_DEFAULT):
-                return True, float(impact_est_pct), "impact_est_liq"
-            return False, float(impact_est_pct), "impact_est_liq"
-        except Exception:
-            return False, None, "impact_est_liq_err"
-
-    # 2) Divergencia DS vs JUP
-    if ds_price_usd and ds_price_usd > 0 and tok_usd and tok_usd > 0:
-        try:
-            ratio = float(ds_price_usd) / float(tok_usd)
-            dev_pct = abs(100.0 * (1.0 - ratio))
-            if dev_pct > float(_PRICE_DIVERGENCE_MAX_PCT):
-                return True, float(dev_pct), "price_divergence"
-            return False, float(dev_pct), "price_divergence"
-        except Exception:
-            return False, None, "price_divergence_err"
-
-    # 3) No hay señales para bloquear
-    return False, None, "no_signal"
+async def _has_jupiter_route(token_mint: str, amount_sol: float = 0.1) -> tuple[Optional[bool], str]:
+    """Compatibility probe backed by a quote, never a Price API response."""
+    ok, _ = await _jupiter_precheck_quote(token_mint, amount_sol)
+    return ok, "OK" if ok else "NIL"
 
 
 # ─── API pública ─────────────────────────────────────────────
@@ -430,6 +345,8 @@ async def buy(
 
     if (not isinstance(amount_sol, (int, float)) or isinstance(amount_sol, bool)
             or not math.isfinite(amount_sol)):
+        return {"qty_lamports": 0, "signature": "INVALID_AMOUNT", "route": {}}
+    if amount_sol > 0 and sol_to_lamports(amount_sol) is None:
         return {"qty_lamports": 0, "signature": "INVALID_AMOUNT", "route": {}}
 
     # ─────── Simulación directa (paper-trading) ────────────
@@ -492,27 +409,11 @@ async def buy(
             "price_source": "fallback0",
         }
 
-    # ─────── Guard de ruta Jupiter (solo si la política lo exige) ────────
-    has_route, status = await _has_jupiter_route(mint_key)
-    if _REQUIRE_JUP_PRICE and has_route is False:
-        log.warning(
-            "[trader] BUY bloqueado: sin ruta Jupiter (mint=%s, src=real, reason=no_route)",
-            mint_key[:6],
-        )
-        return {
-            "qty_lamports": 0,
-            "signature": "NO_ROUTE",
-            "route": {},
-            "buy_price_usd": 0.0,
-            "peak_price": 0.0,
-            "price_source": "no_route",
-            "jupiter_status": status,
-        }
-    elif has_route is False:
-        log.info(
-            "[buyer] sin ruta Jupiter (mint=%s) pero REQUIRE_JUPITER_FOR_BUY=false → continuo (fallback).",
-            mint_key[:6],
-        )
+    units = sol_to_lamports(amount_sol)
+    if units is None:
+        return {"qty_lamports": 0, "signature": "INVALID_AMOUNT", "route": {}}
+    use_managed = bool(_JUP_ROUTER_AVAILABLE and jupiter is not None
+        and hasattr(jupiter, "execute_managed_swap") and getattr(jupiter, "JUP_API_KEY", ""))
 
     # ─────── Guard de Jupiter previo (precio/cotización exigidos) ─────
     jup_price_prefetch: Optional[float] = None
@@ -523,7 +424,8 @@ async def buy(
             log.debug("[buyer] Jupiter prefetch error: %s", exc)
             jup_price_prefetch = None
 
-        if jup_price_prefetch is None or jup_price_prefetch <= 0:
+        if (isinstance(jup_price_prefetch, bool) or not isinstance(jup_price_prefetch, (int, float))
+                or not math.isfinite(jup_price_prefetch) or jup_price_prefetch <= 0):
             log.warning("[buyer] Jupiter NO devuelve precio para %s → NO compro (policy).", mint_key[:6])
             return {
                 "qty_lamports": 0,
@@ -534,9 +436,11 @@ async def buy(
                 "price_source": "fallback0",
             }
 
-        # Chequeo de impacto/ruta con router si existe
+    # A Jupiter venue requires an actual Jupiter route even when its optional
+    # Price API policy is disabled. A GMGN-only policy does not query Jupiter.
+    if _REQUIRE_JUP_PRICE or use_managed:
         ok_route, impact_pct = await _jupiter_precheck_quote(mint_key, amount_sol)
-        if not ok_route:
+        if not ok_route or impact_pct is None:
             log.info("[buyer] BUY bloqueado: sin ruta Jupiter (router quote)")
             return {
                 "qty_lamports": 0,
@@ -547,7 +451,10 @@ async def buy(
                 "price_source": "fallback0",
             }
 
-        if impact_pct is not None and impact_pct > _IMPACT_MAX_PCT_DEFAULT:
+        if (isinstance(_IMPACT_MAX_PCT_DEFAULT, bool) or not isinstance(_IMPACT_MAX_PCT_DEFAULT, (int, float))
+                or not math.isfinite(_IMPACT_MAX_PCT_DEFAULT) or _IMPACT_MAX_PCT_DEFAULT < 0):
+            return {"qty_lamports": 0, "signature": "INVALID_IMPACT_LIMIT", "route": {}}
+        if impact_pct > _IMPACT_MAX_PCT_DEFAULT:
             log.info("[buyer] High price impact %.2f%% (>%s%%) → skip", impact_pct, _IMPACT_MAX_PCT_DEFAULT)
             return {
                 "qty_lamports": 0,
@@ -558,38 +465,13 @@ async def buy(
                 "price_source": "fallback0",
             }
 
-        # Si REQUIRE_JUP_PRICE=True pero no hay router, aplica heurística de impacto
-        if not _JUP_ROUTER_AVAILABLE:
-            blocked, metric, reason = await _impact_estimate_without_router(
-                amount_sol=amount_sol,
-                token_mint=mint_key,
-                jup_token_price_usd=jup_price_prefetch,
-                ds_price_usd=price_hint,
-                liquidity_usd=liquidity_usd,
-            )
-            if blocked:
-                log.info("[buyer] BUY bloqueado por heurístico (%s=%.2f%%)", reason, (metric or 0.0))
-                return {
-                    "qty_lamports": 0,
-                    "signature": "HIGH_IMPACT_EST",
-                    "route": {},
-                    "buy_price_usd": 0.0,
-                    "peak_price": 0.0,
-                    "price_source": "fallback0",
-                }
-
     # ─────── Intentos de compra real ───────────────────────
-    if (
-        _JUP_ROUTER_AVAILABLE
-        and jupiter is not None
-        and hasattr(jupiter, "execute_managed_swap")
-        and bool(getattr(jupiter, "JUP_API_KEY", ""))
-    ):
+    if use_managed:
         try:
             managed_resp = await jupiter.execute_managed_swap(
                 input_mint=SOL_MINT,
                 output_mint=mint_key,
-                amount_lamports=int(float(amount_sol) * 1_000_000_000),
+                amount_lamports=units,
                 slippage_bps=int(_JUP_BUY_SLIPPAGE_BPS),
             )
             order = dict(managed_resp.get("order") or {})
@@ -624,7 +506,7 @@ async def buy(
 
     # One submission only. Retrying an ambiguous side effect can double-buy.
     try:
-        resp = await gmgn.buy(token_addr, amount_sol)
+        resp = await gmgn.buy(mint_key, amount_sol)
         qty_lp, _price_unit_from_quote, route = _parse_route(resp)
         _validate_submission(qty_lp, resp.get("signature"))
 

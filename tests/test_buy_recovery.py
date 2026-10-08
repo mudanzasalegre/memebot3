@@ -419,6 +419,7 @@ async def test_live_submission_failure_never_falls_back_or_retries(monkeypatch, 
     monkeypatch.setattr(buyer, "_max_positions_reached", AsyncMock(return_value=False))
     monkeypatch.setattr(buyer, "_has_enough_funds", AsyncMock(return_value=True))
     monkeypatch.setattr(buyer, "_has_jupiter_route", AsyncMock(return_value=(True, "synthetic")))
+    monkeypatch.setattr(buyer, "_jupiter_precheck_quote", AsyncMock(return_value=(True, .01)))
     monkeypatch.setattr(buyer, "_REQUIRE_JUP_PRICE", False)
     monkeypatch.setattr(buyer, "_resolve_buy_price_usd", AsyncMock(return_value=(1., "synthetic"),
         side_effect=TimeoutError("synthetic enrichment") if failure == "price_after_submission" else None))

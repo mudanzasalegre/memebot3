@@ -10,9 +10,10 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation, ROUND_DOWN, localcontext
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Optional, Mapping, Union
 from urllib.parse import urlsplit
+from utils.raw_units import U64_MAX as _U64_MAX, raw_uint as _raw_uint, sol_to_lamports
 
 log = logging.getLogger("jupiter_router")
 
@@ -134,19 +135,7 @@ def _normalize_query_params(d: Mapping[str, Any]) -> dict[str, str]:
     return out
 
 
-_U64_MAX = (1 << 64) - 1
 _MAX_QUOTE_ROUTE_STEPS = 128
-
-
-def _raw_uint(value: Any, maximum: int = _U64_MAX) -> Optional[int]:
-    """Raw units are integers, never float-rounded or coerced booleans."""
-    if type(value) is int:
-        return value if 0 <= value <= maximum else None
-    if (isinstance(value, str) and 0 < len(value) <= 20
-            and value.isascii() and value.isdecimal()):
-        number = int(value)
-        return number if number <= maximum else None
-    return None
 
 
 def _extract_price_impact_bps(data: Dict[str, Any]) -> Optional[float]:
@@ -334,17 +323,8 @@ async def get_quote(
         # Convertimos SOL → lamports solo si el input es SOL
         if input_mint != SOL_MINT:
             return QuoteResult(False, None, None, None, {}, {"error": "amount_lamports required for non-SOL inputs"})
-        try:
-            if isinstance(amount_sol, bool) or not isinstance(amount_sol, (int, float, Decimal)):
-                raise ValueError("invalid SOL amount type")
-            with localcontext() as ctx:
-                ctx.prec = 50
-                sol = Decimal(str(amount_sol))
-                if not sol.is_finite() or not 0 < sol <= Decimal(_U64_MAX) / 1_000_000_000:
-                    raise ValueError("invalid SOL amount")
-                # Retain documented raw-unit floor, without binary float loss.
-                amount_lamports = int((sol * 1_000_000_000).to_integral_value(rounding=ROUND_DOWN))
-        except Exception:
+        amount_lamports = sol_to_lamports(amount_sol)
+        if amount_lamports is None:
             return QuoteResult(False, None, None, None, {}, {"error": "invalid amount_sol"})
 
     if type(amount_lamports) is not int or not 0 < amount_lamports <= _U64_MAX:
