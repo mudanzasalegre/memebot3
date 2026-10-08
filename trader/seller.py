@@ -357,7 +357,7 @@ async def _sell_execute_prefer_jupiter(
 
     # 3) Ejecuta GMGN
     try:
-        resp = await gmgn.sell(token_addr, qty_lamports)
+        resp = await gmgn.sell(token_mint, qty_lamports)
         return True, {
             "signature": resp.get("signature"),
             "route": (resp.get("route", {}) or {"router": "gmgn"}),

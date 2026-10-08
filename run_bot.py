@@ -9974,6 +9974,8 @@ async def _runner() -> None:
     global _runtime_process_state
     _runtime_process_state = "starting"
     try:
+        from runtime.owned_dispatch import open_dispatch
+        open_dispatch()
         await async_init_db()
         # Reconcile wallet-confirmed sells before discovery, buying,
         # runtime-state publication, or the strategy-history bootstrap can
@@ -10022,6 +10024,8 @@ async def _runner() -> None:
         await stop_social_tasks()
         from research_loop.entry_gate_forward import stop_background_tasks
         await stop_background_tasks()
+        from runtime.owned_dispatch import drain_dispatch
+        await drain_dispatch()
         _runtime_process_state = "stopped"
         try:
             await _publish_runtime_state_once()

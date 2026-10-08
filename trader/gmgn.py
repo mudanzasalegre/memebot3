@@ -20,6 +20,7 @@ import tenacity
 
 from config import exits              # ← sin cambios: módulos de riesgo
 from utils.raw_units import sol_to_lamports, U64_MAX
+from runtime.owned_dispatch import run_owned_sync
 
 log = logging.getLogger("gmgn")
 
@@ -87,7 +88,7 @@ async def buy(token_addr: str, amount_sol: float) -> dict:
     route = await _route(SOL_MINT, token_addr, lamports_in, owner)
     unsigned_b64 = route["data"]["raw_tx"]["swapTransaction"]
 
-    sig = sol_signer.sign_and_send(unsigned_b64)
+    sig = await run_owned_sync(sol_signer.sign_and_send, unsigned_b64)
     log.info(
         "[GMGN] BUY %.3f SOL → %s  sig=%s",
         amount_sol,
@@ -115,7 +116,7 @@ async def sell(token_addr: str, qty_lamports: int) -> dict:
     route = await _route(token_addr, SOL_MINT, qty_lamports, owner)
     unsigned_b64 = route["data"]["raw_tx"]["swapTransaction"]
 
-    sig = sol_signer.sign_and_send(unsigned_b64)
+    sig = await run_owned_sync(sol_signer.sign_and_send, unsigned_b64)
     log.info(
         "[GMGN] SELL %.0f lamports %s  sig=%s",
         qty_lamports,
