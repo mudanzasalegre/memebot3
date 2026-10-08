@@ -118,6 +118,8 @@ BUY_SOFT_SCORE_MIN = CFG.BUY_SOFT_SCORE_MIN  # nuevo
 from db.database import add_trade_event, set_position_exit_reason, SessionLocal, async_init_db  # noqa: E402
 from db.models import Position, Token  # noqa: E402
 from runtime.buy_recovery import BuyRecoveryStore, position_from_snapshot  # noqa: E402
+from execution.quote_observation import observe_quote  # noqa: E402
+from utils.raw_units import sol_to_lamports  # noqa: E402
 from runtime.sell_recovery import SellRecoveryStore  # noqa: E402
 from runtime.close_recovery import (  # noqa: E402
     CloseRecoveryError,
@@ -4410,48 +4412,38 @@ async def _has_jupiter_route(output_mint: str, amount_sol: float) -> Optional[bo
     return probe.get("has_route")
 
 
-async def _probe_jupiter_route(output_mint: str, amount_sol: float) -> Dict[str, Optional[float | bool]]:
-    """Sonda ligera de ruta/impacto para enriquecer features y gates."""
-    probe: Dict[str, Optional[float | bool]] = {
+async def _probe_jupiter_route(output_mint: str, amount_sol: float) -> Dict[str, Any]:
+    """One exact-size route receipt; provider uncertainty is not a negative."""
+    probe: Dict[str, Any] = {
         "has_route": None,
         "price_impact_bps": None,
         "price_impact_pct": None,
         "price_available": None,
+        "route_reason": "quote_unverified",
     }
     try:
         if _JUP_ROUTER_AVAILABLE and jupiter is not None:
             SOL_MINT = "So11111111111111111111111111111111111111112"
-            amt = float(amount_sol)
-            if isinstance(amount_sol, bool) or not math.isfinite(amt) or amt <= 0:
+            units = sol_to_lamports(amount_sol)
+            if units is None:
                 return probe
-            q = await jupiter.get_quote(input_mint=SOL_MINT, output_mint=output_mint, amount_sol=amt)
-            impact_bps = getattr(q, "price_impact_bps", None)
-            impact_pct = None
-            if (isinstance(impact_bps, (int, float)) and not isinstance(impact_bps, bool)
-                    and math.isfinite(float(impact_bps)) and impact_bps >= 0):
-                impact_pct = float(impact_bps) / 100.0
+            q = await jupiter.get_quote(input_mint=SOL_MINT, output_mint=output_mint,
+                amount_lamports=units, slippage_bps=jupiter.DEFAULT_SLIPPAGE_BPS)
+            observed = observe_quote(q, input_mint=SOL_MINT, output_mint=output_mint,
+                amount=units, slippage=jupiter.DEFAULT_SLIPPAGE_BPS)
+            impact_bps = observed.price_impact_bps
             probe = {
-                "has_route": bool(getattr(q, "ok", False)),
-                "price_impact_bps": float(impact_bps) if impact_pct is not None else None,
-                "price_impact_pct": impact_pct,
+                "has_route": observed.has_route,
+                "price_impact_bps": impact_bps,
+                "price_impact_pct": impact_bps / 100.0 if impact_bps is not None else None,
                 "price_available": None,
+                "route_reason": observed.reason,
             }
     except Exception:
-        probe = {
-            "has_route": None,
-            "price_impact_bps": None,
-            "price_impact_pct": None,
-            "price_available": None,
-        }
+        pass
 
-    try:
-        jpi = await jupiter_price.get_price(output_mint)
-    except Exception:
-        jpi = None
-
-    if jpi is not None:
-        probe["price_available"] = bool(jpi.status == "OK")
-
+    # An unused extra Price API request consumed the shared quote/order budget.
+    # Price admission remains a separate fresh check in the execution guard.
     return probe
 
 
@@ -4855,6 +4847,10 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     if not token.get("liquidity_usd"):
         await _maybe_apply_paper_sniper_liquidity_proxy(token, addr)
 
+    if token.get("liquidity_usd") is None:
+        _defer_entry_observation(token, reason="liquidity_unverified", stage="entry_snapshot")
+        return
+
     if not token.get("liquidity_usd"):
         # ⇢ solo contamos “incomplete” si el pool ya ha cumplido la edad mínima
         age_min_val = float(token.get("age_min") or 0.0)
@@ -5174,6 +5170,10 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["has_jupiter_route"] = (None if route_probe.get("has_route") is None
                                   else int(bool(route_probe["has_route"])))
     token["price_impact_pct"] = route_probe.get("price_impact_pct")
+    if (require_jup_for_buy or (paper_bootstrap_fast_path
+            and bool(getattr(CFG, "PAPER_BOOTSTRAP_REQUIRE_ROUTE", True)))) and route_probe.get("has_route") is None:
+        _defer_entry_observation(token, reason="route_unverified", stage="route_probe")
+        return
     if moonshot_fast_path:
         moonshot_decision = evaluate_moonshot_micro_lottery(token, dry_run=DRY_RUN, live=not DRY_RUN)
         if moonshot_decision.allowed:
@@ -6768,6 +6768,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             if has_route is not True:
                 route_reason = "no_route" if has_route is False else "route_unverified"
                 log.info("🛑 BUY bloqueado: ruta Jupiter no ejecutable (mint=%s, reason=%s)", addr[:6], route_reason)
+                if has_route is None:
+                    _defer_entry_observation(token, reason=route_reason, stage="execution_guard")
+                    return
                 _pending_ai_vectors.pop(addr, None)
                 _research_decision(
                     token,
@@ -6795,23 +6798,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             jtok = None
         if fresh_market_value(jtok, "price_usd", source="jupiter") is None:
             log.info("⏳ BUY aplazado (sin precio Jupiter) %s", addr[:6])
-            _pending_ai_vectors.pop(addr, None)
-            _research_decision(
-                token,
-                action="wait",
-                reason="jupiter_price_missing",
-                stage="execution_guard",
-                proba=proba,
-                threshold=ai_threshold_eff,
-                rank_info=rank_info,
-                dedup_ttl_s=900,
-            )
-            _requeue_or_cooldown_candidate(
-                addr,
-                token,
-                reason="jupiter_price_missing",
-                backoff=max(90, _DEX_MATURE_QUALITY_BACKOFF_S),
-            )
+            _defer_entry_observation(token, reason="jupiter_price_missing", stage="execution_guard")
             return
         # Separate route-admission evidence must not overwrite the decision's
         # price/source/metadata after ranking and the frozen learning vector.
@@ -6966,6 +6953,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                     discovered_via=token.get("discovered_via"),
                 )
         attempt.receive(buy_resp)
+        observation_deferral = attempt.observation_deferral_reason(buy_resp,
+            address=addr, amount_sol=amount_sol, paper=bool(DRY_RUN))
     except Exception as exc:
         # No false failed-fill/shadow label: this call may have executed before
         # its response or SQL acknowledgement was lost. Its intent stays durable.
@@ -6973,6 +6962,14 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         _note_runtime_error("buy_recovery_pending", exc)
         _pending_ai_vectors.pop(addr, None)
         _remove_from_queue_if_present(addr)
+        return
+
+    if observation_deferral is not None:
+        if DRY_RUN:
+            _record_paper_bootstrap_event("actual_paper_buy_deferred", addr, token,
+                paper_bootstrap_decision, amount_sol=float(amount_sol), reason=observation_deferral,
+                signature=str(buy_resp.get("signature") or ""))
+        _defer_entry_observation(token, reason=observation_deferral, stage="execution_preparation")
         return
 
     qty_lp = int(buy_resp.get("qty_lamports", 0) or 0)

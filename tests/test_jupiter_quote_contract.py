@@ -321,8 +321,8 @@ async def test_actual_paper_route_probe_consumes_checked_http_contract(network, 
     monkeypatch.setattr(paper, "SOL_MINT", SOL)
     proof = {}
     ok, reason = await paper._has_jupiter_route(TOKEN, amount_sol=0.1, proof=proof)
-    assert ok is (not wrong_mint)
-    assert reason == ("NO_QUOTE" if wrong_mint else "QUOTE_OK")
+    assert ok is (None if wrong_mint else True)
+    assert reason == ("QUOTE_UNVERIFIED" if wrong_mint else "QUOTE_OK")
     assert len(calls) == 1
     if ok:
         assert proof["in_amount"] == AMOUNT and proof["route_count"] == 1

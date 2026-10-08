@@ -54,6 +54,7 @@ from db.models import Position
 from sqlalchemy import select
 from runtime.buy_recovery import BuyOutcomeUncertain
 from utils.raw_units import sol_to_lamports
+from execution.quote_observation import observe_quote
 
 # Precio: Jupiter Price v3 (Lite)
 from fetcher import jupiter_price
@@ -275,13 +276,13 @@ async def _resolve_entry_notional_usd(amount_sol: float) -> float:
     return float(notional or 0.0)
 
 
-async def _jupiter_precheck_quote(token_mint: str, amount_sol: float) -> Tuple[bool, Optional[float]]:
+async def _jupiter_precheck_quote(token_mint: str, amount_sol: float) -> Tuple[Optional[bool], Optional[float]]:
     """One exact-size quote. Unknown/malformed routing is never permission."""
     units = sol_to_lamports(amount_sol)
     if (not _JUP_ROUTER_AVAILABLE or jupiter is None or _check_jupiter_quote is None
             or units is None or type(_JUP_BUY_SLIPPAGE_BPS) is not int
             or not 0 <= _JUP_BUY_SLIPPAGE_BPS <= 65535):
-        return False, None
+        return None, None
 
     try:
         q = await jupiter.get_quote(
@@ -291,27 +292,18 @@ async def _jupiter_precheck_quote(token_mint: str, amount_sol: float) -> Tuple[b
             slippage_bps=_JUP_BUY_SLIPPAGE_BPS,
             only_direct_routes=False,
         )
-        if getattr(q, "ok", False) is not True:
-            return False, None
-        checked = _check_jupiter_quote(getattr(q, "raw", None), input_mint=SOL_MINT,
-            output_mint=token_mint, amount=units, slippage=_JUP_BUY_SLIPPAGE_BPS, direct=False)
-        impact_bps = getattr(q, "price_impact_bps", None)
-        if (not checked.ok or type(getattr(q, "in_amount", None)) is not int
-                or type(getattr(q, "out_amount", None)) is not int
-                or q.in_amount != checked.in_amount or q.out_amount != checked.out_amount
-                or isinstance(impact_bps, bool) or not isinstance(impact_bps, (int, float))
-                or not math.isfinite(impact_bps) or impact_bps != checked.price_impact_bps):
-            return False, None
-        return True, float(impact_bps) / 100.0
+        observed = observe_quote(q, input_mint=SOL_MINT, output_mint=token_mint,
+            amount=units, slippage=_JUP_BUY_SLIPPAGE_BPS)
+        return observed.has_route, (observed.price_impact_bps / 100.0 if observed.has_route is True else None)
     except Exception as exc:  # noqa: BLE001
         log.debug("[buyer] Jupiter router unavailable: %s", type(exc).__name__)
-        return False, None
+        return None, None
 
 
 async def _has_jupiter_route(token_mint: str, amount_sol: float = 0.1) -> tuple[Optional[bool], str]:
     """Compatibility probe backed by a quote, never a Price API response."""
     ok, _ = await _jupiter_precheck_quote(token_mint, amount_sol)
-    return ok, "OK" if ok else "NIL"
+    return ok, "OK" if ok is True else "NO_ROUTE" if ok is False else "UNKNOWN"
 
 
 # ─── API pública ─────────────────────────────────────────────

@@ -142,7 +142,7 @@ async def test_consumer_rechecks_raw_response_and_public_values(guarded, monkeyp
     q = router._checked_quote(payload(), input_mint=SOL, output_mint=TOKEN, amount=AMOUNT, slippage=100, direct=False)
     setattr(q, field, value)
     monkeypatch.setattr(router, "get_quote", AsyncMock(return_value=q))
-    assert await buyer._jupiter_precheck_quote(TOKEN, .1) == (False, None)
+    assert await buyer._jupiter_precheck_quote(TOKEN, .1) == (None, None)
 
 
 @pytest.mark.asyncio

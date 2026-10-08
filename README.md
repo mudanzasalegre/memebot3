@@ -327,6 +327,21 @@ El motor de exits incluye partial TP, post-partial protection, runner floors,
 adverse tick, no-pump exit, liquidity crush, stop loss, time stop y total PnL
 protection. Los reports de runner capture y missed pumps alimentan AutoResearch.
 
+El objetivo de runners no se limita al +100% o +200%: incluye +500%, +1.000%,
++5.000% y superiores. Los umbrales de aprendizaje no son techos de venta.
+Las posiciones PAPER de 0,1 SOL conservan la politica congelada de parciales y
+proteccion de precio, sin prometer capturar el maximo ni eliminar el riesgo.
+
+Una cotizacion no disponible no equivale a ausencia de ruta. Las sondas
+revalidan el payload, el importe y el recibo original (maximo 10 segundos);
+red, cuota, auth, payload invalido o caducidad quedan desconocidos. Si la ruta
+es obligatoria, se aplaza la decision completa, sin permiso de compra ni
+penalizacion negativa de aprendizaje. La cola conserva limites de edad y
+capacidad. Solo un rechazo previo al envio confirmado en el diario original
+puede volver a esa cola; un envio incierto sigue en recuperacion, sin reintento.
+Los limites de impacto, capital y configuracion no se relajan. Evidencia:
+`docs/audits/route_observation_admission_20261008.json` (software, no rentabilidad).
+
 ## Machine Learning
 
 ML es opcional y seguro por defecto:

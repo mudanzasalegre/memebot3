@@ -302,6 +302,14 @@ async def test_real_entry_prefix_defers_unavailable_fresh_collection_without_old
 
 
 @pytest.mark.asyncio
+async def test_real_entry_prefix_unknown_liquidity_defers_without_negative_policy_label():
+    namespace, waits, source = preparation_namespace(observed(liquidity_usd=None))
+    assert await namespace["prepare"]({"address": MINT}, SimpleNamespace(scalar=AsyncMock(return_value=None))) is None
+    assert waits == [{"reason": "liquidity_unverified", "stage": "entry_snapshot"}]
+    assert source.await_count == 1 and namespace["_stats"]["filtered_out"] == 0
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("change", ["expiry", "vector", "none"])
 async def test_actual_pre_buy_guard_precedes_buy_limiter_and_intent(monkeypatch, change):
     candidate = entry.prepare_entry_candidate({"address": MINT}, observed())

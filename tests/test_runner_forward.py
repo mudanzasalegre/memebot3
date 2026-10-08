@@ -264,6 +264,8 @@ def test_malformed_external_files_fail_closed_without_crashing(tmp_path):
 
 def test_paper_buy_consumes_selection_and_first_partial_enrolls_isolated_store(tmp_path, monkeypatch):
     from trader import papertrading as paper
+    from fetcher import jupiter_router as router
+    from test_jupiter_quote_contract import payload, hop
     closed_cohort(tmp_path)
     stamp = T0 + dt.timedelta(hours=27)
     rf.evaluate_completed_cohorts(root=tmp_path, cfg=cfg(), now=stamp)
@@ -285,12 +287,23 @@ def test_paper_buy_consumes_selection_and_first_partial_enrolls_isolated_store(t
     token = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     async def get_quote(**kwargs):
         if kwargs["input_mint"] == MINT:
-            return quote(quantity=100000000, output=1000)
-        return quote(quantity=kwargs["amount_lamports"], output=kwargs["amount_lamports"] * 200000)
+            amount, output = 100000000, 1000
+        else:
+            amount = kwargs["amount_lamports"]
+            output = amount * 200000
+        source, target = kwargs["input_mint"], kwargs["output_mint"]
+        body = payload(amount=amount, output=output)
+        body.update(inputMint=source, outputMint=target, priceImpactPct="0.002",
+                    slippageBps=router.DEFAULT_SLIPPAGE_BPS)
+        body["routePlan"] = [hop(source, target, amount, output)]
+        return router._checked_quote(body, input_mint=source, output_mint=target,
+            amount=amount, slippage=router.DEFAULT_SLIPPAGE_BPS, direct=False)
     async def buy_price(**_): return (1.0, "jupiter")
+    async def jupiter_price(_): return 1.0
     async def entry_notional(_): return 10.0
     async def sol(): return 100.0
     monkeypatch.setattr(paper.jupiter_router, "get_quote", get_quote)
+    monkeypatch.setattr(paper.jupiter_price, "get_usd_price", jupiter_price)
     monkeypatch.setattr(paper, "_resolve_buy_price_usd", buy_price)
     monkeypatch.setattr(paper, "_resolve_entry_notional_usd", entry_notional)
     monkeypatch.setattr(paper, "get_sol_usd", sol)

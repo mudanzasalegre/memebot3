@@ -512,7 +512,10 @@ def execution_tail_namespace(tmp_path, store, paper):
             **social_feature_values(unknown)},
         "entry_observation": SimpleNamespace(social=json.dumps(unknown.to_dict())),
         "entry_auxiliary_observations": entry_auxiliary_observations,
-        "ML_POSITIVE_PNL_RATIO": .1, "ml_decision": None, "final_ml_bypass": False}
+        "ML_POSITIVE_PNL_RATIO": .1, "ml_decision": None, "final_ml_bypass": False,
+        "_defer_entry_observation": lambda *a, **k: None,
+        "price_service": SimpleNamespace(price_confidence_from_source=lambda *a: "unknown"),
+        "_open_shadow": AsyncMock()}
     exec(compile(ast.fix_missing_locations(ast.Module(body=[builder, feature_context, tail], type_ignores=[])), "run_bot.py", "exec"), namespace)
     return namespace
 
@@ -553,3 +556,100 @@ async def test_actual_entry_execution_tail_and_restart_recovery(tmp_path, monkey
         assert resolved["entry_features"]["version"] == "frozen_entry_features_with_auxiliary_receipts_v2"
         assert resolved["entry_features"]["auxiliary_observations"]["social"]["status"] == "unknown"
     finally: await engine.dispose()
+
+
+@pytest.mark.parametrize("paper_mode", [True, False])
+@pytest.mark.parametrize("signature", ["NO_ROUTE", "NO_JUP_PRICE", "NO_JUP_ROUTE", "NO_JUP_ORDER"])
+def test_observation_deferral_requires_durable_original_no_send(tmp_path, paper_mode, signature):
+    store = BuyRecoveryStore(tmp_path / "journal")
+    with store.scope():
+        attempt = store.begin(Position(address=MINT, dry_run=paper_mode, buy_amount_sol=.1), paper=paper_mode, amount_sol=.1)
+        response = {"qty_lamports": 0, "signature": signature}
+        assert attempt.observation_deferral_reason(response, address=MINT, amount_sol=.1, paper=paper_mode) is None
+        attempt.receive(response)
+        assert attempt.observation_deferral_reason(response, address=MINT, amount_sol=.1, paper=paper_mode) == "buy_preparation:" + signature.lower()
+        assert not store.pending_addresses
+    restarted = BuyRecoveryStore(store.directory)
+    assert not restarted.pending_addresses
+
+
+@pytest.mark.parametrize("fault", ["missing", "corrupt", "different_address", "dispatch", "response", "caller_address", "caller_size", "caller_paper"])
+def test_conflicting_or_unreadable_no_send_cannot_authorize_observation_retry(tmp_path, fault):
+    store = BuyRecoveryStore(tmp_path / "journal")
+    with store.scope():
+        attempt = store.begin(Position(address=MINT, dry_run=True, buy_amount_sol=.1), paper=True, amount_sol=.1)
+        response = {"qty_lamports": 0, "signature": "NO_ROUTE"}
+        attempt.receive(response)
+        path = store.directory / "resolved" / (attempt.intent_id + ".json")
+        args = {"address": MINT, "amount_sol": .1, "paper": True}
+        if fault == "missing": path.unlink()
+        elif fault == "corrupt": path.write_text("{", encoding="utf-8")
+        elif fault in {"different_address", "dispatch"}:
+            row = json.loads(path.read_text())
+            if fault == "different_address": row["address"] = "OtherMint"
+            else: row["execution"] = {"dispatch_started": {}}
+            path.write_text(json.dumps(row), encoding="utf-8")
+        elif fault == "response": response["signature"] = "NO_JUP_ORDER"
+        elif fault == "caller_address": args["address"] = "OtherMint"
+        elif fault == "caller_size": args["amount_sol"] = .2
+        elif fault == "caller_paper": args["paper"] = False
+        with pytest.raises(BuyOutcomeUncertain): attempt.observation_deferral_reason(response, **args)
+    assert store.pending_addresses == {MINT}
+
+
+@pytest.mark.parametrize("signature", ["HIGH_IMPACT", "INVALID_IMPACT_LIMIT", "INVALID_AMOUNT", "INSUFFICIENT_FUNDS"])
+def test_checked_policy_or_capital_rejections_are_not_observation_retries(tmp_path, signature):
+    store = BuyRecoveryStore(tmp_path / "journal")
+    with store.scope():
+        attempt = store.begin(Position(address=MINT, dry_run=True, buy_amount_sol=.1), paper=True, amount_sol=.1)
+        response = {"qty_lamports": 0, "signature": signature}
+        attempt.receive(response)
+        assert attempt.observation_deferral_reason(response, address=MINT, amount_sol=.1, paper=True) is None
+    assert not store.pending_addresses
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("signature", ["NO_ROUTE", "NO_JUP_PRICE", "NO_JUP_ROUTE", "NO_JUP_ORDER"])
+async def test_actual_execution_tail_defers_proved_preparation_without_failure_feedback(tmp_path, signature):
+    from test_entry_observation import run_function
+    store = BuyRecoveryStore(tmp_path / "journal")
+    response = {"qty_lamports": 0, "signature": signature}
+    fake_buyer = SimpleNamespace(buy=AsyncMock(return_value=response))
+    namespace = execution_tail_namespace(tmp_path, store, fake_buyer)
+    waits, queues, execution_feedback, bootstrap = [], [], [], []
+    namespace.update(_pending_ai_vectors={MINT: {"original": True}},
+        _research_decision=lambda *a, **k: waits.append(k),
+        _ensure_requeue_with_stats=lambda *a, **k: queues.append(k),
+        _remove_from_queue_if_present=lambda *a: pytest.fail("proved no-send candidate was permanently removed"),
+        strategy_runtime=SimpleNamespace(record_execution=lambda *a: execution_feedback.append(a)),
+        log_execution_event=lambda *a, **k: pytest.fail("no-send created negative execution feedback"),
+        _record_paper_bootstrap_event=lambda event, *a, **k: bootstrap.append(event))
+    exec(compile(ast.Module(body=[run_function("_defer_entry_observation")], type_ignores=[]), "run_bot.py", "exec"), namespace)
+    session = SimpleNamespace(add=lambda *a: pytest.fail("no-fill created SQL position"), commit=AsyncMock())
+    with store.scope(): await namespace["execution_tail"]({"address": MINT}, session)
+    assert fake_buyer.buy.await_count == 1 and not store.pending_addresses
+    assert not execution_feedback and not namespace["_pending_ai_vectors"]
+    assert waits == [{"action": "wait", "reason": "entry_observation:buy_preparation:" + signature.lower(),
+        "stage": "execution_preparation", "dedup_ttl_s": 5}]
+    assert queues[0]["backoff"] == 5 and queues[0]["reason"] == waits[0]["reason"]
+    assert bootstrap == ["actual_paper_buy_attempt", "actual_paper_buy_deferred"]
+    namespace["_open_shadow"].assert_not_awaited()
+    session.commit.assert_not_awaited()
+    durable = json.loads(next((store.directory / "resolved").glob("*.json")).read_text())
+    assert durable["state"] == "no_fill" and durable["rejection"] == signature
+    assert "execution" not in durable and durable["amount_sol"] == .1
+
+
+@pytest.mark.asyncio
+async def test_actual_execution_tail_uncertain_zero_quantity_remains_quarantined_not_requeued(tmp_path):
+    store = BuyRecoveryStore(tmp_path / "journal")
+    fake_buyer = SimpleNamespace(buy=AsyncMock(return_value={"qty_lamports": 0, "signature": "UNKNOWN"}))
+    namespace = execution_tail_namespace(tmp_path, store, fake_buyer)
+    removed, errors = [], []
+    namespace.update(_defer_entry_observation=lambda *a, **k: pytest.fail("uncertain execution requeued"),
+        _remove_from_queue_if_present=lambda address: removed.append(address),
+        strategy_runtime=SimpleNamespace(record_execution=lambda *a: pytest.fail("unknown fill became negative feedback")),
+        _note_runtime_error=lambda category, *a: errors.append(category))
+    with store.scope(): await namespace["execution_tail"]({"address": MINT}, SimpleNamespace())
+    assert store.pending_addresses == {MINT} and removed == [MINT] and errors == ["buy_recovery_pending"]
+    assert BuyRecoveryStore(store.directory).pending_addresses == {MINT}

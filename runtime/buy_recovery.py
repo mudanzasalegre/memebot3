@@ -31,6 +31,7 @@ NO_EXECUTION_SIGNATURES = {"SIMULATION", "OUT_OF_WINDOW", "LIMIT_REACHED", "INSU
     "INVALID_AMOUNT", "INVALID_IMPACT_LIMIT", "INVALID_GAS_RESERVE", "NO_JUP_ORDER", "EXACT_PAPER_SIZE_REQUIRED", "POSITION_ALREADY_OPEN",
     "ENTRY_PRICE_OR_NOTIONAL_UNAVAILABLE", "QUOTE_PROOF_MISSING", "QUOTED_OUTPUT_TOO_SMALL",
     "PAPER_ARCHIVE_UNAVAILABLE", "ENTRY_INTENT_ALREADY_USED"}
+OBSERVATION_DEFERRAL_SIGNATURES = frozenset({"NO_ROUTE", "NO_JUP_PRICE", "NO_JUP_ROUTE", "NO_JUP_ORDER"})
 FILL_FIELDS = ("qty_lamports", "signature", "buy_price_usd", "price_source", "price_confidence",
                "entry_notional_usd", "runner_trailing_policy", "venue", "execution_receipt")
 
@@ -128,6 +129,35 @@ class BuyAttempt:
         from runtime.execution_provenance import execution_scope, append_evidence
         return execution_scope(lambda stage, evidence: append_evidence(self, stage, evidence, side="buy"))
 
+    def observation_deferral_reason(self, response: Mapping[str, Any], *, address: str,
+                                    amount_sol: float, paper: bool) -> str | None:
+        """Only a durable original no-send rejection may reenter the decision queue.
+
+        Response flags/zero quantity alone cannot establish this. Sent, filled,
+        uncertain, conflicting or unreadable journals never authorize a retry.
+        """
+        if self.row.get("state") != "no_fill" or self.row.get("rejection") not in OBSERVATION_DEFERRAL_SIGNATURES:
+            return None
+        from utils.raw_units import sol_to_lamports
+        if (not isinstance(response, Mapping) or type(response.get("qty_lamports")) is not int
+                or response["qty_lamports"] != 0 or response.get("signature") != self.row["rejection"]
+                or self.row["address"] != address or self.row["paper"] is not paper
+                or sol_to_lamports(amount_sol) != sol_to_lamports(self.row["amount_sol"])):
+            self.store._quarantined_addresses.add(self.row["address"])
+            raise BuyOutcomeUncertain("Observation rejection differs from the original buy intent")
+        path = self.store.directory / "resolved" / (self.intent_id + ".json")
+        if not path.exists():
+            path = self.store.directory / (self.intent_id + ".json")
+        try:
+            persisted = read_json_strict(path)
+            self.store._validate_row(persisted)
+            if persisted != self.row:
+                raise ValueError("Durable original rejection changed")
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            self.store._quarantined_addresses.add(self.row["address"])
+            raise BuyOutcomeUncertain("Observation rejection lacks a durable original no-send record") from exc
+        return "buy_preparation:" + self.row["rejection"].lower()
+
     def capture_position(self, position: Position) -> None:
         if self.row["state"] != "fill_received":
             raise BuyRecoveryError("No positive buy result to persist")
@@ -147,6 +177,7 @@ class BuyRecoveryStore:
         self.directory = Path(directory)
         self._records: dict[str, dict[str, Any]] = {}
         self._active: set[str] = set()
+        self._quarantined_addresses: set[str] = set()
         self._scope = contextvars.ContextVar(f"buy-recovery-scope:{id(self)}", default=None)
         for path in sorted(self.directory.glob("*.json")):
             try:
@@ -173,6 +204,12 @@ class BuyRecoveryStore:
             raise ValueError("Buy recovery base identity mismatch")
         from runtime.execution_provenance import validate_journal
         validate_journal(row, side="buy")
+        if row["state"] == "no_fill" and (
+                not (row.get("rejection") in NO_EXECUTION_SIGNATURES or (
+                    row["paper"] and row.get("reconciliation") == "confirmed_paper_store_absent"))
+                or any(key in row for key in ("fill", "position", "position_id"))
+                or "dispatch_started" in (row.get("execution") or {})):
+            raise ValueError("A no-fill buy journal has no original pre-execution rejection")
         if "entry_features" in row:
             from runtime.trade_learning import validate_entry_features, _time as feature_time
             try:
@@ -238,7 +275,7 @@ class BuyRecoveryStore:
 
     @property
     def pending_addresses(self) -> set[str]:
-        return {row["address"] for key, row in self._records.items() if key not in self._active}
+        return self._quarantined_addresses | {row["address"] for key, row in self._records.items() if key not in self._active}
 
     def begin(self, position: Position, *, paper: bool, amount_sol: float,
               feature_vector=None, positive_pnl_ratio=0., auxiliary_observations=None,

@@ -21,6 +21,7 @@ from execution import chain_reconciliation
 from utils import solana_execution
 from runtime import execution_provenance
 from utils import jupiter_access
+from execution.quote_observation import rejection_metadata
 
 log = logging.getLogger("jupiter_router")
 
@@ -158,6 +159,29 @@ def _normalize_query_params(d: Mapping[str, Any]) -> dict[str, str]:
 
 
 _MAX_QUOTE_ROUTE_STEPS = 128
+
+
+async def _read_route_error(response) -> dict:
+    """Bounded, duplicate-free negative envelope; never log response text."""
+    chunks, size, maximum = [], 0, 65536
+    while True:
+        chunk = await response.content.read(min(8192, maximum + 1 - size))
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > maximum:
+            raise ValueError("Quote rejection exceeds bound")
+        chunks.append(chunk)
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Ambiguous quote rejection")
+            result[key] = value
+        return result
+
+    return json.loads(b"".join(chunks), object_pairs_hook=unique)
 
 
 def _extract_price_impact_bps(data: Dict[str, Any]) -> Optional[float]:
@@ -378,6 +402,14 @@ async def get_quote(
                     jupiter_access.observe(url, api_key=JUP_API_KEY, response=resp)
                     if resp.status != 200:
                         log.debug("[jupiter_router] quote unavailable (HTTP %s)", resp.status)
+                        if resp.status == 400 and url == _API_QUOTE_URL:
+                            data = await _read_route_error(resp)
+                            metadata = rejection_metadata(data, url=url, status=resp.status,
+                                input_mint=input_mint, output_mint=output_mint, amount=amount_lamports,
+                                slippage=slippage, direct=only_direct_routes)
+                            if metadata is not None:
+                                return QuoteResult(False, None, None, None, metadata,
+                                    {"errorCode": metadata["errorCode"]})
                         return QuoteResult(False, None, None, None, {"status": resp.status}, {"status": resp.status})
                     data = await resp.json(content_type=None)
         except Exception as exc:

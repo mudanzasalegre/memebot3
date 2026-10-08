@@ -44,6 +44,8 @@ from utils.sol_price import amount_sol_to_usd, get_sol_usd
 from utils.runtime_context import runtime_context_payload
 from trade_pnl import apply_partial_fill, summarize_trade
 from fetcher import jupiter_price, jupiter_router
+from execution.quote_observation import observe_quote
+from utils.raw_units import sol_to_lamports
 from research_loop import runner_forward
 from runtime.paper_entry_policy import snapshot as entry_policy_snapshot
 from utils.atomic_json import read_json_strict, write_json_atomic
@@ -328,29 +330,26 @@ def quote_impact_limit_pct(cfg: Any = None) -> float | None:
 
 async def _has_jupiter_route(token_mint: str, amount_sol: float = 0.1, *, proof: dict | None = None) -> tuple[Optional[bool], str]:
     """
-    Intenta averiguar si Jupiter tiene **ruta ejecutable**.
-    Preferimos un método enriquecido si existe; fallback: derivar de get_usd_price().
-    Devuelve (has_route | None si indeterminado, status_str).
+    Cotización reciente para el importe exacto; nunca permiso por un precio.
+    None significa observación desconocida, no ausencia de ruta.
     """
     # A Price API response proves a price, NOT an executable swap route.
     try:
         quote = await jupiter_router.get_quote(input_mint=SOL_MINT, output_mint=token_mint, amount_sol=amount_sol)
-        if not quote.ok:
-            return False, "NO_QUOTE"
-        if quote.in_amount != int(amount_sol * 1e9) or not quote.out_amount or quote.out_amount <= 0:
-            return False, "INVALID_QUOTE_AMOUNTS"
-        impact = quote.price_impact_bps
-        if impact is None or not math.isfinite(impact):
-            return False, "IMPACT_UNKNOWN"
+        observed = observe_quote(quote, input_mint=SOL_MINT, output_mint=token_mint,
+            amount=sol_to_lamports(amount_sol), slippage=jupiter_router.DEFAULT_SLIPPAGE_BPS)
+        if observed.has_route is not True:
+            return observed.has_route, "NO_ROUTE" if observed.has_route is False else "QUOTE_UNVERIFIED"
+        impact = observed.price_impact_bps
         limit = quote_impact_limit_pct()
         if limit is None:
             return False, "IMPACT_LIMIT_UNKNOWN"
         if abs(impact) / 100 > limit:
             return False, "HIGH_QUOTE_IMPACT"
         if proof is not None:
-            proof.update({"out_amount": quote.out_amount, "in_amount": quote.in_amount,
+            proof.update({"out_amount": observed.out_amount, "in_amount": observed.in_amount,
                           "impact_bps": impact, "max_impact_pct": limit,
-                          "route_count": (getattr(quote, "other", None) or {}).get("routePlan_len", 0)})
+                          "route_count": observed.route_count})
         return True, "QUOTE_OK"
     except Exception:
         return None, "ERR"
@@ -611,13 +610,14 @@ async def _buy_owned(
         has_route, status = None, "ERR"
 
     if require_exact_quote and (has_route is not True or not route_proof):
+        rejection = {"HIGH_QUOTE_IMPACT": "HIGH_IMPACT", "IMPACT_LIMIT_UNKNOWN": "INVALID_IMPACT_LIMIT"}.get(status, "NO_ROUTE")
         log.warning(
             "[trader] BUY bloqueado: sin ruta Jupiter (mint=%s, src=paper, reason=no_route)",
             mint_key[:6],
         )
         return {
             "qty_lamports": 0,
-            "signature": "NO_ROUTE",
+            "signature": rejection,
             "route": {},
             "buy_price_usd": 0.0,
             "peak_price": 0.0,

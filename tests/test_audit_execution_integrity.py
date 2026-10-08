@@ -12,6 +12,8 @@ from analytics.forward_evidence import collect_forward_evidence, forward_accepta
 from analytics.paper_bootstrap import _observed_bool, _quality_failures
 from fetcher.dexscreener import _norm_from_pair
 from trader import papertrading as paper
+from fetcher import jupiter_router as router
+from test_jupiter_quote_contract import payload, hop, AMOUNT, TOKEN
 
 
 MINT = "So11111111111111111111111111111111111111112"
@@ -152,7 +154,7 @@ async def test_price_api_success_is_not_a_quote_route(isolated_paper, monkeypatc
     # Restore the real route checker, while the price endpoint still returns $1.
     monkeypatch.setattr(paper.jupiter_router, "get_quote", AsyncMock(return_value=SimpleNamespace(ok=False)))
     # isolated fixture patches this symbol: use original implementation below via saved reference.
-    assert (await REAL_ROUTE_CHECK(MINT, 0.1))[0] is False
+    assert (await REAL_ROUTE_CHECK(MINT, 0.1))[0] is None
 
 
 REAL_ROUTE_CHECK = paper._has_jupiter_route
@@ -160,15 +162,18 @@ REAL_ROUTE_CHECK = paper._has_jupiter_route
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("in_amount,out_amount,impact,expected", [
-    (100000000, 100, 1, True), (50000000, 100, 1, False),
-    (100000000, 0, 1, False), (100000000, 100, None, False),
-    (100000000, 100, float("nan"), False), (100000000, 100, 5000, False),
+    (100000000, 100, 1, True), (50000000, 100, 1, None),
+    (100000000, 0, 1, None), (100000000, 100, None, None),
+    (100000000, 100, float("nan"), None), (100000000, 100, 5000, False),
 ])
 async def test_fresh_quote_checks_exact_size_output_and_impact(monkeypatch, in_amount, out_amount, impact, expected):
-    mocked = AsyncMock(return_value=SimpleNamespace(ok=True, in_amount=in_amount, out_amount=out_amount, price_impact_bps=impact))
+    body = payload(amount=in_amount, output=out_amount)
+    body["priceImpactPct"] = str(impact / 10000) if impact is not None else None
+    quote = router._checked_quote(body, input_mint=MINT, output_mint=TOKEN, amount=AMOUNT, slippage=100, direct=False)
+    mocked = AsyncMock(return_value=quote)
     monkeypatch.setattr(paper.jupiter_router, "get_quote", mocked)
-    assert (await REAL_ROUTE_CHECK(MINT, 0.1))[0] is expected
-    mocked.assert_awaited_once_with(input_mint=MINT, output_mint=MINT, amount_sol=0.1)
+    assert (await REAL_ROUTE_CHECK(TOKEN, 0.1))[0] is expected
+    mocked.assert_awaited_once_with(input_mint=MINT, output_mint=TOKEN, amount_sol=0.1)
 
 
 def test_dedupe_preserves_repeat_trades_case_and_net_costs():
@@ -232,10 +237,17 @@ async def test_exact_quote_units_and_reverse_exit_are_accounted_end_to_end(isola
     async def quote(**kwargs):
         if kwargs["input_mint"] == MINT:
             assert kwargs["amount_sol"] == 0.1
-            return SimpleNamespace(ok=True, in_amount=100000000, out_amount=2000000, price_impact_bps=1)
-        assert kwargs["input_mint"] == token
-        return SimpleNamespace(ok=reverse_ok, in_amount=kwargs["amount_lamports"],
-                               out_amount=int(kwargs["amount_lamports"] / 2000000 * 100000000), price_impact_bps=1)
+            amount, output, source, target = AMOUNT, 2000000, MINT, token
+        else:
+            assert kwargs["input_mint"] == token
+            amount, source, target = kwargs["amount_lamports"], token, MINT
+            output = amount * AMOUNT // 2000000
+            if not reverse_ok:
+                return router.QuoteResult(False, None, None, None, {}, {})
+        body = payload(amount=amount, output=output)
+        body.update(inputMint=source, outputMint=target)
+        body["routePlan"] = [hop(source, target, amount, output)]
+        return router._checked_quote(body, input_mint=source, output_mint=target, amount=amount, slippage=100, direct=False)
 
     monkeypatch.setattr(paper, "_has_jupiter_route", REAL_ROUTE_CHECK)
     monkeypatch.setattr(paper.jupiter_router, "get_quote", quote)
