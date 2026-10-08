@@ -42,6 +42,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+from decimal import Decimal
 from typing import Dict, Final, Optional, Tuple
 
 from config.config import CFG
@@ -484,21 +485,18 @@ async def buy(
                 max_price_impact_pct=_IMPACT_MAX_PCT_DEFAULT,
                 max_wallet_fee_lamports=_GAS_RESERVE_LAMPORTS,
             )
-            order = dict(managed_resp.get("order") or {})
             route = dict(managed_resp.get("route") or {})
-            # The quote is not the received balance: use only checked execute
-            # wallet-output units, retaining their provider-only provenance.
+            receipt = managed_resp["execution_receipt"]
+            # Quantities are independently reconciled; the USD conversion is
+            # still an estimate at observation time, not an on-chain USD price.
             qty_lp = _raw_token_units(managed_resp.get("qty_lamports"))
             _validate_submission(qty_lp, managed_resp.get("signature"))
 
-            buy_price_usd, price_src = await _resolve_buy_price_usd(
-                token_mint=mint_key,
-                amount_sol=amount_sol,
-                tokens_received=None,
-                ds_price_usd=price_hint,
-                jupiter_prefetch=jup_price_prefetch,
-            )
             entry_notional_usd = await _resolve_entry_notional_usd(amount_sol)
+            if not isinstance(entry_notional_usd, (int, float)) or isinstance(entry_notional_usd, bool) or not math.isfinite(entry_notional_usd) or entry_notional_usd <= 0:
+                raise ValueError("Executed buy has no valid SOL/USD valuation")
+            buy_price_usd = float(Decimal(str(entry_notional_usd)) * 10 ** receipt["output_decimals"] / qty_lp)
+            price_src = "chain_swap_sol_usd_estimate"
 
             return {
                 "qty_lamports": int(qty_lp),
@@ -510,7 +508,9 @@ async def buy(
                 "price_confidence": price_service.price_confidence_from_source(price_src, buy_price_usd),
                 "entry_notional_usd": float(entry_notional_usd),
                 "venue": "jupiter_managed",
-                "fill_verified": False,
+                "fill_verified": True,
+                "execution_receipt": receipt,
+                "financial_finality_verified": receipt["financial_finality_verified"],
             }
         except SwapPreparationError:
             return {"qty_lamports": 0, "signature": "NO_JUP_ORDER", "route": {},

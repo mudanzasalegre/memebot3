@@ -184,6 +184,8 @@ def build_recovery_record(
         "sell_signature": str(response.get("signature") or "") or None,
         "sell_venue": str(response.get("venue") or "") or None,
         "sell_qty": response.get("qty_sold"),
+        "execution_provenance": _json_value(response.get("execution_provenance")),
+        "execution_token_mint": str(getattr(position, "token_mint", None) or address),
         "position_snapshot": capture_position_snapshot(position),
         "trade_event": _json_value(dict(trade_event)),
         "telemetry": _json_value(dict(telemetry or {})),
@@ -380,6 +382,20 @@ def _validate_record(record: Mapping[str, Any]) -> None:
     before = record.get("expected_before_qty")
     if before is not None and (type(before) is not int or not 0 < before <= 2**63 - 1):
         raise ValueError("invalid pre-sell quantity")
+    proof = record.get("execution_provenance")
+    if proof is not None:
+        from execution import chain_reconciliation as chain
+        if not isinstance(proof, dict):
+            raise ValueError("Invalid close original execution provenance")
+        receipt = chain.validate_receipt(proof["capsule"], proof["provider_response"], proof["chain_receipt"])
+        request = proof["capsule"]["request"]
+        sold = receipt["actual_input_units"]
+        if (request["inputMint"] != record.get("execution_token_mint") or request["outputMint"] != chain.SOL
+                or receipt["provider_reported_signature"] != record.get("sell_signature")
+                or sold != record.get("sell_qty") or sold != event.get("qty")
+                or before is None or before < sold or record["position_snapshot"].get("qty") != before - sold
+                or event["event_type"] != ("partial_fill" if sold < before else "close")):
+            raise ValueError("Close accounting differs from original chain wallet fill")
 
 
 async def _candidate_events(session: AsyncSession, position_id: int, event_type: str) -> Iterable[TradeEvent]:

@@ -19,7 +19,8 @@ from test_jupiter_quote_contract import network, payload, Response, SOL, TOKEN, 
 @pytest.fixture
 def guarded(monkeypatch):
     response = {"signature": "synthetic", "qty_lamports": 1000, "order": {"outAmount": "1000"},
-                "route": {"quote": {"outAmount": "1000"}}}
+                "route": {"quote": {"outAmount": "1000"}},
+                "execution_receipt": {"output_decimals": 9, "financial_finality_verified": False}}
     managed, legacy = AsyncMock(return_value=response), AsyncMock(return_value=response)
     monkeypatch.setattr(buyer, "_JUP_ROUTER_AVAILABLE", True)
     monkeypatch.setattr(buyer, "jupiter", router)

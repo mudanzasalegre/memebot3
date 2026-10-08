@@ -127,7 +127,7 @@ def packet(encoded) -> VersionedTransaction:
 
 
 def check_order(data, request: ManagedRequest, *, max_price_impact_pct=None,
-                max_wallet_fee_lamports=None) -> CheckedOrder:
+                max_wallet_fee_lamports=None, historical: bool = False) -> CheckedOrder:
     if not isinstance(data, dict):
         raise ValueError("Managed order is not an object")
     raw = copy.deepcopy(data)
@@ -211,7 +211,8 @@ def check_order(data, request: ManagedRequest, *, max_price_impact_pct=None,
         allow_nan=False).encode("utf-8")).hexdigest()
     order = CheckedOrder(request, raw, transaction, opaque_id(raw.get("requestId")), threshold,
         float(impact), wallet_fee, fee_mint, str(height) if height else None, expiry, digest)
-    order.check_expiry()
+    if not historical:
+        order.check_expiry()
     return order
 
 

@@ -29,7 +29,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import math
 import os
+from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 
@@ -38,6 +40,7 @@ from analytics import runner_ladder
 import analytics.exit_policy as exit_policy
 from utils.time import parse_iso_utc
 from utils import price_service
+from utils.sol_price import get_sol_usd
 from fetcher import jupiter_price
 from runtime.sell_recovery import SellOutcomeUncertain
 
@@ -293,6 +296,8 @@ async def _sell_execute_prefer_jupiter(
                     "route": route_meta,
                     "ok": True,
                     "venue": "jupiter_managed",
+                    "execution_receipt": managed_resp["execution_receipt"],
+                    "fill_verified": True,
                 }
 
             # FIX: Jupiter quote espera amount_lamports (unidades del token input)
@@ -458,9 +463,21 @@ async def sell(
     venue = exec_payload.get("venue")
 
     # 2) Snapshot de cierre (robusto)
-    price_used, src_used = await _resolve_close_price_usd(
-        key_for_quote, price_hint=price_hint, price_source_hint=price_source_hint
-    )
+    receipt = exec_payload.get("execution_receipt")
+    if receipt is not None:
+        try:
+            sol_usd = await get_sol_usd()
+            if isinstance(sol_usd, bool) or not isinstance(sol_usd, (int, float)) or not math.isfinite(sol_usd) or sol_usd <= 0:
+                raise ValueError("Executed sell has no valid SOL/USD valuation")
+            proceeds = Decimal(receipt["actual_output_units"]) / 10**9 * Decimal(str(sol_usd))
+            price_used = float(proceeds * 10 ** receipt["input_decimals"] / receipt["actual_input_units"])
+            src_used = "chain_swap_sol_usd_estimate"
+        except Exception as exc:
+            raise SellOutcomeUncertain("Executed sell valuation needs reconciliation") from exc
+    else:
+        price_used, src_used = await _resolve_close_price_usd(
+            key_for_quote, price_hint=price_hint, price_source_hint=price_source_hint
+        )
 
     # Reintento suave si sigue vacío
     if price_used is None or price_used <= 0.0:
@@ -489,7 +506,10 @@ async def sell(
         "price_confidence_close": price_confidence_close,
         "venue": venue,
         "filled_at": datetime.now(timezone.utc).isoformat(),
-        "execution_evidence": "submission_only_not_chain_fill",
+        "execution_evidence": "rpc_confirmed_original_wallet_fill" if receipt else "submission_only_not_chain_fill",
+        "execution_receipt": receipt,
+        "fill_verified": receipt is not None,
+        "financial_finality_verified": bool(receipt and receipt["financial_finality_verified"]),
     }
 
 

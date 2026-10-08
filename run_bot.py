@@ -6954,16 +6954,17 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 entry_intent_id=attempt.intent_id,
             )
         else:
-            buy_resp = await buyer.buy(
-                addr,
-                amount_sol,
-                price_hint=token.get("price_usd"),
-                token_mint=token.get("address") or addr,
-                liquidity_usd=token.get("liquidity_usd"),
-                entry_regime=size_decision.regime,
-                entry_lane=token.get("entry_lane"),
-                discovered_via=token.get("discovered_via"),
-            )
+            with attempt.execution_scope():
+                buy_resp = await buyer.buy(
+                    addr,
+                    amount_sol,
+                    price_hint=token.get("price_usd"),
+                    token_mint=token.get("address") or addr,
+                    liquidity_usd=token.get("liquidity_usd"),
+                    entry_regime=size_decision.regime,
+                    entry_lane=token.get("entry_lane"),
+                    discovered_via=token.get("discovered_via"),
+                )
         attempt.receive(buy_resp)
     except Exception as exc:
         # No false failed-fill/shadow label: this call may have executed before
@@ -7641,7 +7642,8 @@ async def _sell_position_guarded(pos: Position, quantity: int, *, reason: str,
         if DRY_RUN:
             kwargs.update(exit_intent_id=attempt.intent_id, exit_reason=reason,
                           partial_ladder_plan=attempt.row.get("partial_plan"))
-        response = await seller.sell(pos.address, quantity, **kwargs)
+        with attempt.execution_scope():
+            response = await seller.sell(pos.address, quantity, **kwargs)
         checked = attempt.receive(response)
         if checked is None:
             return response

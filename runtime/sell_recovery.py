@@ -22,7 +22,7 @@ STATES = TERMINAL | {"prepared", "fill_received", "sql_prepared"}
 NO_FILL = {"INVALID_ADDRESS", "INVALID_MINT", "NO_QTY", "SKIP_LOW_LIQ", "INVALID_QUANTITY",
            "EXIT_QUOTE_UNAVAILABLE", "EXIT_PRICE_UNAVAILABLE", "FEE_VALUATION_UNAVAILABLE"}
 FILL_FIELDS = ("signature", "price_used_usd", "price_source_close", "price_confidence_close",
-               "qty_sold", "qty_left", "partial", "filled_at", "venue")
+               "qty_sold", "qty_left", "partial", "filled_at", "venue", "execution_receipt")
 LINEAGE = ("entry_intent_id", "buy_signature", "entry_qty", "buy_price_usd", "amount_sol",
            "entry_notional_usd", "opened_at", "run_id")
 
@@ -65,12 +65,18 @@ class SellAttempt:
         self.store._write(row)
         self.row = row
 
+    def execution_scope(self):
+        from runtime.execution_provenance import execution_scope, append_evidence
+        return execution_scope(lambda stage, evidence: append_evidence(self, stage, evidence, side="sell"))
+
     def receive(self, response):
         if self.row["state"] not in {"prepared", "fill_received"}:
             raise SellRecoveryError("Sell receipt cannot rewind a prepared SQL/terminal state")
         if not isinstance(response, Mapping):
             raise SellOutcomeUncertain("Sell response is missing")
         if response.get("ok") is False:
+            if "dispatch_started" in (self.row.get("execution") or {}):
+                raise SellOutcomeUncertain("A dispatch-started original sell cannot become a pre-execution rejection")
             if self.row["state"] == "fill_received":
                 raise SellOutcomeUncertain("A received sell fill cannot become a rejection")
             code = str(response.get("error") or response.get("err") or response.get("signature") or "")
@@ -80,14 +86,30 @@ class SellAttempt:
                 raise SellOutcomeUncertain("Sell rejection does not prove submission absent")
             self.save(state="no_fill", rejection=code)
             return None
+        response = dict(response)
+        if not self.row["paper"]:
+            from runtime.execution_provenance import checked_live_fill
+            try:
+                receipt = checked_live_fill(self.row, response, side="sell")
+                sold = receipt["actual_input_units"]
+                derived = {"qty_sold": sold, "qty_left": self.row["before"]["qty"] - sold,
+                    "partial": sold < self.row["before"]["qty"]}
+                if any(key in response and response[key] != value for key, value in derived.items()):
+                    raise ValueError("Sell response quantity differs from original chain fill")
+                response.update(derived)
+            except (ValueError, KeyError, TypeError) as exc:
+                raise SellOutcomeUncertain("Sell has no owned independent wallet fill") from exc
         fill = {key: response.get(key) for key in FILL_FIELDS}
         fill["filled_at"] = fill.get("filled_at") or now_iso()
         self.store.validate_fill(self.row, fill)
         if self.row["state"] == "fill_received" and self.row.get("fill") != fill:
             raise SellOutcomeUncertain("Sell receipt conflicts with the persisted fill")
         self.save(state="fill_received", fill=fill)
-        return {**dict(response), **fill, "_sell_intent_id": self.intent_id,
-                "_qty_before": self.row["before"]["qty"]}
+        checked = {**dict(response), **fill, "_sell_intent_id": self.intent_id,
+                   "_qty_before": self.row["before"]["qty"]}
+        if self.row.get("execution") is not None:
+            checked["execution_provenance"] = copy.deepcopy(self.row["execution"])
+        return checked
 
 
 class SellRecoveryStore:
@@ -116,6 +138,11 @@ class SellRecoveryStore:
                 or type(fill.get("partial")) is not bool or fill["partial"] is not (requested < before_qty)):
             raise SellOutcomeUncertain("Sell quantity/price/identity is not a checked fill")
         _time(fill.get("filled_at"))
+        if row.get("execution") is not None:
+            from runtime.execution_provenance import checked_live_fill
+            receipt = checked_live_fill(row, fill, side="sell")
+            if fill["qty_sold"] != receipt["actual_input_units"]:
+                raise ValueError("Durable sell quantity differs from original chain receipt")
 
     @staticmethod
     def validate_row(row):
@@ -134,11 +161,15 @@ class SellRecoveryStore:
             raise ValueError("Invalid sell intent")
         if row["state"] in {"fill_received", "sql_prepared", "resolved"}:
             SellRecoveryStore.validate_fill(row, row.get("fill"))
+        from runtime.execution_provenance import validate_journal
+        validate_journal(row, side="sell")
         if row["state"] in {"sql_prepared", "resolved"}:
             record = row.get("sql_record")
             if (not isinstance(record, Mapping) or record.get("recovery_id") != row["intent_id"]
                     or record.get("position_id") != row["position_id"] or record.get("address") != row["address"]):
                 raise ValueError("Sell SQL recovery identity mismatch")
+            if row.get("execution") is not None and record.get("execution_provenance") != row["execution"]:
+                raise ValueError("Sell SQL recovery lost original chain provenance")
             fill, event, snapshot = row["fill"], record.get("trade_event"), record.get("position_snapshot")
             if (not isinstance(event, Mapping) or not isinstance(snapshot, Mapping)
                     or record.get("expected_before_qty") != row["before"]["qty"]

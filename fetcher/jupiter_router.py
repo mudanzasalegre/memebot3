@@ -17,6 +17,9 @@ from urllib.parse import urlsplit
 from utils.raw_units import U64_MAX as _U64_MAX, raw_uint as _raw_uint, sol_to_lamports
 from runtime.owned_dispatch import run_owned_sync
 from execution import jupiter_managed_contract as managed_contract
+from execution import chain_reconciliation
+from utils import solana_execution
+from runtime import execution_provenance
 
 log = logging.getLogger("jupiter_router")
 
@@ -473,11 +476,19 @@ async def execute_order(*, signed_transaction: str, request_id: str,
             return await resp.json(content_type=None)
 
 
-def _execute_managed_once(signed_transaction, request_id, height):
+def _execute_managed_once(signed_transaction, order, binding, capsule, observation_url):
     # Its own HTTP loop lives entirely in an owned executor invocation. Parent
     # cancellation cannot abandon a POST or publish stopped while it settles.
-    return asyncio.run(execute_order(signed_transaction=signed_transaction,
-        request_id=request_id, last_valid_block_height=height))
+    async def execute_and_check():
+        execution_provenance.record("dispatch_started", {"capsule_sha256": capsule["sha256"]})
+        response = await execute_order(signed_transaction=signed_transaction,
+            request_id=order.request_id, last_valid_block_height=order.last_valid_block_height)
+        response, _ = managed_contract.check_execution(response, order, binding)
+        execution_provenance.record("provider_response", response)
+        receipt = await solana_execution.reconcile_original(capsule, response, endpoint=observation_url)
+        execution_provenance.record("chain_receipt", receipt)
+        return response, receipt
+    return asyncio.run(execute_and_check())
 
 
 async def execute_managed_swap(
@@ -492,7 +503,8 @@ async def execute_managed_swap(
 ) -> Dict[str, Any]:
     """One checked Swap v2 order, pure owned signing and one owned execute.
 
-    Checked provider quantities remain explicitly unverified by chain/wallet.
+    An independent RPC must confirm the original message and wallet deltas.
+    Confirmed fills are manageable positions, not finalized learning evidence.
     No automatic order rebuild, POST retry or response-as-financial-proof.
     """
     try:
@@ -508,6 +520,7 @@ async def execute_managed_swap(
             raise ValueError("Invalid original wallet fee bound")
         managed_contract.endpoint(JUP_ORDER_URL, "order")
         managed_contract.endpoint(JUP_EXECUTE_URL, "execute")
+        observation_url = solana_execution.configured_endpoint()  # Freeze before signing/sending.
         raw_order = await get_order(input_mint=request.input_mint, output_mint=request.output_mint,
             amount_lamports=request.amount, taker=request.taker, slippage_bps=request.slippage)
         order = managed_contract.check_order(raw_order, request,
@@ -516,12 +529,15 @@ async def execute_managed_swap(
         signed_transaction = await run_owned_sync(sol_signer.sign_base64_transaction, order.raw["transaction"])
         binding = managed_contract.check_signed_packet(order, signed_transaction)
         order.check_expiry()
+        capsule = chain_reconciliation.make_capsule(order, signed_transaction, binding,
+            rpc_source_sha256=solana_execution.endpoint_fingerprint(observation_url),
+            max_wallet_fee_lamports=max_wallet_fee_lamports)
+        execution_provenance.record("prepared_submission", capsule)
     except Exception as exc:
         raise SwapPreparationError("Managed order preparation failed before execute POST") from exc
     try:
-        response = await run_owned_sync(_execute_managed_once, signed_transaction, order.request_id,
-            order.last_valid_block_height)
-        execute_response, receipt = managed_contract.check_execution(response, order, binding)
+        execute_response, receipt = await run_owned_sync(_execute_managed_once, signed_transaction,
+            order, binding, capsule, observation_url)
     except Exception as exc:
         raise SwapSubmissionUncertain("Managed execution needs reconciliation; no new order sent") from exc
     route_meta = {"router": f"jupiter_managed:{order.raw['router']}", "requestId": order.request_id,
@@ -530,7 +546,8 @@ async def execute_managed_swap(
         "execution_receipt": receipt}
     return {"signature": execute_response["signature"], "qty_lamports": receipt["total_output_units"],
         "route": route_meta, "order": order.raw, "execute": execute_response,
-        "execution_receipt": receipt, "fill_verified": False}
+        "execution_receipt": receipt, "submission_capsule": capsule,
+        "fill_verified": True, "financial_finality_verified": receipt["financial_finality_verified"]}
 
 
 async def execute_swap(

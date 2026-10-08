@@ -32,7 +32,7 @@ NO_EXECUTION_SIGNATURES = {"SIMULATION", "OUT_OF_WINDOW", "LIMIT_REACHED", "INSU
     "ENTRY_PRICE_OR_NOTIONAL_UNAVAILABLE", "QUOTE_PROOF_MISSING", "QUOTED_OUTPUT_TOO_SMALL",
     "PAPER_ARCHIVE_UNAVAILABLE", "ENTRY_INTENT_ALREADY_USED"}
 FILL_FIELDS = ("qty_lamports", "signature", "buy_price_usd", "price_source", "price_confidence",
-               "entry_notional_usd", "runner_trailing_policy", "venue")
+               "entry_notional_usd", "runner_trailing_policy", "venue", "execution_receipt")
 
 
 class BuyRecoveryError(RuntimeError):
@@ -91,22 +91,42 @@ class BuyAttempt:
         self.row = row
 
     def receive(self, response: Mapping[str, Any]) -> None:
+        if self.row["state"] not in {"prepared", "fill_received"}:
+            raise BuyRecoveryError("Buy receipt cannot rewind a prepared SQL/terminal state")
         if not isinstance(response, Mapping):
             raise BuyOutcomeUncertain("Buy returned no structured outcome")
         qty = response.get("qty_lamports")
         if isinstance(qty, int) and not isinstance(qty, bool) and qty == 0:
+            if "dispatch_started" in (self.row.get("execution") or {}):
+                raise BuyOutcomeUncertain("A dispatch-started original buy cannot become a pre-execution rejection")
+            if self.row["state"] == "fill_received":
+                raise BuyOutcomeUncertain("A received buy fill cannot become a rejection")
             if str(response.get("signature") or "") not in NO_EXECUTION_SIGNATURES:
                 raise BuyOutcomeUncertain("Zero quantity has no proven pre-execution rejection")
             self._save(state="no_fill", rejection=str(response["signature"]))
             return
         if not isinstance(qty, int) or isinstance(qty, bool) or not 0 < qty <= 2**63 - 1:
             raise BuyOutcomeUncertain("Buy quantity is not confirmed")
+        if not self.row["paper"]:
+            from runtime.execution_provenance import checked_live_fill
+            try:
+                receipt = checked_live_fill(self.row, response, side="buy")
+                if qty != receipt["actual_output_units"]:
+                    raise ValueError("Received buy quantity differs from chain")
+            except (ValueError, KeyError, TypeError) as exc:
+                raise BuyOutcomeUncertain("Buy has no owned independent wallet fill") from exc
         if (not _positive(response.get("buy_price_usd"))
                 or not _positive(response.get("entry_notional_usd"))
                 or not str(response.get("signature") or "").strip()):
             raise BuyOutcomeUncertain("Buy price, notional or signature is unconfirmed")
         fill = {key: response.get(key) for key in FILL_FIELDS}
+        if self.row["state"] == "fill_received" and self.row.get("fill") != fill:
+            raise BuyOutcomeUncertain("Buy receipt conflicts with the persisted fill")
         self._save(state="fill_received", fill=fill, fill_received_at=_now())
+
+    def execution_scope(self):
+        from runtime.execution_provenance import execution_scope, append_evidence
+        return execution_scope(lambda stage, evidence: append_evidence(self, stage, evidence, side="buy"))
 
     def capture_position(self, position: Position) -> None:
         if self.row["state"] != "fill_received":
@@ -151,6 +171,8 @@ class BuyRecoveryStore:
         if (base.get("address") != row["address"] or base.get("dry_run") is not row["paper"]
                 or base.get("buy_amount_sol") != row["amount_sol"]):
             raise ValueError("Buy recovery base identity mismatch")
+        from runtime.execution_provenance import validate_journal
+        validate_journal(row, side="buy")
         if "entry_features" in row:
             from runtime.trade_learning import validate_entry_features, _time as feature_time
             try:
@@ -173,6 +195,11 @@ class BuyRecoveryStore:
                     or not _positive(fill.get("buy_price_usd")) or not _positive(fill.get("entry_notional_usd"))
                     or not isinstance(fill.get("signature"), str) or not fill["signature"].strip()):
                 raise ValueError("Invalid received buy fill")
+            if row.get("execution") is not None:
+                from runtime.execution_provenance import checked_live_fill
+                receipt = checked_live_fill(row, fill, side="buy")
+                if fill["qty_lamports"] != receipt["actual_output_units"]:
+                    raise ValueError("Durable buy quantity differs from original chain receipt")
         if row["state"] in {"position_prepared", "persisted"}:
             if not isinstance(row.get("position"), Mapping):
                 raise ValueError("Missing buy position snapshot")

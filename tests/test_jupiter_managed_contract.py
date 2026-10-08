@@ -26,6 +26,7 @@ from runtime.sell_recovery import SellOutcomeUncertain
 from db.models import Position
 from trader import buyer, seller
 from test_live_signing_boundaries import signer, unsigned
+from chain_fixtures import INPUT_ACCOUNT, OUTPUT_ACCOUNT, POOL, evidence as rpc_evidence
 
 SOL = router.SOL_MINT
 TOKEN = str(Pubkey.new_unique())
@@ -33,13 +34,12 @@ AMOUNT = 100_000_000
 
 
 def order_payload(owner, *, token=TOKEN, amount=AMOUNT, router_name="metis", sponsor=None):
-    raw = unsigned(Pubkey.from_string(owner), "v0")
     payer = owner
-    if sponsor is not None:
-        payer = str(sponsor.pubkey())
-        ix = Instruction(Pubkey.new_unique(), b"synthetic", [AccountMeta(Pubkey.from_string(owner), True, False)])
-        message = MessageV0.try_compile(sponsor.pubkey(), [ix], [], Hash.new_unique())
-        raw = bytes(VersionedTransaction.populate(message, [Signature.default(), Signature.default()]))
+    if sponsor is not None: payer = str(sponsor.pubkey())
+    ix = Instruction(Pubkey.new_unique(), b"synthetic", [AccountMeta(Pubkey.from_string(owner), True, True),
+        AccountMeta(INPUT_ACCOUNT, False, True), AccountMeta(OUTPUT_ACCOUNT, False, True), AccountMeta(POOL, False, True)])
+    message = MessageV0.try_compile(Pubkey.from_string(payer), [ix], [], Hash.new_unique())
+    raw = bytes(VersionedTransaction.populate(message, [Signature.default()] * message.header.num_required_signatures))
     return {"inputMint": SOL, "outputMint": token, "inAmount": str(amount), "outAmount": "2000000",
         "otherAmountThreshold": "1980000", "swapMode": "ExactIn", "slippageBps": 100,
         "taker": owner, "mode": "manual", "router": router_name, "transactionVersion": 0,
@@ -58,7 +58,7 @@ def execution_payload(order, signer, *, sponsor=None):
     signature = (sponsor.sign_message(to_bytes_versioned(signed.message)) if sponsor is not None
         else signed.signatures[0])
     return {"status": "Success", "code": 0, "signature": str(signature), "slot": "456",
-        "totalInputAmount": order["inAmount"], "inputAmountResult": str(int(order["inAmount"]) - 50000),
+        "totalInputAmount": order["inAmount"], "inputAmountResult": str(int(order["inAmount"]) - min(50000, int(order["inAmount"]) // 2000)),
         "outputAmountResult": "1985000", "totalOutputAmount": "1985000"}
 
 
@@ -72,6 +72,11 @@ def managed(signer, monkeypatch):
     monkeypatch.setattr(router, "JUP_LEGACY_SWAP_ENABLED", True)
     monkeypatch.setattr(router, "JUP_ORDER_URL", "https://api.jup.ag/ultra/v1/order")
     monkeypatch.setattr(router, "JUP_EXECUTE_URL", "https://api.jup.ag/ultra/v1/execute")
+    monkeypatch.setattr(router.solana_execution, "configured_endpoint", lambda: "https://synthetic.invalid")
+    async def read(capsule, execution, *, endpoint):
+        tx, status = rpc_evidence(capsule, execution)
+        return router.chain_reconciliation.reconcile(capsule, execution, tx, status)
+    monkeypatch.setattr(router.solana_execution, "reconcile_original", read)
     return signer
 
 
@@ -117,7 +122,7 @@ async def test_current_v2_preserves_request_signed_message_and_actual_provider_u
     result = await router.execute_managed_swap(input_mint=SOL, output_mint=TOKEN,
         amount_lamports=AMOUNT, slippage_bps=100, max_price_impact_pct=8., max_wallet_fee_lamports=6000)
     assert result["qty_lamports"] == 1985000 != int(order["outAmount"])
-    assert result["signature"] == response["signature"] and result["fill_verified"] is False
+    assert result["signature"] == response["signature"] and result["fill_verified"] is True
     assert [call[:2] for call in http.calls] == [("GET", "https://api.jup.ag/swap/v2/order"),
         ("POST", "https://api.jup.ag/swap/v2/execute")]
     params = http.calls[0][2]["params"]
@@ -134,7 +139,7 @@ async def test_current_v2_preserves_request_signed_message_and_actual_provider_u
     assert len(receipt["original_order_sha256"]) == len(receipt["original_request_sha256"]) == 64
     assert receipt["total_input_units"] == AMOUNT and receipt["input_fee_units"] == 50000
     assert receipt["wallet_fee_estimate_lamports"] == 6000 and receipt["first_signature_bound"] is True
-    assert receipt["chain_wallet_verified"] is False and receipt["requires_reconciliation"] is True
+    assert receipt["chain_wallet_verified"] is True and receipt["requires_reconciliation"] is False
     assert result["route"]["execution_receipt"] == receipt and owned.pending_dispatch_count() == 0
 
 
@@ -307,7 +312,7 @@ async def test_sponsored_rfq_preserves_wallet_index_and_verifies_provider_added_
     assert receipt["provider_first_signature_verified"] is True
     assert receipt["first_signature_present_before_execute"] is presigned
     assert (receipt["expected_first_signature"] is not None) is presigned
-    assert receipt["chain_wallet_verified"] is False and receipt["requires_reconciliation"] is True
+    assert receipt["chain_wallet_verified"] is True and receipt["requires_reconciliation"] is False
     posted = VersionedTransaction.from_bytes(base64.b64decode(http.calls[1][2]["json"]["signedTransaction"]))
     assert posted.verify_with_results() == [presigned, True]
     assert receipt["wallet_fee_estimate_lamports"] == 0
@@ -379,7 +384,7 @@ async def test_actual_buyer_consumes_execute_quantity_not_quote_or_another_metis
     result = await buyer.buy("DisplayAlias", .1, token_mint=TOKEN)
     assert result["qty_lamports"] == 1985000 != int(order["outAmount"])
     assert result["route"]["execution_receipt"]["requested_input_units"] == AMOUNT
-    assert result["fill_verified"] is False and result["venue"] == "jupiter_managed"
+    assert result["fill_verified"] is True and result["venue"] == "jupiter_managed"
     assert [call[0] for call in http.calls] == ["GET", "POST"]
     precheck.assert_not_awaited()
     fallback.assert_not_awaited()

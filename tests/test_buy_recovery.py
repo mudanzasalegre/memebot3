@@ -228,7 +228,8 @@ async def test_live_restart_never_synthesizes_a_wallet_confirmed_position(tmp_pa
     store = BuyRecoveryStore(tmp_path / "journal")
     with store.scope():
         intent = store.begin(prototype(paper=False), paper=False, amount_sol=.1)
-        if stage != "prepared": intent.receive(fill(intent))
+        # Seed a pre-upgrade historical journal, not an accepted new live fill.
+        if stage != "prepared": intent._save(state="fill_received", fill=fill(intent))
         if stage == "position_prepared": intent.capture_position(filled_position(intent, paper=False))
     try:
         async with sessions() as session:

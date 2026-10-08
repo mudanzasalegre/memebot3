@@ -1,0 +1,63 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Connect independently queried Solana original-transaction and wallet-delta evidence to actual managed Jupiter execution, buyer/seller consumers, durable buy/sell owners and close replay. Synthetic keys, SDK packets, isolated journals and fake provider/RPC only. No operator signer, wallet/provider API call, runtime launch, training or active-policy change.",
+  "findings": [
+    "Provider-only execute quantities could become positive buy results; durable live receive previously required only quantity, price and a nonempty signature.",
+    "Original signed managed packets, original observation route and provider responses were not durably captured before/through submission cancellation.",
+    "Actual live seller omitted quantities required by its durable primary sell guard, and closure pricing could be a later spot hint rather than swap proceeds.",
+    "Close replay discarded the complete original chain receipt, and a later pre-execution rejection needed protection against erasing an earlier uncertain dispatch."
+  ],
+  "implementation": {
+    "original_capsule": "Before dispatch, freeze a checksummed public order/request, original signed packet, wallet/co-signature/message binding, original wallet reserve and fingerprint of the separately configured RPC endpoint. Validate the RPC route before signing; never write endpoint credentials to evidence. Historical capsule validation permits expired already-executed RFQs without relaxing either pre-submit expiry check.",
+    "durable_owner": "Use task-local existing intent scopes copied into owned workers. Fsync original capsule and a monotonic dispatch-started boundary before the POST, then provider response and independently checked receipt before worker completion. Reject duplicate/reordered stages, different mint/amount/side, mutated packets and conflicting quantities. Cancellation retains the actual buy/sell owner until POST and RPC observation settle. A later preparation rejection can never resolve a dispatch-started earlier intent as no-fill.",
+    "rpc_transport": "Two uncached read-only getTransaction(base64, confirmed, supported version0) and getSignatureStatuses(history) requests to one frozen configured node. Eight-second total deadlines per request, two-MiB response bounds, fragmented reads, unique JSON fields and matching RPC envelope IDs. No redirects, trade POST retry, signing, broadcast, order rebuild or forwarded Jupiter headers. Missing/null/failed observations remain uncertain.",
+    "proof": "Recheck original binary message and all required signatures, original first signature and unchanged prior co-signatures, original provider slot, success/error consistency and confirmed/finalized status. Reconcile strict uint64 native balances and complete owned SPL token-account deltas, known token programs, stable owner/mint/decimals, supported loaded-address counts, created/closed accounts and total native fee conservation. Measure SOL principal separately from payer network fees and observed lamports in owned token accounts. Reject unmatched input/output, missing ownership, unexpected wallet token changes, unexplained native movement/sponsorship and exceeded original fee/account-deposit reserve. Do not claim cryptographic block inclusion, lookup-table state, instruction intent, rent refundability or unknown external funding.",
+    "consumers": "Managed buyer consumes checked actual output and decimals; seller reports checked actual sold units and deterministic remaining bot-position quantity. Derive execution unit prices from measured swap units and a separately obtained SOL/USD estimate rather than later token spot hints. Preserve actual network fee/raw quantities and distinguish confirmed manageable position from finalized financial evidence. USD valuation remains an estimate; this stage does not implement certified live net-PnL or learning admission.",
+    "journals_and_close": "New positive live buy/sell receipts require the matching owned original RPC proof, not boolean verified flags. Existing historical live journals retain unknown provenance and remain quarantined on restart. Persist complete execution provenance into close outbox and recheck actual signature/mint/quantity/position snapshot during SQL replay. No new live recovery, policy activation or historical verification is fabricated.",
+    "unchanged": "Exact requested 0.1 SOL PAPER sizing, uncapped extreme-runner upside, existing capital/admission protections, operator environment, runtime data and active models/policies. Legacy Jupiter and GMGN still require equivalent original-chain integration; their unproved live fills cannot pass the new durable positive-fill boundary. Source-only C publishing checkout is not provisioned or launched."
+  },
+  "verification": {
+    "status": "PASS_SOFTWARE_ONLY_NO_PROFITABILITY_OR_LIVE_ACCEPTANCE",
+    "new_suite": "79 passed in 22.55s in D; same cases also pass in both complete suites",
+    "focused_suite": "542 passed in 35.92s across chain/managed SDK/owned dispatch/quote/buy/sell/close modules",
+    "working_full_suite": "3031 passed in 362.76s. Execution source unchanged during the run; critical preflight compile-list-only expansion was applied during this run and independently validated by final preflight in both checkouts and the later publishing full suite.",
+    "publishing_full_suite": "3031 passed in 343.50s on final source without personal .env, local .venv or runtime DB, using existing D Python dependencies",
+    "preflight": "PASS in both checkouts: zero compile errors including new modules, config returncode0, valid paper profile and seven empty-data report builders. No runtime launch or new-machine provisioning.",
+    "development_findings": "Corrected synthetic sponsor/small-sell balances, prior provider-only assertions and minimal buyer stub contracts. Repaired actual close-outbox proof loss and explicitly validated it. Initial focused failures are not acceptance evidence; final isolated, focused, complete and preflight checks pass.",
+    "qualification": "Synthetic software acceptance only. Real authenticated provider/node access, production latency/finality, unsigned instruction semantics, external rent sponsorship/tips, current-wallet restart recovery and prospective full-strategy profitability remain unverified."
+  },
+  "preservation": {
+    "stage_boundary_utc": "2026-10-08T11:35:00Z", "status": "CHECKED_UNCHANGED",
+    "working_checked_at_utc": "2026-10-08T12:11:20.8660323Z",
+    "publishing_checked_at_utc": "2026-10-08T12:11:20.8819309Z",
+    "protected_changed_file_counts_both_checkouts": {"models": 0, "ml/models": 0, "data/features": 0, "data/paper_closed_trades": 0, "data/learning/trade_closes": 0, "data/research": 0, "data/research_runs": 0, "data/metrics/buy_recovery": 0, "data/metrics/sell_recovery": 0, "data/paper_portfolio.json": 0, "active_policy.json": 0, "all_data_active_policy_json": 0, "root_compatibility_models_and_registry": 0, ".env": 0},
+    "runtime_started": false, "wallet_or_provider_api_calls": 0, "live_orders": 0, "active_model_trained_or_promoted": false,
+    "qualification": "Modification-time inventory since boundary, not a complete cryptographic census. Existing path enumeration fails on errors; missing C runtime paths contain no files. Requested stop updates log and authoritative stopped/idle SQL state."
+  },
+  "shutdown": {
+    "status": "VERIFIED_OFF", "stop_finalizer_at_utc": "2026-10-08T12:09:34Z", "stop_finalizer_exit_code": 0,
+    "killed": 0, "remaining": 0,
+    "process_task_service_inventory_at_utc": "2026-10-08T12:11:20.6045313Z",
+    "both_checkout_scoped_runtime_processes": 0, "global_bot_training_research_api_processes": 0,
+    "both_checkout_lock_files_present": 0,
+    "lock_paths_checked": ["bot.lock", "run_bot.lock", "data/bot.lock", "data/run_bot.lock"],
+    "memebot_scheduled_tasks": 0, "memebot_services": 0,
+    "sql_read_only_checked_at_utc": "2026-10-08T12:11:20.680166+00:00",
+    "sql_main": {"process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"},
+    "publishing_checkout": "Source only, without personal .env/.venv/runtime DB; no stop finalizer there."
+  },
+  "publication_contract": {"previous_commit": "c3980be72b152050a7137a258101fab91f580b79", "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3", "scope": "Reviewed source, synthetic tests and technical evidence only. Verify actual HEAD/origin/main/remote equality after commit/push."},
+  "primary_protocol_references": [
+    {"url": "https://solana.com/docs/rpc/http/gettransaction", "usage": "Read-only original binary transaction, requested commitment and supported version."},
+    {"url": "https://solana.com/docs/rpc/http/getsignaturestatuses", "usage": "Original signature status, slot, error, confirmation and history lookup."},
+    {"url": "https://solana.com/docs/rpc/json-structures", "usage": "RPC metadata, loaded-account layout and exact native/SPL balance observations; optional ownership is unknown, not permission."}
+  ],
+  "remaining_goal_requirements": [
+    "Pre-sign original instruction/program/account/recipient/mint/quantity/fee intent and historical loaded-address semantics; external-sponsored account funding and explicit tip accounting",
+    "Equivalent independent original execution contracts for GMGN and legacy Jupiter before admitting their live fills",
+    "Fresh authorized read-only reconciliation of durable live intents after restart, including lost sponsored first signatures, current-wallet holdings and safe finalized financial/learning admission",
+    "Complete full-strategy admission/exit/source/config/first-launch constraints, provider timing and serial-monitor fairness; preserve every required capital/risk guard",
+    "Separately authorized prospective costed full-strategy evidence with extreme-runner opportunity/capture coverage before profitability or live GO claims; leave runtime off"
+  ]
+}
