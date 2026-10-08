@@ -109,6 +109,12 @@ class PaperCashMark:
         return json.loads(self.receipt_json)
 
 
+@dataclass(frozen=True)
+class PaperCashProtection:
+    """Detached current/peak whole-trade estimates; None means unknown, not zero."""
+    receipt_json: str | None = None
+
+
 def capture(entry: Mapping, quote: Any, fx: SolUsdObservation, *, token: str,
             owner: str, now: dt.datetime, slippage_bps: int) -> PaperCashMark:
     frozen = basis(entry, token=token, owner=owner)
@@ -227,3 +233,58 @@ def public_historical_mark(mark: Any, entry: Mapping, *, token: str, owner: str)
     if checked_price(row, original, token=token, owner=owner, now=valued) is None:
         raise ValueError("Historical cash receipt differs from its original basis")
     return json.loads(_json(row))
+
+
+def protection_context(entry: Mapping, mark: Any, peak: Any, *, token: str,
+                       owner: str, now: dt.datetime) -> PaperCashProtection:
+    """Keep only public original financial inputs, without a SQL schema migration."""
+    fields = {"dry_run", "closed", "token_address", "entry_intent_id", "source_position_key",
+        "buy_signature", "opened_at", "run_id", "entry_qty", "qty_lamports", "realized_qty",
+        "amount_sol", "entry_notional_usd", "buy_price_usd", "realized_proceeds_usd",
+        "estimated_fees_usd", "execution_cost_model", "entry_route_quote", "quantity_basis"}
+    try:
+        frozen = {key: value for key, value in entry.items() if key in fields}
+        current = mark.to_dict() if isinstance(mark, PaperCashMark) else mark
+        row = {"entry": frozen, "current": current, "peak": peak, "token": token, "owner": owner}
+        context = PaperCashProtection(_json(row))
+        price = checked_price(current, frozen, token=token, owner=owner, now=now)
+        return context if protection_returns(context, entry, now=now, price=price) is not None else PaperCashProtection()
+    except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
+        return PaperCashProtection()
+
+
+def protection_returns(context: Any, subject: Any, *, now: dt.datetime,
+                       price: Any) -> tuple[float, float] | None:
+    """Recheck current generation/clocks and original whole-trade net peak.
+
+    These returns include already realized cash, remaining exact-size quoted
+    cash and every frozen estimated fee. A remaining-leg peak is not the peak
+    of the total trade. Historical peak clocks are never renewed.
+    """
+    try:
+        if not isinstance(context, PaperCashProtection) or context.receipt_json is None:
+            return None
+        row = json.loads(context.receipt_json)
+        entry, token, owner = row["entry"], row["token"], row["owner"]
+        if not owner.startswith("buy:"):
+            return None
+        if isinstance(subject, Mapping):
+            if basis(subject, token=token, owner=owner) != basis(entry, token=token, owner=owner):
+                return None
+        elif not matches_sql(entry, subject, token=token):
+            return None
+        checked = checked_price(row["current"], entry, token=token, owner=owner, now=now)
+        if checked is None or not math.isclose(checked, _number(price, positive=True), rel_tol=1e-12, abs_tol=0.):
+            return None
+        peak = public_historical_mark(row["peak"], entry, token=token, owner=owner)
+        current = row["current"]
+        if _time(peak["valued_at"]) > _time(current["valued_at"]):
+            return None
+        notional = current["basis"]["entry_notional_usd"]
+        current_net = current["values"]["estimated_total_liquidation_net_pnl_usd"] / notional * 100
+        peak_net = peak["values"]["estimated_total_liquidation_net_pnl_usd"] / notional * 100
+        if peak_net + 1e-10 < current_net:
+            return None
+        return current_net, peak_net
+    except (ValueError, TypeError, KeyError, OverflowError, AttributeError, RecursionError):
+        return None

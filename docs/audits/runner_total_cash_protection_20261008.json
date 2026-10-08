@@ -1,0 +1,67 @@
+{
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "financial_acceptance": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Actual primary and standalone PAPER exit protection after partials, uncapped extreme tails and preservation of original whole-trade net valuation peaks. No active run, model or learned policy activation.",
+  "quality_grain": "One original 0.1 SOL PAPER buy; one exact remaining raw quantity and cash/fee generation. Whole-trade estimated net return and remaining-leg return are separate measures, not interchangeable percentages.",
+  "findings": [
+    {
+      "severity": "high",
+      "defect": "The total-profit protection floor jumped to 150 percent when the remaining-leg peak reached 300 percent, even when that total profit had never been earned after earlier partials.",
+      "evidence": "An isolated actual check_exit_conditions test returned a full-close action before the fix. A 10 USD entry with 250 units sold at +25 percent, 250 at +50 percent, 200 at +100 percent and 150 at +300 percent realizes 16.875 USD. The remaining 150/1000 units quote 6 USD at +300 percent, making total gross profit 128.75 percent and estimated total net profit 128.6 percent under the test's frozen fees. The legacy total-profit floor was 150 percent.",
+      "remediation": "Use independently checked current and original whole-trade net peak receipts. For an activated frozen PAPER runner policy, cap the existing total-profit floor by its drawdown fraction applied to the actually observed whole-trade net wealth. Preserve remaining-leg trailing, stop/loss, liquidity and timeout protections."
+    },
+    {
+      "severity": "medium",
+      "defect": "Binary floating-point conversion of exact quote cash could put a mathematically exact partial or trailing boundary a few machine-precision units on the wrong side.",
+      "evidence": "The actual six-partial ladder fixture missed the +1000 percent step and an exact 20 percent cash drawdown did not trigger its inclusive protection boundary. Meaningfully lower partial returns and a quote one lamport above the trailing boundary are covered separately.",
+      "remediation": "Inclusive equality uses rel_tol=1e-12 and abs_tol=1e-10 in the shared partial-ladder trigger and dynamic runner floor, without clipping returns or widening economically meaningful thresholds."
+    }
+  ],
+  "implemented": [
+    "Detached immutable PaperCashProtection retains only checked original current and whole-net-peak receipts with public frozen entry inputs. Unknown, expired, conflicting or forged contexts remain unknown, not zero, spot valuation or stored SQL total.",
+    "Portfolio observations atomically persist a distinct cash_total_peak_mark from the first checked whole-net observation, including negative estimates. A higher remaining-leg return or smaller partial-fill quote never manufactures a whole-trade peak.",
+    "Original quantity/realized cash/estimated fees and quote/FX clocks are revalidated at actual policy consumption. SQL matching requires the original buy identity and current exact financial generation. No SQL schema migration or operator data rewrite is needed.",
+    "Actual main exit wrapper and standalone monitor consume the checked context; live and legacy callers keep their existing policy rather than being retrospectively cash-certified.",
+    "Original whole-net peak survives partials and terminal archive without renewing its clock or replacing its quantity with the later remaining quantity. Rewound, forged, later or lower-than-current peak receipts are rejected.",
+    "Three isolated actual six-partial PAPER executions retain the remaining tail through extreme cash returns, hold a small retrace and close on the frozen cash drawdown. The close re-quotes its actual quantity and archived estimated net cash reconciles independently. No floor-price fill is fabricated."
+  ],
+  "verification": {
+    "new_synthetic_test_cases": 55,
+    "cash_mark_test_population": 127,
+    "focused": "305 passed in84.52s",
+    "working_complete": "3679 passed in404.42s",
+    "publishing_complete": "3679 passed in380.90s",
+    "first_launch_working": {"checked_at_utc": "2026-10-08T18:43:39.488786Z", "ok": true, "compile_errors": 0, "config_exit": 0, "paper_profile": true, "empty_report_builders": 7, "failed_builders": 0},
+    "first_launch_publishing": {"checked_at_utc": "2026-10-08T18:43:38.489063Z", "ok": true, "compile_errors": 0, "config_exit": 0, "paper_profile": true, "empty_report_builders": 7, "failed_builders": 0},
+    "frozen_source": {"files_each": 734, "normalized_sha256": "b684ac661b8af6e0acfa4675b5ce0f950c4593816c83f77033d05857bcc7ce25", "before_and_after_complete_suites": "MATCH", "scope": "Executable/test verification sources, excluding docs/README and operator artifacts"},
+    "sources_receipt": "Initially collapsed receipt and evidence interaction rendered and visually inspected; no browser errors. An initial single-card locator mismatch was corrected without changing the evidence.",
+    "intermediate_runs": [
+      "The initial isolated actual-consumer reproduction failed before repair, confirming premature closure rather than an unused-helper discrepancy.",
+      "The expanded fixture initially used unsupported router family names and attempted to mutate the frozen configuration. Fixtures were corrected without relaxing production quote contracts or changing the operator configuration.",
+      "After fixture repair, exact cash boundary tests exposed genuine floating-point inclusivity defects. The shared boundary repair passes both exact and meaningfully outside-threshold cases.",
+      "Dedicated checked-in synthetic tests are the runnable companion for this narrowly scoped quality check; no new notebook, model fit, historical population relabel or provider run was originated."
+    ]
+  },
+  "runtime": {
+    "requirement": "OFF throughout and at handoff",
+    "provider_api_called": false,
+    "wallet_or_order_called": false,
+    "bot_started": false,
+    "active_model_or_learned_policy_changed": false,
+    "initial_process_inventory": "2026-10-08T18:14:09.3336915Z: zero matching bot/training/research/API processes, zero running memebot tasks/services and zero actual/compatibility locks in both roots.",
+    "stop_finalizer": "D-only scripts/stop_stack.ps1 -RequestedBy user, exit0, 2026-10-08T18:43:54Z; killed0/remaining0; no C finalizer",
+    "final_off_check": {"checked_at_utc": "2026-10-08T18:44:42.9094338Z", "global_bot_training_research_api": 0, "running_memebot_tasks": 0, "running_memebot_services": 0, "actual_and_compatibility_locks": 0, "sql_main": "stopped/idle/idle", "sql_updated_at": "2026-10-08 18:43:54.420588"},
+    "protected_artifacts": {"checked_at_utc": "2026-10-08T18:44:44.1682568Z", "boundary_utc": "2026-10-08T16:09:40Z", "working_files": 3763, "publishing_files": 27, "changed_since_boundary": 0, "method": "Modification-time census, not cryptographic historical proof; intended stop log/runtime SQL and preflight outputs excluded"}
+  },
+  "publication": {
+    "state": "VERIFIED_READY_FOR_COMMIT_PUSH",
+    "parent_commit": "623049967f0369e384e7d44cb930782f4aeaa178",
+    "note": "Exact commit/push/remote state must be independently verified at handoff."
+  },
+  "remaining_required_work": [
+    "Prospective runner and entry-gate arms still require each arm's own exact remaining-quantity marks and whole-net peak/intent proof; this primary-consumer repair does not certify existing spot-based research cohorts or learned policies.",
+    "Original per-entry and per-fill FX receipts, durable risk/restart provenance and the remaining architecture/scanner/sniper/model audit remain required.",
+    "Fresh provider sell depth/latency and full-strategy prospective costed profitability remain unverified. Synthetic extreme returns do not establish scanner recall, actual fill prices, future profit or zero future errors."
+  ]
+}

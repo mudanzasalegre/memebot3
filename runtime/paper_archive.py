@@ -34,6 +34,7 @@ price_confidence_close require_jupiter_for_buy exact_paper_trade_size_sol pnl_pc
 runner_research_source first_partial_exit_intent_id runner_research_capture_failed
 time_to_partial_sec time_to_peak_sec peak_after_partial_pct exit_from_peak_giveback_pct outcome
 peak_valuation_basis last_cash_mark cash_peak_mark cash_max_adverse_mark cash_peak_observed_at
+cash_total_peak_mark
 legacy_market_peak_diagnostic
 """.split())
 
@@ -107,12 +108,19 @@ def paper_snapshot(entry, token):
         if trade.get("peak_valuation_basis") != CASH_VERSION or "last_cash_mark" not in trade:
             raise PaperArchiveError("Unknown cash peak provenance")
         owner = "buy:" + (entry_identity(trade) or "")
-        for name in ("last_cash_mark", "cash_peak_mark", "cash_max_adverse_mark"):
+        for name in ("last_cash_mark", "cash_peak_mark", "cash_max_adverse_mark", "cash_total_peak_mark"):
             if name in trade:
                 try:
                     trade[name] = public_historical_mark(trade[name], trade, token=token, owner=owner)
                 except (ValueError, TypeError, KeyError, OverflowError) as exc:
                     raise PaperArchiveError("Invalid original historical cash mark") from exc
+        total_peak = trade.get("cash_total_peak_mark")
+        if total_peak is not None:
+            current = trade["last_cash_mark"]
+            if (_time(total_peak["valued_at"]) > _time(current["valued_at"])
+                    or total_peak["values"]["estimated_total_liquidation_net_pnl_usd"] + 1e-10
+                    < current["values"]["estimated_total_liquidation_net_pnl_usd"]):
+                raise PaperArchiveError("Whole-trade cash peak conflicts with the current original mark")
         for metric, proof in (("highest_pnl_pct", "cash_peak_mark"), ("max_adverse_pnl_pct", "cash_max_adverse_mark")):
             value = trade.get(metric)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):

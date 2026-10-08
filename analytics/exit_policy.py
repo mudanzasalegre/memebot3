@@ -1281,7 +1281,7 @@ def dynamic_runner_floor_reason(subject: Any, *, pnl_pct: float, peak: float) ->
     floor = dynamic_runner_floor_pct(subject, peak=float(peak or 0.0))
     if floor is None:
         return None
-    if float(pnl_pct) <= float(floor):
+    if float(pnl_pct) <= float(floor) or math.isclose(float(pnl_pct), float(floor), rel_tol=1e-12, abs_tol=1e-10):
         return "DYNAMIC_RUNNER_FLOOR"
     return None
 
@@ -1312,10 +1312,29 @@ def total_pnl_protection_reason(
     close_price_usd: Any = None,
     peak: float,
     current_pnl_pct: float | None = None,
+    cash_context: Any = None,
+    now: dt.datetime | None = None,
 ) -> str | None:
     floor = total_pnl_protection_floor_pct(subject, peak=peak)
     if floor is None:
         return None
+    if cash_context is not None and _get(subject, "dry_run") is True:
+        from execution.paper_cash_mark import protection_returns
+        returns = protection_returns(cash_context, subject, now=now, price=close_price_usd)
+        if returns is None:
+            return None  # Unknown total cash must not become zero or a spot estimate.
+        total_pnl_pct, total_peak_pct = returns
+        runner = _active_runner_price_policy(subject, peak=peak)
+        if runner is not None:
+            # A +300% tail does not imply +300% on a trade with prior partials.
+            # Bound the existing total-profit floor by the actually observed
+            # whole-trade net wealth drawdown, using the frozen runner policy.
+            earned_floor = runner_price_policy.price_drawdown_floor_pct(
+                total_peak_pct, runner["max_price_drawdown_pct"])
+            if earned_floor is None or earned_floor <= 0:
+                return None
+            floor = min(floor, earned_floor)
+        return "TOTAL_PNL_PROTECTION_EXIT" if total_pnl_pct < floor else None
     try:
         total_pnl_pct = float(total_pnl_pct_from_record(subject, close_price_usd=close_price_usd))
     except Exception:
@@ -1447,6 +1466,7 @@ def should_exit(
     *,
     liq_now: float | None = None,
     pnl_pct: float | None = None,
+    cash_context: Any = None,
 ) -> str | None:
     policy = effective_exit_policy(subject)
 
@@ -1517,6 +1537,8 @@ def should_exit(
             close_price_usd=price_now,
             peak=peak,
             current_pnl_pct=float(pnl_pct),
+            cash_context=cash_context,
+            now=now,
         )
         if total_reason is not None:
             return total_reason
@@ -1652,6 +1674,8 @@ def should_exit(
             close_price_usd=price_now,
             peak=peak,
             current_pnl_pct=float(pnl_pct),
+            cash_context=cash_context,
+            now=now,
         )
         if total_reason is not None:
             return total_reason

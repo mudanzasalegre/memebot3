@@ -7500,12 +7500,17 @@ async def _should_exit(
     liq_now: Optional[float] = None,
     pnl_pct: Optional[float] = None,
 ) -> Optional[str]:
+    cash_context = None
+    if DRY_RUN:
+        from trader.papertrading import cash_exit_context
+        cash_context = cash_exit_context(pos.address, expected_position=pos)
     return exit_policy.should_exit(
         pos,
         price,
         now,
         liq_now=liq_now,
         pnl_pct=pnl_pct,
+        cash_context=cash_context,
     )
 
 

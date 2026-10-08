@@ -50,7 +50,7 @@ from utils.raw_units import sol_to_lamports
 from research_loop import runner_forward
 from runtime.paper_entry_policy import snapshot as entry_policy_snapshot
 from utils.atomic_json import read_json_strict, write_json_atomic
-from runtime.paper_archive import PaperArchiveError, archive_closed_trade
+from runtime.paper_archive import PaperArchiveError, archive_closed_trade, entry_identity
 
 log = logging.getLogger("papertrading")
 
@@ -930,12 +930,24 @@ def record_cash_observation(address: str, mark, *, expected_position=None) -> bo
             entry[name] = 0.0
         entry["peak_price"] = entry["peak_price_usd"] = float(entry["buy_price_usd"])
         entry["time_to_peak_sec"] = entry["peak_after_partial_pct"] = None
-        for name in ("cash_peak_mark", "cash_max_adverse_mark", "cash_peak_observed_at"):
+        for name in ("cash_peak_mark", "cash_max_adverse_mark", "cash_peak_observed_at", "cash_total_peak_mark"):
             entry.pop(name, None)
     peak_before = float(entry.get("highest_pnl_pct") or 0.0)
     adverse_before = float(entry.get("max_adverse_pnl_pct") or 0.0)
     entry["last_cash_mark"] = mark.to_dict() if isinstance(mark, paper_cash_mark.PaperCashMark) else copy.deepcopy(mark)
     entry["peak_valuation_basis"] = paper_cash_mark.VERSION
+    previous_total_peak = entry.get("cash_total_peak_mark")
+    if previous_total_peak is not None:
+        previous_total_peak = paper_cash_mark.public_historical_mark(previous_total_peak, entry,
+            token=address, owner="buy:" + (entry_identity(entry) or ""))
+        if (dt.datetime.fromisoformat(previous_total_peak["valued_at"])
+                > dt.datetime.fromisoformat(entry["last_cash_mark"]["valued_at"])):
+            return False  # Do not rewind a durably observed total peak.
+    if (previous_total_peak is None or entry["last_cash_mark"]["values"]["estimated_total_liquidation_net_pnl_usd"]
+            > previous_total_peak["values"]["estimated_total_liquidation_net_pnl_usd"]):
+        # Start at the first checked net observation, including a negative one.
+        # Neither an old spot peak nor a partial fill can manufacture this peak.
+        entry["cash_total_peak_mark"] = copy.deepcopy(entry["last_cash_mark"])
     exit_policy.update_exit_state(entry, pnl_pct=(price / float(entry["buy_price_usd"]) - 1) * 100)
     entry["peak_price"] = max(float(entry.get("peak_price") or entry["buy_price_usd"]), price)
     entry["peak_price_usd"] = entry["peak_price"]
@@ -978,6 +990,16 @@ def sync_cash_peak_metrics(address: str, mark, position) -> bool:
             setattr(position, name, entry.get(name))
             changed = True
     return changed
+
+
+def cash_exit_context(address: str, *, expected_position=None):
+    """Checked current/total-peak cash for the real exit consumer, or unknown."""
+    entry = _PORTFOLIO.get(address)
+    mark = entry.get("last_cash_mark") if isinstance(entry, dict) else None
+    if checked_cash_price(address, mark, expected_position=expected_position) is None:
+        return paper_cash_mark.PaperCashProtection()
+    return paper_cash_mark.protection_context(entry, mark, entry.get("cash_total_peak_mark"),
+        token=address, owner="buy:" + (entry_identity(entry) or ""), now=utc_now())
 
 
 def _persist_sell_fill(key, original, entry, response, total_qty):
@@ -1326,6 +1348,7 @@ async def check_exit_conditions(address: str) -> bool:  # noqa: C901
         price,
         utc_now(),
         pnl_pct=pnl_pct,
+        cash_context=cash_exit_context(address) if entry.get("quantity_basis") == "quoted_raw_spl_units" else None,
     )
     if exit_reason is None:
         return False

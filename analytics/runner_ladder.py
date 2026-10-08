@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -189,7 +190,8 @@ def plan_ladder_partials(
             "next_state": normalized_state,
         }
 
-    triggered = [step for step in active_steps if float(pnl_pct) >= step.trigger_pct]
+    triggered = [step for step in active_steps if float(pnl_pct) >= step.trigger_pct
+                 or math.isclose(float(pnl_pct), step.trigger_pct, rel_tol=1e-12, abs_tol=1e-10)]
     pending_steps = [step for step in triggered if step.step_id not in set(executed_steps)]
     target_fraction = min(cap, sum(max(0.0, float(step.fraction)) for step in triggered))
     already_secured = max(realized_fraction, float(normalized_state.get("sold_fraction") or 0.0))
