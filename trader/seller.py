@@ -278,7 +278,8 @@ async def _sell_execute_prefer_jupiter(
     # 1) Jupiter swap real si está disponible
     if _JUP_ROUTER_AVAILABLE and jupiter is not None:
         try:
-            if hasattr(jupiter, "execute_managed_swap") and bool(getattr(jupiter, "JUP_API_KEY", "")):
+            if (hasattr(jupiter, "execute_managed_swap") and bool(getattr(jupiter, "JUP_API_KEY", ""))
+                    and getattr(jupiter, "JUP_MANAGED_ENABLED", False) is True):
                 submission_started = True
                 managed_resp = await jupiter.execute_managed_swap(
                     input_mint=token_mint,
@@ -295,6 +296,8 @@ async def _sell_execute_prefer_jupiter(
                 }
 
             # FIX: Jupiter quote espera amount_lamports (unidades del token input)
+            if getattr(jupiter, "JUP_LEGACY_SWAP_ENABLED", True) is not True:
+                raise SwapPreparationError("Legacy Jupiter sell is disabled")
             quote = await jupiter.get_quote(
                 input_mint=token_mint,
                 output_mint=SOL_MINT,
@@ -336,6 +339,9 @@ async def _sell_execute_prefer_jupiter(
                     token_addr[:6],
                     token_mint[:6],
                 )
+        except SwapPreparationError:
+            submission_started = False
+            log.warning("[seller] Jupiter preparation failed before submission")
         except Exception as exc:
             if submission_started:
                 raise SellOutcomeUncertain("Jupiter sell submission is unconfirmed; do not fall back") from exc

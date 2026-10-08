@@ -69,6 +69,7 @@ def http(monkeypatch):
     monkeypatch.setattr(router.asyncio, "sleep", sleep)
     monkeypatch.setattr(router, "JUP_SWAP_URL", "https://synthetic.invalid/swap")
     monkeypatch.setattr(router, "JUP_API_KEY", "")
+    monkeypatch.setattr(router, "JUP_LEGACY_SWAP_ENABLED", True)
     monkeypatch.setattr(router, "_PRIORITY_FEE_RAW", "")
     return SimpleNamespace(calls=calls, responses=responses, closed=closed, delays=delays)
 
@@ -289,7 +290,12 @@ async def test_cancelled_unsigned_build_never_invokes_signer(http, wallet):
 
 
 @pytest.mark.asyncio
-async def test_managed_signing_is_owned_and_cancel_prevents_execute_post(wallet, monkeypatch):
+async def test_managed_signing_is_owned_and_cancel_prevents_execute_post(wallet, signer, monkeypatch):
+    from test_jupiter_managed_contract import order_payload, TOKEN
+    wallet.PUBLIC_KEY = str(signer.PUBLIC_KEY)
+    monkeypatch.setenv("SOL_PUBLIC_KEY", wallet.PUBLIC_KEY)
+    monkeypatch.setattr(router, "JUP_API_KEY", "synthetic-key")
+    monkeypatch.setattr(router, "JUP_MANAGED_ENABLED", True)
     loop = asyncio.get_running_loop()
     started, release = asyncio.Event(), threading.Event()
     def sign(*args):
@@ -297,12 +303,13 @@ async def test_managed_signing_is_owned_and_cancel_prevents_execute_post(wallet,
         assert release.wait(5), "Synthetic signing worker was not released"
         return "synthetic-signed"
     wallet.sign_base64_transaction = Mock(side_effect=sign)
-    order = AsyncMock(return_value={"transaction": "synthetic-unsigned", "requestId": "synthetic-request"})
+    body = order_payload(wallet.PUBLIC_KEY)
+    order = AsyncMock(return_value=body)
     execute = AsyncMock(return_value={"signature": "must-not-be-sent"})
     monkeypatch.setattr(router, "get_order", order)
     monkeypatch.setattr(router, "execute_order", execute)
     task = asyncio.create_task(router.execute_managed_swap(input_mint=router.SOL_MINT,
-        output_mint="TokenSyntheticMint", amount_lamports=100_000_000))
+        output_mint=TOKEN, amount_lamports=100_000_000, slippage_bps=100))
     try:
         await asyncio.wait_for(started.wait(), 2)
         for _ in range(3):
@@ -314,7 +321,7 @@ async def test_managed_signing_is_owned_and_cancel_prevents_execute_post(wallet,
     finally:
         release.set()
         await asyncio.gather(task, return_exceptions=True)
-    wallet.sign_base64_transaction.assert_called_once_with("synthetic-unsigned")
+    wallet.sign_base64_transaction.assert_called_once_with(body["transaction"])
     execute.assert_not_awaited()
     assert owned.pending_dispatch_count() == 0
 

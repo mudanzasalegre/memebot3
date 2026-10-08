@@ -62,10 +62,13 @@ from utils import price_service
 try:
     from fetcher import jupiter_router as jupiter  # type: ignore
     from fetcher.jupiter_router import _checked_quote as _check_jupiter_quote
+    from fetcher.jupiter_router import SwapPreparationError
     _JUP_ROUTER_AVAILABLE = True
 except Exception:
     jupiter = None  # type: ignore
     _check_jupiter_quote = None
+    class SwapPreparationError(RuntimeError):
+        pass
     _JUP_ROUTER_AVAILABLE = False
 
 # gmgn SDK local
@@ -413,7 +416,14 @@ async def buy(
     if units is None:
         return {"qty_lamports": 0, "signature": "INVALID_AMOUNT", "route": {}}
     use_managed = bool(_JUP_ROUTER_AVAILABLE and jupiter is not None
-        and hasattr(jupiter, "execute_managed_swap") and getattr(jupiter, "JUP_API_KEY", ""))
+        and hasattr(jupiter, "execute_managed_swap") and getattr(jupiter, "JUP_API_KEY", "")
+        and getattr(jupiter, "JUP_MANAGED_ENABLED", False) is True)
+    if (_REQUIRE_JUP_PRICE or use_managed) and (
+            isinstance(_IMPACT_MAX_PCT_DEFAULT, bool) or not isinstance(_IMPACT_MAX_PCT_DEFAULT, (int, float))
+            or not math.isfinite(_IMPACT_MAX_PCT_DEFAULT) or _IMPACT_MAX_PCT_DEFAULT < 0):
+        return {"qty_lamports": 0, "signature": "INVALID_IMPACT_LIMIT", "route": {}}
+    if use_managed and (type(_GAS_RESERVE_LAMPORTS) is not int or _GAS_RESERVE_LAMPORTS < 0):
+        return {"qty_lamports": 0, "signature": "INVALID_GAS_RESERVE", "route": {}}
 
     # ─────── Guard de Jupiter previo (precio/cotización exigidos) ─────
     jup_price_prefetch: Optional[float] = None
@@ -436,9 +446,10 @@ async def buy(
                 "price_source": "fallback0",
             }
 
-    # A Jupiter venue requires an actual Jupiter route even when its optional
-    # Price API policy is disabled. A GMGN-only policy does not query Jupiter.
-    if _REQUIRE_JUP_PRICE or use_managed:
+    # The actual managed Swap v2 order validates its own amount/impact/fees
+    # before signing. Do not impose a different Metis-only route on an RFQ,
+    # Dflow or OKX winner. Required legacy/GMGN Jupiter policy stays separate.
+    if _REQUIRE_JUP_PRICE and not use_managed:
         ok_route, impact_pct = await _jupiter_precheck_quote(mint_key, amount_sol)
         if not ok_route or impact_pct is None:
             log.info("[buyer] BUY bloqueado: sin ruta Jupiter (router quote)")
@@ -451,9 +462,6 @@ async def buy(
                 "price_source": "fallback0",
             }
 
-        if (isinstance(_IMPACT_MAX_PCT_DEFAULT, bool) or not isinstance(_IMPACT_MAX_PCT_DEFAULT, (int, float))
-                or not math.isfinite(_IMPACT_MAX_PCT_DEFAULT) or _IMPACT_MAX_PCT_DEFAULT < 0):
-            return {"qty_lamports": 0, "signature": "INVALID_IMPACT_LIMIT", "route": {}}
         if impact_pct > _IMPACT_MAX_PCT_DEFAULT:
             log.info("[buyer] High price impact %.2f%% (>%s%%) → skip", impact_pct, _IMPACT_MAX_PCT_DEFAULT)
             return {
@@ -472,11 +480,15 @@ async def buy(
                 input_mint=SOL_MINT,
                 output_mint=mint_key,
                 amount_lamports=units,
-                slippage_bps=int(_JUP_BUY_SLIPPAGE_BPS),
+                slippage_bps=_JUP_BUY_SLIPPAGE_BPS,
+                max_price_impact_pct=_IMPACT_MAX_PCT_DEFAULT,
+                max_wallet_fee_lamports=_GAS_RESERVE_LAMPORTS,
             )
             order = dict(managed_resp.get("order") or {})
             route = dict(managed_resp.get("route") or {})
-            qty_lp = _raw_token_units(order.get("outAmount"))
+            # The quote is not the received balance: use only checked execute
+            # wallet-output units, retaining their provider-only provenance.
+            qty_lp = _raw_token_units(managed_resp.get("qty_lamports"))
             _validate_submission(qty_lp, managed_resp.get("signature"))
 
             buy_price_usd, price_src = await _resolve_buy_price_usd(
@@ -498,7 +510,11 @@ async def buy(
                 "price_confidence": price_service.price_confidence_from_source(price_src, buy_price_usd),
                 "entry_notional_usd": float(entry_notional_usd),
                 "venue": "jupiter_managed",
+                "fill_verified": False,
             }
+        except SwapPreparationError:
+            return {"qty_lamports": 0, "signature": "NO_JUP_ORDER", "route": {},
+                "buy_price_usd": 0.0, "peak_price": 0.0, "price_source": "fallback0"}
         except Exception as exc:  # noqa: BLE001
             # A response/transport/enrichment failure does not prove that the
             # wallet side effect was absent. Never execute another venue here.

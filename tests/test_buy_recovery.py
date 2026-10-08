@@ -407,12 +407,13 @@ def test_corrupt_paper_portfolio_never_becomes_an_empty_first_launch(tmp_path, m
 async def test_live_submission_failure_never_falls_back_or_retries(monkeypatch, managed, failure):
     from trader import buyer
     managed_call, legacy_call = AsyncMock(), AsyncMock()
-    response = {"signature": "synthetic-sig", "order": {"outAmount": "1000"},
+    response = {"signature": "synthetic-sig", "qty_lamports": 1000, "order": {"outAmount": "1000"},
                 "route": {"quote": {"outAmount": "1000"}}}
     managed_call.return_value = legacy_call.return_value = response
     chosen = managed_call if managed else legacy_call
     if failure == "submission": chosen.side_effect = TimeoutError("synthetic ambiguous submission")
-    monkeypatch.setattr(buyer, "jupiter", SimpleNamespace(JUP_API_KEY="synthetic", execute_managed_swap=managed_call))
+    monkeypatch.setattr(buyer, "jupiter", SimpleNamespace(JUP_API_KEY="synthetic", JUP_MANAGED_ENABLED=True,
+        execute_managed_swap=managed_call))
     monkeypatch.setattr(buyer, "_JUP_ROUTER_AVAILABLE", managed)
     monkeypatch.setattr(buyer.gmgn, "buy", legacy_call)
     monkeypatch.setattr(buyer, "is_in_trading_window", lambda: True)

@@ -18,7 +18,7 @@ from test_jupiter_quote_contract import network, payload, Response, SOL, TOKEN, 
 
 @pytest.fixture
 def guarded(monkeypatch):
-    response = {"signature": "synthetic", "order": {"outAmount": "1000"},
+    response = {"signature": "synthetic", "qty_lamports": 1000, "order": {"outAmount": "1000"},
                 "route": {"quote": {"outAmount": "1000"}}}
     managed, legacy = AsyncMock(return_value=response), AsyncMock(return_value=response)
     monkeypatch.setattr(buyer, "_JUP_ROUTER_AVAILABLE", True)
@@ -33,6 +33,9 @@ def guarded(monkeypatch):
     monkeypatch.setattr(buyer, "_resolve_buy_price_usd", AsyncMock(return_value=(1., "synthetic")))
     monkeypatch.setattr(buyer, "_resolve_entry_notional_usd", AsyncMock(return_value=10.))
     monkeypatch.setattr(router, "execute_managed_swap", managed)
+    monkeypatch.setattr(router, "JUP_API_KEY", "")
+    monkeypatch.setattr(router, "JUP_MANAGED_ENABLED", True)
+    monkeypatch.setattr(buyer, "_GAS_RESERVE_LAMPORTS", 6000)
     monkeypatch.setattr(buyer.gmgn, "buy", legacy)
     return managed, legacy
 
@@ -60,12 +63,15 @@ async def test_one_actual_quote_allows_supported_route_before_one_order(network,
     monkeypatch.setattr(buyer, "_REQUIRE_JUP_PRICE", required)
     monkeypatch.setattr(router, "JUP_API_KEY", "synthetic" if managed else "")
     response = await buyer.buy(TOKEN, .1)
-    assert response["qty_lamports"] == 1000 and len(calls) == 1
-    assert calls[0][1]["amount"] == str(AMOUNT)
+    assert response["qty_lamports"] == 1000 and len(calls) == (0 if managed else 1)
+    if not managed:
+        assert calls[0][1]["amount"] == str(AMOUNT)
     chosen = guarded[0] if managed else guarded[1]
     assert chosen.await_count == 1 and guarded[1 if managed else 0].await_count == 0
     if managed:
         assert chosen.await_args.kwargs["amount_lamports"] == AMOUNT
+        assert chosen.await_args.kwargs["max_price_impact_pct"] == 8.
+        assert chosen.await_args.kwargs["max_wallet_fee_lamports"] == 6000
     else:
         chosen.assert_awaited_once_with(TOKEN, .1)
 

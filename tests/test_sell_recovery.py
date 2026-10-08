@@ -271,7 +271,8 @@ async def test_live_jupiter_submission_never_retries_or_falls_back(monkeypatch, 
     async def execute(quote=None, **kwargs):
         calls.append(True)
         raise error("synthetic ambiguous submission")
-    router = SimpleNamespace(JUP_API_KEY="synthetic" if managed else "", execute_managed_swap=execute,
+    router = SimpleNamespace(JUP_API_KEY="synthetic" if managed else "", JUP_MANAGED_ENABLED=True,
+        execute_managed_swap=execute,
         execute_swap=execute, get_quote=AsyncMock(return_value=SimpleNamespace(ok=True, raw={},
             price_impact_bps=1, in_amount=400, out_amount=1)))
     fallback = AsyncMock()

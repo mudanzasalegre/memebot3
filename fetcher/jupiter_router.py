@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional, Mapping, Union
 from urllib.parse import urlsplit
 from utils.raw_units import U64_MAX as _U64_MAX, raw_uint as _raw_uint, sol_to_lamports
 from runtime.owned_dispatch import run_owned_sync
+from execution import jupiter_managed_contract as managed_contract
 
 log = logging.getLogger("jupiter_router")
 
@@ -26,12 +27,13 @@ _API_QUOTE_URL = "https://api.jup.ag/swap/v1/quote"
 _LITE_QUOTE_URL = "https://lite-api.jup.ag/swap/v1/quote"
 _API_SWAP_URL = "https://api.jup.ag/swap/v1/swap"
 _LITE_SWAP_URL = "https://lite-api.jup.ag/swap/v1/swap"
-_ORDER_URL = "https://api.jup.ag/ultra/v1/order"
-_EXECUTE_URL = "https://api.jup.ag/ultra/v1/execute"
+_ORDER_URL = "https://api.jup.ag/swap/v2/order"
+_EXECUTE_URL = "https://api.jup.ag/swap/v2/execute"
 
 # API key opcional (para api.jup.ag)
 JUP_API_KEY = os.getenv("JUP_API_KEY", "").strip()
 JUP_MANAGED_ENABLED = os.getenv("JUP_MANAGED_ENABLED", "true").strip().lower() == "true"
+JUP_LEGACY_SWAP_ENABLED = os.getenv("JUP_LEGACY_SWAP_ENABLED", "true").strip().lower() == "true"
 
 
 def _is_legacy_quote_url(url: str | None) -> bool:
@@ -431,66 +433,51 @@ async def get_order(
     taker: str,
     slippage_bps: int | None = None,
 ) -> Dict[str, Any]:
-    """
-    Managed Jupiter order flow (Ultra order/execute).
-
-    Requires `JUP_API_KEY`. Returns the raw order payload with an unsigned
-    base64 transaction plus `requestId`.
-    """
+    """Get a checked request-bound Swap v2 order; never sign or submit here."""
     if not JUP_MANAGED_ENABLED:
         raise RuntimeError("managed Jupiter execution disabled")
     if not JUP_API_KEY:
         raise RuntimeError("managed Jupiter execution requires JUP_API_KEY")
-    if not input_mint or not output_mint or not taker:
-        raise RuntimeError("managed Jupiter order missing required fields")
-    if int(amount_lamports) <= 0:
-        raise RuntimeError("managed Jupiter order requires positive amount_lamports")
-
-    params = _normalize_query_params(
-        {
-            "inputMint": input_mint,
-            "outputMint": output_mint,
-            "amount": int(amount_lamports),
-            "taker": taker,
-            "slippageBps": int(MANAGED_SLIPPAGE_BPS if slippage_bps is None else slippage_bps),
-        }
-    )
+    request = managed_contract.ManagedRequest(input_mint, output_mint, amount_lamports, taker,
+        MANAGED_SLIPPAGE_BPS if slippage_bps is None else slippage_bps)
+    url = managed_contract.endpoint(JUP_ORDER_URL, "order")
+    params = _normalize_query_params(request.params())
     timeout = aiohttp.ClientTimeout(total=TIMEOUT_S)
 
     async with aiohttp.ClientSession(timeout=timeout, headers=_headers()) as sess:
-        async with sess.get(JUP_ORDER_URL, params=params) as resp:
+        async with sess.get(url, params=params, allow_redirects=False) as resp:
             if resp.status != 200:
-                body = await resp.text()
-                raise RuntimeError(f"Jupiter order non-200 ({resp.status}) body={body}")
+                raise RuntimeError(f"Jupiter unsigned order unavailable (HTTP {resp.status})")
             data = await resp.json(content_type=None)
-
-    tx_b64 = data.get("transaction")
-    request_id = data.get("requestId")
-    if not tx_b64 or not request_id:
-        error_code = data.get("errorCode")
-        error_message = data.get("errorMessage")
-        raise RuntimeError(
-            f"Jupiter order missing transaction/requestId code={error_code} message={error_message}"
-        )
-    return data
+    return managed_contract.check_order(data, request).raw
 
 
-async def execute_order(*, signed_transaction: str, request_id: str) -> Dict[str, Any]:
+async def execute_order(*, signed_transaction: str, request_id: str,
+                        last_valid_block_height: str | None = None) -> Dict[str, Any]:
     if not JUP_MANAGED_ENABLED:
         raise RuntimeError("managed Jupiter execution disabled")
     if not JUP_API_KEY:
         raise RuntimeError("managed Jupiter execution requires JUP_API_KEY")
-    payload = {
-        "signedTransaction": signed_transaction,
-        "requestId": request_id,
-    }
+    managed_contract.packet(signed_transaction)
+    payload = {"signedTransaction": signed_transaction, "requestId": managed_contract.opaque_id(request_id)}
+    if last_valid_block_height is not None:
+        if _raw_uint(last_valid_block_height) is None:
+            raise ValueError("Invalid original managed validity height")
+        payload["lastValidBlockHeight"] = str(last_valid_block_height)
+    url = managed_contract.endpoint(JUP_EXECUTE_URL, "execute")
     timeout = aiohttp.ClientTimeout(total=SWAP_TIMEOUT_S)
     async with aiohttp.ClientSession(timeout=timeout, headers=_headers()) as sess:
-        async with sess.post(JUP_EXECUTE_URL, json=payload) as resp:
+        async with sess.post(url, json=payload, allow_redirects=False) as resp:
             if resp.status != 200:
-                body = await resp.text()
-                raise RuntimeError(f"Jupiter execute non-200 ({resp.status}) body={body}")
+                raise RuntimeError(f"Jupiter managed submission uncertain (HTTP {resp.status})")
             return await resp.json(content_type=None)
+
+
+def _execute_managed_once(signed_transaction, request_id, height):
+    # Its own HTTP loop lives entirely in an owned executor invocation. Parent
+    # cancellation cannot abandon a POST or publish stopped while it settles.
+    return asyncio.run(execute_order(signed_transaction=signed_transaction,
+        request_id=request_id, last_valid_block_height=height))
 
 
 async def execute_managed_swap(
@@ -500,73 +487,50 @@ async def execute_managed_swap(
     amount_lamports: int,
     user_public_key: str | None = None,
     slippage_bps: int | None = None,
+    max_price_impact_pct: float | None = None,
+    max_wallet_fee_lamports: int | None = None,
 ) -> Dict[str, Any]:
+    """One checked Swap v2 order, pure owned signing and one owned execute.
+
+    Checked provider quantities remain explicitly unverified by chain/wallet.
+    No automatic order rebuild, POST retry or response-as-financial-proof.
     """
-    Full managed order/execute path.
-
-    1. GET order
-    2. sign base64 transaction locally
-    3. POST execute and return execution metadata
-    """
-    if not user_public_key:
-        try:
-            from trader import sol_signer  # type: ignore
-
-            user_public_key = str(getattr(sol_signer, "PUBLIC_KEY", "") or "")
-        except Exception:
-            user_public_key = ""
-    user_public_key = str(user_public_key or os.getenv("SOL_PUBLIC_KEY", "") or "").strip()
-    if not user_public_key:
-        raise RuntimeError("managed Jupiter execution missing user_public_key")
-
-    order = await get_order(
-        input_mint=input_mint,
-        output_mint=output_mint,
-        amount_lamports=int(amount_lamports),
-        taker=user_public_key,
-        slippage_bps=slippage_bps,
-    )
-
-    tx_b64 = str(order.get("transaction") or "")
-    request_id = str(order.get("requestId") or "")
-    if not tx_b64 or not request_id:
-        raise RuntimeError("managed Jupiter order missing transaction/requestId")
-
     try:
-        from trader import sol_signer  # type: ignore
+        if not JUP_MANAGED_ENABLED or not JUP_API_KEY:
+            raise ValueError("Managed Jupiter is disabled or unavailable")
+        user_public_key = _configured_swap_wallet(user_public_key)
+        request = managed_contract.ManagedRequest(input_mint, output_mint, amount_lamports,
+            user_public_key, MANAGED_SLIPPAGE_BPS if slippage_bps is None else slippage_bps)
+        if max_price_impact_pct is not None and managed_contract.finite_decimal(max_price_impact_pct) < 0:
+            raise ValueError("Invalid managed price impact bound")
+        if max_wallet_fee_lamports is not None and (type(max_wallet_fee_lamports) is not int
+                or _raw_uint(max_wallet_fee_lamports) is None):
+            raise ValueError("Invalid original wallet fee bound")
+        managed_contract.endpoint(JUP_ORDER_URL, "order")
+        managed_contract.endpoint(JUP_EXECUTE_URL, "execute")
+        raw_order = await get_order(input_mint=request.input_mint, output_mint=request.output_mint,
+            amount_lamports=request.amount, taker=request.taker, slippage_bps=request.slippage)
+        order = managed_contract.check_order(raw_order, request,
+            max_price_impact_pct=max_price_impact_pct, max_wallet_fee_lamports=max_wallet_fee_lamports)
+        from trader import sol_signer
+        signed_transaction = await run_owned_sync(sol_signer.sign_base64_transaction, order.raw["transaction"])
+        binding = managed_contract.check_signed_packet(order, signed_transaction)
+        order.check_expiry()
     except Exception as exc:
-        raise RuntimeError(f"sol_signer not available for managed Jupiter execution: {exc}") from exc
-
-    signed_transaction = await run_owned_sync(sol_signer.sign_base64_transaction, tx_b64)
-    execute_response = await execute_order(
-        signed_transaction=signed_transaction,
-        request_id=request_id,
-    )
-
-    status = str(execute_response.get("status") or "").strip()
-    signature = str(execute_response.get("signature") or "")
-    if status and status.lower() in {"failed", "error", "expired"}:
-        code = execute_response.get("code")
-        raise RuntimeError(f"managed Jupiter execute failed status={status} code={code}")
-    if not signature:
-        raise RuntimeError(f"managed Jupiter execute returned no signature: {execute_response}")
-
-    route_meta = {
-        "router": f"jupiter_managed:{order.get('router') or 'managed'}",
-        "requestId": request_id,
-        "status": status or "unknown",
-        "mode": order.get("mode") or order.get("swapMode"),
-        "inAmount": order.get("inAmount"),
-        "outAmount": order.get("outAmount"),
-        "priceImpactPct": order.get("priceImpactPct"),
-    }
-
-    return {
-        "signature": signature,
-        "route": route_meta,
-        "order": order,
-        "execute": execute_response,
-    }
+        raise SwapPreparationError("Managed order preparation failed before execute POST") from exc
+    try:
+        response = await run_owned_sync(_execute_managed_once, signed_transaction, order.request_id,
+            order.last_valid_block_height)
+        execute_response, receipt = managed_contract.check_execution(response, order, binding)
+    except Exception as exc:
+        raise SwapSubmissionUncertain("Managed execution needs reconciliation; no new order sent") from exc
+    route_meta = {"router": f"jupiter_managed:{order.raw['router']}", "requestId": order.request_id,
+        "status": "Success", "mode": order.raw["mode"], "inAmount": receipt["total_input_units"],
+        "outAmount": receipt["total_output_units"], "priceImpactPct": order.impact_pct / 100,
+        "execution_receipt": receipt}
+    return {"signature": execute_response["signature"], "qty_lamports": receipt["total_output_units"],
+        "route": route_meta, "order": order.raw, "execute": execute_response,
+        "execution_receipt": receipt, "fill_verified": False}
 
 
 async def execute_swap(
@@ -587,6 +551,8 @@ async def execute_swap(
     This validates transport, not swap instruction content or chain fills.
     """
     try:
+        if not JUP_LEGACY_SWAP_ENABLED:
+            raise ValueError("Legacy Jupiter swap execution is disabled")
         quote_resp = _swap_quote_snapshot(quote)
         if type(max_retries) is not int or not 0 <= max_retries <= 5:
             raise ValueError("max_retries must be an integer from 0 through 5")
