@@ -65,8 +65,18 @@ async def closed(paper, tmp_path, monkeypatch, request):
     journal = BuyRecoveryStore(tmp_path / "data" / "metrics" / "buy_recovery")
     prototype = Position(address=MINT, token_mint=MINT, qty=0, entry_qty=0, buy_price_usd=0.,
         buy_amount_sol=.1, entry_notional_usd=0., dry_run=True, opened_at=STAMP, run_id="net-label-test")
+    param = getattr(request, "param", 101000000)
+    original = vector()
+    auxiliary = None
+    if isinstance(param, dict):
+        from analytics.social_signal import social_signal_from_profile, social_feature_values
+        signal = social_signal_from_profile({"links": {"twitterUrl": "https://x.com/original"}},
+            address=MINT, received_at=(STAMP - dt.timedelta(seconds=2)).timestamp())
+        original.update(social_feature_values(signal))
+        auxiliary = {"social": signal.to_dict()}
     with journal.scope():
-        attempt = journal.begin(prototype, paper=True, amount_sol=.1, feature_vector=vector(), positive_pnl_ratio=.1)
+        attempt = journal.begin(prototype, paper=True, amount_sol=.1, feature_vector=original,
+            positive_pnl_ratio=.1, auxiliary_observations=auxiliary)
         response = await paper.buy(MINT, .1, entry_intent_id=attempt.intent_id)
         attempt.receive(response)
         pos = Position(id=1, address=MINT, token_mint=MINT, qty=response["qty_lamports"],
@@ -77,7 +87,8 @@ async def closed(paper, tmp_path, monkeypatch, request):
         attempt.confirm(pos)
     clock[0] += dt.timedelta(minutes=1)
     async def reverse(**kwargs):
-        return SimpleNamespace(ok=True, in_amount=kwargs["amount_lamports"], out_amount=getattr(request, "param", 101000000), price_impact_bps=1)
+        return SimpleNamespace(ok=True, in_amount=kwargs["amount_lamports"],
+            out_amount=param.get("quote", 101000000) if isinstance(param, dict) else param, price_impact_bps=1)
     monkeypatch.setattr(paper.jupiter_router, "get_quote", AsyncMock(side_effect=reverse))
     paper._PORTFOLIO[MINT]["max_pnl_pct_seen"] = 10000.
     result = await paper.sell(MINT, pos.qty, exit_intent_id="c" * 32)
@@ -117,10 +128,35 @@ def test_actual_pre_buy_path_freezes_original_features_before_submission():
     assert keywords["feature_vector"].func.id == "_entry_vector_for_close"
     assert keywords["feature_vector"].args[0].id == "vec"
     assert "positive_pnl_ratio" in keywords
+    assert "auxiliary_observations" in keywords
     buys = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
         and node.func.value.id == "buyer" and node.func.attr == "buy"]
     assert buys and all(begin.lineno < node.lineno for node in buys)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("closed", [{"social": True}], indirect=True)
+async def test_v2_social_receipt_survives_actual_buy_close_export_restart_and_checked_training(closed):
+    from ml.financial_targets import checked_financial_frame
+    source = learning.prepare_close(closed.identity, root=closed.root)
+    proof = source["entry_features"]
+    assert proof["version"] == learning.ENTRY_AUX_VERSION
+    original = proof["auxiliary_observations"]["social"]
+    assert original["twitter_url"] == "https://x.com/original"
+    assert original["received_at"] == (STAMP - dt.timedelta(seconds=2)).timestamp()
+    assert learning.publish_close(closed.identity, root=closed.root)["status"] == "written"
+    row = dataset(closed.root).iloc[0]
+    exported = json.loads(row["outcome_execution_proof"])
+    assert exported["entry_features"] == proof
+    assert row["twitter_present"] == 1 and row["social_link_count"] == 1
+    assert checked_net_return(row) == pytest.approx(-3.)
+    mutated = pd.DataFrame([{**row, "social_ok": 0, "twitter_present": 0, "social_link_count": 999}])
+    restored, report = checked_financial_frame(mutated)
+    assert report["ready"] and restored.iloc[0]["twitter_present"] == 1
+    assert restored.iloc[0]["social_link_count"] == 1
+    assert learning.prepare_close(closed.identity, root=closed.root) == source
+    assert learning.publish_close(closed.identity, root=closed.root)["status"] == "already_written"
 
 
 @pytest.mark.asyncio

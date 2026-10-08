@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable
 import numpy as np
 import pandas as pd
 
-from analytics.social_signal import social_signal_from_token
+from analytics.social_signal import social_feature_values, social_signal_from_token
 from analytics.token_time import compute_age_minutes
 from ml.data_contract import (
     normalize_dex_id as contract_normalize_dex_id,
@@ -454,16 +454,7 @@ def build_feature_vector(tok: Dict[str, Any], *, now: dt.datetime | None = None)
         "green_sniper_paper_birth_probe": _as_bool_int(tok.get("green_sniper_paper_birth_probe")),
         "profit_pnl_guard_failures": tok.get("profit_pnl_guard_failures"),
         "impact_zero_flag": np.nan if impact is None else int(impact == 0.0),
-        "social_status": social.status,
-        "social_ok": social.social_ok,
-        "twitter_present": int(social.twitter_present),
-        "telegram_present": int(social.telegram_present),
-        "discord_present": int(social.discord_present),
-        "website_present": int(social.website_present),
-        "social_link_count": int(social.link_count),
-        "social_confidence_bonus": float(social.confidence_bonus),
-        "social_risk_flags": ",".join(social.risk_flags),
-        "social_latency_ms": social.latency_ms,
+        **social_feature_values(social),
         "strategy_version": tok.get("strategy_version"),
         "experiment_id": tok.get("experiment_id"),
         "exit_profile": tok.get("exit_profile") or tok.get("runner_exit_profile"),

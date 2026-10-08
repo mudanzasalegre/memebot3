@@ -8,9 +8,13 @@ from typing import Any
 
 from analytics.social_signal import (
     SocialSignal,
+    apply_social_signal_to_token,
+    checked_social_receipt,
     flag_suspicious_links,
     record_social_links,
     record_social_signal,
+    social_cache_ttl_s,
+    social_profile_identity,
     unknown_social_signal,
 )
 from config.config import CFG
@@ -26,6 +30,7 @@ class SocialEnrichmentRequest:
     symbol: str | None = None
     lane: str | None = None
     requested_at_s: float = 0.0
+    observation: SocialSignal | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -39,7 +44,7 @@ class SocialEnrichmentQueue:
         self._semaphore: asyncio.Semaphore | None = None
 
     def _cache_ttl_s(self) -> float:
-        return float(getattr(CFG, "SOCIALS_CACHE_TTL_S", 600) or 600)
+        return social_cache_ttl_s()
 
     def _max_concurrent(self) -> int:
         return max(1, int(getattr(CFG, "SOCIALS_MAX_CONCURRENT", 4) or 4))
@@ -49,10 +54,11 @@ class SocialEnrichmentQueue:
         if not cached:
             return None
         ts, signal = cached
-        if (time.time() - ts) > self._cache_ttl_s():
+        checked = checked_social_receipt(signal, str(address), max_age_s=min(self._cache_ttl_s(), social_cache_ttl_s(signal)))
+        if checked is None or ts != checked.received_at:
             self._cache.pop(str(address), None)
             return None
-        return signal
+        return checked
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -70,13 +76,19 @@ class SocialEnrichmentQueue:
         address = str(token.get("address") or token.get("mint") or "").strip()
         if not address:
             return False
-        if self.get_cached(address) is not None or address in self._inflight:
+        if address in self._inflight:
+            return False
+        cached = self.get_cached(address)
+        observed = checked_social_receipt(token.get("social_signal"), address, max_age_s=self._cache_ttl_s())
+        observed = observed if observed is not None and observed.social_ok is not None else None
+        if cached is not None and (observed is None or social_profile_identity(observed) == social_profile_identity(cached)):
             return False
         request = SocialEnrichmentRequest(
             address=address,
             symbol=str(token.get("symbol") or "") or None,
             lane=lane or str(token.get("entry_lane") or token.get("gate_profile") or "") or None,
             requested_at_s=time.time(),
+            observation=observed,
         )
         try:
             loop = asyncio.get_running_loop()
@@ -116,9 +128,17 @@ class SocialEnrichmentQueue:
             self._semaphore = asyncio.Semaphore(self._max_concurrent())
         try:
             async with self._semaphore:
-                signal = await fetch_social_profile(address)
-                signal = flag_suspicious_links(signal, address=address, symbol=request.symbol)
-                self._cache[address] = (time.time(), signal)
+                signal = request.observation if request.observation is not None else await fetch_social_profile(address)
+                signal = checked_social_receipt(signal, address, max_age_s=self._cache_ttl_s())
+                if signal is None:
+                    raise ValueError("Missing, expired or conflicting social HTTP receipt")
+                # Disk-history scanning does not run on the entry/event-loop
+                # thread. Cancellation cannot publish the abandoned result.
+                signal = await asyncio.to_thread(flag_suspicious_links, signal, address=address, symbol=request.symbol)
+                signal = checked_social_receipt(signal, address, max_age_s=self._cache_ttl_s())
+                if signal is None:
+                    raise ValueError("Social receipt expired or changed during risk enrichment")
+                self._cache[address] = (signal.received_at, signal)
                 record_social_links(signal, address=address, symbol=request.symbol)
                 record_social_signal(signal, address=address, symbol=request.symbol, lane=request.lane)
                 record_runtime_event(
@@ -134,11 +154,14 @@ class SocialEnrichmentQueue:
                     link_count=signal.link_count,
                     risk_flags=list(signal.risk_flags),
                     latency_ms=signal.latency_ms,
+                    received_at=signal.received_at,
+                    source=signal.source,
+                    basis=signal.basis,
                 )
                 return signal
         except Exception as exc:  # noqa: BLE001
-            signal = unknown_social_signal(source="social_enrichment_queue")
-            self._cache[address] = (time.time(), signal)
+            signal = unknown_social_signal(source="social_enrichment_queue", address=address, received_at=time.time())
+            self._cache[address] = (signal.received_at, signal)
             record_runtime_event(
                 "social_enrichment_failed",
                 address,
@@ -157,6 +180,25 @@ def schedule_social_enrichment(token: dict[str, Any], *, lane: str | None = None
     return GLOBAL_SOCIAL_ENRICHMENT_QUEUE.schedule(token, lane=lane)
 
 
+def consume_social_enrichment(token: dict[str, Any]) -> SocialSignal:
+    """Nonblocking, identity-bound inputs selected once for this decision."""
+    address = str(token.get("address") or "")
+    candidates = []
+    cached = None
+    if bool(getattr(CFG, "SOCIALS_ENABLED", True)):
+        snapshot = checked_social_receipt(token.get("social_signal"), address, max_age_s=social_cache_ttl_s())
+        cached = GLOBAL_SOCIAL_ENRICHMENT_QUEUE.get_cached(address)
+        candidates = [signal for signal in (snapshot, cached) if signal is not None]
+    signal = max(candidates, key=lambda item: item.received_at) if candidates else unknown_social_signal()
+    # A newer unchanged raw profile is not a reason to discard a checked risk
+    # result. Keep the complete older, still-fresh receipt, without re-stamping.
+    if candidates and cached is not None and cached.risk_checked_at is not None:
+        if social_profile_identity(signal) == social_profile_identity(cached):
+            signal = cached
+    apply_social_signal_to_token(token, signal)
+    return signal
+
+
 async def stop_background_tasks() -> None:
     await GLOBAL_SOCIAL_ENRICHMENT_QUEUE.stop()
 
@@ -166,5 +208,6 @@ __all__ = [
     "SocialEnrichmentQueue",
     "SocialEnrichmentRequest",
     "schedule_social_enrichment",
+    "consume_social_enrichment",
     "stop_background_tasks",
 ]

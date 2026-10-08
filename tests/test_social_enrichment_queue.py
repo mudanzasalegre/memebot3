@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -14,7 +15,8 @@ async def test_social_queue_schedules_without_blocking_hot_path(monkeypatch) -> 
     events: list[tuple[str, str]] = []
 
     async def fake_fetch(address: str):
-        return social_signal_from_profile({"links": {"twitterUrl": f"https://x.com/{address}"}}, latency_ms=5)
+        return social_signal_from_profile({"links": {"twitterUrl": f"https://x.com/{address}"}},
+            latency_ms=5, address=address, received_at=time.time())
 
     monkeypatch.setattr(
         queue_mod,
@@ -28,6 +30,7 @@ async def test_social_queue_schedules_without_blocking_hot_path(monkeypatch) -> 
         ),
     )
     monkeypatch.setattr(queue_mod, "fetch_social_profile", fake_fetch)
+    monkeypatch.setattr(queue_mod, "flag_suspicious_links", lambda signal, **kw: signal)
     monkeypatch.setattr(queue_mod, "record_social_links", lambda *args, **kwargs: None)
     monkeypatch.setattr(queue_mod, "record_social_signal", lambda *args, **kwargs: None)
     monkeypatch.setattr(queue_mod, "record_runtime_event", lambda event, address, **payload: events.append((event, address)))

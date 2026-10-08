@@ -35,6 +35,7 @@ from utils.market_observation import (
 )
 from utils.sol_price import get_sol_usd
 from utils.solana_addr import normalize_mint
+from analytics.social_signal import checked_social_receipt
 
 # Adapters
 from fetcher.geckoterminal import (
@@ -489,6 +490,13 @@ def _merge_market_fields(primary: dict | None, secondary: dict, source: str) -> 
                 proof["fields"][field] = deepcopy(record)
         if field == "price_usd":
             out["price_source"] = source
+    address = str(out.get("address") or "")
+    social = [checked_social_receipt(item.get("social_signal"), address) for item in (out, secondary)]
+    social = [item for item in social if item is not None]
+    if social:
+        out["social_signal"] = max(social, key=lambda item: item.received_at).to_dict()
+    else:
+        out.pop("social_signal", None)
     return out
 
 

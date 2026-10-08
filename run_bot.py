@@ -143,13 +143,18 @@ from runtime.fast_enrichment import enrich_fast  # noqa: E402
 from runtime.entry_observation import (  # noqa: E402
     discovery_candidate, prepare_entry_candidate, apply_paper_liquidity_proxy,
     freeze_entry_observation, entry_observation_problem,
+    freeze_entry_social_observation, entry_auxiliary_observations,
 )
 from runtime.hot_queue import GLOBAL_HOT_QUEUE  # noqa: E402
 from runtime import live_canary  # noqa: E402
 from runtime.live_canary_guard import LiveCanaryGuardError, ensure_live_start_allowed  # noqa: E402
 from runtime.position_limits import evaluate_lane_position_limit  # noqa: E402
 from runtime.policy_overlay import evaluate_policy_overlay, set_manual_lane_control  # noqa: E402
-from runtime.social_enrichment_queue import schedule_social_enrichment  # noqa: E402
+from runtime.social_enrichment_queue import schedule_social_enrichment, consume_social_enrichment  # noqa: E402
+from analytics.social_signal import (  # noqa: E402
+    SOCIAL_STATUS_UNKNOWN, apply_social_signal_to_token, checked_social_receipt,
+    flag_suspicious_links, social_cache_ttl_s, unknown_social_signal,
+)
 
 # ───────── Fetchers / analytics ─────────────────────────────────────────────
 from fetcher import (  # noqa: E402
@@ -4894,6 +4899,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         return
 
     # 6) — señales baratas (social, trend, insider…) —
+    # Select the current snapshot/background result once; never reuse queued
+    # social booleans or await a provider on the green-sniper hot path.
+    entry_social_signal = consume_social_enrichment(token)
     token["strategy_version"] = str(getattr(CFG, "SNIPER_STRATEGY_VERSION", "2026-04-green-sniper-v1") or "")
     token["experiment_id"] = str(getattr(CFG, "SNIPER_EXPERIMENT_ID", "green_v1") or "")
     green_decision = None
@@ -5017,7 +5025,15 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         token.setdefault("insider_sig", False)
         token["score_total"] = filters.total_score(token)
     else:
-        token["social_ok"] = await socials.has_socials(addr)
+        if entry_social_signal.status == SOCIAL_STATUS_UNKNOWN and bool(getattr(CFG, "SOCIALS_ENABLED", True)):
+            fetched_social = await socials.fetch_social_profile(addr)
+            entry_social_signal = checked_social_receipt(fetched_social, addr, max_age_s=social_cache_ttl_s())
+            if entry_social_signal is None:
+                entry_social_signal = unknown_social_signal()
+            else:
+                entry_social_signal = await asyncio.to_thread(flag_suspicious_links, entry_social_signal,
+                    address=addr, symbol=token.get("symbol"))
+            apply_social_signal_to_token(token, entry_social_signal)
     sniper_micro_fallback_probe = _sniper_research_micro_fallback_probe_allowed(token)
     if not (green_fast_path and DRY_RUN and bool(getattr(CFG, "PAPER_SNIPER_MODE", False))):
         try:
@@ -5034,6 +5050,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         token["insider_sig"] = await insider.insider_alert(addr)
         token["score_total"] = filters.total_score(token)
 
+    entry_observation = freeze_entry_social_observation(token, entry_observation)
     if not _entry_observation_is_current(token, entry_observation, stage="post_social_enrichment"):
         return
 
@@ -6899,7 +6916,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["config_hash"] = _config_hash()
     pos = _build_entry_position(token, size_decision, addr=addr, amount_sol=amount_sol, proba=proba)
     attempt = _BUY_RECOVERY.begin(pos, paper=bool(DRY_RUN), amount_sol=float(amount_sol),
-        feature_vector=_entry_vector_for_close(vec, pos), positive_pnl_ratio=float(ML_POSITIVE_PNL_RATIO))
+        feature_vector=_entry_vector_for_close(vec, pos), positive_pnl_ratio=float(ML_POSITIVE_PNL_RATIO),
+        auxiliary_observations=entry_auxiliary_observations(entry_observation))
     if DRY_RUN:
         token["_actual_paper_buy_attempted"] = 1
         _stats["actual_paper_buy_attempts"] += 1

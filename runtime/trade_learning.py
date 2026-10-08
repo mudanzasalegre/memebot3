@@ -21,6 +21,7 @@ from utils.atomic_json import read_json_strict, write_json_atomic
 
 VERSION = "paper_costed_trade_learning_v1"
 ENTRY_VERSION = "frozen_entry_features_v1"
+ENTRY_AUX_VERSION = "frozen_entry_features_with_auxiliary_receipts_v2"
 _REPAIR_STATE: dict[str, tuple[float, int]] = {}
 FINANCIAL_FIELDS = frozenset("""
 entry_intent_id source_position_key buy_signature token_address run_id dry_run closed opened_at closed_at
@@ -52,7 +53,7 @@ def _number(value):
     return result
 
 
-def freeze_entry_features(vector, *, address, captured_at, positive_pnl_ratio=0.):
+def freeze_entry_features(vector, *, address, captured_at, positive_pnl_ratio=0., auxiliary_observations=None):
     """Whitelist T0 features before the existing durable pre-buy journal write."""
     raw = vector.to_dict() if hasattr(vector, "to_dict") else dict(vector)
     values = {}
@@ -67,20 +68,37 @@ def freeze_entry_features(vector, *, address, captured_at, positive_pnl_ratio=0.
     values["timestamp"] = _time(values["timestamp"]).isoformat()
     payload = {"version": ENTRY_VERSION, "captured_at": _time(captured_at).isoformat(),
         "positive_pnl_ratio": _number(positive_pnl_ratio), "vector": values}
+    if auxiliary_observations is not None:
+        payload["version"] = ENTRY_AUX_VERSION
+        payload["auxiliary_observations"] = copy.deepcopy(auxiliary_observations)
     payload["payload_sha256"] = _hash(payload)
     validate_entry_features(payload, address=address)
     return payload
 
 
 def validate_entry_features(payload, *, address):
-    if (not isinstance(payload, dict) or set(payload) != {"version", "captured_at", "positive_pnl_ratio", "vector", "payload_sha256"}
-            or payload.get("version") != ENTRY_VERSION or not isinstance(payload.get("vector"), dict)
+    keys = {"version", "captured_at", "positive_pnl_ratio", "vector", "payload_sha256"}
+    if isinstance(payload, dict) and payload.get("version") == ENTRY_AUX_VERSION:
+        keys.add("auxiliary_observations")
+    if (not isinstance(payload, dict) or set(payload) != keys
+            or payload.get("version") not in {ENTRY_VERSION, ENTRY_AUX_VERSION} or not isinstance(payload.get("vector"), dict)
             or set(payload["vector"]) != set(COLUMNS)
             or payload["vector"].get("address") != address
             or payload["payload_sha256"] != _hash({k: v for k, v in payload.items() if k != "payload_sha256"})
             or _time(payload["vector"]["timestamp"]) > _time(payload["captured_at"])
             or _number(payload["positive_pnl_ratio"]) < 0):
         raise TradeLearningError("Invalid frozen entry feature proof")
+    if payload["version"] == ENTRY_AUX_VERSION:
+        from runtime.entry_observation import social_observation_problem
+        observations = payload["auxiliary_observations"]
+        if not isinstance(observations, dict) or set(observations) != {"social"}:
+            raise TradeLearningError("Unsupported frozen auxiliary observation schema")
+        social = observations["social"]
+        captured = _time(payload["vector"]["timestamp"]).timestamp()
+        problem = social_observation_problem(social, address=address, vector=payload["vector"], now=captured)
+        if (problem is not None or any(social.get(field) is not None and social[field] > captured
+                                     for field in ("received_at", "risk_checked_at"))):
+            raise TradeLearningError("Invalid or noncausal frozen social observation")
 
 
 def validate_source(source):

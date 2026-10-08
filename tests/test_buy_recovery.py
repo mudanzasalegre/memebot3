@@ -477,6 +477,9 @@ async def test_invalid_live_amount_rejected_before_any_submission(monkeypatch, a
 
 def execution_tail_namespace(tmp_path, store, paper):
     from analytics import runner_ladder
+    from analytics.social_signal import unknown_social_signal, social_feature_values
+    from runtime.entry_observation import entry_auxiliary_observations
+    unknown = unknown_social_signal()
     tree = ast.parse(Path("run_bot.py").read_text(encoding="utf-8"))
     builder = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_build_entry_position")
     feature_context = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_entry_vector_for_close")
@@ -502,7 +505,10 @@ def execution_tail_namespace(tmp_path, store, paper):
         "log_execution_event": lambda *a, **k: None, "_research_decision": lambda *a, **k: None,
         "_note_runtime_error": lambda *a: None, "_pending_ai_vectors": {}, "_remove_from_queue_if_present": lambda *a: None,
         "log": SimpleNamespace(error=lambda *a: None), "ai_threshold_eff": .5, "rank_info": {},
-        "vec": {"address": MINT, "timestamp": STAMP - dt.timedelta(seconds=1), "score_total": 70},
+        "vec": {"address": MINT, "timestamp": STAMP - dt.timedelta(seconds=1), "score_total": 70,
+            **social_feature_values(unknown)},
+        "entry_observation": SimpleNamespace(social=json.dumps(unknown.to_dict())),
+        "entry_auxiliary_observations": entry_auxiliary_observations,
         "ML_POSITIVE_PNL_RATIO": .1}
     exec(compile(ast.fix_missing_locations(ast.Module(body=[builder, feature_context, tail], type_ignores=[])), "run_bot.py", "exec"), namespace)
     return namespace
@@ -540,4 +546,7 @@ async def test_actual_entry_execution_tail_and_restart_recovery(tmp_path, monkey
             assert position.entry_notional_usd == 10. and position.run_id == "synthetic-run"
             assert position.source_position_key.startswith("buy:")
         assert len(paper._PORTFOLIO) == 1
+        resolved = json.loads(next((store.directory / "resolved").glob("*.json")).read_text())
+        assert resolved["entry_features"]["version"] == "frozen_entry_features_with_auxiliary_receipts_v2"
+        assert resolved["entry_features"]["auxiliary_observations"]["social"]["status"] == "unknown"
     finally: await engine.dispose()

@@ -1,0 +1,89 @@
+{
+  "stage": "social source contracts, original receipt ages and causal entry consumption",
+  "status": "IMPLEMENTED_SOFTWARE_VALIDATED",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Source implementation, isolated synthetic provider/order tests and two bounded read-only public endpoint probes; no bot run, transaction, active model training/promotion or active-policy write",
+  "provider_contract": {
+    "reference": "https://docs.dexscreener.com/api/reference",
+    "documented_route": "/token-pairs/v1/solana/{tokenAddress}",
+    "previous_route": "/token/solana/{tokenAddress}",
+    "previous_route_interpretation": "Not present in the inspected official public reference; no claim that a real 404 was observed",
+    "response": "List of pairs; only exact Solana baseToken mint matches are usable; select the most liquid matching pair before reading info",
+    "metadata_variants": "pair.info.websites URLs and pair.info.socials type/url or platform/handle, plus existing explicit flat links/profile compatibility",
+    "public_probes": {"requests": 2, "read_only": true, "old_route_http_status": 403, "documented_route_http_status": 403, "token": "wrapped SOL public mint", "interpretation": "Provider/WAF/network access is not validated by these responses. Neither a successful profile response nor an old-route 404 was observed."},
+    "configured_base_check": {"https": true, "root_path": true, "query_present": false, "credentials_present": false, "scope": "Sanitized booleans from the actual working-checkout configuration; no credential values printed or modified"}
+  },
+  "findings_and_repairs": [
+    "Replace the undocumented social route with the documented token-pairs endpoint and parse the actual pair metadata rather than treating the top-level pair list as a flat profile.",
+    "Use strict typed scalar decoding and HTTP(S) URL validation: malformed objects, credentials, unsupported schemes, bad ports, contradictory status, fractional/negative counts and nonfinite bonuses do not fabricate usable social evidence.",
+    "Keep source, exact mint, original HTTP received_at and explicit receipt/failure basis. The local receipt is not a provider profile-asof timestamp, a market forecast or confirmation that links are genuine.",
+    "Remove the second scalar Boolean cache; both provider and background caches check the original age and never restart it on a cache read or enrichment completion. Unknown results use short negative caching.",
+    "Carry the same original social response with DexScreener's market receipt through price-source merging and common entry preparation; discard queued social decisions. Consume fresh background results before green-sniper ranking without awaiting the provider on that hot path.",
+    "Reuse already observed current pair metadata for background enrichment instead of issuing another provider request. Recheck changed profiles despite an existing cached result; run disk-history scans off the entry/event-loop thread and preserve owned cancellation behavior.",
+    "Keep a still-fresh checked link-risk result when a newer raw response reports the identical profile. Preserve its complete original receipt and separately record risk_checked_at, without renewing age or applying risk flags from a different profile.",
+    "Represent unreported channels and unknown profiles as nullable model inputs, not measured absence. Positive partial metadata remains useful without inventing missing Twitter/Telegram/Discord/website observations. Typed T0 missingness distinguishes known absence from unavailable data in every consumed model matrix.",
+    "Freeze the selected social input and recheck identity, receipt, age and the final model social columns after asynchronous enrichment and before buy intents. Changes or expiry trigger a whole-decision transient wait, not negative financial labels.",
+    "Add an explicit optional frozen-entry v2 auxiliary receipt layout. It binds the original social response and risk-check time to original model T0, checks causality and exact vector consistency, and survives the real temporary buy journal, simulated costed close, immutable source, Parquet export, restart and checked financial training restoration. Legacy v1 layout and raw Parquet columns remain unchanged."
+  ],
+  "contracts": {
+    "receipt_version": "social_http_receipt_v1",
+    "response_basis": "http_response_received_not_provider_profile_asof",
+    "failure_basis": "request_failed_not_profile_observed",
+    "maximum_original_age_s": 600,
+    "unknown_cache_maximum_s": 60,
+    "frozen_entry_version": "frozen_entry_features_with_auxiliary_receipts_v2",
+    "legacy_entry_version_preserved": "frozen_entry_features_v1",
+    "new_model_predictor_columns": 0,
+    "economic_upside_cap": false,
+    "paper_order_size_sol_unchanged": 0.1,
+    "new_required_social_buy_gate": false,
+    "partial_metadata": "link_count counts observed supported-channel links, not all links or profile authenticity. Unreported channel presence stays null.",
+    "risk_scope": "Local bounded-TTL link/domain reuse and website-symbol heuristic, not an on-chain rug audit or proof of safety"
+  },
+  "evidence": [
+    "analytics/social_signal.py", "fetcher/socials.py", "fetcher/dexscreener.py",
+    "utils/price_service.py", "runtime/social_enrichment_queue.py", "runtime/entry_observation.py",
+    "features/builder.py", "runtime/buy_recovery.py", "runtime/trade_learning.py", "run_bot.py",
+    "tests/test_social_observation_contract.py", "tests/test_social_enrichment_queue.py",
+    "tests/test_buy_recovery.py", "tests/test_trade_learning.py"
+  ],
+  "verification": {
+    "new_isolated_cases": 87,
+    "social_contract_cases": 86,
+    "actual_v2_close_export_training_cases": 1,
+    "focused_integration": "446 passed in 38.71s before the final record-identity and logging-address safeguards; final full suites run on those safeguards",
+    "intermediate_fixture_repairs": "An incorrect test helper import, new dependencies missing in an AST execution-tail fixture and absent liquidity-proxy flags in a synthetic social fixture were corrected. Actual production validation was not bypassed.",
+    "full_working_suite": "2174 passed in 350.58s on final source",
+    "full_publishing_suite": "2174 passed in 336.49s on final source without personal .env or local .venv, using the existing working-checkout Python runtime",
+    "preflight_both": {"ok": true, "compile_errors": 0, "config_import_rc": 0, "paper_profile_ok": true, "report_builders": 7, "report_builders_ok": true},
+    "exact_size_and_runner_focused": "72 passed in 5.07s; exact 0.1 SOL paper orders and uncapped runner protection remain intact",
+    "raw_schema_check": {"columns": 77, "new_social_age_predictors": false, "legacy_v1_supported": true, "new_v2_supported": true},
+    "publication": {"checkout": "C:/Users/monmo10/Documents/GitHub/memebot3", "baseline_commit": "6e5934959dcc4931aba0e38e7c266253badfd221", "mode": "Reviewed source files only, no secrets or runtime artifacts; commit/push and remote identity are verified after the final report write in task output", "require_push_verification_before_handoff": true},
+    "artifact_inventory_at_utc": "2026-10-08T01:45:12.3131933Z",
+    "runtime_models_changed": 0,
+    "runtime_features_changed": 0,
+    "managed_trade_and_forward_json_changed": 0,
+    "active_policies_changed": 0,
+    "personal_env_changed": false,
+    "final_shutdown": {
+      "verified_at_utc": "2026-10-08T01:46:23.9477713Z",
+      "working_stop_script_exit_code": 0,
+      "working_stop_script_result": "2026-10-08T01:45:11Z stop_stack done killed=0 remaining=0",
+      "working_runtime_processes": 0,
+      "publishing_runtime_processes": 0,
+      "global_bot_training_research_processes": 0,
+      "bot_locks_present_both": false,
+      "working_sql": [["main", "stopped", "idle", "idle"]],
+      "publishing_finalizer": "Not invoked: source-only checkout has no personal .env, local .venv or runtime database; OFF verified independently by process/lock inventory"
+    }
+  },
+  "remaining_boundaries": [
+    "HTTP403 on both public probes leaves successful real provider access and production response acceptance unverified. Mock responses only establish software handling.",
+    "This stage closes social source-age/causal-consumption handling, not trend/insider/rug/cluster auxiliary contracts. The current insider heuristic has separate count/unit/unknown issues and generic risk-score defaults require further audit.",
+    "Original social receipt ages are retained in new managed close proofs, not introduced as new predictive model columns or retroactively reconstructed for historical v1 data. Other raw shadow/export paths do not acquire this v2 causal receipt proof automatically.",
+    "Additional strategy-subprofile descriptors, diagnostic multiclass exit acceptance, atomic multi-head provenance, durable full-strategy decision provenance and full-strategy capital/admission/execution constraints remain required work.",
+    "Uncapped exits and repaired social metadata do not guarantee capturing 5x/10x tokens or profitable realised fills. Fresh authorized prospective costed closed-trade evidence is required before a profitability claim.",
+    "Publishing checkout is source-only without personal .env, a local .venv or runtime database; its tests use the working checkout's existing Python runtime. All bot services must remain OFF."
+  ]
+}

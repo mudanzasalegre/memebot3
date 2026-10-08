@@ -4,12 +4,17 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 import math
+import json
 import time
 from typing import Any, Mapping
 
 from utils.market_observation import (
     DEFAULT_MAX_AGE_S, MARKET_FIELDS, fresh_market_value, market_number,
     retain_fresh_market_fields,
+)
+from analytics.social_signal import (
+    SOCIAL_STATUS_UNKNOWN, SOCIAL_MAX_AGE_S, checked_social_receipt,
+    social_cache_ttl_s, social_feature_values, social_signal_from_dict,
 )
 
 # Queue items carry discovery identity, not reusable decisions/model inputs.
@@ -46,7 +51,7 @@ def prepare_entry_candidate(queued: Mapping[str, Any], snapshot: dict | None) ->
     clean = retain_fresh_market_fields(snapshot)
     if clean is None or fresh_market_value(clean, "price_usd") is None:
         return None
-    for key in _DISCOVERY_FIELDS + _SNAPSHOT_FIELDS + MARKET_FIELDS + ("market_observation",):
+    for key in _DISCOVERY_FIELDS + _SNAPSHOT_FIELDS + MARKET_FIELDS + ("market_observation", "social_signal"):
         if key in clean and clean[key] is not None:
             out[key] = deepcopy(clean[key])
     # Explicit absence prevents default/alias resurrection in later enrichers.
@@ -83,6 +88,36 @@ class EntryObservation:
     receipts: tuple[tuple[str, str, float], ...]
     proxy: tuple[str, float, float] | None = None
     provider_proxy: bool = False
+    social: str | None = None
+
+
+def freeze_entry_social_observation(token: dict, observation: EntryObservation) -> EntryObservation:
+    from dataclasses import replace
+    return replace(observation, social=json.dumps(token["social_signal"], sort_keys=True, allow_nan=False))
+
+
+def entry_auxiliary_observations(observation: EntryObservation) -> dict | None:
+    return {"social": json.loads(observation.social)} if observation.social is not None else None
+
+
+def social_observation_problem(payload, *, address: str, vector=None, now=None, max_age_s=SOCIAL_MAX_AGE_S):
+    """Also usable on original pre-buy proofs, at their historical capture time."""
+    if not isinstance(payload, dict):
+        return "missing_social_receipt"
+    signal = social_signal_from_dict(payload)
+    if set(payload) != set(signal.to_dict()) or payload != signal.to_dict():
+        return "changed_social_receipt"
+    if signal.status != SOCIAL_STATUS_UNKNOWN or signal.received_at is not None:
+        if checked_social_receipt(payload, address, now=now, max_age_s=max_age_s) is None:
+            return "expired_or_invalid_social_receipt"
+    if vector is not None:
+        for field, value in social_feature_values(signal).items():
+            actual = vector.get(field)
+            if value is None and (actual is None or type(actual) is float and math.isnan(actual)):
+                continue
+            if actual != value:
+                return "changed_model_social_inputs"
+    return None
 
 
 def freeze_entry_observation(token: dict, *, paper: bool) -> EntryObservation | None:
@@ -129,6 +164,14 @@ def entry_observation_problem(
     """Return a transient reevaluation reason; never refresh just a price here."""
     if observation is None or token.get("address") != observation.address:
         return "missing_or_changed_identity"
+    if observation.social is not None:
+        payload = json.loads(observation.social)
+        if token.get("social_signal") != payload:
+            return "changed_social_inputs"
+        problem = social_observation_problem(payload, address=observation.address, vector=vector,
+                                              max_age_s=social_cache_ttl_s())
+        if problem is not None:
+            return problem
     expected = dict(observation.values)
     if expected.get("price_usd") is None:
         return "missing_price"

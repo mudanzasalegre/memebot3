@@ -207,7 +207,7 @@ class BuyRecoveryStore:
         return {row["address"] for key, row in self._records.items() if key not in self._active}
 
     def begin(self, position: Position, *, paper: bool, amount_sol: float,
-              feature_vector=None, positive_pnl_ratio=0.) -> BuyAttempt:
+              feature_vector=None, positive_pnl_ratio=0., auxiliary_observations=None) -> BuyAttempt:
         owned = self._scope.get()
         if owned is None:
             raise BuyRecoveryError("Buy requires an owned entry scope")
@@ -219,7 +219,8 @@ class BuyRecoveryStore:
         if feature_vector is not None:
             from runtime.trade_learning import freeze_entry_features
             row["entry_features"] = freeze_entry_features(feature_vector, address=position.address,
-                captured_at=row["created_at"], positive_pnl_ratio=positive_pnl_ratio)
+                captured_at=row["created_at"], positive_pnl_ratio=positive_pnl_ratio,
+                auxiliary_observations=auxiliary_observations)
         if (self.directory / (row["intent_id"] + ".json")).exists() or (
                 self.directory / "resolved" / (row["intent_id"] + ".json")).exists():
             raise BuyRecoveryError("Buy intent identity already exists")

@@ -38,6 +38,7 @@ import asyncio
 import datetime as dt
 import logging
 import math
+import time
 from copy import deepcopy
 from typing import Dict, Optional, List, Any
 
@@ -49,6 +50,7 @@ from utils.data_utils import sanitize_token_data
 from utils.simple_cache import cache_get, cache_set, cache_delete
 from utils.time import parse_iso_utc  # ← usar helper seguro para ISO
 from utils.market_observation import MARKET_FIELDS, stamp_market_observation
+from analytics.social_signal import social_signal_from_profile
 
 log = logging.getLogger("dexscreener")
 
@@ -361,6 +363,16 @@ def _norm_from_pair(raw_pair: dict) -> dict:
     tok = _add_legacy_aliases(tok)
     return tok
 
+def _stamp_pair_observation(pair: dict) -> dict:
+    """Metadata and market values retain the same original HTTP receipt."""
+    received_at = time.time()
+    token = stamp_market_observation(_norm_from_pair(pair), "dexscreener", received_at=received_at)
+    # Never accept a receipt supplied inside provider JSON.
+    token["social_signal"] = social_signal_from_profile(pair, address=token.get("address"),
+        received_at=received_at, source="dexscreener").to_dict()
+    return token
+
+
 # ───────────────────────── API pública ────────────────────────────
 async def get_pair(address: str, *, force_refresh: bool = False) -> Optional[Dict[str, Any]]:
     ck = f"dex:{address}"
@@ -379,7 +391,7 @@ async def get_pair(address: str, *, force_refresh: bool = False) -> Optional[Dic
         if isinstance(raw_tok, dict) and raw_tok.get("pairs"):
             pair = _pick_best_pair(_matching_pairs(raw_tok["pairs"], address))
             if pair:
-                res = stamp_market_observation(_norm_from_pair(pair), "dexscreener")
+                res = _stamp_pair_observation(pair)
                 if res.get("address"):
                     log.debug("[DEX] %s ✅ tokens-hit (mint)", address[:6])
                     cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
@@ -393,7 +405,7 @@ async def get_pair(address: str, *, force_refresh: bool = False) -> Optional[Dic
             log.debug("[DEX] %s pairs→ %s", address[:6], list(raw_pair.keys())[:3])
         if isinstance(raw_pair, dict):
             if raw_pair.get("pair") and _matching_pairs([raw_pair["pair"]], address):
-                res = stamp_market_observation(_norm_from_pair(raw_pair["pair"]), "dexscreener")
+                res = _stamp_pair_observation(raw_pair["pair"])
                 if res.get("address"):
                     log.debug("[DEX] %s ✅ pair-hit (direct)", address[:6])
                     cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
@@ -402,7 +414,7 @@ async def get_pair(address: str, *, force_refresh: bool = False) -> Optional[Dic
             if raw_pair.get("pairs"):
                 pair = _pick_best_pair(_matching_pairs(raw_pair["pairs"], address))
                 if pair:
-                    res = stamp_market_observation(_norm_from_pair(pair), "dexscreener")
+                    res = _stamp_pair_observation(pair)
                     if res.get("address"):
                         log.debug("[DEX] %s ✅ pair-hit (list)", address[:6])
                         cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
@@ -419,7 +431,7 @@ async def get_pair(address: str, *, force_refresh: bool = False) -> Optional[Dic
             matches = _matching_pairs(raw_search["pairs"], address)
             pair = _pick_best_pair(matches)
             if pair:
-                res = stamp_market_observation(_norm_from_pair(pair), "dexscreener")
+                res = _stamp_pair_observation(pair)
                 if res.get("address"):
                     log.debug("[DEX] %s ✅ search-hit", address[:6])
                     cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
