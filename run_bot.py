@@ -9022,12 +9022,19 @@ async def _check_positions(ses: SessionLocal) -> None:
         _persist_dataset_at_close(pos, used_close if used_close is not None else sell_price_hint)
         _record_position_close_telemetry(pos, regime=pos_regime, exit_reason=str(exit_reason))
         if (not DRY_RUN) and str(getattr(pos, "entry_lane", "") or "").strip().lower() == "pump_early_green_candle_sniper":
+            pnl_sol = None
             try:
-                sol_usd = float(await get_sol_usd())
+                sol_usd = await get_sol_usd()
+                pnl_usd = getattr(pos, "total_pnl_usd", None)
+                if (not isinstance(sol_usd, bool) and isinstance(sol_usd, (int, float))
+                        and math.isfinite(sol_usd) and sol_usd > 0
+                        and not isinstance(pnl_usd, bool) and isinstance(pnl_usd, (int, float))
+                        and math.isfinite(pnl_usd)):
+                    pnl_sol = float(pnl_usd) / float(sol_usd)
             except Exception:
-                sol_usd = 1.0
+                pass  # Unknown valuation is not a one-dollar SOL or zero loss.
             live_canary.record_green_live_close(
-                pnl_sol=float(getattr(pos, "total_pnl_usd", 0.0) or 0.0) / max(sol_usd, 1.0),
+                pnl_sol=pnl_sol,
                 exit_reason=str(exit_reason),
             )
 
@@ -9337,35 +9344,21 @@ async def _repair_position_entry_notionals(ses: SessionLocal) -> int:
     if not rows:
         return 0
 
-    needs_notional = any(
-        float(getattr(pos, "buy_amount_sol", 0.0) or 0.0) > 0.0
-        and float(getattr(pos, "entry_notional_usd", 0.0) or 0.0) <= 0.0
-        for pos in rows
-    )
     needs_metrics = any(
         bool(getattr(pos, "closed", False)) or int(getattr(pos, "realized_qty", 0) or 0) > 0
         for pos in rows
     )
-    if not needs_notional and not needs_metrics:
+    if not needs_metrics:
         return 0
-
-    sol_usd: float | None = None
-    if needs_notional:
-        price = await get_sol_usd()
-        if price is not None and price > 0:
-            sol_usd = float(price)
 
     updated = 0
     for pos in rows:
         changed = False
-        amount_sol = float(getattr(pos, "buy_amount_sol", 0.0) or 0.0)
-        if (
-            sol_usd is not None
-            and amount_sol > 0.0
-            and float(getattr(pos, "entry_notional_usd", 0.0) or 0.0) <= 0.0
-        ):
-            pos.entry_notional_usd = float(amount_sol * sol_usd)
-            changed = True
+        # No current FX fetch/backfill: preserve a missing original entry basis.
+        original = getattr(pos, "entry_notional_usd", None)
+        if (isinstance(original, bool) or not isinstance(original, (int, float))
+                or not math.isfinite(original) or original <= 0):
+            continue
         if bool(getattr(pos, "closed", False)):
             _seal_closed_trade_metrics(pos, getattr(pos, "close_price_usd", None))
             changed = True
@@ -9388,17 +9381,11 @@ async def _repair_position_entry_notionals(ses: SessionLocal) -> int:
 
 
 async def _ensure_position_entry_notional(pos: Position, ses: SessionLocal) -> bool:
-    current = float(getattr(pos, "entry_notional_usd", 0.0) or 0.0)
+    current = getattr(pos, "entry_notional_usd", None)
+    if (isinstance(current, bool) or not isinstance(current, (int, float))
+            or not math.isfinite(current) or current <= 0):
+        return False  # A fresh current rate is not the original entry rate.
     changed = False
-    if current <= 0.0:
-        amount_sol = float(getattr(pos, "buy_amount_sol", 0.0) or 0.0)
-        if amount_sol <= 0.0:
-            return False
-        sol_usd = await get_sol_usd()
-        if sol_usd is None or sol_usd <= 0:
-            return False
-        pos.entry_notional_usd = float(amount_sol * float(sol_usd))
-        changed = True
     if bool(getattr(pos, "closed", False)):
         _seal_closed_trade_metrics(pos, getattr(pos, "close_price_usd", None))
         changed = True

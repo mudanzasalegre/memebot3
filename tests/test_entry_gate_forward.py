@@ -62,6 +62,40 @@ def fill(root, cfg, case_id, now=T0 + dt.timedelta(seconds=1), changes=None):
         prices_func=prices, quote_func=quoted, sol_price_func=sol))
 
 
+def test_entry_fx_unavailable_after_quote_cannot_create_cash_prefix(tmp_path):
+    cfg = config()
+    identity = capture(tmp_path, cfg)
+    rates = iter([100., None])
+    async def prices(tokens): return {mint: 1. for mint in tokens}
+    async def sol(): return next(rates)
+    async def quoted(**kwargs):
+        return quote(source=kwargs["input_mint"], target=kwargs["output_mint"], now=T0 + dt.timedelta(seconds=1))
+    assert not asyncio.run(bank.fill_entry(identity, root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(seconds=1),
+        prices_func=prices, quote_func=quoted, sol_price_func=sol))
+    record = case(tmp_path, identity, state="invalid")
+    assert record["cash"] is None and record["outcomes_complete"] is False
+
+
+def test_entry_gate_exit_rechecks_fx_after_quote_without_fabricating_fill(tmp_path):
+    cfg = config()
+    identity = capture(tmp_path, cfg)
+    assert fill(tmp_path, cfg, identity)
+    before = case(tmp_path, identity)["cash"]["terminal"]["subject"]
+    rates, calls = iter([100., None]), []
+    async def prices(_): return {}
+    async def sol(): return next(rates)
+    async def quoted(**kwargs):
+        calls.append(kwargs)
+        return quote(quantity=kwargs["amount_lamports"], output=200000000,
+            source=kwargs["input_mint"], target=kwargs["output_mint"], now=T0 + dt.timedelta(hours=25))
+    result = asyncio.run(bank.tick(root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(hours=25),
+        prices_func=prices, quote_func=quoted, sol_price_func=sol))
+    assert result["quote_calls"] == len(calls) == 1
+    record = case(tmp_path, identity)
+    assert record["outcomes_complete"] is False and not record["cash"]["terminal"]["fills"]
+    assert record["cash"]["terminal"]["subject"]["qty_lamports"] == before["qty_lamports"]
+
+
 def case(root, case_id, state="active"):
     return store.read(bank.directory(root) / state / f"{case_id}.json")
 

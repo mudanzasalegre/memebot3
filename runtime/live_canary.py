@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -17,6 +18,7 @@ class LiveCanaryState:
     consecutive_losses: int = 0
     disabled_until: str | None = None
     last_disable_reason: str | None = None
+    unvalued_closes: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -46,6 +48,8 @@ def evaluate_green_live_canary(token: dict[str, Any]) -> tuple[bool, str]:
         return False, "strategy_optimization_lock"
     if not bool(getattr(CFG, "GREEN_SNIPER_LIVE_ENABLED", False)):
         return False, "green_live_disabled"
+    if STATE.unvalued_closes:
+        return False, "pnl_valuation_unavailable"
     if _is_disabled():
         return False, STATE.last_disable_reason or "green_live_canary_disabled"
     day = _today()
@@ -76,14 +80,21 @@ def record_green_live_buy() -> None:
     STATE.daily_buys[day] = STATE.daily_buys.get(day, 0) + 1
 
 
-def record_green_live_close(*, pnl_sol: float = 0.0, exit_reason: str | None = None) -> None:
+def record_green_live_close(*, pnl_sol: float | None = None, exit_reason: str | None = None) -> None:
     day = _today()
-    pnl = float(pnl_sol or 0.0)
-    if pnl < 0:
-        STATE.daily_loss_sol[day] = STATE.daily_loss_sol.get(day, 0.0) + abs(pnl)
-        STATE.consecutive_losses += 1
+    if (isinstance(pnl_sol, bool) or not isinstance(pnl_sol, (int, float))
+            or not math.isfinite(pnl_sol)):
+        # Do not reset a loss streak or invent a dollar/SOL conversion. This
+        # unresolved risk-budget observation needs reconciliation, not expiry.
+        STATE.unvalued_closes += 1
+        disable("pnl_valuation_unavailable")
     else:
-        STATE.consecutive_losses = 0
+        pnl = float(pnl_sol)
+        if pnl < 0:
+            STATE.daily_loss_sol[day] = STATE.daily_loss_sol.get(day, 0.0) + abs(pnl)
+            STATE.consecutive_losses += 1
+        else:
+            STATE.consecutive_losses = 0
     if (
         bool(getattr(CFG, "GREEN_SNIPER_LIVE_DISABLE_ON_LIQ_CRUSH", True))
         and str(exit_reason or "").upper() == "LIQUIDITY_CRUSH"
@@ -100,7 +111,7 @@ def disable(reason: str, *, minutes: int = 240) -> None:
 def snapshot() -> dict[str, Any]:
     return STATE.to_dict() | {
         "enabled": bool(getattr(CFG, "GREEN_SNIPER_LIVE_ENABLED", False)),
-        "disabled": _is_disabled(),
+        "disabled": _is_disabled() or bool(STATE.unvalued_closes),
         "max_daily_buys": int(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_DAILY_BUYS", 0) or 0),
         "max_daily_loss_sol": float(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_DAILY_LOSS_SOL", 0.05) or 0.05),
     }

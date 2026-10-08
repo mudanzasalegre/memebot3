@@ -2,6 +2,9 @@ from pathlib import Path
 
 import pytest
 
+from types import SimpleNamespace
+
+from tools import sync_publishing_checkout as sync
 from tools.sync_publishing_checkout import allowed_source
 
 
@@ -19,3 +22,24 @@ def test_runtime_or_sensitive_files_are_not_publication_sources(path):
                                   "docs/audits/jupiter_price_quality_20261008.ipynb"])
 def test_reviewed_source_scopes_are_publishable(path):
     assert allowed_source(Path(path))
+
+
+@pytest.mark.parametrize("line_end", ["\n", "\r\n"])
+def test_blank_secret_assignment_does_not_consume_next_config_line(tmp_path, monkeypatch, line_end):
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    source.mkdir()
+    destination.mkdir()
+    (source / ".env.example").write_bytes(line_end.join([
+        "COINGECKO_DEMO_API_KEY=", "COINGECKO_SOL_TTL=60", "SOL_PRIVATE_KEY=your-placeholder", ""]).encode())
+    monkeypatch.setattr(sync.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout=""))
+    assert [row["path"] for row in sync.build_plan(source, destination)] == [".env.example"]
+
+
+def test_blank_secret_line_never_hides_real_assignment_on_next_line(tmp_path, monkeypatch):
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    source.mkdir()
+    destination.mkdir()
+    (source / ".env.example").write_text("COINGECKO_DEMO_API_KEY=\nSOL_PRIVATE_KEY=synthetic-nonplaceholder\n", encoding="utf-8")
+    monkeypatch.setattr(sync.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout=""))
+    with pytest.raises(ValueError, match="nonplaceholder_secret_assignment:.env.example:SOL_PRIVATE_KEY"):
+        sync.build_plan(source, destination)

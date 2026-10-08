@@ -154,6 +154,7 @@ CRITICAL_MODULES = [
     "fetcher/jupiter_router.py",
     "fetcher/jupiter_price.py",
     "fetcher/jupiter_price_v3.py",
+    "utils/sol_price.py",
     "trader/buyer.py",
     "trader/seller.py",
     "features/decision_store.py",

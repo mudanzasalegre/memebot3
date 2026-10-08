@@ -18,7 +18,7 @@ SUFFIXES = {".py", ".ps1", ".sh", ".md", ".json", ".yaml", ".yml", ".toml", ".in
             ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css", ".html", ".svg", ".png", ".jpg", ".jpeg", ".ico", ".txt"}
 EXCLUDED_PARTS = {"node_modules", "dist", ".vite", "__pycache__", ".pytest_cache", ".ruff_cache", "backups", "versions"}
 BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".ico"}
-SECRET_ASSIGNMENT = re.compile(r"^(?:export\s+)?([A-Z0-9_]*(?:PRIVATE_KEY|API_KEY|PASSWORD|SECRET)[A-Z0-9_]*)\s*=\s*(.*)$", re.M)
+SECRET_ASSIGNMENT = re.compile(r"^(?:export[ \t]+)?([A-Z0-9_]*(?:PRIVATE_KEY|API_KEY|PASSWORD|SECRET)[A-Z0-9_]*)[ \t]*=[ \t]*([^\r\n]*)$", re.M)
 
 
 def allowed_source(relative: Path) -> bool:

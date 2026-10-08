@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import datetime as dt
+import math
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
@@ -270,7 +271,7 @@ def test_main_loop_core_report_startup_is_retained_and_not_forced() -> None:
 
 
 @pytest.mark.asyncio
-async def test_position_notional_repair_avoids_price_until_needed() -> None:
+async def test_position_notional_repair_never_uses_current_fx_for_missing_history() -> None:
     tree = _run_bot_tree()
     repair = next(
         node
@@ -325,6 +326,7 @@ async def test_position_notional_repair_avoids_price_until_needed() -> None:
     namespace = {
         "SessionLocal": object,
         "Position": _Position,
+        "math": math,
         "select": lambda _model: _Statement(),
         "get_sol_usd": _get_sol_usd,
         "_seal_closed_trade_metrics": lambda *_args: None,
@@ -356,10 +358,18 @@ async def test_position_notional_repair_avoids_price_until_needed() -> None:
         realized_qty=0,
     )
     missing_session = _Session([missing])
-    assert await repair_notionals(missing_session) == 1
-    assert price_calls == 1
-    assert missing.entry_notional_usd == pytest.approx(15.0)
-    assert missing_session.commits == 1
+    assert await repair_notionals(missing_session) == 0
+    assert price_calls == 0
+    assert missing.entry_notional_usd is None
+    assert missing_session.commits == 0
+
+    missing.closed = True
+    assert await repair_notionals(missing_session) == 0
+    assert missing.entry_notional_usd is None and price_calls == 0
+    known_closed = SimpleNamespace(buy_amount_sol=.1, entry_notional_usd=15., closed=True, realized_qty=0)
+    known_session = _Session([known_closed])
+    assert await repair_notionals(known_session) == 1 and known_session.commits == 1
+    assert known_closed.entry_notional_usd == 15. and price_calls == 0
 
 
 @pytest.mark.asyncio

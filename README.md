@@ -13,6 +13,45 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Valoracion SOL/USD y evidencia historica
+
+La conversion compartida exige un precio SOL/USD numerico positivo, el
+`last_updated_at` de CoinGecko y el recibo HTTP original. La edad del recibo se
+limita a `COINGECKO_SOL_TTL` (1..60 s) y la del dato de mercado a
+`COINGECKO_SOL_MAX_MARKET_AGE_S` (1..300 s; defecto 120 s). Son limites de
+aceptacion del cliente, no garantias del proveedor ni de ejecucion de swaps.
+Un fallo de refresco deja la conversion desconocida: no se reutiliza
+indefinidamente el ultimo precio bueno. Las consultas concurrentes comparten
+el recibo original y los errores tienen un cooldown de 10 s.
+
+`COINGECKO_DEMO_API_KEY` es opcional para configurar el acceso al endpoint
+publico; la documentacion Demo lo requiere. Sin acceso aceptado no se inventa
+precio y no se garantiza que se puedan valorar operaciones. La clave se envia
+solo a `api.coingecko.com`, sin redirecciones. No se ha probado el acceso real
+del operador en esta revision.
+
+`SOL_USD_OVERRIDE` queda identificado como supuesto de escenario, no como
+evidencia de mercado. `get_sol_usd()` y las conversiones financieras normales
+lo rechazan; solo una consulta diagnostica explicita con
+`allow_assumed=True` puede consumirlo. Los parametros opcionales invalidos
+utilizan valores acotados por defecto y no rompen el primer import.
+
+PAPER y las dos investigaciones prospectivas revisan SOL/USD de nuevo tras
+esperar una cotizacion; si no existe, no registran un fill ni una ganancia.
+Una compra historica sin su importe USD original no se reconstruye con el
+cambio actual. El canary live no convierte con un SOL ficticio de 1 USD ni
+reinicia una racha de perdidas ante un resultado desconocido: bloquea nuevas
+admisiones en el estado del canary. Ese estado sigue siendo en memoria y no
+certifica proteccion de este contador entre reinicios; la durabilidad y
+reconciliacion de riesgo se revisan por separado. Esto no habilita live.
+
+Estas correcciones no certifican rentabilidad: la alineacion de las marcas
+de runners con cantidades/caja cotizadas, la procedencia duradera de cada
+valoracion y la aceptacion prospectiva de la estrategia completa siguen
+pendientes. Las compras de 0.1 SOL PAPER y los runners sin techo de beneficio
+no se han cambiado. Vease `docs/audits/sol_usd_quality_20261008.ipynb` para las
+comprobaciones reproducibles con datos sinteticos, no trades del operador.
+
 El checkout actual incluye:
 
 - Bot async principal en `run_bot.py`.

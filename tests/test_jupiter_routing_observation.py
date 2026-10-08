@@ -184,6 +184,23 @@ async def test_actual_exact_paper_entry_exit_archive_accept_all_router_receipts(
 actual_routing_quote = router.get_routing_quote
 
 
+@pytest.mark.asyncio
+async def test_actual_reverse_exit_rechecks_fx_after_quote_before_any_money_write(paper, network, monkeypatch):
+    monkeypatch.setattr(paper, "_has_jupiter_route", actual_paper_route)
+    monkeypatch.setattr(router, "get_routing_quote", actual_routing_quote)
+    calls, replies = network
+    replies.append(Response(v2_body()))
+    assert (await paper.buy(TOKEN, .1))["qty_lamports"] == 1000
+    before, saved = copy.deepcopy(paper._PORTFOLIO[TOKEN]), paper._DATA_PATH.read_bytes()
+    fx = AsyncMock(side_effect=[100., None])
+    monkeypatch.setattr(paper, "get_sol_usd", fx)
+    replies.append(Response(v2_body(TOKEN, SOL, 1000, 200000000)))
+    result = await paper.sell(TOKEN, 1000, exit_intent_id="b" * 32)
+    assert result["ok"] is False and result["qty_sold"] == 0
+    assert fx.await_count == 2 and len(calls) == 2
+    assert paper._PORTFOLIO[TOKEN] == before and paper._DATA_PATH.read_bytes() == saved
+
+
 @pytest.mark.parametrize("family", ["metis", "jupiterz", "dflow", "okx"])
 def test_runner_research_accepts_checked_opaque_quotes_and_rejects_stripped_proof(tmp_path, family):
     from research_loop import runner_forward as rf

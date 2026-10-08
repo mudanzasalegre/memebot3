@@ -433,6 +433,9 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
         if price <= 0 or sol_usd <= 0 or model is None:
             raise ValueError("unknown entry price or costs")
         quote = await quote_func(input_mint=jupiter_router.SOL_MINT, output_mint=case["token"], amount_lamports=100000000)
+        sol_usd = policy.number(await sol_price_func())
+        if sol_usd <= 0:
+            raise ValueError("entry FX expired or unavailable after quote")
         if (getattr(quote, "other", None) or {}).get("status") == 429:
             record_provider_event("jupiter", "429")
         limit = policy.number(quote_impact_limit_pct(cfg))
@@ -688,6 +691,7 @@ async def tick(*, root: Path | str, cfg: Any = None, now: dt.datetime | None = N
                 sol_usd = await sol_price_func()
                 quote_calls = 1
                 quote = await quote_func(input_mint=mint, output_mint=jupiter_router.SOL_MINT, amount_lamports=quantity)
+                sol_usd = await sol_price_func()  # recheck FX after network wait
                 if (getattr(quote, "other", None) or {}).get("status") == 429:
                     record_provider_event("jupiter", "429")
                 observe_quote(mint, quote, sol_usd, root=root, cfg=cfg, now=now)

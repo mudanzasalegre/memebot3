@@ -165,6 +165,23 @@ def test_tick_quotes_once_for_identical_arms_and_keeps_unknown_unfilled(tmp_path
     assert throttled["status"] == "throttled" and len(calls) == 1
 
 
+def test_runner_tick_rechecks_fx_after_quote_and_keeps_all_arms_unfilled(tmp_path):
+    rf.register_partial(entry(), root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(minutes=1))
+    rates, calls = iter([100., None]), []
+    async def prices(_): return {}
+    async def sol(): return next(rates)
+    async def quoted(**kwargs):
+        calls.append(kwargs)
+        return quote(quantity=kwargs["amount_lamports"], now=T0 + dt.timedelta(hours=25))
+    result = asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(hours=25),
+        prices_func=prices, quote_func=quoted, sol_price_func=sol))
+    assert result["quote_calls"] == len(calls) == 1
+    case = read_active(tmp_path)
+    assert all(arm["subject"]["qty_lamports"] == 800 and not arm["closed"]
+        and not arm["fills"] and arm.get("intent") for arm in case["arms"].values())
+    assert case["quote_failures"] == len(case["arms"])
+
+
 def test_budgeted_shadow_continues_after_actual_position_disappears(tmp_path):
     rf.register_partial(entry(), root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(minutes=1))
     async def prices(_): return {MINT: 1.1}

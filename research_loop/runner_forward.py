@@ -442,6 +442,7 @@ async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datet
                 try:
                     quote = await quote_func(input_mint=token, output_mint=jupiter_router.SOL_MINT,
                                              amount_lamports=quantity)
+                    sol_usd = await sol_price_func()  # recheck FX after network wait
                 except Exception:
                     quote = None
                 if (getattr(quote, "other", None) or {}).get("status") == 429:
@@ -456,7 +457,7 @@ async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datet
                         current_arm = latest["arms"].get(arm_id) if latest else None
                         if not current_arm or current_arm.get("intent") != arm["intent"]:
                             continue  # Already filled/replaced by the real-quote hook.
-                        if not _apply_quote(latest, current_arm, quote, float(sol_usd), filled_at):
+                        if not _positive(sol_usd) or not _apply_quote(latest, current_arm, quote, float(sol_usd), filled_at):
                             latest["quote_failures"] += 1
                         changed.add(case_id)
                 for case_id in changed:

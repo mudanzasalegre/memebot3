@@ -257,18 +257,13 @@ def _recompute_entry_totals(entry: Dict[str, Any]) -> None:
 
 async def _ensure_entry_notional_async(entry: Dict[str, Any]) -> float:
     entry = _ensure_entry_accounting(entry)
-    current = float(entry.get("entry_notional_usd") or 0.0)
-    if current > 0.0:
-        return current
-    amount_sol = float(entry.get("amount_sol") or 0.0)
-    if amount_sol <= 0.0:
-        return 0.0
-    notional = await _resolve_entry_notional_usd(amount_sol)
-    if notional > 0.0:
-        entry["entry_notional_usd"] = float(notional)
-        _recompute_entry_totals(entry)
-        _save()
-    return float(notional or 0.0)
+    current = entry.get("entry_notional_usd")
+    if (not isinstance(current, bool) and isinstance(current, (int, float))
+            and _positive_finite(current)):
+        return float(current)
+    # Today's FX cannot reconstruct an entry that occurred in the past.
+    # Recovery of an original buy receipt is separate from valuation.
+    return 0.0
 
 
 async def backfill_entry_notionals() -> int:
@@ -280,14 +275,8 @@ async def backfill_entry_notionals() -> int:
     if not entries:
         return 0
 
-    needs_sol_price = any(
-        float(entry.get("entry_notional_usd") or 0.0) <= 0.0
-        for entry in entries
-    )
-    sol_usd = await get_sol_usd() if needs_sol_price else None
     updated = 0
     for entry in entries:
-        amount_sol = float(entry.get("amount_sol") or 0.0)
         before = (
             float(entry.get("entry_notional_usd") or 0.0),
             entry.get("total_pnl_usd"),
@@ -295,13 +284,9 @@ async def backfill_entry_notionals() -> int:
             entry.get("realized_cost_usd"),
             entry.get("realized_pnl_usd"),
         )
-        if (
-            float(entry.get("entry_notional_usd") or 0.0) <= 0.0
-            and sol_usd is not None
-            and sol_usd > 0.0
-        ):
-            entry["entry_notional_usd"] = float(amount_sol * float(sol_usd))
-        if float(entry.get("entry_notional_usd") or 0.0) > 0.0:
+        original = entry.get("entry_notional_usd")
+        if (not isinstance(original, bool) and isinstance(original, (int, float))
+                and _positive_finite(original)):
             _recompute_entry_totals(entry)
         after = (
             float(entry.get("entry_notional_usd") or 0.0),
@@ -941,7 +926,9 @@ async def _sell_owned(
     if not entry or entry.get("closed"):
         raise RuntimeError(f"No hay posición activa para {address[:4]}")
     entry = _ensure_entry_accounting(entry)
-    await _ensure_entry_notional_async(entry)
+    if await _ensure_entry_notional_async(entry) <= 0:
+        return {"ok": False, "error": "ENTRY_BASIS_UNAVAILABLE", "signature": None,
+                "qty_sold": 0, "qty_left": int(entry.get("qty_lamports") or 0)}
 
     if not _is_solana_address(key):
         log.error("[papertrading] Venta bloqueada: address no Solana %r", key)
@@ -978,6 +965,17 @@ async def _sell_owned(
             exit_route_quote = capture_summary(quote, input_mint=key, output_mint=SOL_MINT,
                 amount=take_qty, slippage=slippage, limit=entry["entry_route_quote"]["max_impact_pct"], now=utc_now())
             valid = True
+        except Exception:
+            valid = False
+        if not valid or not _positive_finite(sol_usd):
+            return {"ok": False, "error": "EXIT_QUOTE_UNAVAILABLE", "signature": None,
+                    "qty_sold": 0, "qty_left": total_qty}
+        # Re-read the shared FX contract after the quote await. A cache hit
+        # preserves its original clocks; an expired/failed refresh is unknown.
+        sol_usd = await get_sol_usd()
+        try:
+            exit_route_quote = capture_summary(quote, input_mint=key, output_mint=SOL_MINT,
+                amount=take_qty, slippage=slippage, limit=entry["entry_route_quote"]["max_impact_pct"], now=utc_now())
         except Exception:
             valid = False
         if not valid or not _positive_finite(sol_usd):

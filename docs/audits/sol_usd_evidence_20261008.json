@@ -1,0 +1,60 @@
+{
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "financial_acceptance": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Original SOL/USD receipt and provider timestamp integrity across the shared scalar utility, paper valuation, prospective entry/runner research and historical-entry/canary unknown handling",
+  "source": "https://docs.coingecko.com/demo/reference/simple-price",
+  "source_read_date": "2026-10-08",
+  "quality_grain": "One synthetic price/time/body contract case; one requested coin and currency. No operator trade population is measured by the notebook.",
+  "findings": [
+    {"severity": "high", "defect": "Expired SOL/USD was reused indefinitely as last-good after provider failure", "risk": "Current entry, exit, cost and research USD valuations could consume an unbounded old exchange rate", "remediation": "Retain immutable original client/provider clocks, bounded dual age checks and monotonic cache expiry; failed refresh clears old proof and returns unknown"},
+    {"severity": "high", "defect": "Missing historical entry notional was reconstructed from today's SOL/USD", "risk": "Rewrites historical money basis and can fabricate comparable financial returns", "remediation": "No current FX backfill; recompute metrics only for already-known original notionals and reject unvalued paper fills"},
+    {"severity": "high", "defect": "Live canary substituted SOL/USD=1 on unavailable conversion and treated missing outcomes as zero", "risk": "Wrong SOL-denominated budget or lost loss-streak state", "remediation": "Explicit unknown canary close; preserve loss history and block further admissions in that process state instead of inventing currency or return"}
+  ],
+  "implemented": [
+    "Documented Simple Price SOL/USD request with include_last_updated_at and full numeric precision",
+    "Strict bounded UTF-8 duplicate-free JSON body, exact requested coin/currency fields and finite positive numeric rates",
+    "Bounded optional settings, explicit optional Demo credential confined to api.coingecko.com with no redirects and sanitized exception logging",
+    "Independent original client receipt and provider market clocks; default receipt60s, market120s, provider future tolerance5s and monotonic expiry",
+    "Immutable typed observation, shared scalar adapter, loop-neutral cross-thread/cross-loop single-flight refresh, force-refresh invalidation, cancellation propagation and failure cooldown10s",
+    "Configured SOL_USD_OVERRIDE is an explicit scenario assumption; ordinary scalar financial consumers reject it",
+    "Paper reverse-exit and both prospective research paths re-read FX after quote awaits; quote age is independently revalidated before an estimated fill",
+    "Historical paper and SQL notionals never use current FX as their original entry basis",
+    "Live canary unknown valuation does not reset known losses or invent SOL/USD=1; no live activation",
+    "Reproducible executed and visually inspected notebook with twelve synthetic contract cases; no current financial or provider-access claim",
+    "Publishing secret scanner does not consume the next line after an empty credential assignment; real secret values remain blocked",
+    "New optional settings are documented as comments in the template without rewriting the private environment or changing its required key set"
+  ],
+  "notebook": {"path": "docs/audits/sol_usd_quality_20261008.ipynb", "code_cells": 4, "synthetic_cases": 12, "usable_rates": 3, "unknown_rates": 9, "contract_source_sha256": "e22a4957e703cd523995190c98683466565476489bfd27b5ad952821b0973aad", "execution": "PASS", "visual_inspection": "PASS: final rendered notebook has all12 cases,9 explicit unknowns, readable code/results/limitations; sources disclosure and both local tabs also checked"},
+  "verification": {
+    "focused_intermediate": "310 passed in100.83s before the final cross-loop gate and commented template fixes",
+    "focused_final": "132 passed in14.51s on the final source, including101 new SOL/USD cases and publishing/private-template integration",
+    "extreme_runner_regression": "62 passed in2.37s; synthetic uncapped upwards/partial-tail/price-drawdown cases, not scanner precision or executable profit evidence",
+    "full_working": "3550 passed in388.35s; exit0",
+    "full_publishing": "3550 passed in367.64s; exit0",
+    "preflight_working": "PASS after the final full suite: compile errors empty, configuration import exit0, paper profile and all7 empty report builders pass",
+    "preflight_publishing": "PASS after the final full suite: compile errors empty, configuration import exit0, paper profile and all7 empty report builders pass",
+    "frozen_source": {"files_each": 732, "normalized_sha256": "52ff795beb63facea67459d60187cc839a79a71b4bd1b8da069f2515015a6528", "matched_before_and_after_final_full_suites": true, "excludes": ["docs", "README.md", "operator/runtime/model artifacts"]},
+    "publication_source": {"files_each": 732, "normalized_sha256": "30364f84b0f19e2fd083924918cf10db5bac41b8fc2a6f2c623fcb5630666cad", "only_change_after_full_suites": "Removed one extra empty EOF line from tests/test_sol_usd_evidence.py for staged diff --check; no runtime source changed", "test_ast_sha256_before_and_after": "b4db422d7a8e21c2f95249af31b7e787d32da4f0143c50dd013dc5dea989a114", "post_format_focused_working": "132 passed in14.55s", "post_format_focused_publishing": "132 passed in10.30s", "full_suites_not_repeated_after_whitespace_only_change": true},
+    "superseded_checks": [
+      "An isolated sequential-event-loop reproducer found the first implementation's asyncio.Lock loop-binding defect while the earlier suites were running. Replaced with a loop-neutral ownership gate and added sequential-loop and four-thread/loop contention tests before both final full reruns.",
+      "Earlier C suite3542 passed; earlier D suite3541 passed/1 failed on private-environment/template key parity. Commented the new optional template assignments without modifying the private environment or relaxing the test; both final suites above pass. These earlier results are not final-source acceptance.",
+      "Both intermediate3544 suites passed (D386.78s/C373.02s). Final review then found paper historical-notional readers still coerced booleans/numeric strings. Added strict typed basis checks and6 additional actual-paper cases, then reran both final full3550 suites above on the new frozen source."
+    ]
+  },
+  "runtime": {
+    "requirement": "OFF throughout and at handoff", "provider_api_called": false, "wallet_or_order_called": false, "bot_started": false, "active_model_or_policy_changed": false,
+    "stop_finalizer": "D-only scripts/stop_stack.ps1 -RequestedBy user; exit0; 2026-10-08T16:52:21Z done killed0 remaining0. No C finalizer invoked.",
+    "protected_artifacts_check": {"checked_at": "2026-10-08T17:07:07.7265219Z", "boundary": "2026-10-08T16:09:40Z", "working_files": 3763, "publishing_files": 27, "changed_since_boundary": 0, "method": "Deduplicated modification-time census; not a cryptographic historical census. Stop log/runtime SQL excluded as intended."},
+    "final_off_check": {"checked_at": "2026-10-08T17:07:07.7265219Z", "scoped_runtime": 0, "global_bot_training_research_api": 0, "running_memebot_tasks": 0, "running_memebot_services": 0, "actual_and_compatibility_locks": 0, "sql_main": "stopped/idle/idle", "sql_updated_at": "2026-10-08 16:52:21.055015"}
+  },
+  "publication": {"state": "VERIFIED_READY_FOR_COMMIT_PUSH", "branch": "main", "parent_commit": "4a88d97454deafcb993504c969a09b05b1be342c", "note": "This is pre-commit evidence. Commit/push and exact remote revision must be independently verified in the handoff; no self-referential commit hash is claimed here."},
+  "remaining_required_work": [
+    "Align the actual paper monitor, standalone exits, prospective runner/entry-gate intent prices and peak labels with exact quoted quantities and recoverable cash; the old entry-reference versus physical spot mismatch is not fixed by this FX stage",
+    "Persist/revalidate per-entry, per-fill and per-mark FX provenance through archives, SQL recovery and causal learning; do not retroactively certify historical scalar valuations",
+    "Resolve authoritative original historical entry records separately where available, never today's price",
+    "Complete durable live canary risk reconciliation; the legacy canary state and new unknown count are in-memory, not cross-restart acceptance",
+    "Validate real configured provider access, independent execution/wallet/finality and the full strategy's fresh costed prospective population under separately authorized operation",
+    "Continue all architecture/scanner/sniper/model/research requirements; profitable future trading and zero future errors are not established by software checks"
+  ]
+}
