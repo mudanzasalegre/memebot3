@@ -1,0 +1,51 @@
+{
+  "stage": "Original unsigned managed-swap wallet projection before signing",
+  "generated_at_utc": "2026-10-08T12:49:50Z",
+  "status": "PASS_SOFTWARE_ONLY",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "previous_stage_evidence": "docs/audits/chain_wallet_reconciliation_20261008.json",
+  "requested_trade_size_sol": 0.1,
+  "uncapped_extreme_runner_objective_unchanged": true,
+  "runtime_requirement": "Keep all bot/API/UI/training/research processes stopped. Do not send operator orders, initialize operator keys, query operator wallets, fit/promote active models or activate trading policies during this source stage.",
+  "implemented": [
+    "Add one keyless bounded current-node getSlot plus simulateTransaction observation before wallet signing. Submit the exact original unsigned packet with sigVerify=false, replaceRecentBlockhash=false, confirmed commitment, current-node minContextSlot and recorded inner instructions. Use the same frozen configured RPC route for subsequent actual-transaction reconciliation; no redirect, API-key header forwarding, retry, packet rebuild or submission.",
+    "Share exact native/SPL wallet-effect validation with actual chain reconciliation: strict uint64 vectors, loaded account counts/identity, native conservation, owner/mint/program/decimals consistency, created/closed token accounts, requested principal, output floor, unrelated movements and original wallet fee/account-deposit reserve. A missing recording or unexplained sponsorship/tip cannot authorize signing.",
+    "Recheck the complete original order/projection before signing, including inside the owned signer queue. Enforce a five-second projection-to-sign/dispatch budget and original expiry before sign, after sign and inside the actual execute worker. Reject proved pre-POST aging without recording dispatch-started; errors after dispatch remain uncertain and do not produce new packets.",
+    "Inspect original top-level SPL/Token2022 Approve, ApproveChecked and SetAuthority instructions plus parsed/partially decoded simulation CPIs. Reject observed delegation or authority changes involving the original wallet or its observed token accounts; require bounded unambiguous instruction recording. Known unrelated pool delegation does not become an arbitrary router veto.",
+    "Persist the complete original unsigned projection in a version2 submission capsule. Recompute it on durable journal/chain/close replay; retain compatible historical version1 capsules without retroactively claiming a pre-sign projection. Bind executed slot, loaded address identities and decimals to the original simulation while using actual independently observed execution quantities, not projected quantities, for fills. Preserve explicit false instruction-semantics/fill/finality claims on the projection.",
+    "Keep actual managed consumers for Metis, JupiterZ, DFlow and OKX; synthetic positive coverage includes each route and buy/sell plus sponsored RFQ. The extra observation may refuse a legitimate unavailable/aged node or unsupported simulation response; provider access/latency acceptance is not established. It must not fail open to invent financial evidence."
+  ],
+  "trust_boundary": {
+    "projection": "Trusted configured-node observation of one simulation bank under the exact original unsigned packet. Not static proof of arbitrary router/program instruction semantics, delegate/close state completeness, future behavior, network-wide node freshness or executable profit.",
+    "actual_fill": "Still requires the original signed message/all signatures and separately queried transaction/status/wallet deltas. Projection alone cannot pass a new live fill journal or enter realized financial learning.",
+    "fees_and_accounts": "Observed payer fees and owned account lamport changes, not complete rent-exemption/close-authority/refundability or external sponsorship acceptance.",
+    "expiry": "Original packet/blockhash retained. Monotonic five-second local dispatch budget is additional to original RFQ expiry; historical revalidation does not pretend a stale receipt is fresh.",
+    "scope": "Managed Jupiter path only. Other GMGN/legacy execution protocols, full static router semantics and finalized current-wallet/restart financial admission remain separate incomplete requirements."
+  },
+  "primary_sources": [
+    {"url": "https://solana.com/docs/rpc/http/simulatetransaction", "used_for": "Unsigned simulation options and one-bank pre/post fee/native/SPL/loaded-address recording", "retrieved_utc": "2026-10-08"},
+    {"url": "https://raw.githubusercontent.com/anza-xyz/agave/master/rpc/src/rpc.rs", "used_for": "Current simulation implementation retains original blockhash unless explicitly replaced; optional complete bank balance and parsed CPI recording", "retrieved_utc": "2026-10-08"},
+    {"url": "https://raw.githubusercontent.com/solana-program/token/main/interface/src/instruction.rs", "used_for": "Exact SPL Approve/SetAuthority/ApproveChecked opcode and account-authority roles", "retrieved_utc": "2026-10-08"},
+    {"url": "https://raw.githubusercontent.com/solana-program/token-2022/main/interface/src/instruction.rs", "used_for": "Token2022 base authority instruction compatibility; not complete extension verification", "retrieved_utc": "2026-10-08"},
+    {"url": "https://developers.jup.ag/docs/swap/order-and-execute", "used_for": "Current four-router managed protocol and original RFQ co-signature/expiry handling", "retrieved_utc": "2026-10-08"}
+  ],
+  "verification": {
+    "new_module": "tests/test_unsigned_wallet_projection.py",
+    "new_cases": 96,
+    "focused": "638 passed in49.74s D: original unsigned SDK packet, exact/native/SPL buy/sell, allfour routes, sponsor RFQ, malformed/missing node proof, authority instructions/CPIs, unsupported recording, original-order mutation, monotonic pre/post-sign and owned execute-queue aging, cancellation without sign/POST, durable v2 proof/actual chain quantities, actual fragmented bounded keyless fakeRPC and auxiliary-parser compatibility; all current buy/sell/close/SDK/owned-dispatch boundaries included.",
+    "working_full_suite": "3127 passed in377.67s D, exit0, final executable/test source frozen throughout this complete rerun.",
+    "publishing_full_suite": "3127 passed in367.10s C, exit0, final executable/test source frozen throughout this complete rerun, source-only checkout without personal.env/venv/runtimeDB.",
+    "preflights": "Both final preflights PASS: compile_errors=[], config_import returncode0, paperprofileok=true and allseven empty-data report builders pass. No runtime/provider/operator initialization by these checks.",
+    "initial_failures": "A prior synthetic signing-cancellation fixture had not stubbed the newly introduced read-only projection hook and attempted only the synthetic.invalid route before timing out; updated to complete fake projection, no operator key/wallet/provider/order. Two new test fixture mistakes (None default and BuyRecoveryStore.begin API) were corrected without dropping assertions. Initial610/637 focused passes are intermediate. Initial complete runs were deliberately interrupted by stopping only the four identity-checked own launcher/child test processes for a final auxiliary parsed-schema compatibility correction; they are not acceptance results. Both final3127 complete reruns and638 focused suite pass.",
+    "publication": "Reviewed13 source/test/audit paths synchronized to C with no deletion, secrets or runtime artifacts; base main=origin/main=remote 8ad35b54836e1bc5ab18f3f4211a51ff6c78005e verified before this stage commit. Commit/push and postpublication remote equality are verified separately after saving this document; no self-referential commit hash is embedded.",
+    "final_shutdown": "D-only requested stop_stack12:48:53Z exit0 killed0/remaining0. Verified12:49:49Z both checkout scoped bot processes0/allfour actual or compatibility locks0, global bot/training/research/API0, memebot tasks0/services0. Read-only SQL main stopped/idle/idle, updated_at12:48:52.590858. C stop finalizer not run.",
+    "protected_artifact_inventory": "Modification-time inventory12:49:50Z in both roots, boundary12:15:28Z, changed0 for existing protected model, feature, paperclosed, learningclose, research, original buy/sell journal, paperportfolio, activepolicy/registry/rootartifact and personal.env paths. Not a full cryptographic census; absent C paths are empty and existing-path traversal failures are fatal. Requested stop log/SQL state updates excluded."
+  },
+  "remaining_required_work": [
+    "Complete original static unsigned instruction semantics across applicable router/program versions and Token2022 extensions. The observed base delegation checks are deliberately not full unsigned_swap_instructions_verified=true.",
+    "Complete successful provider/configured-node access, freshness and production latency acceptance under separate authorization; unsupported/missing simulation recording and aged original packets must stay unknown.",
+    "Complete independently checked other provider protocols, fresh original current-wallet/restart reconciliation and finalized financial labels without re-submitting an uncertain original order.",
+    "Complete full-strategy causal provenance, capital/execution integrity and separately authorized prospective closed financial evidence before claiming profitability or live readiness. Exact0.1 SOL paper sizing, uncapped runner tails and historical model discrimination are not a guarantee of gains."
+  ]
+}

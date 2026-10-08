@@ -5,6 +5,7 @@ import asyncio
 import base64
 import copy
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -26,7 +27,7 @@ from runtime.sell_recovery import SellOutcomeUncertain
 from db.models import Position
 from trader import buyer, seller
 from test_live_signing_boundaries import signer, unsigned
-from chain_fixtures import INPUT_ACCOUNT, OUTPUT_ACCOUNT, POOL, evidence as rpc_evidence
+from chain_fixtures import INPUT_ACCOUNT, OUTPUT_ACCOUNT, POOL, evidence as rpc_evidence, simulation
 
 SOL = router.SOL_MINT
 TOKEN = str(Pubkey.new_unique())
@@ -73,6 +74,13 @@ def managed(signer, monkeypatch):
     monkeypatch.setattr(router, "JUP_ORDER_URL", "https://api.jup.ag/ultra/v1/order")
     monkeypatch.setattr(router, "JUP_EXECUTE_URL", "https://api.jup.ag/ultra/v1/execute")
     monkeypatch.setattr(router.solana_execution, "configured_endpoint", lambda: "https://synthetic.invalid")
+    async def project(order, *, endpoint, max_wallet_fee_lamports=None):
+        from execution import unsigned_projection
+        return unsigned_projection.check(order, simulation(order),
+            rpc_source_sha256=router.solana_execution.endpoint_fingerprint(endpoint),
+            observed_at=datetime.now(timezone.utc).isoformat(), current_node_slot=449,
+            max_wallet_fee_lamports=max_wallet_fee_lamports), time.monotonic()
+    monkeypatch.setattr(router.solana_execution, "project_unsigned", project)
     async def read(capsule, execution, *, endpoint):
         tx, status = rpc_evidence(capsule, execution)
         return router.chain_reconciliation.reconcile(capsule, execution, tx, status)

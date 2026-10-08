@@ -292,6 +292,10 @@ async def test_cancelled_unsigned_build_never_invokes_signer(http, wallet):
 @pytest.mark.asyncio
 async def test_managed_signing_is_owned_and_cancel_prevents_execute_post(wallet, signer, monkeypatch):
     from test_jupiter_managed_contract import order_payload, TOKEN
+    from chain_fixtures import simulation
+    from execution import unsigned_projection
+    from datetime import datetime, timezone
+    import time
     wallet.PUBLIC_KEY = str(signer.PUBLIC_KEY)
     monkeypatch.setenv("SOL_PUBLIC_KEY", wallet.PUBLIC_KEY)
     monkeypatch.setattr(router, "JUP_API_KEY", "synthetic-key")
@@ -308,6 +312,13 @@ async def test_managed_signing_is_owned_and_cancel_prevents_execute_post(wallet,
     execute = AsyncMock(return_value={"signature": "must-not-be-sent"})
     monkeypatch.setattr(router, "get_order", order)
     monkeypatch.setattr(router, "execute_order", execute)
+    monkeypatch.setattr(router.solana_execution, "configured_endpoint", lambda: "https://synthetic.invalid")
+    async def project(checked, *, endpoint, max_wallet_fee_lamports=None):
+        return unsigned_projection.check(checked, simulation(checked),
+            rpc_source_sha256=router.solana_execution.endpoint_fingerprint(endpoint),
+            observed_at=datetime.now(timezone.utc).isoformat(), current_node_slot=449,
+            max_wallet_fee_lamports=max_wallet_fee_lamports), time.monotonic()
+    monkeypatch.setattr(router.solana_execution, "project_unsigned", project)
     task = asyncio.create_task(router.execute_managed_swap(input_mint=router.SOL_MINT,
         output_mint=TOKEN, amount_lamports=100_000_000, slippage_bps=100))
     try:

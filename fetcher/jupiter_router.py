@@ -476,10 +476,30 @@ async def execute_order(*, signed_transaction: str, request_id: str,
             return await resp.json(content_type=None)
 
 
-def _execute_managed_once(signed_transaction, order, binding, capsule, observation_url):
+def _sign_managed_projected(signer, order, projection_started, projection, source_sha256, fee_limit):
+    # Queued owned workers must not sign a projection that aged while waiting.
+    from execution import unsigned_projection
+    unsigned_projection.validate(order, projection, rpc_source_sha256=source_sha256,
+        max_wallet_fee_lamports=fee_limit)
+    solana_execution.check_projection_age(projection_started)
+    order.check_expiry()
+    return signer.sign_base64_transaction(order.raw["transaction"])
+
+
+class _ManagedExpiredBeforeDispatch(ValueError):
+    """Only the owned worker's pre-POST expiry/age check may produce this."""
+
+
+def _execute_managed_once(signed_transaction, order, binding, capsule, observation_url,
+                          projection_started):
     # Its own HTTP loop lives entirely in an owned executor invocation. Parent
     # cancellation cannot abandon a POST or publish stopped while it settles.
     async def execute_and_check():
+        try:
+            solana_execution.check_projection_age(projection_started)
+            order.check_expiry()
+        except ValueError as exc:
+            raise _ManagedExpiredBeforeDispatch("Original managed order aged before dispatch") from exc
         execution_provenance.record("dispatch_started", {"capsule_sha256": capsule["sha256"]})
         response = await execute_order(signed_transaction=signed_transaction,
             request_id=order.request_id, last_valid_block_height=order.last_valid_block_height)
@@ -503,7 +523,9 @@ async def execute_managed_swap(
 ) -> Dict[str, Any]:
     """One checked Swap v2 order, pure owned signing and one owned execute.
 
-    An independent RPC must confirm the original message and wallet deltas.
+    An unsigned configured-node projection must pass before wallet signing;
+    an independent RPC must confirm the original message and wallet deltas.
+    Projection is not a full instruction-semantics or future-fill proof.
     Confirmed fills are manageable positions, not finalized learning evidence.
     No automatic order rebuild, POST retry or response-as-financial-proof.
     """
@@ -525,19 +547,31 @@ async def execute_managed_swap(
             amount_lamports=request.amount, taker=request.taker, slippage_bps=request.slippage)
         order = managed_contract.check_order(raw_order, request,
             max_price_impact_pct=max_price_impact_pct, max_wallet_fee_lamports=max_wallet_fee_lamports)
-        from trader import sol_signer
-        signed_transaction = await run_owned_sync(sol_signer.sign_base64_transaction, order.raw["transaction"])
-        binding = managed_contract.check_signed_packet(order, signed_transaction)
-        order.check_expiry()
-        capsule = chain_reconciliation.make_capsule(order, signed_transaction, binding,
+        projection, projection_started = await solana_execution.project_unsigned(order,
+            endpoint=observation_url, max_wallet_fee_lamports=max_wallet_fee_lamports)
+        # Recheck the actual proof at the consumer; receipt flags alone cannot
+        # authorize signing, including a compromised/malformed observation hook.
+        from execution import unsigned_projection
+        unsigned_projection.validate(order, projection,
             rpc_source_sha256=solana_execution.endpoint_fingerprint(observation_url),
             max_wallet_fee_lamports=max_wallet_fee_lamports)
+        from trader import sol_signer
+        signed_transaction = await run_owned_sync(_sign_managed_projected, sol_signer, order, projection_started,
+            projection, solana_execution.endpoint_fingerprint(observation_url), max_wallet_fee_lamports)
+        binding = managed_contract.check_signed_packet(order, signed_transaction)
+        order.check_expiry()
+        solana_execution.check_projection_age(projection_started)
+        capsule = chain_reconciliation.make_capsule(order, signed_transaction, binding,
+            rpc_source_sha256=solana_execution.endpoint_fingerprint(observation_url),
+            max_wallet_fee_lamports=max_wallet_fee_lamports, unsigned_projection=projection)
         execution_provenance.record("prepared_submission", capsule)
     except Exception as exc:
         raise SwapPreparationError("Managed order preparation failed before execute POST") from exc
     try:
         execute_response, receipt = await run_owned_sync(_execute_managed_once, signed_transaction,
-            order, binding, capsule, observation_url)
+            order, binding, capsule, observation_url, projection_started)
+    except _ManagedExpiredBeforeDispatch as exc:
+        raise SwapPreparationError("Original managed order aged before execute POST") from exc
     except Exception as exc:
         raise SwapSubmissionUncertain("Managed execution needs reconciliation; no new order sent") from exc
     route_meta = {"router": f"jupiter_managed:{order.raw['router']}", "requestId": order.request_id,
