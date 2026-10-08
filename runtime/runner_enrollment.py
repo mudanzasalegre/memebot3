@@ -59,6 +59,10 @@ def validate_source(source: dict) -> tuple[str, dt.datetime]:
         identity = entry_identity(prefix)
         if identity and prefix.get("buy_signature") != "SIM-" + identity:
             raise RunnerEnrollmentError("First-partial buy lineage conflicts")
+        from execution.paper_execution_fx import validate_entry
+        if validate_entry(prefix, amount_sol=prefix.get("amount_sol"), not_after=opened):
+            from execution.paper_first_partial_cash import reconstruct
+            reconstruct(prefix, captured_at=stamp)
         first_exit = prefix.get("first_partial_exit_intent_id")
         if first_exit is not None:
             events = [event for event in prefix.get("exit_fill_events", []) if event.get("intent_id") == first_exit]

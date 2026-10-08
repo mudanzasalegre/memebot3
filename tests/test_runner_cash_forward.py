@@ -194,11 +194,17 @@ def test_modified_original_decision_proof_cannot_fill(part):
 def test_legacy_entry_keeps_original_intake_but_has_no_financial_valuation_demand(tmp_path):
     original = entry(entry_route_quote={"in_amount": 100000000, "out_amount": 1000,
                                        "max_impact_pct": 8., "route_count": 1})
-    assert rf.register_partial(original, root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(minutes=1))
-    case = read_active(tmp_path)
-    assert case["prefix"]["entry_route_quote"] == original["entry_route_quote"]
+    from runtime import runner_enrollment
+    from execution.paper_execution_fx import ENTRY_FIELDS
+    for name in ENTRY_FIELDS:
+        original.pop(name, None)
+    frozen = runner_enrollment.capture_source(original, captured_at=T0 + dt.timedelta(minutes=1))
+    assert runner_enrollment.register_source(frozen, root=tmp_path, cfg=cfg(),
+        now=T0 + dt.timedelta(minutes=1))["status"] == "excluded"
+    saved = rf._read(next((rf._directory(tmp_path) / "enrollment_sources").glob("*.json")))
+    assert saved == frozen and saved["prefix"]["entry_route_quote"] == original["entry_route_quote"]
     assert not rf.has_quote_demand(tmp_path)
-    assert not any(_arm.get("cash_last_mark") for _arm in case["arms"].values())
+    assert not list((rf._directory(tmp_path) / "active").glob("*.json"))
 
 
 def test_tick_values_identical_arms_once_then_fills_on_a_separate_budget_slot(tmp_path):

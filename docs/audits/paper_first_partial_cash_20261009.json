@@ -1,0 +1,75 @@
+{
+  "stage": "original_paper_first_partial_cash_reconstruction",
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Reconstruct original first-partial PAPER cash before runner intake/preparation and terminal/cohort/policy consumption. Preserve fixed0.1 SOL PAPER, uncapped runners and runtime OFF. No LIVE size, operator model/policy/provider/wallet/order changes.",
+  "source_grain": "One original quoted PAPER entry and exactly one original first-partial exit receipt, each with its own original FX and event clock. Subsequent prospective arms are independently owned.",
+  "finding": {
+    "id": "unreconstructed_shared_prefix_cash",
+    "severity": "high",
+    "evidence": "Original runner intake retained the primary entry/first-partial receipts. Case preparation copied scalar realized proceeds and fees but dropped exit_fill_events. Terminal replay started from those scalars rather than independently reconstructing their original cash.",
+    "risk": "A changed shared realized prefix could contaminate prospective runner net PnL and its financial policy comparison; a recomputed intake hash alone is not cash conservation.",
+    "repair": "Require original typed buy/partial FX, strict raw quantities, a complete one-fill population and original quoted cash/fees at their own clocks; retain the sanitized original exit receipt in case/arm prefixes and independently reconstruct prefix cash before terminal replay. Legacy/unproved originals remain preserved but excluded from financial runner enrollment."
+  },
+  "financial_contract": {
+    "version": "paper_original_first_partial_cash_v1",
+    "entry": "Checked original buy identity/signature,0.1 SOL and100000000 input lamports, entry quote/mints/age, frozen adverse slippage/raw output, entry FX at its own opening/valuation clock.",
+    "partial": "Exactly one original successful PAPER partial receipt; matching intent/signature, original quantity-before/sold/left, first-partial/capture clocks, reverse quote/mints/limit/age, original fill FX and normalized executed PAPER price.",
+    "cash": "Recompute SOL proceeds from exact quote output less frozen slippage; USD proceeds from the partial's original FX; buy fee valued with original entry FX plus partial fee valued with original partial FX. Recheck optional primary derived accounting and retain immutable proof equality across counterfactual arms.",
+    "limitation": "Recorded estimated PAPER quote cash is not independent provider authentication, actual live execution/depth, prospective full-strategy profitability or exhaustive opportunity coverage. There is no historical proof backfill."
+  },
+  "population_observation": {
+    "observed_at_utc": "2026-10-08T23:27:56.823306+00:00",
+    "primary_portfolio_rows": 0,
+    "paper_original_buy_journals": 0,
+    "paper_closed_archives": 0,
+    "paper_net_learning_sources": 0,
+    "source": "data/memebotdatabase.db",
+    "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+    "sql_rows": [],
+    "runner_intake_observed_at_utc": "2026-10-08T23:33:41.2690459+00:00",
+    "runner_enrollment_sources": 0,
+    "runner_enrollment_receipts": 0,
+    "runner_active_cases": 0,
+    "runner_closed_cases": 0,
+    "runner_invalid_cases": 0,
+    "method": "Read-only original PAPER source census and SQLite mode=ro; runner source/case directories are absent. No financial coverage rate with a zero denominator is reported.",
+    "limitation": "The inspected population is empty. The repair and tests do not establish any real winning trade or profitable current run."
+  },
+  "frozen_verification_source": {
+    "files": 746,
+    "normalized_sha256": "ec182cff34fa20ea9a47065eabbec69bae20343ebf79f1cc6f36f8261510c4b4",
+    "checkouts_equal": true,
+    "scope": "Allowed executable/test/source assets, excluding docs/README and all operator state. Identical before/after both final complete suites, both preflights and the D-only requested stop."
+  },
+  "verification": {
+    "new_isolated_cases": 55,
+    "new_and_original_fx_result": "96 passed in13.31s on the final frozen source;55 new first-partial cases plus41 prior original-FX cases",
+    "related_integration_result": "298 passed in192.83s; the closed-prefix repair was present throughout; final full suites also include stricter runner-version and overflow guards added during this run",
+    "uncapped_tail_result": "17 passed in3.18s; synthetic uncapped entry/runner cash plus exit/ladder residual-tail checks",
+    "working_full_suite": "4023 passed in777.48s; exit0",
+    "publishing_full_suite": "4023 passed in760.11s; exit0; existing working-checkout Python runtime",
+    "preflight_working": {"observed_at_utc": "2026-10-08T23:45:46.2992310+00:00", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders_passed": 7, "pytest_external_returncode": 0},
+    "preflight_publishing": {"observed_at_utc": "2026-10-08T23:45:45.2876723+00:00", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders_passed": 7, "pytest_external_returncode": 0},
+    "intermediate_repair": "An intermediate regression imported the case prefix without its closed=False field and failed17 related cases. Retaining the original open flag fixes terminal reconstruction; the corrected related298 and new96 suites pass. A mistyped ladder test filename returned no tests; the corrected actual file run passes17 checks. Neither intermediate run is final acceptance.",
+    "git_diff_check": "PASS before publication; normal LF/CRLF warnings only"
+  },
+  "runtime_handoff": {
+    "status": "VERIFIED_OFF",
+    "requested_stop": "D-only scripts/stop_stack.ps1 -RequestedBy user; requested23:45:56Z, completed23:45:58Z, exit0, killed0, remaining0. No stop script run in the publishing checkout.",
+    "observed_at_utc": "2026-10-08T23:45:59.4630130+00:00",
+    "runtime_processes": 0, "task_owned_previews": 0, "matching_tasks": 0, "running_tasks": 0,
+    "matching_services": 0, "running_services": 0, "working_locks": 0, "publishing_locks": 0,
+    "sql_main": {"process_state": "stopped", "reports_refresh_state": "idle", "retrain_state": "idle", "updated_at_utc": "2026-10-08 23:45:57.952959"},
+    "protected_mtime_census": {"since_utc": "2026-10-08T16:09:40Z", "working_files": 3763, "publishing_files": 27, "changed": 0, "qualification": "Read-only modification-time census, not a cryptographic historical proof. Intended stop SQL/log and preflight metrics are excluded."},
+    "green_live_risk_file_exists_in_either_checkout": false
+  },
+  "publication": {"status": "SOURCE_SYNC_VERIFIED_READY_FOR_COMMIT_PUSH", "baseline_commit": "522279b12e1f86baa7f701d044b3a258e8a3e21d", "scope": "Source/docs/tests only; no runtime data, models, secrets or operator policy", "chronology": "The commit/push and actual remote verification follow finalization of this record. The same-turn final answer and Sources receipt report their observed result without self-referential commit metadata."},
+  "remaining_required_work": [
+    "Fresh prospective full-strategy costed evidence and risk/coverage acceptance remain unestablished; synthetic unit/replay results cannot prove future profitability or exhaustive opportunity capture.",
+    "Complete other applicable original LIVE FX/current-wallet/finality, full-strategy decision/provenance/capital boundaries and provider-access acceptance independently.",
+    "Retain unknown historical originals without rewriting them with current FX or activating a model/policy to manufacture acceptance."
+  ],
+  "safety": {"bot_started": false, "api_or_ui_started": false, "operator_training_or_research_started": false, "operator_models_or_policies_changed": false, "operator_provider_or_wallet_calls": false, "profit_ceiling_added": false, "paper_trade_size_changed": false, "live_trade_size_changed": false}
+}

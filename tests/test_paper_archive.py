@@ -61,7 +61,11 @@ def paper(monkeypatch, tmp_path):
     monkeypatch.setenv("PAPER_FILL_FEE_SOL", "0.000025")
     async def route(mint, amount_sol, *, proof):
         assert amount_sol == .1
-        proof.update(out_amount=1000, in_amount=100000000, impact_bps=1, route_count=1, max_impact_pct=3)
+        from execution.quote_receipt import capture_summary
+        from quote_fixtures import v1_quote, SOL
+        q = v1_quote(SOL, mint, 100000000, 1000, now=paper.utc_now(), impact_bps=1)
+        proof.update(capture_summary(q, input_mint=SOL, output_mint=mint, amount=100000000,
+            slippage=q.other["slippageBps"], limit=3., now=paper.utc_now()))
         return True, "SYNTHETIC_QUOTE"
     async def reverse(**kwargs):
         from quote_fixtures import v1_quote

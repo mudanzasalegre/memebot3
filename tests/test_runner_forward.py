@@ -71,6 +71,28 @@ def entry(**changes):
         q = v1_quote(SOL, row["token_address"], 100000000, 1000, now=opened)
         row["entry_route_quote"] = capture_summary(q, input_mint=SOL, output_mint=row["token_address"],
             amount=100000000, slippage=q.other["slippageBps"], limit=8., now=opened)
+    # Complete synthetic original receipts, not reconstructed production history.
+    from execution.paper_execution_fx import VERSION as fx_version
+    from execution.quote_receipt import capture_summary
+    from quote_fixtures import v1_quote, SOL
+    opened = rf._time(row["opened_at"]) or T0
+    first = (rf._time(row["run_started_at"]) or T0) + dt.timedelta(minutes=1)
+    identity = row.get("entry_intent_id", rf._hash([row["run_id"], row["token_address"], row["opened_at"]])[:32])
+    intent = row.get("first_partial_exit_intent_id", rf._hash([identity, "first_partial"])[:32])
+    q = v1_quote(row["token_address"], SOL, 200, 40000000, now=first)
+    response = {"ok": True, "venue": "paper", "partial": True, "qty_sold": 200, "qty_left": 800,
+        "filled_at": first.isoformat(), "exit_intent_id": intent, "signature": "SIM-EXIT-" + intent,
+        "price_source_close": "jupiter_reverse_quote", "price_used_usd": 2.,
+        "paper_execution_fx_version": fx_version, "fill_fx_observation": synthetic_fx(first).to_dict(),
+        "quote_sol_usd": 100., "exit_route_quote": capture_summary(q, input_mint=row["token_address"],
+            output_mint=SOL, amount=200, slippage=q.other["slippageBps"],
+            limit=row["entry_route_quote"]["max_impact_pct"], now=first)}
+    for name, value in dict(entry_intent_id=identity, buy_signature="SIM-" + identity,
+            first_partial_exit_intent_id=intent, first_partial_at=first.isoformat(),
+            paper_execution_fx_version=fx_version, entry_valued_at=opened.isoformat(),
+            entry_fx_observation=synthetic_fx(opened).to_dict(),
+            exit_fill_events=[{"intent_id": intent, "qty_before": 1000, "response": response}]).items():
+        row.setdefault(name, value)
     return row
 
 

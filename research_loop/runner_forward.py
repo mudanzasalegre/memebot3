@@ -25,7 +25,7 @@ from typing import Any
 from analytics import exit_policy, runner_ladder, runner_price_policy
 from config.config import CFG, PROJECT_ROOT
 from utils.atomic_json import read_json_strict, write_json_atomic
-from runtime.paper_archive import entry_identity
+from runtime.paper_archive import entry_identity, PaperArchiveError
 from execution.quote_receipt import capture_summary, valid_summary
 from execution import paper_cash_mark as cash
 from research_loop.paper_exit_receipt import make_intent, valid_intent, causal_quote, financial_basis
@@ -144,7 +144,7 @@ def prepare_partial_case(entry: dict[str, Any], *,
     from execution.paper_execution_fx import validate_entry
     try:
         validate_entry(entry, amount_sol=entry.get("amount_sol"), not_after=entry.get("opened_at"))
-    except (ValueError, TypeError, KeyError):
+    except (ValueError, TypeError, KeyError, OverflowError):
         return None
     opened, run_start = _time(entry.get("opened_at")), _time(entry.get("run_started_at"))
     if (policy is None or entry.get("closed") or entry.get("test_event") or not entry.get("run_id")
@@ -179,6 +179,13 @@ def prepare_partial_case(entry: dict[str, Any], *,
     from utils.solana_addr import is_valid_base58_32
     if not is_valid_base58_32(token) or type(entry.get("execution_fill_count")) is not int or entry["execution_fill_count"] != 2:
         return None
+    from execution import paper_first_partial_cash
+    from runtime.paper_archive import paper_snapshot, PaperArchiveError
+    try:
+        paper_first_partial_cash.reconstruct(entry, captured_at=stamp)
+        original = paper_snapshot(entry, token)
+    except (ValueError, TypeError, KeyError, OverflowError, AttributeError, PaperArchiveError):
+        return None  # Legacy/unproved cash is retained, never retrospectively certified.
     case_id = case_identity(entry)
     base_id = _policy_id(policy)
     day = stamp.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -190,11 +197,11 @@ def prepare_partial_case(entry: dict[str, Any], *,
             "entry_notional_usd", "amount_sol", "execution_cost_model", "estimated_fees_usd",
             "estimated_fees_sol", "execution_fill_count", "partial_taken", "partial_count", "partial_fill_events",
             "highest_pnl_pct", "max_pnl_pct_seen", "max_adverse_pnl_pct", "partial_ladder_state",
-            "first_partial_at", "last_partial_at", "buy_liquidity_usd", "dry_run", "entry_route_quote",
+            "first_partial_at", "last_partial_at", "buy_liquidity_usd", "dry_run", "closed", "entry_route_quote",
             "quantity_basis", "runner_trailing_policy", "entry_intent_id", "buy_signature",
             "source_position_key", "paper_entry_policy", "first_partial_exit_intent_id",
-            "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at"}
-    prefix = {key: copy.deepcopy(entry[key]) for key in keys if key in entry}
+            "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at", "exit_fill_events"}
+    prefix = {key: copy.deepcopy(original[key]) for key in keys if key in original}
     variants = policy_variants(policy)
     arms = {}
     for arm_id, parameters in variants.items():
@@ -702,7 +709,7 @@ async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datet
 def _valid_terminal(case: dict[str, Any], arm: dict[str, Any], now: dt.datetime) -> bool:
     try:
         return _valid_terminal_unchecked(case, arm, now)
-    except (KeyError, TypeError, ValueError, OverflowError, AttributeError):
+    except (KeyError, TypeError, ValueError, OverflowError, AttributeError, PaperArchiveError):
         return False
 
 
@@ -727,6 +734,15 @@ def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt
     if deadline is None or closed > deadline + dt.timedelta(hours=MAX_SETTLEMENT_HOURS):
         return False
     prefix = case.get("prefix") or {}
+    # Runner research starts after a real first partial; entry-gate research
+    # starts before any sale. Reconstruct the shared original cash exactly once.
+    if case.get("version") == VERSION or prefix.get("partial_taken") is True or prefix.get("realized_qty", 0) != 0:
+        from execution import paper_first_partial_cash
+        reconstructed = paper_first_partial_cash.reconstruct(prefix, captured_at=registered)
+        if any(subject.get(name) != prefix.get(name) for name in paper_first_partial_cash.PROOF_FIELDS):
+            return False
+    else:
+        reconstructed = None
     from execution.paper_execution_fx import ENTRY_FIELDS, validate_entry
     try:
         # Entry-gate research already had its own typed entry_fx_observation
@@ -744,8 +760,9 @@ def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt
                 amount=100000000, not_after=_time(prefix.get("opened_at")), allow_legacy=True)
             or not _positive(prefix.get("entry_notional_usd")) or prefix.get("test_event")):
         return False
-    fees_sol, fees_usd = _number(prefix.get("estimated_fees_sol")), _number(prefix.get("estimated_fees_usd"))
-    proceeds_sol, proceeds_usd = _number(prefix.get("realized_proceeds_sol")), _number(prefix.get("realized_proceeds_usd"))
+    initial = reconstructed if reconstructed is not None else prefix
+    fees_sol, fees_usd = _number(initial.get("estimated_fees_sol")), _number(initial.get("estimated_fees_usd"))
+    proceeds_sol, proceeds_usd = _number(initial.get("realized_proceeds_sol")), _number(initial.get("realized_proceeds_usd"))
     remaining = prefix.get("qty_lamports")
     if any(value is None for value in (fees_sol, fees_usd, proceeds_sol, proceeds_usd)) or not isinstance(remaining, int):
         return False

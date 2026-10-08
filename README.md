@@ -70,6 +70,15 @@ bloquea el otro ni deshace la venta. El replay PAPER comprueba el modo SQL
 sin cambiarlo. Los historicos sin estos recibos siguen sin certificarse y
 no se reescriben. Vease `docs/audits/paper_execution_fx_20261009.json`.
 
+La investigacion de runners reconstruye tambien la caja del primer parcial
+desde su recibo original: cantidad exacta, cotizacion inversa, slippage y las
+comisiones de compra/venta valoradas con el cambio original de cada fill.
+Conserva esa prueba publica en los casos y la comprueba de nuevo al comparar
+salidas o consumir una politica seleccionada. Un hash recalculado no valida
+totales financieros alterados. Las fuentes antiguas sin prueba completa se
+conservan, pero no certifican ni financian esta investigacion. Vease
+`docs/audits/paper_first_partial_cash_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original
