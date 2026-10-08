@@ -130,7 +130,10 @@ def validate_entry_features(payload, *, address):
 def validate_source(source):
     """Recheck proof on export and on model reads; never fall back to gross."""
     from analytics.forward_evidence import _costed_close
-    if (not isinstance(source, dict) or set(source) != {"version", "trade_id", "entry_features", "buy_proof", "trade", "payload_sha256"}
+    keys = {"version", "trade_id", "entry_features", "buy_proof", "trade", "payload_sha256"}
+    if isinstance(source, dict) and "entry_decision" in source:
+        keys.add("entry_decision")
+    if (not isinstance(source, dict) or set(source) != keys
             or source.get("version") != VERSION
             or source["payload_sha256"] != _hash({k: v for k, v in source.items() if k != "payload_sha256"})):
         raise TradeLearningError("Corrupt costed close source")
@@ -155,6 +158,10 @@ def validate_source(source):
             ("entry_notional_usd", "entry_notional_usd"), ("signature", "buy_signature")):
         if fill.get(name) != trade.get(target): raise TradeLearningError("Buy and close lineage conflicts")
     validate_entry_features(source["entry_features"], address=trade["token_address"])
+    if "entry_decision" in source:
+        from runtime.entry_decision import validate_entry_decision
+        validate_entry_decision(source["entry_decision"], entry_features=source["entry_features"],
+            intent_id=identity, run_id=trade["run_id"], paper=True, amount_sol=buy["amount_sol"])
     if _time(source["entry_features"]["captured_at"]) > _time(trade["opened_at"]):
         raise TradeLearningError("Entry features were not captured before the fill")
     costed = _costed_close(trade)
@@ -220,6 +227,8 @@ def _capture(identity, *, root):
             "run_id": journal["base_position"].get("run_id"), "amount_sol": journal["amount_sol"],
             "fill": {k: journal["fill"].get(k) for k in ("qty_lamports", "buy_price_usd", "entry_notional_usd", "signature")}},
         "trade": {k: copy.deepcopy(v) for k, v in trade.items() if k in FINANCIAL_FIELDS}}
+    if "entry_decision" in journal:
+        source["entry_decision"] = copy.deepcopy(journal["entry_decision"])
     source["payload_sha256"] = _hash(source)
     validate_source(source)
     return source

@@ -6914,10 +6914,14 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["config_hash"] = _config_hash()
     pos = _build_entry_position(token, size_decision, addr=addr, amount_sol=amount_sol, proba=proba)
     from features.strategy_context import entry_strategy_context
+    from runtime.entry_decision import capture_entry_decision
     attempt = _BUY_RECOVERY.begin(pos, paper=bool(DRY_RUN), amount_sol=float(amount_sol),
         feature_vector=vec, positive_pnl_ratio=float(ML_POSITIVE_PNL_RATIO),
         auxiliary_observations=entry_auxiliary_observations(entry_observation),
-        strategy_context=entry_strategy_context(vec, token))
+        strategy_context=entry_strategy_context(vec, token),
+        entry_decision=capture_entry_decision(vec, token, paper=bool(DRY_RUN), amount_sol=float(amount_sol),
+            ml_policy=ml_decision, paper_bypass=final_ml_bypass))
+    token["entry_decision"] = attempt.row["entry_decision"]
     if DRY_RUN:
         token["_actual_paper_buy_attempted"] = 1
         _stats["actual_paper_buy_attempts"] += 1

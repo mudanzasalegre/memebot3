@@ -35,6 +35,7 @@ from ml.feature_matrix import coerce_feature_frame
 from ml.financial_targets import supported_financial_training
 from features.builder import ALLOWED_FEATURES
 from analytics.inference_scope import scoped_snapshot, scoped_prediction
+from analytics.decision_provenance import record_model_query
 from features.context_encoding import checked_context_schema
 from features.numeric_encoding import checked_numeric_schema
 from features.auxiliary_semantics import checked_semantics_schema, checked_model_frame, input_frame
@@ -244,6 +245,13 @@ def should_buy(vec: Any) -> float | None:
     •  Sin un modelo neto comprobado, devuelve None (desconocido, no fracaso).
     """
     model, features, _metadata = _load_model()
+    value = _entry_probability_snapshot(vec, model, features, _metadata)
+    record_model_query(vec, family="entry", target="entry_label", operation="probability", value=value,
+                       model=model, features=features, metadata=_metadata, primary_reader=True)
+    return value
+
+
+def _entry_probability_snapshot(vec, model, features, _metadata):
     if model is None:
         return None
     try:

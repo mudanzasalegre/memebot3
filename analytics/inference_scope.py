@@ -16,6 +16,8 @@ MAX_PREDICTIONS = 256
 class InferenceScope:
     values: dict[Any, Any] = field(default_factory=dict)
     predictions: dict[Any, Any] = field(default_factory=dict)
+    observations: dict[Any, dict] = field(default_factory=dict)
+    observations_dropped: int = 0
     lock: Any = field(default_factory=threading.RLock)
     closed: bool = False
 
@@ -35,6 +37,7 @@ def inference_scope() -> Iterator[InferenceScope]:
             state.closed = True
             state.values.clear()
             state.predictions.clear()
+            state.observations.clear()
         _CURRENT.reset(token)
 
 
@@ -87,3 +90,39 @@ def scoped_prediction(key: Any, frame: Any, predict: Callable[[], Any]) -> Any:
                 state.predictions.pop(next(iter(state.predictions)))
             state.predictions[key] = result
         return state.predictions[key]
+
+
+def observations_enabled() -> bool:
+    state = _CURRENT.get()
+    return state is not None and not state.closed
+
+
+def record_observation(record: dict) -> None:
+    """Bounded task-local telemetry; no model loading or buy permission."""
+    state = _CURRENT.get()
+    if state is None or state.closed:
+        return
+    key = (record["family"], record["target"], record["operation"], record["input_vector_sha256"],
+           record["input_receipt_sha256"],
+           record["source"]["identity_sha256"])
+    with state.lock:
+        if state.closed:
+            return
+        if key not in state.observations and len(state.observations) >= MAX_PREDICTIONS:
+            state.observations.pop(next(iter(state.observations)))
+            state.observations_dropped += 1
+        state.observations[key] = deepcopy(record)
+
+
+def observation_snapshot(input_vector_sha256: str, input_receipt_sha256: str | None) -> dict:
+    state = _CURRENT.get()
+    if state is None or state.closed:
+        return {"status": "scope_missing", "observations": [], "dropped": 0}
+    with state.lock:
+        if state.closed:
+            return {"status": "scope_missing", "observations": [], "dropped": 0}
+        return {"status": "captured",
+                "observations": deepcopy([record for record in state.observations.values()
+                    if record["input_vector_sha256"] == input_vector_sha256
+                    and record["input_receipt_sha256"] == input_receipt_sha256]),
+                "dropped": state.observations_dropped}

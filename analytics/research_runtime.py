@@ -279,6 +279,8 @@ def _common_payload(
         out["exit_model_diagnostic"] = _json_safe(token["exit_model_diagnostic"])
     if isinstance(token.get("entry_model_selection"), dict):
         out["entry_model_selection"] = _json_safe(token["entry_model_selection"])
+    if isinstance(token.get("entry_decision"), dict):
+        out["entry_decision"] = _json_safe(token["entry_decision"])
     if rank_info:
         out["rank_score"] = _to_float(rank_info.get("rank_score"))
         for key, value in (rank_info.get("components") or {}).items():

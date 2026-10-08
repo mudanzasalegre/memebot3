@@ -19,6 +19,7 @@ from config.config import PROJECT_ROOT
 from ml.feature_matrix import coerce_feature_frame
 from ml.financial_targets import financial_target, supported_financial_training
 from analytics.inference_scope import scoped_value, scoped_snapshot, scoped_prediction
+from analytics.decision_provenance import record_model_query
 from features.context_encoding import checked_context_schema
 from features.numeric_encoding import checked_numeric_schema
 from features.auxiliary_semantics import checked_semantics_schema, checked_model_frame, input_frame
@@ -167,7 +168,11 @@ def _capture_family(selection: _FamilySelection, *, require_temporal_validation:
                         metadata.get("activation_role") != "scanner_ranking_only"
                         or metadata.get("model_sha256") != reference.model_sha256))):
                 model, features, metadata = None, [], {}
-        snapshots[reference.target] = model, tuple(features), deepcopy(metadata)
+        metadata = deepcopy(metadata)
+        if model is not None:
+            metadata.setdefault("_artifact_runtime", {}).update(mode=selection.mode,
+                manifest_sha256=selection.manifest_sha256, version=reference.version)
+        snapshots[reference.target] = model, tuple(features), metadata
     after = {reference.target: _artifact_signature(reference.path) for reference in selection.references}
     # A newly created flat peer also invalidates the capture. No fallback to a
     # mixed selection and no retry that slides the observation within a decision.
@@ -205,7 +210,7 @@ def family_model_selection(family: str, *, targets: list[str] | None = None) -> 
         reference = references.get(target)
         heads[target] = {"status": "checked_artifact" if model is not None else "unknown",
                          "model_sha256": metadata.get("model_sha256") if model is not None else None,
-                         "metadata_sha256": reference.metadata_sha256 if model is not None and reference is not None else None,
+                         "metadata_sha256": (metadata.get("_artifact_runtime") or {}).get("metadata_sha256") if model is not None else None,
                          "version": reference.version if reference is not None and reference.valid and selection.mode == "manifest" else None}
     return {"mode": selection.mode, "manifest_sha256": selection.manifest_sha256,
             "capture_stable": stable, "heads": heads, "role": "advisory_provenance_only",
@@ -267,6 +272,8 @@ def _load_unscoped(path: Path, *, require_temporal_validation: bool,
                     and not checked_exit_metadata(metadata)):
                 raise ValueError("unsupported diagnostic exit classification")
             model = joblib.load(io.BytesIO(payload))
+            metadata["_artifact_runtime"] = {"model_sha256": model_digest,
+                                             "metadata_sha256": metadata_digest}
         except Exception as exc:
             log.warning("Specialized model unavailable family=%s target=%s error=%s", path.parent.name, path.stem, type(exc).__name__)
             model, features, metadata = None, [], {}
@@ -281,6 +288,15 @@ def _load(path: Path, *, require_temporal_validation: bool):
 
 def _predict_snapshot(path: Path, model: Any, features: list[str], metadata: dict[str, Any], vec: Any,
                       *, expected_metadata: dict[str, Any] | None = None) -> float | None:
+    value = _predict_snapshot_value(path, model, features, metadata, vec, expected_metadata=expected_metadata)
+    identity = {**metadata, **(expected_metadata or {})}
+    record_model_query(vec, family=identity.get("family", "unknown"), target=identity.get("target", "unknown"),
+        operation="probability" if hasattr(model, "predict_proba") else "regression" if model is not None else "prediction", value=value,
+        model=model, features=features, metadata=metadata)
+    return value
+
+
+def _predict_snapshot_value(path, model, features, metadata, vec, *, expected_metadata=None):
     if model is None:
         return None
     try:
@@ -385,6 +401,13 @@ def invalidate_model_cache(path: Path) -> None:
 
 def predict_diagnostic_exit_label(vec: Any) -> str | None:
     path, model, features, metadata = _load_family("exit", "best_exit_profile", require_temporal_validation=True)
+    value = _diagnostic_exit_snapshot(path, model, features, metadata, vec)
+    record_model_query(vec, family="exit", target="best_exit_profile", operation="diagnostic_label", value=value,
+                       model=model, features=features, metadata=metadata)
+    return value
+
+
+def _diagnostic_exit_snapshot(path, model, features, metadata, vec):
     if model is None or not checked_exit_metadata(metadata):
         return None
     try:
@@ -404,6 +427,13 @@ def predict_diagnostic_exit_label(vec: Any) -> str | None:
 def predict_ranking_score(family: str, target: str, vec: Any) -> float | None:
     """Validated rank percentile (0-100), explicitly not an event probability."""
     path, model, features, metadata = _load_family(family, target, require_temporal_validation=True)
+    value = _ranking_snapshot(path, model, features, metadata, vec, family=family, target=target)
+    record_model_query(vec, family=family, target=target, operation="ranking_percentile", value=value,
+                       model=model, features=features, metadata=metadata)
+    return value
+
+
+def _ranking_snapshot(path, model, features, metadata, vec, *, family, target):
     if model is None or not metadata.get("ranking_validation_ready"):
         return None
     if financial_target(family, target) and not supported_financial_training(metadata):
@@ -419,7 +449,7 @@ def predict_ranking_score(family: str, target: str, vec: Any) -> float | None:
             return None
         low = np.searchsorted(reference, value, side="left")
         high = np.searchsorted(reference, value, side="right")
-        return min(100.0, max(0.0, (low + high) / 2 / len(reference) * 100))
+        return float(min(100.0, max(0.0, (low + high) / 2 / len(reference) * 100)))
     except Exception:
         return None
 

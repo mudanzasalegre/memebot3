@@ -159,6 +159,13 @@ class BuyRecoveryStore:
                     raise ValueError("Frozen feature capture differs from pre-buy journal time")
             except (RuntimeError, TypeError, KeyError, ValueError) as exc:
                 raise ValueError("Invalid pre-buy feature proof") from exc
+        if "entry_decision" in row:
+            from runtime.entry_decision import validate_entry_decision
+            try:
+                validate_entry_decision(row["entry_decision"], entry_features=row["entry_features"],
+                    intent_id=row["intent_id"], run_id=base.get("run_id"), paper=row["paper"], amount_sol=row["amount_sol"])
+            except (RuntimeError, TypeError, KeyError, ValueError) as exc:
+                raise ValueError("Invalid pre-buy decision proof") from exc
         if row["state"] in {"fill_received", "position_prepared", "persisted"}:
             fill = row.get("fill")
             if (not isinstance(fill, Mapping) or type(fill.get("qty_lamports")) is not int
@@ -208,7 +215,7 @@ class BuyRecoveryStore:
 
     def begin(self, position: Position, *, paper: bool, amount_sol: float,
               feature_vector=None, positive_pnl_ratio=0., auxiliary_observations=None,
-              strategy_context=None) -> BuyAttempt:
+              strategy_context=None, entry_decision=None) -> BuyAttempt:
         owned = self._scope.get()
         if owned is None:
             raise BuyRecoveryError("Buy requires an owned entry scope")
@@ -222,6 +229,9 @@ class BuyRecoveryStore:
             row["entry_features"] = freeze_entry_features(feature_vector, address=position.address,
                 captured_at=row["created_at"], positive_pnl_ratio=positive_pnl_ratio,
                 auxiliary_observations=auxiliary_observations, strategy_context=strategy_context)
+        if entry_decision is not None:
+            from runtime.entry_decision import bind_entry_decision
+            row["entry_decision"] = bind_entry_decision(entry_decision, row)
         if (self.directory / (row["intent_id"] + ".json")).exists() or (
                 self.directory / "resolved" / (row["intent_id"] + ".json")).exists():
             raise BuyRecoveryError("Buy intent identity already exists")

@@ -82,6 +82,8 @@ _META_COLS = (
     PROOF_COLUMN,
     "exit_model_diagnostic",
     "entry_model_selection",
+    "entry_decision",
+    "model_queries",
     "label",
     "timestamp",
     "ts",

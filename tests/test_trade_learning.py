@@ -104,9 +104,23 @@ async def closed(paper, tmp_path, monkeypatch, request):
     if isinstance(param, dict) and param.get("strategy"):
         from features.strategy_context import capture_strategy_context
         strategy_context = capture_strategy_context({"entry_subprofile": param["strategy"]})
+    entry_decision = None
+    if isinstance(param, dict) and param.get("provenance"):
+        from runtime.entry_decision import capture_entry_decision
+        from features.auxiliary_semantics import PROOF_COLUMN
+        from analytics.inference_scope import inference_scope
+        from test_financial_model_acceptance import setup_entry
+        original[PROOF_COLUMN] = json.dumps(learning.freeze_entry_features(original, address=MINT,
+            captured_at=original["timestamp"], auxiliary_observations=auxiliary, strategy_context=strategy_context))
+        predictor, _, _ = setup_entry(tmp_path, monkeypatch)
+        with inference_scope():
+            assert predictor.should_buy(original) == .5
+            entry_decision = capture_entry_decision(original, {"entry_lane": original.get("entry_lane"),
+                "entry_subprofile": param.get("strategy")}, paper=True, amount_sol=.1)
     with journal.scope():
         attempt = journal.begin(prototype, paper=True, amount_sol=.1, feature_vector=original,
-            positive_pnl_ratio=.1, auxiliary_observations=auxiliary, strategy_context=strategy_context)
+            positive_pnl_ratio=.1, auxiliary_observations=auxiliary, strategy_context=strategy_context,
+            entry_decision=entry_decision)
         response = await paper.buy(MINT, .1, entry_intent_id=attempt.intent_id)
         attempt.receive(response)
         pos = Position(id=1, address=MINT, token_mint=MINT, qty=response["qty_lamports"],

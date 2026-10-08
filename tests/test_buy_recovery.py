@@ -509,7 +509,7 @@ def execution_tail_namespace(tmp_path, store, paper):
             **social_feature_values(unknown)},
         "entry_observation": SimpleNamespace(social=json.dumps(unknown.to_dict())),
         "entry_auxiliary_observations": entry_auxiliary_observations,
-        "ML_POSITIVE_PNL_RATIO": .1}
+        "ML_POSITIVE_PNL_RATIO": .1, "ml_decision": None, "final_ml_bypass": False}
     exec(compile(ast.fix_missing_locations(ast.Module(body=[builder, feature_context, tail], type_ignores=[])), "run_bot.py", "exec"), namespace)
     return namespace
 

@@ -1,0 +1,54 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Original model queries and selected entry controls bound before the buy to durable recovery and the original costed learning source. Isolated software evidence, not a new trading run.",
+  "findings": [
+    "Original checked model selections were logged, but the closed-trade learning source did not retain which models were actually queried, their returned values or the original ML admission decision.",
+    "A model-query trace keyed only by the original 77 raw values can conflate two separately checked auxiliary/subprofile input generations. The final decision needs both raw-vector and original-input-receipt identities.",
+    "Flat family selection receipts omitted the original metadata-file hash even though the reader already captured those bytes. Metadata provenance must come from that capture, never a later reread.",
+    "A ranking result derived from NumPy searchsorted can be a NumPy scalar despite the float API. Strict durable validation rejected otherwise finite measurements. Normalize measured scalars at the telemetry boundary, without accepting booleans, strings, arrays or nonfinite values."
+  ],
+  "implementation": {
+    "query_capture": "Task-local, bounded actual-query observations for primary entry probability, specialized probability/regression, runner rank percentiles and diagnostic exit labels. Repeated identical query identities replace their last value; absent/unqueried heads are never invented. Late or closed scopes return an empty explicit missing trace.",
+    "original_inputs": "Every query and final snapshot bind a canonical SHA-256 of the original 77-vector and, when present, the checked original auxiliary/strategy input receipt. The receipt digest excludes the later journal clock and label threshold, not original input values or meanings. Invalid declared receipts cannot be downgraded to plain input. Missing input receipts remain explicit partial coverage.",
+    "model_identity": "The actual reader explicitly owns its provenance namespace; foreign reserved fields in a persisted artifact cannot select another reader's identity. Reuse originally loaded model/meta SHA-256 values and ordered feature-schema identity; preserve the actual family selector hash/version or all five primary bundle component hashes/revision. Stable flat/compatibility sources do not acquire invented selector approvals or common training-cohort claims.",
+    "entry_controls": "Capture the actual frozen ML policy result, task-local original paper entry-component binding, exact 0.1 SOL paper amount, original selected subprofile, lane, exit-profile descriptor, config-hash descriptor and paper-only bypass flag. No private configuration values, wallet credentials, model objects or local artifact paths are serialized.",
+    "durability": "Bind detached decision evidence to the original pre-buy intent/run, original feature payload and journal time before the buyer can be called. Existing checked paper response/SQL restart paths preserve it without another order. Original costed close sources, Parquet/CSV proof and checked financial restore retain the whole decision.",
+    "learning_integrity": "Declared corrupt decision evidence invalidates the complete financial source instead of being ignored as logging. Physical or post-close decision columns cannot replace the original source. Decision/query metadata is excluded from numeric feature selection; the original 77-column predictor schema is unchanged.",
+    "compatibility": "Old buy/close sources without decision evidence remain valid under their original contracts and never receive retrospective model identity. Current decisions declare coverage_complete=false, buy_permission=false and full_strategy_profitability_established=false.",
+    "financial_behavior": "No admission relaxation, safety bypass, order, active model fit/promotion, policy activation or take-profit ceiling is introduced. Existing exact 0.1 SOL paper sizing and uncapped proportional runner exits remain unchanged."
+  },
+  "verification": {
+    "status": "PASS_ISOLATED_SOFTWARE_ONLY",
+    "new_isolated_cases": 58,
+    "initial_integration": "Three failures were observed (two NumPy scalar validation failures and one incomplete test configuration); corrected and reverified, not hidden or skipped.",
+    "final_close_recovery_suite": "155 passed in 10.94s",
+    "focused_before_final_reader_namespace_hardening": "292 passed in 58.61s",
+    "final_reader_source_and_close_suite": "145 passed in 11.64s",
+    "initial_working_suite": "2474 passed in 321.45s before final reader-owned provenance namespace hardening",
+    "initial_publishing_suite": "2474 passed in 309.89s before final reader-owned provenance namespace hardening",
+    "final_working_suite": "2476 passed in 323.74s on final source",
+    "final_publishing_suite": "2476 passed in 318.33s on final source without personal .env, local .venv or runtime DB, using the existing working-checkout Python",
+    "preflight_final_source": "PASS in both checkouts: compilation errors 0, configuration import return code 0, paper profile true and all seven empty-data report builders true",
+    "synthetic_trace_overhead": {"samples": 200, "median_ms": 2.821, "p95_ms": 2.886, "scope": "One actual provenance-record call on a temporary current-vector fixture while final regressions were running; excludes model, provider, scanner and order latency and is not a production performance guarantee."},
+    "coverage": [
+      "Original primary loaded bytes survive later file corruption; atomic component filename hashes and revision zero retain their original identities.",
+      "Actual specialized manifest/flat head queries record original metadata/selector identity, exclude unqueried differently trained heads and do not assert a shared fit.",
+      "Different final vectors, identical raw vectors with different original strategy receipts, nested/concurrent scopes, bounded eviction and a close-between-fast-check-and-lock race remain isolated.",
+      "Finite NumPy measurements become JSON-native without clamping values. Booleans, numeric strings, arrays and nonfinite telemetry cannot become predictions.",
+      "Identity/run/amount/paper/time/vector/receipt/payload/schema/selector/source/operation/ML policy faults cannot become durable original evidence or checked financial training.",
+      "Actual pre-buy execution-tail SQL failure and restart keep one intent, one paper position, exact 0.1 SOL and original model queries without resubmission.",
+      "An actual isolated primary query is retained through a complete costed paper close, Parquet/CSV export and checked net restore; mutable result copies and post-close columns cannot rewrite it.",
+      "Legacy receipts remain original, and metadata remains excluded even when an invalid physical column is numeric."
+    ],
+    "qualification": "Temporary synthetic artifacts, paper fixtures and SQLite only. No successful production provider/access/depth acceptance, fresh market-run capture, live finality or prospective profit measurement. Publishing validation uses the existing working-checkout Python, not a newly provisioned machine."
+  },
+  "preservation": {"status": "CHECKED_UNCHANGED", "checked_at_utc": "2026-10-08T08:28:23.0253143Z", "publishing_checked_at_utc": "2026-10-08T08:28:23.0475341Z", "stage_boundary_utc": "2026-10-08T05:59:00Z", "runtime_started": false, "active_model_trained_or_promoted": false, "provider_calls": 0, "live_orders": 0, "personal_env_changed": false, "both_checkouts_changed_files": {"models": 0, "ml/models": 0, "data/features": 0, "data/paper_closed_trades": 0, "data/learning/trade_closes": 0, "data/research": 0, "data/research_runs": 0, "data/metrics/buy_recovery": 0, "data/paper_portfolio.json": 0, "active_policy.json": 0, "all_data_active_policy_json": 0, "root_compatibility_models_and_registry": 0, ".env": 0}, "qualification": "Observed modification-time inventory since the stage boundary with existing directory reads failing explicitly on errors, not a complete cryptographic census. Requested stop changes its log and authoritative stopped/idle SQL state."},
+  "shutdown": {"status": "VERIFIED_OFF", "required_lock_path": "data/run_bot.lock", "lock_paths_checked_in_both_checkouts": ["bot.lock", "run_bot.lock", "data/bot.lock", "data/run_bot.lock"], "stop_command_exit_code": 0, "stop_log_at_utc": "2026-10-08T08:28:22Z", "killed": 0, "remaining": 0, "working_process_inventory_at_utc": "2026-10-08T08:29:19.6785926Z", "publishing_process_inventory_at_utc": "2026-10-08T08:29:19.6965176Z", "global_inventory_at_utc": "2026-10-08T08:29:20.3890776Z", "working_scoped_runtime_processes": 0, "publishing_scoped_runtime_processes": 0, "global_bot_training_research_api_processes": 0, "bot_lock_files_present": 0, "memebot_scheduled_tasks": 0, "memebot_services": 0, "sql_read_only_check_at_utc": "2026-10-08T08:29:21.097339Z", "sql_main": {"process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"}, "publishing_checkout": "Source only: no runtime DB or personal .env/.venv; no stop finalizer run there."},
+  "publication_contract": {"publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3", "previous_commit": "98e9e9052dec24d6335dd4fd26b23ddbda808f37", "scope": "Reviewed source, isolated tests and technical evidence only, without secrets, runtime data or active artifacts.", "final_identity": "Verify actual HEAD/origin/main/ls-remote after commit and push; no self-referential revision field."},
+  "remaining_goal_requirements": [
+    "Complete applicable immutable full-strategy source/configuration and capital/admission/route/execution/exit policy provenance; a partial actual model-query trace does not certify the whole strategy.",
+    "Complete production provider response/access/market-asof/depth and independently checked live wallet/quantity/finality acceptance without treating synthetic tests as acceptance.",
+    "Obtain separately authorized fresh costed full-strategy closed evidence before claiming profitability or actual extreme-runner capture. Keep all services off while the user requires it."
+  ]
+}
