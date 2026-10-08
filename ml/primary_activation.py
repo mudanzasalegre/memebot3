@@ -109,9 +109,15 @@ def reference_paths(reference: dict, registry_path: Path, models_dir: Path) -> d
     return paths
 
 
-def read_bundle(reference: dict, registry_path: Path, models_dir: Path):
+def read_bundle(reference: dict, registry_path: Path, models_dir: Path, *, captured_payloads=None):
     paths = reference_paths(reference, registry_path, models_dir)
-    payloads = {name: path.read_bytes() for name, path in paths.items()}
+    if captured_payloads is None:
+        payloads = {name: path.read_bytes() for name, path in paths.items()}
+    else:
+        if (not isinstance(captured_payloads, dict) or set(captured_payloads) != COMPONENTS
+                or any(type(value) is not bytes for value in captured_payloads.values())):
+            raise ValueError("Incomplete captured primary bundle bytes")
+        payloads = dict(captured_payloads)
     if any(sha256(payloads[name]).hexdigest() != reference["sha256"][name] for name in COMPONENTS):
         raise ValueError("Primary bundle checksum mismatch")
     def invalid_constant(value):

@@ -1,0 +1,52 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "scope": "Original-content binding of cached primary model snapshots and actual primary model selection logging at the fixed entry clock. This advances, but does not complete, full-strategy decision provenance.",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "findings": [
+    "The specialized family cache had been repaired previously, but the primary reader still reused cached model/metadata/threshold approval based on modification time and file size.",
+    "Seven controlled tests initially failed: changed legacy model bytes, changed legacy metadata and corruption of each of the five approved primary bundle components remained cached when their sizes and modification times were preserved.",
+    "After hashing before lookup, rereading file paths for deserialization would still create a different-byte race. The reader must consume precisely the bytes captured and bound to the cache/approval identity.",
+    "The entry feature vector contains configuration and policy descriptors, but did not persist original primary model and metadata hashes in actual candidate/decision logging.",
+    "The actual sniper subprofile is retained separately on the token and SQL position but is absent from the raw T0 feature vector. Gate/profile encoding is not proof that every subprofile distinction is represented. This requires further causal descriptor work and is not repaired in this cache stage."
+  ],
+  "implementation": {
+    "content_cache": "Read model and metadata bytes before any primary cache hit and include their SHA-256 hashes in the signature. For an atomic selected bundle, include hashes of all five original components as well as the original selector revision/reference and paths. A same-stat change refreshes or makes the next context unknown; an already pinned decision retains its immutable accepted snapshot.",
+    "one_capture": "Legacy JSON parsing and model deserialization reuse the original captured bytes. The selected bundle reader accepts an explicit captured byte dictionary, requires exactly the five components with immutable bytes values and checks every original approved hash before JSON interpretation, approval validation or deserialization. This optional capture API cannot bypass shape or original approval checks.",
+    "original_provenance": "The loaded snapshot retains the original component hashes before runtime annotations are injected into metadata. Expose a detached bounded selection receipt containing model identity, selector revision, ordered feature-schema hash and original component hashes, without local paths, credentials or full approval populations.",
+    "legacy_distinction": "Compatible individually checked legacy artifacts remain explicitly distinct from an atomic champion bundle and have no invented selector revision or same-later-cohort bundle approval. Legacy threshold reporting retains its prior source rather than being mislabeled atomic.",
+    "actual_entry": "The actual entry helper records entry_model_selection from the same existing parent inference scope at the original fixed T0, or an explicit disabled receipt when ML mode is off. The research candidate/decision payload detaches the receipt. It does not change probabilities, admission, sizing, exit policy or raw feature columns.",
+    "nonpredictor": "Exclude physical selection metadata from the generic primary feature selector, even when malformed as varying numeric values. The unchanged raw 77-column feature vector does not consume it.",
+    "unknowns": "Absent, unreadable, corrupted or unsupported artifacts yield unknown selection with no fabricated model identity or hashes. Every receipt has provenance-only role, buy_permission=false and full_strategy_profitability_established=false.",
+    "latency_qualification": "Reading and hashing current artifact contents precedes cache reuse. This stage does not measure provider throughput or production inference latency, and does not claim a scanner speedup.",
+    "financial_behavior": "No active model training/promotion, policy activation, buy veto, safety bypass, order or upside ceiling is introduced. Exact 0.1 SOL paper sizing and uncapped proportional runner exits are unchanged."
+  },
+  "verification": {
+    "new_isolated_cases": 19,
+    "pre_fix_reproduction": "7 failed in 6.49s: deterministic same-stat stale primary cache reuse, including all five selected bundle components",
+    "post_fix_initial_integration": "158 passed in 31.59s",
+    "provenance_integration": "195 passed in 33.56s before the final malformed captured-payload API cases",
+    "broad_focused_suite": "317 passed in 55.93s before adding the assertion for actual numeric-metadata predictor exclusion",
+    "final_new_cases": "19 passed in 6.06s with actual numeric-metadata predictor exclusion",
+    "final_working_suite": "2373 passed in 266.66s on final source",
+    "final_publishing_suite": "2373 passed in 254.88s on final source without personal .env, local .venv or runtime DB, using the existing working-checkout Python",
+    "preflight_final_source": "PASS in both checkouts: compilation errors 0, configuration import return code 0, paper profile true and all seven empty-data report builders true",
+    "coverage": [
+      "Same-size same-timestamp legacy model corruption and valid metadata threshold replacement invalidate the next primary cache lookup while preserving the current pinned decision.",
+      "Same-stat corruption of model, metadata, thresholds, lane thresholds and acceptance independently prevents reuse of a previously approved atomic bundle.",
+      "Replacing a legacy model path after capture does not cause later bytes to be deserialized; replacing a selected model path before bundle validation still uses and checks the original complete capture.",
+      "Missing, extra, mutable, wrong-container and wrong-hash captured payloads are rejected before deserialization.",
+      "Legacy selection receipts are detached, have original byte hashes and do not change legacy threshold source or invent an atomic approval.",
+      "Unknown model/metadata first launch has no fabricated receipt identity; actual entry uses the original fixed clock and disabled-mode behavior; logs detach receipts and malformed numeric metadata is not proposed as a predictor."
+    ],
+    "qualification": "Temporary synthetic calibration and approval fixtures only; no real dataset fitting, providers, wallet/finality checks, market execution or prospective full-strategy profitability. A source-only checkout tested with the existing project Python is not a newly provisioned machine acceptance test."
+  },
+  "preservation": {"status": "CHECKED_UNCHANGED", "checked_at_utc": "2026-10-08T05:18:21.9315306Z", "stage_boundary_utc": "2026-10-08T04:54:00Z", "runtime_started": false, "active_model_trained_or_promoted": false, "provider_calls": 0, "live_orders": 0, "personal_env_changed": false, "both_checkouts_changed_files": {"models": 0, "ml/models": 0, "data/features": 0, "data/paper_closed_trades": 0, "data/learning/trade_closes": 0, "data/research": 0, "data/research_runs": 0, "active_policy.json": 0, "root_compatibility_models_and_registry": 0}, "qualification": "Observed modification-time inventory of protected paths since the stage boundary with directory reads failing explicitly on errors, not a complete cryptographic census. The requested stop updates its log and authoritative stopped/idle SQL runtime state."},
+  "shutdown": {"status": "VERIFIED_OFF", "required_lock_path": "data/run_bot.lock", "lock_paths_checked_in_both_checkouts": ["bot.lock", "run_bot.lock", "data/bot.lock", "data/run_bot.lock"], "stop_command_exit_code": 0, "stop_log_at_utc": "2026-10-08T05:18:21Z", "killed": 0, "remaining": 0, "process_inventory_at_utc": "2026-10-08T05:18:23.2322406Z", "working_scoped_runtime_processes": 0, "publishing_scoped_runtime_processes": 0, "global_bot_training_research_processes": 0, "bot_lock_files_present": 0, "memebot_scheduled_tasks": 0, "memebot_services": 0, "sql_read_only_check_at_utc": "2026-10-08T05:18:23.280663+00:00", "sql_main": {"process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"}, "publishing_checkout": "Source only: no runtime DB or personal .env/.venv; no stop finalizer run in that checkout."},
+  "publication_contract": {"publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3", "previous_commit": "fe5fa4a1f96334c3e781dc84dcbced60bcd2b942", "scope": "Reviewed source, tests and technical evidence only; no .env, runtime data or active model artifacts.", "final_identity": "Verify actual HEAD, origin/main and ls-remote after committing; report actual identity rather than a self-referential commit field."},
+  "remaining_goal_requirements": [
+    "Capture other applicable source/input-generation contracts and the original strategy/subprofile descriptors without retrospective reconstruction or leakage.",
+    "Bind complete immutable full-strategy decision provenance to original causal entries, durable pre-buy journals, execution results and later learning/export; original primary model logging alone does not complete that lineage.",
+    "Complete full-strategy capital/admission/execution constraints and successful provider/access/depth and independent live wallet/finality acceptance without treating mocks as production evidence.",
+    "Obtain separately authorized fresh costed full-strategy closed evidence before any profitability or extreme-runner capture claim. Keep all services off while the user requires it."
+  ]
+}

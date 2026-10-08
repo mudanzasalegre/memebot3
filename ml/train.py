@@ -80,6 +80,7 @@ _FORBIDDEN_SUBSTR = (
 _META_COLS = (
     PROOF_COLUMN,
     "exit_model_diagnostic",
+    "entry_model_selection",
     "label",
     "timestamp",
     "ts",

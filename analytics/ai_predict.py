@@ -126,8 +126,11 @@ def _load_model_unscoped():
             model_path = selected["paths"]["model.pkl"] if selected else _MODEL_PATH
             meta_path = selected["paths"]["model.meta.json"] if selected else _META_PATH
             model_stat, meta_stat = model_path.stat(), meta_path.stat()
+            captured = ({name: path.read_bytes() for name, path in selected["paths"].items()}
+                        if selected else {"model.pkl": model_path.read_bytes(), "model.meta.json": meta_path.read_bytes()})
+            content_hashes = {name: sha256(payload).hexdigest() for name, payload in captured.items()}
             signature = (str(model_path), str(meta_path), model_stat.st_mtime_ns, model_stat.st_size,
-                         meta_stat.st_mtime_ns, meta_stat.st_size)
+                         meta_stat.st_mtime_ns, meta_stat.st_size, tuple(sorted(content_hashes.items())))
             if selected:
                 signature += (selected["revision"], json.dumps(selected["reference"], sort_keys=True),
                     tuple((name, path.stat().st_mtime_ns, path.stat().st_size)
@@ -142,13 +145,17 @@ def _load_model_unscoped():
             return None, [], {}
         try:
             if selected:
-                _model, metadata, documents, _ = read_bundle(selected["reference"], _REGISTRY_PATH, _MODELS_DIR)
-                metadata["_primary_runtime"] = {"revision": selected["revision"], "model_path": str(model_path),
-                    "meta_path": str(meta_path), "acceptance": documents["acceptance.json"]}
+                _model, metadata, documents, _ = read_bundle(selected["reference"], _REGISTRY_PATH, _MODELS_DIR,
+                    captured_payloads=captured)
             else:
-                metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+                metadata = json.loads(captured["model.meta.json"])
             if not isinstance(metadata, dict):
                 raise ValueError("model metadata must be an object")
+            metadata["_primary_runtime"] = {"revision": selected["revision"] if selected else None,
+                "model_path": str(model_path), "meta_path": str(meta_path),
+                "acceptance": documents["acceptance.json"] if selected else None,
+                "mode": "atomic_primary_bundle" if selected else "checked_legacy_artifact",
+                "component_sha256": content_hashes}
             _loaded_meta = metadata
             if not supported_financial_training(metadata, entry=True):
                 return None, [], copy.deepcopy(metadata)
@@ -161,7 +168,7 @@ def _load_model_unscoped():
             if (not checked_context_schema(metadata, features) or not checked_numeric_schema(metadata, features)
                     or not checked_semantics_schema(metadata, features)):
                 raise ValueError("unproved entry context encoding")
-            payload = model_path.read_bytes()
+            payload = captured["model.pkl"]
             if sha256(payload).hexdigest() != metadata.get("model_sha256"):
                 raise ValueError("model/metadata checksum mismatch")
             if not supported_entry_probability(metadata):
@@ -263,6 +270,21 @@ def entry_prediction_state() -> dict[str, Any]:
     checked = model is not None and supported_financial_training(metadata, entry=True)
     return {"activation_ready": bool(checked and metadata.get("activation_ready") is True),
             "metadata": copy.deepcopy(metadata) if checked else {}}
+
+
+def primary_model_selection() -> dict[str, Any]:
+    """Original consumed snapshot provenance, never a strategy/buy approval."""
+    model, features, metadata = _load_model()
+    selected = metadata.get("_primary_runtime") or {}
+    checked = model is not None and bool(selected.get("component_sha256"))
+    return {"status": "checked_artifact" if checked else "unknown",
+        "mode": selected.get("mode") if checked else "unavailable",
+        "model_id": metadata.get("artifact_model_id") if checked else None,
+        "revision": selected.get("revision") if checked else None,
+        "component_sha256": copy.deepcopy(selected["component_sha256"]) if checked else {},
+        "feature_schema_sha256": sha256(json.dumps(features, separators=(",", ":")).encode()).hexdigest() if checked else None,
+        "role": "decision_provenance_only", "buy_permission": False,
+        "full_strategy_profitability_established": False}
 
 
 def reload_model() -> None:
@@ -394,7 +416,7 @@ def model_runtime_status() -> dict[str, Any]:
 def threshold_runtime_metadata() -> dict[str, Any]:
     """Threshold metadata with by-lane support and legacy fallback."""
     meta = _load_model()[2]
-    if meta.get("_primary_runtime"):
+    if (meta.get("_primary_runtime") or {}).get("mode") == "atomic_primary_bundle":
         by_lane = meta.get("thresholds_by_lane") or {}
         return {"source": "atomic_primary_bundle", "path": meta["_primary_runtime"]["meta_path"],
             "global": by_lane.get("global") or {"threshold": (meta.get("threshold_result") or {}).get("picked"),
@@ -428,4 +450,4 @@ def threshold_runtime_metadata() -> dict[str, Any]:
     }
 
 
-__all__ = ["should_buy", "entry_prediction_state", "reload_model", "model_runtime_status", "threshold_runtime_metadata"]
+__all__ = ["should_buy", "entry_prediction_state", "primary_model_selection", "reload_model", "model_runtime_status", "threshold_runtime_metadata"]

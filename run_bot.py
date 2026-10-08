@@ -4500,6 +4500,11 @@ def _score_entry_inputs(token: dict, *, captured_at: dt.datetime):
             "activation_role": "diagnostic_only", "exit_policy_permission": False, "buy_permission": False}
     token["exit_model_diagnostic"]["input_captured_at_utc"] = captured_at.isoformat()
     state = entry_prediction_state()
+    from analytics.ai_predict import primary_model_selection
+    token["entry_model_selection"] = primary_model_selection() if mode != "off" else {
+        "status": "disabled", "role": "decision_provenance_only", "buy_permission": False,
+        "full_strategy_profitability_established": False}
+    token["entry_model_selection"]["input_captured_at_utc"] = captured_at.isoformat()
     decision = decide_ml_action(token=token, feature_row=payload, proba=proba,
         base_rules_passed=True, dry_run=DRY_RUN, live=not DRY_RUN, risk_proba=risk,
         ev_pred_pct=ev, entry_model_activation_ready=state["activation_ready"],

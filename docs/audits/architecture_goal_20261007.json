@@ -13,8 +13,8 @@
   ],
   "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
   "historical_initial_publication_state": {"branch": "main", "origin_main_commit_before_sync": "3479e24", "working_tree_clean_before_sync": true, "remote_fetch_completed": true, "source_sync_completed": true, "implementation_commit": "0c7aa6c0d2bc10462d29b1d8207a68a23fc7fbb8", "commit_push": "COMPLETE", "remote_revision_verified": true, "scope": "Initial publication proof, not the current Git HEAD after later source stages"},
-  "latest_stage_evidence": "docs/audits/exit_diagnostics_20261008.json",
-  "latest_stage_summary": "Require purged token-disjoint OOS support for diagnostic multiclass exit styles, preserve unknown outcomes and original peak semantics, bind checked metadata/classes/checksums before deserialization and consume the label on the actual entry/report path without changing exit policy or admission. Keep detached diagnostic receipts out of predictors and use the same fixed T0 vector. Bind family cache and capture stability to model/meta contents, including same-stat replacements. Read-only historical style labels remain proxies, not optimal costed exits or profitable trades. All runtime services remain stopped.",
+  "latest_stage_evidence": "docs/audits/primary_snapshot_contents_20261008.json",
+  "latest_stage_summary": "Bind primary cache reuse to original model/meta and all five approved bundle contents, including same-stat replacements. Parse/check/deserialize the captured bytes rather than rereading paths. Record original primary selection hashes at the actual entry clock, keep legacy artifacts distinct from atomic champion approvals, detach nonpredictor logging receipts and preserve unknowns. Complete full-strategy durable provenance and causal subprofile descriptors remain pending; no active artifact, trading policy or profitability acceptance is introduced. All runtime services remain stopped.",
   "implemented_this_stage": [
     "Restore observed peak targets through a bounded causal historical join; preserve all entry features unchanged",
     "Persist observed peak and outcome-availability timestamp as outcome-only Parquet columns on future shadow and real closes",
@@ -66,7 +66,8 @@
     "Explicitly exclude physical auxiliary receipt metadata from generic primary numeric feature selection; profile the original eligible historical row/token grain, causal joins, rare nested thresholds, daily history and current net/auxiliary proof support without training or starting the bot.",
     "Repair Windows EACCES/sharing contention at exclusive Parquet lock acquisition with deadline-bounded retries that still require successful O_EXCL, preserve genuine denial and other-owner bytes, propagate unknown permission errors immediately and release descriptors/owned locks if writing the owner record fails. Three six-worker rounds and deterministic permission/cleanup cases preserve atomic output and all unique rows.",
     "Validate actual multiclass historical exit-style diagnostics on mature token-disjoint chronological folds against training-majority baselines and paired token-cluster loss support. Keep absent/invalid/bool outcomes unknown, never substitute realized return for peak, skip unsupported candidates without destroying old bytes, check role/label meaning/classes/encoding/checksums before deserialization and never represent diagnostic labels as optimal executable exits or probabilities. Consume the same fixed-T0 vector on actual entry, record detached nonpredictor diagnostics and add manual report-bundle coverage without changing policy/admission/amount or automatic training lifecycle.",
-    "Bind specialized family cache signatures and whole-family capture stability to SHA-256 of the original model/meta bytes rather than modification time and size alone. Controlled same-stat replacements invalidate cache reuse and in-progress mixed capture while preserving the already pinned parent decision. Production artifact-hashing latency remains unmeasured."
+    "Bind specialized family cache signatures and whole-family capture stability to SHA-256 of the original model/meta bytes rather than modification time and size alone. Controlled same-stat replacements invalidate cache reuse and in-progress mixed capture while preserving the already pinned parent decision. Production artifact-hashing latency remains unmeasured.",
+    "Bind primary model cache signatures to original model/meta contents and all five atomic bundle components before cache hits; reuse precisely captured bytes for parsing, approval checks and deserialization, rejecting incomplete/mutable/changed captures before loading. Persist original detached primary selection hashes in actual fixed-T0 candidate/decision logs, distinguish checked legacy artifacts from atomic champion approvals and keep unknowns/disabled receipts out of predictors. This advances primary lineage without certifying durable full-strategy provenance or profitability; active models and trading policy remain unchanged."
   ],
   "evidence": [
     "docs/audits/runner_learning_20261007.json",
@@ -163,7 +164,9 @@
     "tests/test_feature_store_atomic.py",
     "docs/audits/exit_diagnostics_20261008.json",
     "ml/exit_diagnostics.py",
-    "tests/test_exit_model_diagnostics.py"
+    "tests/test_exit_model_diagnostics.py",
+    "docs/audits/primary_snapshot_contents_20261008.json",
+    "tests/test_primary_snapshot_contents.py"
   ],
   "verification": {
     "pre_final_changes_full_pytest": "856 passed in 31.49s",
@@ -196,7 +199,8 @@
     "previous_auxiliary_observations_working_suite": "2258 passed in 269.86s after final same-snapshot momentum, typed risk source-age and causal managed v3 changes",
     "previous_auxiliary_semantics_working_suite": "2287 passed in 343.13s after final auxiliary generation storage, training, inference and lifecycle acceptance",
     "previous_multi_head_working_suite": "2322 passed in 322.69s after final whole-family capture, metadata approval, fixture and Windows Parquet lock checks",
-    "final_working_suite": "2354 passed in 255.24s after checked diagnostic exit classification, actual entry/report consumers, content-bound family caching and fixed-T0 fixture validation",
+    "previous_exit_diagnostics_working_suite": "2354 passed in 255.24s after checked diagnostic exit classification, actual entry/report consumers, content-bound family caching and fixed-T0 fixture validation",
+    "final_working_suite": "2373 passed in 266.66s after content-bound primary snapshots, captured-byte validation/deserialization and original detached fixed-T0 entry/log provenance",
     "previous_sizing_publishing_suite": "1031 passed in 71.96s without personal .env",
     "previous_runner_forward_publishing_suite": "1068 passed in 62.78s without personal .env",
     "previous_uncertainty_publishing_suite": "1097 passed in 74.08s without personal .env using existing working-checkout Python runtime",
@@ -223,7 +227,8 @@
     "previous_auxiliary_observations_publishing_suite": "2258 passed in 265.00s after final same-snapshot momentum, typed risk source-age and causal managed v3 changes, without personal .env or local .venv using existing working-checkout Python runtime",
     "previous_auxiliary_semantics_publishing_suite": "2287 passed in 337.10s after final auxiliary generation storage, training, inference and lifecycle acceptance, without personal .env or local .venv using existing working-checkout Python runtime",
     "previous_multi_head_publishing_suite": "2322 passed in 317.15s on final source without personal .env, local .venv or runtime DB, using the existing working-checkout Python",
-    "final_publishing_suite": "2354 passed in 249.69s after checked diagnostic exit classification, actual entry/report consumers, content-bound family caching and fixed-T0 fixture validation; without personal .env, local .venv or runtime DB using existing working-checkout Python",
+    "previous_exit_diagnostics_publishing_suite": "2354 passed in 249.69s after checked diagnostic exit classification, actual entry/report consumers, content-bound family caching and fixed-T0 fixture validation; without personal .env, local .venv or runtime DB using existing working-checkout Python",
+    "final_publishing_suite": "2373 passed in 254.88s after content-bound primary snapshots, captured-byte validation/deserialization and original detached fixed-T0 entry/log provenance; without personal .env, local .venv or runtime DB using existing working-checkout Python",
     "publishing_preflight": "PASS: both checkouts, compilation, configuration, paper profile and seven report builders",
     "publishing_ui_build": "Previously passed with bundle-size warning; UI unchanged in uncertainty, transport, collector, incumbent-successor, composition, independent-monitor, buy-integrity, sell-integrity, paper-archive, runner-intake, net-learning, financial-model and market-freshness stages",
     "focused_runner_and_forward_suite": "147 passed in 59.65s in previous runner stage",
@@ -261,8 +266,10 @@
     "multi_head_and_windows_lock_suite": "35 new isolated cases, complete model/metadata approval before deserialization, whole-selector/all-head capture, standalone/parent scope ownership, ranking-only permissions, compatible stable flat collections, malformed receipt nonpredictor exclusion, read-only settled historical profiling and five seven-case repeated atomic-store runs. Final full suites and both preflights pass. No runtime model activation or profitability acceptance is established",
     "previous_multi_head_final_shutdown": "VERIFIED_OFF_2026-10-08T04:15:52.8476615Z: process/task/service and read-only SQL checks; the later exit diagnostic stage explicitly verifies the actual data/run_bot.lock path omitted from earlier ad-hoc inventories",
     "exit_diagnostics_suite": "32 new isolated cases cover checked multiclass fitting/inference, unknown/bool/missing labels, empty first launch, preserved unsupported artifacts, metadata and checksum rejection before deserialization, fixed-vector actual entry/report/logging consumers, nonpredictor repeated builds and deterministic same-stat cache/capture replacement. Final complete regression and shutdown evidence are recorded in the current stage audit. These are observed-style diagnostics, not optimal financial exits or profitable strategy acceptance",
-    "final_shutdown": "VERIFIED_OFF_2026-10-08T04:52:18.1466380Z: both checkout process and actual data/run_bot.lock plus compatibility lock inventories zero, global bot/training/research zero, memebot tasks/services zero and read-only SQL main stopped/idle/idle",
-    "current_shutdown_evidence": "docs/audits/exit_diagnostics_20261008.json"
+    "previous_exit_diagnostics_final_shutdown": "VERIFIED_OFF_2026-10-08T04:52:18.1466380Z: both checkout process and actual data/run_bot.lock plus compatibility lock inventories zero, global bot/training/research zero, memebot tasks/services zero and read-only SQL main stopped/idle/idle",
+    "primary_snapshot_contents_suite": "Nineteen isolated cases cover deterministic same-stat cache faults for legacy files and every atomic bundle component, captured-byte deserialization races, API shape/hash rejection before loading, original detached selection provenance, legacy threshold reporting, unknown first launch, actual fixed-T0 entry/log consumers and nonpredictor metadata. Complete regression and shutdown are recorded in the current stage evidence. No active model, policy or profitable strategy is accepted",
+    "final_shutdown": "VERIFIED_OFF_2026-10-08T05:18:23.2322406Z: both checkout process/actual data/run_bot.lock/compatibility lock inventories zero, global bot/training/research zero, memebot tasks/services zero and read-only SQL main stopped/idle/idle",
+    "current_shutdown_evidence": "docs/audits/primary_snapshot_contents_20261008.json"
   },
   "isolated_advisory_result": {"source_period": "2026-07-13 through 2026-07-15", "settled_source_rows": 2147, "comparison_rows": 536, "selected_ranking_targets": ["runner_50", "runner_100"], "active_runtime_models_changed": false, "bot_started": false, "interpretation": "Useful historical ranking discrimination only; rare higher targets remain unvalidated and no costed future profits are established"},
   "remaining_required_work": [
