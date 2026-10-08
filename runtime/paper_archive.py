@@ -9,6 +9,7 @@ import copy
 import datetime as dt
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 from typing import Mapping
@@ -32,6 +33,8 @@ exit_reason exit_reason_full close_price_usd price_source price_confidence price
 price_confidence_close require_jupiter_for_buy exact_paper_trade_size_sol pnl_pct exit_fill_events
 runner_research_source first_partial_exit_intent_id runner_research_capture_failed
 time_to_partial_sec time_to_peak_sec peak_after_partial_pct exit_from_peak_giveback_pct outcome
+peak_valuation_basis last_cash_mark cash_peak_mark cash_max_adverse_mark cash_peak_observed_at
+legacy_market_peak_diagnostic
 """.split())
 
 
@@ -99,6 +102,45 @@ def paper_snapshot(entry, token):
     from execution.quote_receipt import public_summary
     if isinstance(trade.get("entry_route_quote"), Mapping):
         trade["entry_route_quote"] = public_summary(trade["entry_route_quote"])
+    if "last_cash_mark" in trade or "peak_valuation_basis" in trade:
+        from execution.paper_cash_mark import VERSION as CASH_VERSION, public_historical_mark
+        if trade.get("peak_valuation_basis") != CASH_VERSION or "last_cash_mark" not in trade:
+            raise PaperArchiveError("Unknown cash peak provenance")
+        owner = "buy:" + (entry_identity(trade) or "")
+        for name in ("last_cash_mark", "cash_peak_mark", "cash_max_adverse_mark"):
+            if name in trade:
+                try:
+                    trade[name] = public_historical_mark(trade[name], trade, token=token, owner=owner)
+                except (ValueError, TypeError, KeyError, OverflowError) as exc:
+                    raise PaperArchiveError("Invalid original historical cash mark") from exc
+        for metric, proof in (("highest_pnl_pct", "cash_peak_mark"), ("max_adverse_pnl_pct", "cash_max_adverse_mark")):
+            value = trade.get(metric)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise PaperArchiveError("Unknown cash peak metric")
+            if value != 0 or proof in trade:
+                if proof not in trade:
+                    raise PaperArchiveError("Cash peak lacks its original receipt")
+                receipt = trade[proof]
+                expected = (receipt["values"]["policy_reference_price_usd"] /
+                            receipt["basis"]["entry_reference_price_usd"] - 1) * 100
+                if not math.isclose(value, expected, rel_tol=1e-12, abs_tol=1e-10):
+                    raise PaperArchiveError("Cash peak differs from its original receipt")
+        peak = trade.get("cash_peak_mark")
+        if peak is not None:
+            expected_age = int((_time(peak["valued_at"]) - _time(peak["basis"]["opened_at"])).total_seconds())
+            if (trade.get("cash_peak_observed_at") != peak["valued_at"]
+                    or type(trade.get("time_to_peak_sec")) is not int or trade["time_to_peak_sec"] != expected_age):
+                raise PaperArchiveError("Cash peak clock differs from its original receipt")
+    if isinstance(trade.get("legacy_market_peak_diagnostic"), Mapping):
+        diagnostic = trade["legacy_market_peak_diagnostic"]
+        values = diagnostic.get("values") or {}
+        if not isinstance(values, Mapping):
+            raise PaperArchiveError("Malformed unverified peak diagnostics")
+        allowed = {"highest_pnl_pct", "max_pnl_pct_seen", "peak_pnl_pct", "max_adverse_pnl_pct",
+                   "peak_price", "peak_price_usd", "time_to_peak_sec", "peak_after_partial_pct"}
+        trade["legacy_market_peak_diagnostic"] = {"role": "unverified_valuation_only",
+            "values": {key: value for key, value in values.items() if key in allowed
+                and isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)}}
     if "exit_fill_events" in trade:
         events = trade["exit_fill_events"]
         if (not isinstance(events, list) or any(not isinstance(event, Mapping)

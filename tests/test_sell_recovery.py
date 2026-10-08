@@ -332,6 +332,22 @@ def test_all_primary_exit_routes_use_pre_execution_guard():
         and node.func.value.id == "seller" and node.func.attr == "sell" for node in calls)
 
 
+@pytest.mark.parametrize("dispatch", [False, True])
+def test_missing_original_entry_money_is_known_no_fill_only_before_dispatch(tmp_path, dispatch):
+    store = SellRecoveryStore(tmp_path / "intents")
+    attempt = store.begin(position(), 400, paper=True, reason="synthetic", paper_before=entry())
+    if dispatch:
+        # Boundary stub only, not an accepted live dispatch capsule.
+        attempt.row["execution"] = {"dispatch_started": {"synthetic": True}}
+    response = {"ok": False, "error": "ENTRY_BASIS_UNAVAILABLE", "signature": None, "qty_sold": 0}
+    if dispatch:
+        with pytest.raises(SellOutcomeUncertain): attempt.receive(response)
+        assert attempt.row["state"] == "prepared"
+    else:
+        assert attempt.receive(response) is None
+        assert attempt.row["state"] == "no_fill" and not store.pending_addresses
+
+
 @pytest.mark.asyncio
 async def test_known_pre_execution_rejection_does_not_quarantine_or_fake_a_fill(isolated):
     store = SellRecoveryStore(isolated / "intents")

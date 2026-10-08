@@ -45,6 +45,7 @@ from utils.runtime_context import runtime_context_payload
 from trade_pnl import apply_partial_fill, summarize_trade
 from fetcher import jupiter_price, jupiter_router
 from execution.quote_observation import observe_quote
+from execution import paper_cash_mark
 from utils.raw_units import sol_to_lamports
 from research_loop import runner_forward
 from runtime.paper_entry_policy import snapshot as entry_policy_snapshot
@@ -359,6 +360,8 @@ def record_market_observation(address: str, price: float, *, liq_now: float | No
     entry = _PORTFOLIO.get(address)
     if not entry or entry.get("closed") or not _positive_finite(price):
         return
+    if entry.get("entry_route_quote") or entry.get("quantity_basis") == "quoted_raw_spl_units":
+        return  # Physical spot is not an exact-quantity PAPER cash valuation.
     buy_price = entry.get("buy_price_usd")
     if not _positive_finite(buy_price):
         return
@@ -861,6 +864,122 @@ async def _serialized_paper_order(key, action, *args, **kwargs):
             del _SELL_LOCKS[key]
 
 
+def checked_cash_price(address: str, mark, *, expected_position=None) -> float | None:
+    """A private policy reference, never a physical token price receipt."""
+    entry = _PORTFOLIO.get(address)
+    if not isinstance(entry, dict):
+        return None
+    try:
+        from runtime.paper_archive import entry_identity
+        owner = "buy:" + (entry_identity(entry) or "")
+        if expected_position is not None and not paper_cash_mark.matches_sql(entry, expected_position, token=address):
+            return None
+        return paper_cash_mark.checked_price(mark, entry, token=address, owner=owner, now=utc_now())
+    except (ValueError, TypeError, PaperArchiveError):
+        return None
+
+
+async def get_exit_cash_mark(address: str, *, expected_position=None, quote_func=None, fx_func=None):
+    """Observe the exact current remaining quantity under per-mint ownership."""
+    async def owned():
+        from runtime.paper_archive import entry_identity
+        from utils.sol_price import get_sol_usd_observation
+        try:
+            entry = _PORTFOLIO.get(address)
+            owner = "buy:" + (entry_identity(entry) or "") if isinstance(entry, dict) else ""
+            frozen = paper_cash_mark.basis(entry, token=address, owner=owner)
+            if expected_position is not None and not paper_cash_mark.matches_sql(entry, expected_position, token=address):
+                return None
+            slippage = jupiter_router.routing_quote_slippage_bps()
+            quote = await (quote_func or jupiter_router.get_routing_quote)(
+                input_mint=address, output_mint=SOL_MINT, amount_lamports=frozen["remaining_qty"],
+                slippage_bps=slippage)
+            fx = await (fx_func or get_sol_usd_observation)()
+            current = _PORTFOLIO.get(address)
+            if paper_cash_mark.basis(current, token=address, owner=owner) != frozen:
+                return None
+            if expected_position is not None and not paper_cash_mark.matches_sql(current, expected_position, token=address):
+                return None
+            mark = paper_cash_mark.capture(current, quote, fx, token=address, owner=owner,
+                                           now=utc_now(), slippage_bps=slippage)
+            return mark if checked_cash_price(address, mark, expected_position=expected_position) is not None else None
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.debug("[papertrading] cash mark unavailable (%s)", type(exc).__name__)
+            return None
+    return await _serialized_paper_order(address, owned)
+
+
+def record_cash_observation(address: str, mark, *, expected_position=None) -> bool:
+    """Persist original quote/FX clocks with quote-based peaks, not spot peaks."""
+    price = checked_cash_price(address, mark, expected_position=expected_position)
+    if price is None:
+        return False
+    original = _PORTFOLIO[address]
+    entry = copy.deepcopy(original)
+    # A spot/mixed peak cannot acquire quote provenance by relabelling it.
+    if entry.get("peak_valuation_basis") != paper_cash_mark.VERSION:
+        fields = ("highest_pnl_pct", "max_pnl_pct_seen", "peak_pnl_pct", "max_adverse_pnl_pct",
+                  "peak_price", "peak_price_usd", "time_to_peak_sec", "peak_after_partial_pct")
+        entry["legacy_market_peak_diagnostic"] = {"role": "unverified_valuation_only",
+            "values": {name: value for name in fields
+                if isinstance((value := entry.get(name)), (int, float))
+                and not isinstance(value, bool) and math.isfinite(value)}}
+        for name in ("highest_pnl_pct", "max_pnl_pct_seen", "peak_pnl_pct", "max_adverse_pnl_pct"):
+            entry[name] = 0.0
+        entry["peak_price"] = entry["peak_price_usd"] = float(entry["buy_price_usd"])
+        entry["time_to_peak_sec"] = entry["peak_after_partial_pct"] = None
+        for name in ("cash_peak_mark", "cash_max_adverse_mark", "cash_peak_observed_at"):
+            entry.pop(name, None)
+    peak_before = float(entry.get("highest_pnl_pct") or 0.0)
+    adverse_before = float(entry.get("max_adverse_pnl_pct") or 0.0)
+    entry["last_cash_mark"] = mark.to_dict() if isinstance(mark, paper_cash_mark.PaperCashMark) else copy.deepcopy(mark)
+    entry["peak_valuation_basis"] = paper_cash_mark.VERSION
+    exit_policy.update_exit_state(entry, pnl_pct=(price / float(entry["buy_price_usd"]) - 1) * 100)
+    entry["peak_price"] = max(float(entry.get("peak_price") or entry["buy_price_usd"]), price)
+    entry["peak_price_usd"] = entry["peak_price"]
+    if entry["highest_pnl_pct"] > peak_before:
+        entry["cash_peak_mark"] = copy.deepcopy(entry["last_cash_mark"])
+        valued = dt.datetime.fromisoformat(entry["last_cash_mark"]["valued_at"])
+        opened = dt.datetime.fromisoformat(entry["last_cash_mark"]["basis"]["opened_at"])
+        entry["cash_peak_observed_at"] = valued.isoformat()
+        entry["time_to_peak_sec"] = max(0, int((valued - opened).total_seconds()))
+        if entry.get("partial_taken"):
+            entry["peak_after_partial_pct"] = max(float(entry.get("peak_after_partial_pct") or 0.0),
+                                                   entry["highest_pnl_pct"])
+    if entry["max_adverse_pnl_pct"] < adverse_before:
+        entry["cash_max_adverse_mark"] = copy.deepcopy(entry["last_cash_mark"])
+    _PORTFOLIO[address] = entry
+    try:
+        _save(strict=True)
+    except BaseException:
+        _PORTFOLIO[address] = original
+        raise
+    original.clear()
+    original.update(entry)
+    _PORTFOLIO[address] = original
+    return True
+
+
+def sync_cash_peak_metrics(address: str, mark, position) -> bool:
+    """Copy durably owned cash peaks; never merge an old SQL spot peak."""
+    if checked_cash_price(address, mark, expected_position=position) is None:
+        return False
+    entry = _PORTFOLIO[address]
+    receipt = mark.to_dict() if isinstance(mark, paper_cash_mark.PaperCashMark) else mark
+    if (entry.get("peak_valuation_basis") != paper_cash_mark.VERSION
+            or entry.get("last_cash_mark") != receipt):
+        return False
+    changed = False
+    for name in ("highest_pnl_pct", "max_pnl_pct_seen", "max_adverse_pnl_pct", "exit_state",
+                 "peak_price", "peak_price_usd", "time_to_peak_sec", "peak_after_partial_pct"):
+        if hasattr(position, name) and getattr(position, name) != entry.get(name):
+            setattr(position, name, entry.get(name))
+            changed = True
+    return changed
+
+
 def _persist_sell_fill(key, original, entry, response, total_qty):
     entry.setdefault("exit_fill_events", []).append({
         "intent_id": response["exit_intent_id"], "qty_before": total_qty,
@@ -1030,7 +1149,8 @@ async def _sell_owned(
                 if buy_price_for_plan > 0 and price_now > 0
                 else 0.0
             )
-            exit_policy.update_exit_state(entry, pnl_pct=pnl_pct_for_plan)
+            if entry.get("peak_valuation_basis") != paper_cash_mark.VERSION:
+                exit_policy.update_exit_state(entry, pnl_pct=pnl_pct_for_plan)
             partial_ladder_plan = supplied_plan if supplied_plan is not None else exit_policy.partial_ladder_plan(entry, pnl_pct_for_plan)
         except Exception:
             partial_ladder_plan = supplied_plan
@@ -1148,28 +1268,40 @@ async def check_exit_conditions(address: str) -> bool:  # noqa: C901
     entry = _PORTFOLIO.get(address)
     if not entry or entry.get("closed"):
         return False
-    entry = _ensure_entry_accounting(entry)
-
-    # Precio actual (usar crítico para saltar cachés NIL)
-    price_val = await price_service.get_price_usd(address, use_gt=True, critical=True)
-    price = float(price_val or 0.0)
+    quoted = bool(entry.get("entry_route_quote")) or entry.get("quantity_basis") == "quoted_raw_spl_units"
+    if quoted:
+        mark = await get_exit_cash_mark(address)
+        if mark is not None and record_cash_observation(address, mark):
+            price = checked_cash_price(address, mark)
+        else:
+            price = None
+        # A new buy or close during an awaited probe must not inherit an exit.
+        if _PORTFOLIO.get(address) is not entry or entry.get("closed"):
+            return False
+    else:
+        entry = _ensure_entry_accounting(entry)
+        price_val = await price_service.get_price_usd(address, use_gt=True, critical=True)
+        price = float(price_val) if _positive_finite(price_val) else None
+        if _PORTFOLIO.get(address) is not entry or entry.get("closed"):
+            return False
 
     buy_price = float(entry.get("buy_price_usd") or 0.0)
-    peak_price = float(entry.get("peak_price") or (price if price > 0 else buy_price))
+    peak_price = float(entry.get("peak_price") or buy_price)
 
     # Actualiza pico sólo si hay precio válido
-    if price > 0.0 and price > peak_price:
+    if not quoted and price is not None and price > peak_price:
         entry["peak_price"] = peak_price = price
         _save()
 
-    pnl_pct = (((price - buy_price) / buy_price) * 100.0) if (buy_price > 0.0 and price > 0.0) else 0.0
+    pnl_pct = (((price - buy_price) / buy_price) * 100.0) if (buy_price > 0.0 and price is not None) else None
     state_before = (
         entry.get("highest_pnl_pct"),
         entry.get("max_pnl_pct_seen"),
         entry.get("max_adverse_pnl_pct"),
         entry.get("exit_state"),
     )
-    exit_policy.update_exit_state(entry, pnl_pct=float(pnl_pct))
+    if not quoted and pnl_pct is not None:
+        exit_policy.update_exit_state(entry, pnl_pct=float(pnl_pct))
     if (
         entry.get("highest_pnl_pct"),
         entry.get("max_pnl_pct_seen"),
@@ -1178,11 +1310,12 @@ async def check_exit_conditions(address: str) -> bool:  # noqa: C901
     ) != state_before:
         _save()
 
-    if exit_policy.should_take_partial(entry, pnl_pct):
+    if pnl_pct is not None and exit_policy.should_take_partial(entry, pnl_pct):
         frac = exit_policy.partial_sell_fraction(entry, pnl_pct)
         qty = _compute_partial_qty(entry, frac)
         if qty > 0:
-            result = await sell(address, qty, token_mint=address, exit_reason="tp_partial")
+            plan = exit_policy.partial_ladder_plan(entry, pnl_pct)
+            result = await sell(address, qty, token_mint=address, exit_reason="tp_partial", partial_ladder_plan=plan)
             if result.get("ok") is False:
                 return False
             log.info("[papertrading] Partial TP @ %.2f%% → vendidas ~%.0f%%", pnl_pct, frac * 100.0)
@@ -1200,7 +1333,8 @@ async def check_exit_conditions(address: str) -> bool:  # noqa: C901
     result = await sell(address, int(entry.get("qty_lamports", 0)), token_mint=address, exit_reason=str(exit_reason).lower())
     if result.get("ok") is False:
         return False
-    log.info("[papertrading] %s @ %.2f%% → cierre total", exit_reason, pnl_pct)
+    log.info("[papertrading] %s @ %s%% → cierre total", exit_reason,
+             f"{pnl_pct:.2f}" if pnl_pct is not None else "unknown")
     return True
 
 

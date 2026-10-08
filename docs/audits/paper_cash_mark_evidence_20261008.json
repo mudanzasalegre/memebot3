@@ -1,0 +1,57 @@
+{
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "financial_acceptance": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Primary and standalone PAPER quote-cash valuation, SQL peak consumption and original historical mark archival. Exact 0.1 SOL and uncapped extreme runners are preserved; prospective research-arm intent marks remain separate required work.",
+  "quality_grain": "One original PAPER buy and its exact current quantity/cash generation; one bounded observation-only exit quote and original SOL/USD receipt. All new financial cases are synthetic, not an operator trading population.",
+  "findings": [
+    {"severity": "high", "defect": "Physical spot returns and peaks were compared against quoted raw entry quantity and an entry reference price", "risk": "A displayed gain can trigger partial/trailing decisions without establishing estimated cash recoverable for the remaining quantity", "remediation": "Private exact-quantity quote-cash policy reference; physical market observations remain separate and unknown valuation has no spot fallback in the primary PAPER monitor"},
+    {"severity": "high", "defect": "An old mixed/spot peak could be relabelled as a quote-based peak", "risk": "Unsupported historical gains could enter new runner protections and labels", "remediation": "Keep old peaks explicitly diagnostic; start a separate cash peak series from checked original marks and copy only durably owned cash peaks into SQL"},
+    {"severity": "high", "defect": "Late consumption could revive an unpersisted cash mark or use a mark that expired during SQL/policy awaits", "risk": "A partial/close decision could use an old or financially mismatched valuation", "remediation": "Discard failed durable marks and recheck age, buy identity, exact remaining quantity and cash generation after quote/FX/SQL/policy waits"}
+  ],
+  "implemented": [
+    "Immutable detached public cash mark; strict original buy UUID/SIM signature, raw uint64 quantities, conservation, original entry quote/notional and frozen estimated cost model",
+    "Original explicit request slippage plus current exact-size reverse quote and original dual-clock SOL/USD observation; no physical price/fill claim or receipt renewal",
+    "Separate remaining gross/net return, whole-trade estimated net liquidation PnL and estimated fill fee; quote cash includes frozen adverse output slippage once",
+    "Actual per-mint serialized PAPER probe; SQL and portfolio generation checks before and after provider waits, cancellation propagation and idle-lock cleanup",
+    "Durable cash observation/peak writes with original-reference restoration on failure; original peak/adverse receipts preserved separately from the last mark",
+    "Primary monitor and standalone PAPER decisions consume checked cash valuation; main monitor rechecks before partial/liquidity-override and close decisions after persistence awaits",
+    "SQL peak synchronization copies the owned cash series rather than merging an old physical spot peak; market observations are not fabricated from private policy prices",
+    "Partial fills re-quote their exact own size and conserve cash without updating the whole-remaining-quantity peak from a more favorable small fill",
+    "Historical portfolio/archive validation reconstructs only the recorded financial generation at its original valuation time; later partial/close quantity never renews or relabels the original mark",
+    "Missing historical entry money is a known PAPER no-fill only before dispatch; a dispatch-started boundary remains uncertain",
+    "Reproducible executed four-code-cell notebook checks extreme cash returns, spot mismatch, partial/whole-trade reconciliation and unknown age/generation",
+    "No active model or learned policy activation; no operator provider, wallet, live order or runtime start"
+  ],
+  "verification": {
+    "new_synthetic_test_cases": 74,
+    "focused": "297 passed in12.02s",
+    "working_complete": "3624 passed in383.53s",
+    "publishing_complete": "3624 passed in372.07s",
+    "frozen_source": {"files_each": 734, "normalized_sha256": "bc9f4068daef94d12ef0aaf2b0acfad0d83d8fcdec7ea121cf902430c82e828f", "before_and_after_complete_suites": "MATCH", "scope": "Executable/test verification sources, excluding docs/README and protected operator artifacts"},
+    "first_launch_working": {"checked_at_utc": "2026-10-08T18:01:56.311903Z", "ok": true, "compile_errors": 0, "config_exit": 0, "paper_profile": true, "empty_report_builders": 7, "failed_builders": 0},
+    "first_launch_publishing": {"checked_at_utc": "2026-10-08T18:01:55.280962Z", "ok": true, "compile_errors": 0, "config_exit": 0, "paper_profile": true, "empty_report_builders": 7, "failed_builders": 0},
+    "notebook": {"path": "docs/audits/paper_cash_marks_20261008.ipynb", "execution": "PASS with checkout Python", "visual_inspection": "PASS: two bounded readable tables, original checks and limitations; no horizontal page overflow", "contract_source_sha256": "0e38a231b40b9128a57c48a0b5769ce19f992c92d2da345ae5e10d8b60429094"},
+    "sources_receipt": "Overview and local evidence tabs visually inspected; initially collapsed two-card receipt",
+    "intermediate_runs": [
+      "Initial focused tests exposed a durable-write failure mark revived during late monitor consumption; fixed and covered. New no-fill test fixture setup was corrected without weakening production ownership or dispatch uncertainty.",
+      "An initial pair of full suites was deliberately interrupted before completion after final review found an additional pre-partial persistence await. Neither interrupted run is counted as acceptance; both full suites above ran on the final unchanged source.",
+      "The first notebook command selected the global Anaconda kernel and failed on missing solders. The notebook was executed successfully with an explicit checkout-interpreter KernelManager; no global kernel installation or environment mutation was needed."
+    ]
+  },
+  "runtime": {
+    "requirement": "OFF throughout and at handoff",
+    "provider_api_called": false, "wallet_or_order_called": false, "bot_started": false, "active_model_or_policy_changed": false,
+    "stop_finalizer": "D-only scripts/stop_stack.ps1 -RequestedBy user, exit0, 2026-10-08T18:01:59Z; no C finalizer",
+    "off_check": {"checked_at_utc": "2026-10-08T18:04:34.6445722Z", "global_bot_training_research_api": 0, "running_memebot_tasks": 0, "running_memebot_services": 0, "actual_and_compatibility_locks": 0, "sql_main": "stopped/idle/idle", "sql_updated_at": "2026-10-08 18:01:59.101739"},
+    "protected_artifacts": {"checked_at_utc": "2026-10-08T17:59:10.2785853Z", "boundary_utc": "2026-10-08T16:09:40Z", "working_files": 3763, "publishing_files": 27, "changed_since_boundary": 0, "method": "Modification-time census, not cryptographic historical proof. Intended stop log/runtime SQL and preflight outputs excluded."}
+  },
+  "publication": {"state": "VERIFIED_READY_FOR_COMMIT_PUSH", "branch": "main", "parent_commit": "d3759ba25f4845f2978358420a4a54adb8070b33", "note": "Pre-commit evidence only; exact commit/push/remote state must be independently verified at handoff."},
+  "remaining_required_work": [
+    "Align prospective runner and entry-gate arm intent/peak marks with each arm's exact remaining quoted quantity/cash. Distinct arm quantities cannot share one full-position depth quote, and no already-received quote may retroactively fill a newly created intent.",
+    "Persist and independently revalidate original per-entry/per-fill FX receipts through recovery, SQL, research and causal learning; do not retroactively certify existing scalar histories.",
+    "Complete durable live-canary unknown/risk reconciliation across restarts; no live activation.",
+    "Continue the full architecture/scanner/sniper/model/source audit and rare-runner/calibration/continuation validation. New primary cash peaks do not certify all existing research cohorts or the whole learned strategy.",
+    "Establish fresh provider access, sell depth, latency and full-strategy prospective costed profitability only under separately authorized future operation. No software test or extreme synthetic return guarantees future profit or zero future errors."
+  ]
+}

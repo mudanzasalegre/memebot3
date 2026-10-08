@@ -20,7 +20,8 @@ from utils.atomic_json import read_json_strict, write_json_atomic
 TERMINAL = {"resolved", "no_fill"}
 STATES = TERMINAL | {"prepared", "fill_received", "sql_prepared"}
 NO_FILL = {"INVALID_ADDRESS", "INVALID_MINT", "NO_QTY", "SKIP_LOW_LIQ", "INVALID_QUANTITY",
-           "EXIT_QUOTE_UNAVAILABLE", "EXIT_PRICE_UNAVAILABLE", "FEE_VALUATION_UNAVAILABLE"}
+           "EXIT_QUOTE_UNAVAILABLE", "EXIT_PRICE_UNAVAILABLE", "FEE_VALUATION_UNAVAILABLE",
+           "ENTRY_BASIS_UNAVAILABLE"}
 FILL_FIELDS = ("signature", "price_used_usd", "price_source_close", "price_confidence_close",
                "qty_sold", "qty_left", "partial", "filled_at", "venue", "execution_receipt")
 LINEAGE = ("entry_intent_id", "buy_signature", "entry_qty", "buy_price_usd", "amount_sol",

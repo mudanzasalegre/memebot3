@@ -8458,6 +8458,25 @@ async def _check_positions(ses: SessionLocal) -> None:
         # expired while preceding positions or a slow liquidity probe ran.
         price = fresh_market_value(price_tick, "price_usd")
         liq_now = fresh_market_value(liquidity_tick, "liquidity_usd")
+        cash_mark = None
+        if DRY_RUN:
+            # Keep a physical observation separate from the private quote-based
+            # policy reference. Unknown quote/FX/basis must not fall back to spot.
+            from trader import papertrading
+            if price is not None:
+                try:
+                    papertrading.record_market_observation(mint_key, float(price), liq_now=liq_now)
+                except Exception as exc:
+                    log.warning("Research market observation unavailable: %s", type(exc).__name__)
+            price = None
+            try:
+                cash_mark = await papertrading.get_exit_cash_mark(mint_key, expected_position=pos)
+                if cash_mark is not None and papertrading.record_cash_observation(mint_key, cash_mark, expected_position=pos):
+                    price = papertrading.checked_cash_price(mint_key, cash_mark, expected_position=pos)
+            except Exception as exc:
+                cash_mark = None  # A failed durable mark cannot be revived later in this tick.
+                log.warning("PAPER cash valuation unavailable: %s", type(exc).__name__)
+            price_src = "paper_exact_cash_mark" if price is not None else None
         if price is None:
             price_src = None
             positions_without_price += 1
@@ -8474,7 +8493,9 @@ async def _check_positions(ses: SessionLocal) -> None:
         if price is not None and pos.buy_price_usd:
             try:
                 pnl_pct = (float(price) - float(pos.buy_price_usd)) / float(pos.buy_price_usd) * 100.0
-                if _update_position_peak_metrics(pos, pnl_pct=float(pnl_pct), price_usd=float(price), observed_at=now):
+                changed = (papertrading.sync_cash_peak_metrics(mint_key, cash_mark, pos) if DRY_RUN else
+                           _update_position_peak_metrics(pos, pnl_pct=float(pnl_pct), price_usd=float(price), observed_at=now))
+                if changed:
                     try:
                         await ses.commit()
                     except Exception:
@@ -8486,12 +8507,6 @@ async def _check_positions(ses: SessionLocal) -> None:
                 pnl_pct = None
 
         if pnl_pct is not None:
-            if DRY_RUN:
-                try:
-                    from trader import papertrading
-                    papertrading.record_market_observation(mint_key, float(price), liq_now=liq_now)
-                except Exception as exc:
-                    log.warning("Runner market observation unavailable: %s", type(exc).__name__)
             try:
                 runner_turbo_monitor.observe_position(
                     pos.address,
@@ -8515,6 +8530,14 @@ async def _check_positions(ses: SessionLocal) -> None:
                     await ses.rollback()
                 except Exception:
                     pass
+
+        # SQL/policy persistence above may have awaited. Recheck before any
+        # price-dependent partial or liquidity-override decision, not just close.
+        if DRY_RUN:
+            price = papertrading.checked_cash_price(mint_key, cash_mark, expected_position=pos)
+            if price is None:
+                price_src = None
+                pnl_pct = None
 
         # ── Liquidity crush inmediato (manteniendo tu comportamiento) ────
         liq_now = fresh_market_value(liquidity_tick, "liquidity_usd")
@@ -8852,7 +8875,8 @@ async def _check_positions(ses: SessionLocal) -> None:
                 log.debug("missed partial tick-gap audit failed for %s", pos.address[:6], exc_info=True)
 
         # Partial fills and persistence may have awaited since this tick was read.
-        price = fresh_market_value(price_tick, "price_usd")
+        price = (papertrading.checked_cash_price(mint_key, cash_mark, expected_position=pos) if DRY_RUN else
+                 fresh_market_value(price_tick, "price_usd"))
         liq_now = fresh_market_value(liquidity_tick, "liquidity_usd")
         if price is None:
             price_src = None
@@ -8876,7 +8900,7 @@ async def _check_positions(ses: SessionLocal) -> None:
 
         sell_price_hint = price
         sell_price_source_hint = price_src
-        if DRY_RUN and str(exit_reason) == "DYNAMIC_RUNNER_FLOOR":
+        if DRY_RUN and cash_mark is None and str(exit_reason) == "DYNAMIC_RUNNER_FLOOR":
             try:
                 floor_pct = exit_policy.dynamic_runner_floor_pct(
                     pos,
@@ -8892,7 +8916,7 @@ async def _check_positions(ses: SessionLocal) -> None:
                 log.debug("dynamic runner floor price hint failed for %s", pos.address[:6], exc_info=True)
 
         # ④ SELL — seller.sell hará su propio cálculo robusto de precio
-        if DRY_RUN and str(exit_reason) in {"POST_PARTIAL_TRAILING", "POST_PARTIAL_STOP"}:
+        if DRY_RUN and cash_mark is None and str(exit_reason) in {"POST_PARTIAL_TRAILING", "POST_PARTIAL_STOP"}:
             try:
                 floor_pct = exit_policy.post_partial_protection_floor_pct(
                     pos,
