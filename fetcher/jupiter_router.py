@@ -4,23 +4,21 @@ from __future__ import annotations
 import aiohttp
 import asyncio
 import base64
+import copy
 import json
 import logging
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_DOWN, localcontext
 from typing import Any, Dict, Optional, Mapping, Union
+from urllib.parse import urlsplit
 
 log = logging.getLogger("jupiter_router")
 
 # ───────────────────────── Config ─────────────────────────
-# Nota:
-# - Tu .env actual usa v6 quote: https://quote-api.jup.ag/v6/quote (sin API key).
-# - Para ejecutar swaps, si no defines JUP_SWAP_URL, derivamos automáticamente:
-#     .../v6/quote  -> .../v6/swap
-# - Si quieres usar el endpoint moderno, puedes setear:
-#     JUP_QUOTE_URL=https://api.jup.ag/swap/v1/quote
-#     JUP_SWAP_URL=https://api.jup.ag/swap/v1/swap
-#   y opcionalmente JUP_API_KEY (header x-api-key).
+# Quote-only Metis v1 adapter. Legacy v6 settings resolve to v1. A checked
+# response proves this HTTP quote's identity, not market freshness or a fill.
 _API_QUOTE_URL = "https://api.jup.ag/swap/v1/quote"
 _LITE_QUOTE_URL = "https://lite-api.jup.ag/swap/v1/quote"
 _API_SWAP_URL = "https://api.jup.ag/swap/v1/swap"
@@ -136,108 +134,112 @@ def _normalize_query_params(d: Mapping[str, Any]) -> dict[str, str]:
     return out
 
 
-def _to_float(x: Any) -> Optional[float]:
-    try:
-        if isinstance(x, (int, float)):
-            return float(x)
-        if isinstance(x, str) and x.strip() != "":
-            return float(x)
-    except Exception:
-        return None
+_U64_MAX = (1 << 64) - 1
+_MAX_QUOTE_ROUTE_STEPS = 128
+
+
+def _raw_uint(value: Any, maximum: int = _U64_MAX) -> Optional[int]:
+    """Raw units are integers, never float-rounded or coerced booleans."""
+    if type(value) is int:
+        return value if 0 <= value <= maximum else None
+    if (isinstance(value, str) and 0 < len(value) <= 20
+            and value.isascii() and value.isdecimal()):
+        number = int(value)
+        return number if number <= maximum else None
     return None
 
 
 def _extract_price_impact_bps(data: Dict[str, Any]) -> Optional[float]:
-    """
-    Intenta extraer `priceImpactPct` de varias estructuras y lo convierte a bps.
-    Robusto ante:
-      - strings ("0.000128")
-      - float/int
-    Heurística:
-      - si value <= 1.0 → se interpreta como fracción (1.0=100%) → bps = v * 10000
-      - si value  > 1.0 → se interpreta como "porcentaje" (p.ej. 3.2=3.2%) → bps = v * 100
-    """
-    impact = None
-
-    # Top-level
-    impact = _to_float(data.get("priceImpactPct"))
-
-    # routePlan[0].swapInfo.priceImpactPct
-    if impact is None:
-        try:
-            rp0 = (data.get("routePlan") or [])[0]
-            si = rp0.get("swapInfo") or {}
-            impact = _to_float(si.get("priceImpactPct"))
-        except Exception:
-            pass
-
-    # routes[0].priceImpactPct
-    if impact is None:
-        try:
-            routes = data.get("routes") or []
-            if routes:
-                impact = _to_float(routes[0].get("priceImpactPct"))
-        except Exception:
-            pass
-
-    if impact is None:
+    """Official top-level decimal fraction [0, 1]; never guess percent units."""
+    value = data.get("priceImpactPct")
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
         return None
-
-    # Conversión a bps
-    if impact <= 1.0:
-        return float(impact) * 10000.0
-    return float(impact) * 100.0
+    if isinstance(value, str) and (not value or len(value) > 128 or value != value.strip()):
+        return None
+    try:
+        impact = Decimal(str(value))
+        if not impact.is_finite() or not 0 <= impact <= 1:
+            return None
+        return float(impact * 10000)
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def _extract_amounts(data: Dict[str, Any]) -> tuple[Optional[int], Optional[int]]:
-    """
-    Devuelve (inAmount, outAmount) como enteros si están presentes.
-    Jupiter suele devolver `inAmount`/`outAmount` como strings.
-    """
-    def _to_int(x) -> Optional[int]:
-        try:
-            if isinstance(x, str):
-                # puede venir "123" o "123.0" en algunos casos raros
-                if x.isdigit():
-                    return int(x)
-                return int(float(x))
-            if isinstance(x, (int, float)):
-                return int(x)
-        except Exception:
-            return None
-        return None
-
-    in_amount = _to_int(data.get("inAmount"))
-    out_amount = _to_int(data.get("outAmount"))
-
-    # Fallbacks por si vienen dentro de routePlan[0].swapInfo
-    if in_amount is None or out_amount is None:
-        try:
-            rp0 = (data.get("routePlan") or [])[0]
-            si = rp0.get("swapInfo") or {}
-            in_amount = in_amount if in_amount is not None else _to_int(si.get("inAmount"))
-            out_amount = out_amount if out_amount is not None else _to_int(si.get("outAmount"))
-        except Exception:
-            pass
-
-    return in_amount, out_amount
+    # A first-hop amount is not a whole-route amount in a split or multihop.
+    return _raw_uint(data.get("inAmount")), _raw_uint(data.get("outAmount"))
 
 
-def _route_len(data: Dict[str, Any]) -> int:
-    try:
-        rp = data.get("routePlan")
-        if isinstance(rp, list):
-            return len(rp)
-    except Exception:
-        pass
-    # algunas variantes usan "routes"
-    try:
-        r = data.get("routes")
-        if isinstance(r, list):
-            return len(r)
-    except Exception:
-        pass
-    return 0
+def _checked_quote(data: Any, *, input_mint: str, output_mint: str,
+                   amount: int, slippage: int, direct: bool) -> QuoteResult:
+    """Check one complete response against one request; never merge fallbacks."""
+    def invalid(reason: str) -> QuoteResult:
+        return QuoteResult(False, None, None, None, {"quote_contract_error": reason},
+                           copy.deepcopy(data) if isinstance(data, dict) else {"error": reason})
+
+    if not isinstance(data, dict):
+        return invalid("response_not_object")
+    if data.get("error") or data.get("errorCode"):
+        return invalid("provider_error")
+    if data.get("inputMint") != input_mint or data.get("outputMint") != output_mint:
+        return invalid("mint_mismatch")
+    in_amt, out_amt = _extract_amounts(data)
+    if in_amt != amount or out_amt is None or out_amt <= 0:
+        return invalid("invalid_whole_route_amounts")
+    if data.get("swapMode") != "ExactIn":
+        return invalid("swap_mode_mismatch")
+    if type(data.get("slippageBps")) is not int or data["slippageBps"] != slippage:
+        return invalid("slippage_mismatch")
+    threshold = _raw_uint(data.get("otherAmountThreshold"))
+    if threshold is None or not 0 < threshold <= out_amt:
+        return invalid("invalid_output_threshold")
+    impact = _extract_price_impact_bps(data)
+    if impact is None:
+        return invalid("invalid_price_impact_fraction")
+    route = data.get("routePlan")
+    if not isinstance(route, list) or not 0 < len(route) <= _MAX_QUOTE_ROUTE_STEPS:
+        return invalid("invalid_route_plan")
+    edges = []
+    for step in route:
+        info = step.get("swapInfo") if isinstance(step, dict) else None
+        if not isinstance(info, dict):
+            return invalid("invalid_swap_info")
+        if any(not isinstance(info.get(key), str) or not info[key].strip()
+               for key in ("ammKey", "inputMint", "outputMint")):
+            return invalid("invalid_swap_identity")
+        if any((_raw_uint(info.get(key)) or 0) <= 0 for key in ("inAmount", "outAmount")):
+            return invalid("invalid_swap_amounts")
+        for key, limit in (("percent", 100), ("bps", 10000)):
+            if step.get(key) is not None and (type(step[key]) is not int or not 0 <= step[key] <= limit):
+                return invalid("invalid_route_weight")
+        edge = (info["inputMint"], info["outputMint"])
+        if direct and edge != (input_mint, output_mint):
+            return invalid("non_direct_route")
+        edges.append(edge)
+    # Connectivity only, not invented fee conservation. Multihop percentages
+    # need not sum to 100 across the whole plan, and split paths are supported.
+    def reachable(start: str, reverse: bool = False) -> set[str]:
+        seen = {start}
+        for _ in range(len(edges)):
+            next_seen = seen | {a if reverse else b for a, b in edges if (b if reverse else a) in seen}
+            if next_seen == seen:
+                break
+            seen = next_seen
+        return seen
+    forward, backward = reachable(input_mint), reachable(output_mint, True)
+    if output_mint not in forward or any(a not in forward or b not in backward for a, b in edges):
+        return invalid("disconnected_route")
+    slot = data.get("contextSlot")
+    if slot is not None and (type(slot) is not int or _raw_uint(slot) is None):
+        return invalid("invalid_context_slot")
+    other = {"slippageBps": slippage, "onlyDirectRoutes": direct,
+             "routePlan_len": len(route), "contextSlot": slot,
+             "quote_contract_version": 1,
+             "inputMint": input_mint, "outputMint": output_mint,
+             "requested_in_amount": amount,
+             "received_at_utc": datetime.now(timezone.utc).isoformat(),
+             "market_asof_verified": False, "fill_verified": False}
+    return QuoteResult(True, impact, in_amt, out_amt, other, copy.deepcopy(data))
 
 
 def _derive_swap_url() -> str:
@@ -311,8 +313,16 @@ async def get_quote(
       QuoteResult con:
         ok, price_impact_bps, in_amount, out_amount, other{slippageBps, routePlan…}, raw
     """
-    if not input_mint or not output_mint:
+    if any(not isinstance(mint, str) or not mint or mint != mint.strip() for mint in (input_mint, output_mint)):
         return QuoteResult(False, None, None, None, {}, {"error": "missing mints"})
+
+    if amount_lamports is not None and amount_tokens is not None:
+        if type(amount_lamports) is not int or type(amount_tokens) is not int or amount_lamports != amount_tokens:
+            return QuoteResult(False, None, None, None, {}, {"error": "conflicting raw amounts"})
+    if amount_sol is not None and (amount_lamports is not None or amount_tokens is not None):
+        return QuoteResult(False, None, None, None, {}, {"error": "conflicting amount units"})
+    if type(only_direct_routes) is not bool:
+        return QuoteResult(False, None, None, None, {}, {"error": "invalid direct route flag"})
 
     if amount_lamports is None and amount_tokens is not None:
         amount_lamports = amount_tokens
@@ -325,23 +335,31 @@ async def get_quote(
         if input_mint != SOL_MINT:
             return QuoteResult(False, None, None, None, {}, {"error": "amount_lamports required for non-SOL inputs"})
         try:
-            amount_lamports = int(max(0.0, float(amount_sol)) * 1_000_000_000)
+            if isinstance(amount_sol, bool) or not isinstance(amount_sol, (int, float, Decimal)):
+                raise ValueError("invalid SOL amount type")
+            with localcontext() as ctx:
+                ctx.prec = 50
+                sol = Decimal(str(amount_sol))
+                if not sol.is_finite() or not 0 < sol <= Decimal(_U64_MAX) / 1_000_000_000:
+                    raise ValueError("invalid SOL amount")
+                # Retain documented raw-unit floor, without binary float loss.
+                amount_lamports = int((sol * 1_000_000_000).to_integral_value(rounding=ROUND_DOWN))
         except Exception:
             return QuoteResult(False, None, None, None, {}, {"error": "invalid amount_sol"})
 
-    if not isinstance(amount_lamports, int) or amount_lamports <= 0:
+    if type(amount_lamports) is not int or not 0 < amount_lamports <= _U64_MAX:
         return QuoteResult(False, None, None, None, {}, {"error": "non-positive amount"})
 
-    try:
-        slippage = int(DEFAULT_SLIPPAGE_BPS if slippage_bps is None else slippage_bps)
-    except Exception:
-        slippage = DEFAULT_SLIPPAGE_BPS
+    slippage = DEFAULT_SLIPPAGE_BPS if slippage_bps is None else slippage_bps
+    if type(slippage) is not int or not 0 <= slippage <= 65535:
+        return QuoteResult(False, None, None, None, {}, {"error": "invalid slippage_bps"})
 
     raw_params: Dict[str, Any] = {
         "inputMint": input_mint,
         "outputMint": output_mint,
         "amount": amount_lamports,
         "slippageBps": slippage,
+        "swapMode": "ExactIn",
         "onlyDirectRoutes": bool(only_direct_routes),
         # Mantener explícito: en quote v6 existe; en otros endpoints se ignora.
         "asLegacyTransaction": False,
@@ -374,33 +392,24 @@ async def get_quote(
             log.exception("[jupiter_router] quote unexpected url=%s: %s", url, e)
             return QuoteResult(False, None, None, None, {"error": str(e)}, {"error": str(e)})
 
-        impact_bps = _extract_price_impact_bps(data)
-        in_amt, out_amt = _extract_amounts(data)
-        rlen = _route_len(data)
-
-        other = {
-            "slippageBps": slippage,
-            "onlyDirectRoutes": bool(only_direct_routes),
-            "routePlan_len": rlen,
-            "contextSlot": data.get("contextSlot"),
-        }
-
-        # ok: hay ruta/cotización (aunque no tengamos impact)
-        ok = bool(rlen > 0 or (out_amt is not None and out_amt > 0))
-        return QuoteResult(ok, impact_bps, in_amt, out_amt, other, data)
+        return _checked_quote(data, input_mint=input_mint, output_mint=output_mint,
+                              amount=amount_lamports, slippage=slippage, direct=only_direct_routes)
 
     # 1) intento principal
     qr = await _do(JUP_QUOTE_URL)
 
-    # 2) fallback automático cruzado (v6 <-> v1) si el principal no devuelve ruta
+    # 2) Independent v1 fallback; an invalid response is never partial evidence.
     if qr.ok:
         return qr
 
-    q = (JUP_QUOTE_URL or "").strip().lower()
+    try:
+        host = urlsplit(JUP_QUOTE_URL or "").hostname
+    except ValueError:
+        host = None  # Malformed custom URL is unavailable, not a caller crash.
     fallbacks: list[str] = []
-    if "api.jup.ag" in q:
+    if host == "api.jup.ag":
         fallbacks.append(_LITE_QUOTE_URL)
-    elif "lite-api.jup.ag" in q:
+    elif host == "lite-api.jup.ag":
         if JUP_API_KEY:
             fallbacks.append(_API_QUOTE_URL)
     else:

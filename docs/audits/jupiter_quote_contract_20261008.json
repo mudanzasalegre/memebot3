@@ -1,0 +1,63 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Request-bound Metis v1 quote protocol and its actual paper consumers. No bot run, wallet access, order submission, model fit/promotion or policy activation.",
+  "user_objective": "Keep exact 0.1 SOL paper entries and the existing uncapped runner objective beyond 100/200 percent, including 5x/10x and larger moves. Quote validation is execution-data integrity, not evidence that those gains can be captured.",
+  "findings": [
+    "The previous adapter could declare a route successful from positive output or route length without matching the requested input/output mint, exact amount or swap mode.",
+    "The previous parser coerced some raw-unit strings through float and could substitute a first-hop amount for a missing whole-route amount. Both are unsafe for large quantities, split paths and multihop routes.",
+    "The previous price-impact heuristic reinterpreted values over 1 as percentage units. The official v1 contract defines a decimal fraction from 0 to 1.",
+    "The fallback host substring check matched lite-api.jup.ag as api.jup.ag, preventing the configured keyed Lite-to-API fallback. Malformed custom URLs also needed a non-crashing fallback path."
+  ],
+  "implementation": {
+    "request": "Strict non-boolean positive uint64 raw integers, checked legacy aliases, no conflicting SOL/raw units, explicit ExactIn, strict uint16 slippage and boolean direct-route flag. Decimal SOL conversion retains the raw-unit floor without binary-float multiplication loss; 0.1 SOL is 100000000 raw units.",
+    "response": "One complete JSON object must match both requested mints, the exact requested input, ExactIn and echoed slippage. Require positive whole-route output, a positive threshold no larger than that output, a finite documented price-impact fraction, a bounded nonempty route plan, checked hop identities/raw amounts/optional weights and connected input/output paths. Optional contextSlot must be a uint64 integer. Invalid responses expose no usable partial amount or impact.",
+    "routes": "Support direct, split and multihop paths. Do not sum percentages across all hops, substitute first-hop totals or invent fee conservation. A direct-only request cannot accept intermediate-token hops.",
+    "fallback": "Classify exact API/Lite hostnames; independently validate each alternate response against the unchanged request. Never merge parts of multiple responses. Propagate cancellation without a fallback request; malformed JSON, HTTP failure and malformed custom URLs are unavailable rather than caller crashes.",
+    "provenance": "Return a detached original response and quote_contract_version=1 with request identity and a client received_at_utc clock. market_asof_verified=false and fill_verified=false remain explicit: a client HTTP receipt is not provider market-asof, depth or a confirmed fill.",
+    "financial_behavior": "Existing exact 0.1 SOL sizing, entry/impact gates, partial costs and uncapped proportional runner protection are unchanged. No loosened buy gate, fixed take-profit ceiling or live migration is introduced."
+  },
+  "sources": [
+    {"title": "Jupiter v1 quote API", "url": "https://developers.jup.ag/docs/api-reference/swap/v1/quote", "use": "Raw uint64 amount, ExactIn identity, uint16 slippage, required response fields and route shape."},
+    {"title": "Jupiter custom Metis swap guide", "url": "https://developers.jup.ag/docs/guides/how-to-build-a-custom-swap-with-metis", "use": "Whole-route output/threshold semantics and decimal-fraction price impact from 0 to 1."}
+  ],
+  "verification": {
+    "status": "PASS_SOFTWARE_AND_PUBLIC_SOL_USDC_QUOTE_ONLY",
+    "new_isolated_cases": 132,
+    "quote_contract_suite": "132 passed in 2.02s on final source",
+    "initial_integration_suite": "465 passed in 96.25s before the ten additional final alias/custom-URL/actual paper lifecycle cases",
+    "coverage": [
+      "Direct/split/multihop routes, detached original payload and explicit unknown market-asof/fill claims.",
+      "Integer units above 2^53 and at uint64 limits without transport/parser rounding.",
+      "Wrong mints/amounts/mode/slippage, missing whole-route fields, malformed or disconnected routes, invalid weights/thresholds/slots, booleans, decimal/scientific unit strings and nonfinite/out-of-domain impacts.",
+      "Actual get_quote HTTP lifecycle, precise 0.1 SOL request, unchanged fallback requests, each API/Lite direction, malformed custom URL, invalid request no-fetch and cancellation drain.",
+      "Actual paper route probe and isolated 0.1 SOL paper entry with actual central HTTP parsing, wrong reverse-mint rejection preserving the position, two exact-quantity reverse partials and complete costed closure at synthetic 6x/11x/51x/101x output multiples. These scenarios prove software accounting, not observed or achievable market gains."
+    ],
+    "public_read_only_acceptance": {
+      "checked_at_utc": "2026-10-08T08:49:23.005843Z",
+      "pair": "SOL/USDC",
+      "requested_input_units": 100000000,
+      "checked_quote_ok": true,
+      "quoted_output_units": 11496667,
+      "price_impact_bps": 0.0,
+      "route_steps": 1,
+      "quote_contract_version": 1,
+      "api_key_used": false,
+      "wallet_accessed": false,
+      "transaction_submitted": false,
+      "qualification": "One get_quote call using the actual production HTTP path and final central protocol checker; either endpoint fallback is permitted. Earlier independent API/Lite GETs at 08:39:33Z both returned HTTP 200. These are public SOL/USDC quote reads, not memecoin liquidity, executable wallet/fill, profitable strategy or market-asof/depth acceptance."
+    },
+    "working_full_suite": "2608 passed in 324.17s on final source",
+    "publishing_full_suite": "2608 passed in 314.85s on final source without personal .env, local .venv or runtime DB, using the existing working-checkout Python",
+    "preflight": "PASS in both checkouts: compilation errors 0, configuration import return code 0, paper profile true and all seven empty-data report builders true. No new-machine provisioning or runtime startup is certified."
+  },
+  "preservation": {"status": "CHECKED_UNCHANGED", "checked_at_utc": "2026-10-08T08:59:29.7111439Z", "publishing_checked_at_utc": "2026-10-08T08:59:29.7422156Z", "stage_boundary_utc": "2026-10-08T08:33:00Z", "runtime_started": false, "live_orders": 0, "active_model_trained_or_promoted": false, "personal_env_changed": false, "both_checkouts_changed_files": {"models": 0, "ml/models": 0, "data/features": 0, "data/paper_closed_trades": 0, "data/learning/trade_closes": 0, "data/research": 0, "data/research_runs": 0, "data/metrics/buy_recovery": 0, "data/paper_portfolio.json": 0, "active_policy.json": 0, "all_data_active_policy_json": 0, "root_compatibility_models_and_registry": 0, ".env": 0}, "qualification": "Modification-time inventory since the stage boundary with existing directory reads failing explicitly on errors, not a complete cryptographic census. Requested stop updates its log and the authoritative stopped/idle SQL state."},
+  "shutdown": {"status": "VERIFIED_OFF", "required_lock_path": "data/run_bot.lock", "lock_paths_checked_in_both_checkouts": ["bot.lock", "run_bot.lock", "data/bot.lock", "data/run_bot.lock"], "stop_command_exit_code": 0, "stop_log_at_utc": "2026-10-08T08:59:27Z", "killed": 0, "remaining": 0, "working_process_inventory_at_utc": "2026-10-08T08:59:28.4017948Z", "publishing_process_inventory_at_utc": "2026-10-08T08:59:28.4273472Z", "global_inventory_at_utc": "2026-10-08T08:59:29.0666239Z", "working_scoped_runtime_processes": 0, "publishing_scoped_runtime_processes": 0, "global_bot_training_research_api_processes": 0, "bot_lock_files_present": 0, "memebot_scheduled_tasks": 0, "memebot_services": 0, "sql_read_only_check_at_utc": "2026-10-08T08:59:29.112729Z", "sql_main": {"process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"}, "publishing_checkout": "Source only. Never run its stop finalizer; no personal .env/.venv or runtime DB."},
+  "publication_contract": {"publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3", "previous_commit": "dc70f3fadb4e2811cdb32397883e435434e22d0b", "scope": "Reviewed quote adapter, isolated tests and technical evidence only.", "final_identity": "Verify HEAD/origin/main/ls-remote after commit and push; no self-referential revision field."},
+  "remaining_goal_requirements": [
+    "Complete full-strategy source/configuration, capital/admission and actual execution/exit provenance and constraints. Strict quote transport alone does not certify every downstream quantity transformation or managed execution consumer.",
+    "Review live precheck fail-open compatibility and price-as-route assumptions without placing trades. Managed order/finality and Swap V2 migration are separate unimplemented acceptance boundaries.",
+    "Complete successful production memecoin provider/access/market-asof/depth and independently checked wallet/quantity/finality acceptance. SOL/USDC quotes are not substitutes.",
+    "Obtain separately authorized fresh costed full-strategy closed evidence before any profitability or real extreme-runner capture claim. Keep all bot services off while required."
+  ]
+}
