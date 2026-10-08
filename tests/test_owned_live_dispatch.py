@@ -376,6 +376,7 @@ async def test_actual_runner_cannot_publish_stopped_while_execution_thread_is_li
     ns = {"asyncio": asyncio, "DRY_RUN": False, "CFG": SimpleNamespace(ML_RETRAIN_IN_MAIN_LOOP=False),
         "async_init_db": AsyncMock(), "SessionLocal": Session,
         "_recover_buy_persistence_outbox": AsyncMock(), "_recover_close_persistence_outbox": AsyncMock(),
+        "_refresh_green_live_risk": AsyncMock(return_value=True),
         "main_loop": main, "_position_monitor_loop": monitor, "control_command_loop": fault,
         "_periodic_labeler": forever, "runtime_state_loop": forever, "_background_tasks": set(),
         "_publish_runtime_state_once": publish, "_note_runtime_error": Mock(),

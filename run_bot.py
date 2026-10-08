@@ -5838,7 +5838,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         _remove_from_queue_if_present(addr)
         return
 
-    if green_fast_path and not DRY_RUN:
+    if not DRY_RUN and green_fast_path:
+        await _refresh_green_live_risk(ses)
         canary_ok, canary_reason = live_canary.evaluate_green_live_canary(token)
         if not canary_ok:
             _research_decision(
@@ -6899,6 +6900,14 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         return
 
     # 13) — BUY —
+    if not DRY_RUN and green_fast_path:
+        await _refresh_green_live_risk(ses)
+        canary_ok, canary_reason = live_canary.evaluate_green_live_canary(token)
+        if not canary_ok:
+            _pending_ai_vectors.pop(addr, None)
+            _remove_from_queue_if_present(addr)
+            log.warning("Green LIVE final risk revalidation blocked: %s", canary_reason)
+            return
     token["runner_exit_profile"] = _runner_profile_for_subject(token)
     token["exit_profile"] = token.get("runner_exit_profile")
     token["config_hash"] = _config_hash()
@@ -6912,6 +6921,16 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         entry_decision=capture_entry_decision(vec, token, paper=bool(DRY_RUN), amount_sol=float(amount_sol),
             ml_policy=ml_decision, paper_bypass=final_ml_bypass))
     token["entry_decision"] = attempt.row["entry_decision"]
+    if not DRY_RUN and green_fast_path:
+        canary_ok, canary_reason = live_canary.reserve_green_live_buy(attempt.row, token)
+        if not canary_ok:
+            # Original intent proves that no signing/dispatch has begun. Keep
+            # that rejection durable instead of leaving an ambiguous buy.
+            attempt.receive({"qty_lamports": 0, "signature": "CANARY_RISK_LIMIT"})
+            _pending_ai_vectors.pop(addr, None)
+            _remove_from_queue_if_present(addr)
+            log.warning("Green LIVE risk reservation blocked: %s", canary_reason)
+            return
     if DRY_RUN:
         token["_actual_paper_buy_attempted"] = 1
         _stats["actual_paper_buy_attempts"] += 1
@@ -7063,8 +7082,6 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
     if not DRY_RUN:
         _wallet_sol_balance = max(_wallet_sol_balance - amount_sol, 0.0)
-        if green_fast_path:
-            live_canary.record_green_live_buy()
 
     token["runner_exit_profile"] = _runner_profile_for_subject(token)
     token["exit_profile"] = token.get("runner_exit_profile")
@@ -9051,21 +9068,7 @@ async def _check_positions(ses: SessionLocal) -> None:
         _persist_dataset_at_close(pos, used_close if used_close is not None else sell_price_hint)
         _record_position_close_telemetry(pos, regime=pos_regime, exit_reason=str(exit_reason))
         if (not DRY_RUN) and str(getattr(pos, "entry_lane", "") or "").strip().lower() == "pump_early_green_candle_sniper":
-            pnl_sol = None
-            try:
-                sol_usd = await get_sol_usd()
-                pnl_usd = getattr(pos, "total_pnl_usd", None)
-                if (not isinstance(sol_usd, bool) and isinstance(sol_usd, (int, float))
-                        and math.isfinite(sol_usd) and sol_usd > 0
-                        and not isinstance(pnl_usd, bool) and isinstance(pnl_usd, (int, float))
-                        and math.isfinite(pnl_usd)):
-                    pnl_sol = float(pnl_usd) / float(sol_usd)
-            except Exception:
-                pass  # Unknown valuation is not a one-dollar SOL or zero loss.
-            live_canary.record_green_live_close(
-                pnl_sol=pnl_sol,
-                exit_reason=str(exit_reason),
-            )
+            await _refresh_green_live_risk(ses)
 
         # ✅ Fix: NO sumar “a ojo”. Refresco balance real tras trade.
         if not DRY_RUN:
@@ -9097,6 +9100,24 @@ async def _check_positions(ses: SessionLocal) -> None:
         )
     except Exception:
         pass
+
+
+async def _refresh_green_live_risk(ses: SessionLocal, *, initialize: bool = False) -> bool:
+    if DRY_RUN:
+        return True  # No LIVE state creation or changes in PAPER.
+    try:
+        rows = (await ses.execute(select(Position).where(
+            Position.dry_run.is_(False), Position.entry_lane == "pump_early_green_candle_sniper"))).scalars().all()
+        if initialize:
+            live_canary.initialize(PROJECT_ROOT, rows)
+        else:
+            live_canary.reconcile(rows)
+        return True
+    except Exception as exc:
+        live_canary.invalidate()
+        _note_runtime_error("green_live_risk_unavailable", exc)
+        log.error("Green LIVE original risk evidence unavailable: %s", type(exc).__name__)
+        return False
 
 
 async def _bootstrap_strategy_runtime(ses: SessionLocal) -> None:
@@ -10001,6 +10022,8 @@ async def _runner() -> None:
         async with SessionLocal() as recovery_session:
             await _recover_buy_persistence_outbox(recovery_session, force=True)
             await _recover_close_persistence_outbox(recovery_session, force=True)
+            if not DRY_RUN:
+                await _refresh_green_live_risk(recovery_session, initialize=True)
         if DRY_RUN:
             await _repair_paper_archive_evidence(force=True)
         from runtime.loop_scheduler import supervise

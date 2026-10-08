@@ -323,6 +323,7 @@ async def test_paper_missing_historical_entry_basis_is_not_backfilled_from_today
 def test_unknown_live_canary_valuation_does_not_reset_losses_or_reopen_risk_budget(monkeypatch, pnl):
     from runtime import live_canary as canary
     monkeypatch.setattr(canary, "STATE", canary.LiveCanaryState(consecutive_losses=1))
+    monkeypatch.setattr(canary, "STORE", None)  # Legacy diagnostics cannot authorize LIVE.
     monkeypatch.setattr(canary, "CFG", SimpleNamespace(STRATEGY_OPTIMIZATION_LOCK=False,
         GREEN_SNIPER_LIVE_ENABLED=True, GREEN_SNIPER_LIVE_DISABLE_ON_LIQ_CRUSH=True))
     canary.record_green_live_close(pnl_sol=pnl)
@@ -353,18 +354,19 @@ async def test_actual_sql_missing_basis_is_not_current_fx_backfill(monkeypatch, 
     (0., -10., None), (float("nan"), -10., None), (100., None, None),
     (100., True, None), (100., -10., -.1), (.5, -10., -20.), (100., 0., 0.)])
 @pytest.mark.asyncio
-async def test_actual_live_monitor_canary_binding_never_invents_one_dollar_sol(fx, pnl, expected):
+async def test_actual_live_monitor_canary_binding_does_not_convert_with_posthoc_fx(fx, pnl, expected):
     tree = ast.parse(Path("run_bot.py").read_text(encoding="utf-8"))
     block = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
         and "not DRY_RUN" in ast.unparse(n.test)
         and "pump_early_green_candle_sniper" in ast.unparse(n.test))
-    records = []
+    refresh = AsyncMock(return_value=True)
+    fx_reader = AsyncMock(return_value=fx)
     wrapper = ast.AsyncFunctionDef(name="evaluate", args=ast.arguments(posonlyargs=[], args=[],
         kwonlyargs=[], kw_defaults=[], defaults=[]), body=[block], decorator_list=[])
     ns = {"math": math, "DRY_RUN": False, "exit_reason": "STOP_LOSS",
         "pos": SimpleNamespace(entry_lane="pump_early_green_candle_sniper", total_pnl_usd=pnl),
-        "get_sol_usd": AsyncMock(return_value=fx),
-        "live_canary": SimpleNamespace(record_green_live_close=lambda **kw: records.append(kw))}
+        "get_sol_usd": fx_reader, "ses": object(), "_refresh_green_live_risk": refresh}
     exec(compile(ast.fix_missing_locations(ast.Module(body=[wrapper], type_ignores=[])), "run_bot.py", "exec"), ns)
     await ns["evaluate"]()
-    assert records == [{"pnl_sol": expected, "exit_reason": "STOP_LOSS"}]
+    refresh.assert_awaited_once_with(ns["ses"])
+    fx_reader.assert_not_awaited()

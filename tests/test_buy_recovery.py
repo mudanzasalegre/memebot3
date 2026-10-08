@@ -496,7 +496,7 @@ def execution_tail_namespace(tmp_path, store, paper):
     tail = ast.AsyncFunctionDef(name="execution_tail", args=ast.arguments(posonlyargs=[],
         args=[ast.arg(arg="token"), ast.arg(arg="ses")], kwonlyargs=[], kw_defaults=[], defaults=[]),
         body=entry.body[begin:end+1], decorator_list=[])
-    namespace = {"Position": Position, "DRY_RUN": True, "_BUY_RECOVERY": store, "buyer": paper,
+    namespace = {"Position": Position, "DRY_RUN": True, "green_fast_path": False, "_BUY_RECOVERY": store, "buyer": paper,
         "_runner_profile_for_subject": lambda token: "frozen-runner", "get_runtime_context": lambda: {"run_id": "synthetic-run"},
         "parse_iso_utc": dt.datetime.fromisoformat, "utc_now": lambda: STAMP,
         "_metric_int": lambda token, key: token.get(key), "_is_liquidity_proxy": lambda token: False,

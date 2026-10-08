@@ -41,9 +41,23 @@ esperar una cotizacion; si no existe, no registran un fill ni una ganancia.
 Una compra historica sin su importe USD original no se reconstruye con el
 cambio actual. El canary live no convierte con un SOL ficticio de 1 USD ni
 reinicia una racha de perdidas ante un resultado desconocido: bloquea nuevas
-admisiones en el estado del canary. Ese estado sigue siendo en memoria y no
-certifica proteccion de este contador entre reinicios; la durabilidad y
-reconciliacion de riesgo se revisan por separado. Esto no habilita live.
+admisiones. La via green LIVE reconstruye ahora un registro duradero desde
+los buy/sell journals originales y las identidades SQL, antes del arranque y
+de cada admision. Reserva el presupuesto antes de ejecutar, sin sobrepasar
+el tamano LIVE aprobado ni el principal restante del limite diario.
+Duplicados no incrementan contadores; fuentes perdidas, cambiadas, cierres
+sin cobertura y finalidades pendientes no se convierten en riesgo cero.
+
+El presupuesto usa lamports enteros y caja nativa conservadora de los recibos
+independientes originales: no usa PnL USD convertido con el cambio actual.
+Incluye las comisiones de red de la wallet y no acredita mas que el principal
+neto comprobado cuando hay rent/depositos o saldos wrapped. Es una medida de
+riesgo, no un certificado de beneficio; las comisiones futuras pueden hacer
+que una perdida efectiva supere el principal reservado. El registro requiere
+el lock de instancia del bot, conserva las fuentes y no activa LIVE. PAPER
+no crea ni escribe este registro. Los otros limites de estrategia/capital y
+la aceptacion financiera completa siguen siendo fronteras independientes.
+Vease `docs/audits/green_canary_risk_20261008.json` y sus pruebas aisladas.
 
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya

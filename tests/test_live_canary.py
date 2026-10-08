@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+import pytest
 
 import runtime.live_canary as canary
 import runtime.live_canary_v2 as canary_v2
+
+
+@pytest.fixture(autouse=True)
+def isolated_original_risk(monkeypatch, tmp_path):
+    monkeypatch.setattr(canary, "STORE", None)
+    monkeypatch.setattr(canary, "STATE", canary.LiveCanaryState())
+    canary.initialize(tmp_path, [])
 
 
 def test_live_canary_disabled_by_default(monkeypatch) -> None:

@@ -1,0 +1,57 @@
+{
+  "stage": "durable_original_green_live_risk",
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Green LIVE canary risk projection and pre-execution reservations only. No profit ceiling, PAPER size, active model/policy or runtime activation change.",
+  "source_grain": "One original buy intent/SQL position, with complete unique original sell intents for its native-cash close. Historical SQL positions without original journals remain unproved.",
+  "sources": ["runtime/buy_recovery.py", "runtime/sell_recovery.py", "runtime/execution_provenance.py", "execution/chain_reconciliation.py", "data/memebotdatabase.db"],
+  "implementation": [
+    "No import-time operator state initialization; LIVE startup reconciles before supervision, and each green admission reconciles current committed SQL and both active/resolved original journals.",
+    "Checksummed atomic state retains original identities, causal buy fields, complete sell/fill fingerprints, original UTC event days, daily losses, loss streaks, pending/unproved execution and unknown closes across restart.",
+    "Final risk revalidation and a serialized durable original-intent reservation precede buyer/signing/dispatch. Repeated reservations cannot resend. Proved no-send risk rejections are retained as terminal no-fill originals.",
+    "Missing sources, changed or rewound identities, wrong SQL run/mint/signature, discontinuous partial coverage, unfinalized chain receipts, corrupt state, failed SQL or disk writes block new green LIVE risk.",
+    "Conservative native cash uses each original checked buy/sell wallet receipt, integer raw units, complete partial quantities, the same wallet/decimals, exact original final-close time/signature and wallet network fees. No current SOL/USD lookup or scalar PnL can update production risk.",
+    "LIVE size and remaining principal budget are checked without modifying configured caps. Gains never offset cumulative daily loss. Liquidity-crush disable time derives from the original close, not the replay clock; explicit disable deadlines persist.",
+    "PAPER remains exact 0.1 SOL with existing uncapped runners and never initializes or mutates this LIVE risk store. Tests use temporary sources, synthetic keys/SDK/RPC observations and no provider/order."] ,
+  "current_original_sql_check": {
+    "observed_at": "2026-10-08T21:54:58.553850+00:00",
+    "source": "data/memebotdatabase.db",
+    "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_positions_in_this_database": 0,
+    "green_live_risk_file_exists": false,
+    "interpretation": "No current original green LIVE position population is available for financial validation. This says nothing about other lanes, PAPER activity or profitability."
+  },
+  "tests": {
+    "new_isolated_cases_collected": 57,
+    "focused": {"passed": 489, "duration_seconds": 67.62, "scope": "Green risk and original buy/sell/close/chain/route/owned-dispatch/LIVE/FX consumers"},
+    "full_working": {"passed": 3926, "duration_seconds": 839.82, "exit_code": 0},
+    "full_publishing": {"passed": 3926, "duration_seconds": 826.33, "exit_code": 0},
+    "preflights": {
+      "working": {"ok": true, "generated_at_utc": "2026-10-08T22:31:05.626397+00:00"},
+      "publishing": {"ok": true, "generated_at_utc": "2026-10-08T22:31:04.491945+00:00"},
+      "both": {"compile_errors": 0, "config_import_returncode": 0, "paper_profile_ok": true, "report_builders": 7, "all_builders_ok": true, "externally_verified_pytest_returncode": 0}
+    }
+  },
+  "intermediate_regression": "Both full runs reported failures in existing AST-isolated LIVE fixtures: runner shutdown lacked the new startup helper, and two route-rejection consumers lacked the green lane variable in their shared execution-tail namespace. Both owned pytest workers were stopped after verifying PID, parent, creation time and exact command; this interrupted failing snapshot is not final acceptance. The fixtures are repaired without production bypasses. Two new actual green tail cases verify pre-buyer size rejection and durable reservation/quarantine on a mocked lost response. The real risk helper success/failure/PAPER behavior remains independently tested.",
+  "source_fingerprint": {"files": 741, "sha256": "2c73796ad4db1049e2f0d9e1abcce296ac952b9a5c5332e44cc3a83f5c79326e", "excludes": "docs, README and operator/runtime state", "both_checkouts_equal_before_final_full_regression": true, "unchanged_after_both_full_suites_preflights_and_requested_stop": true},
+  "shutdown": {
+    "requested_at_utc": "2026-10-08T22:31:28Z", "completed_at_utc": "2026-10-08T22:31:30Z", "script_checkout": "working_only",
+    "script_exit_code": 0, "killed": 0, "remaining": 0,
+    "inventory_observed_at": "2026-10-08T22:31:32.7124083+00:00",
+    "runtime_processes": 0, "owned_preview_processes": 0, "matching_tasks": 0, "running_tasks": 0, "matching_services": 0, "running_services": 0,
+    "both_checkouts_lock_counts": 0, "both_checkouts_live_risk_file_exists": false,
+    "sql_observed_at": "2026-10-08T22:31:32.801414+00:00",
+    "sql_main": {"process_state": "stopped", "reports_refresh_state": "idle", "retrain_state": "idle", "updated_at_utc": "2026-10-08 22:31:30.448825"}
+  },
+  "operator_preservation": {"observed_at": "2026-10-08T22:31:32.7124083+00:00", "since_utc": "2026-10-08T16:09:40Z", "working_files": 3763, "publishing_files": 27, "changed_by_mtime": 0, "qualification": "Read-only mtime census, not cryptographic historical proof; intended shutdown SQL/log and preflight metrics are excluded."},
+  "sources_receipt": {"path": "work/visualizations/green-live-risk-sources.html", "root_id": "data-inline-1004471a2d0ee115", "preview_widths": [736, 360], "horizontal_overflow": false, "page_errors": 0, "scope": "Final canonical receipt rendered with current489/57 focused evidence; Overview disclosure inspected. No server remains running."},
+  "publication": "READY_FOR_REVIEWED_DOC_SYNC_COMMIT_AND_PUSH; actual commit/remote/OFF are verified separately at handoff to avoid a self-referential commit hash in this document.",
+  "limitations": [
+    "The projection requires the single-instance bot owner and original durable sources; it is not a multi-host wallet risk authority or protection against deleting every original source and state.",
+    "Conservative risk cash does not prove optimal liquidation, refundable rent, current wallet balance, cryptographic block inclusion, full unsigned instruction semantics or full-strategy financial acceptance.",
+    "The new pre-send reserve covers principal. Future fees/slippage/liquidity failures can exceed that amount; hard caps are admission/stop controls, not insurance against loss.",
+    "Historical missing/unproved evidence remains unavailable. No retroactive current-FX repair or auto-clear of unknown execution is authorized.",
+    "No LIVE/paper bot, API/UI, training/research daemon, model fit/promotion, selection write, provider request, wallet or order is started. Prospective profitability and zero future errors remain unestablished."]
+}
