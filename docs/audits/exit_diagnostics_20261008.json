@@ -1,0 +1,71 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "scope": "Historically validated multiclass outcome-style diagnostics, actual entry/report consumption and content-bound family inference caching. This does not select an optimal financial exit policy.",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "findings": [
+    "The previous exit classifier fitted only in sample, wrote no validation metadata/checksum and its multiclass output could not be consumed through the generic binary/regression reader.",
+    "Missing peak and return labels could become fabricated balanced outcomes; realized return was used as a substitute for an unobserved peak. Invalid runtime labels also fell back to balanced.",
+    "The exit model wrapper was not consumed by actual entry scoring or the model report bundle. Historical peak/style labels do not prove the best executable costed exit.",
+    "Family caches and whole-family capture stability used modification time and file size only. Controlled replacements preserving both fields demonstrate that changed bytes must invalidate the reader and in-progress capture.",
+    "The actual runtime lock path is data/run_bot.lock. Earlier ad-hoc inventories checked other lock names; this stage explicitly checks the configured path as well as the compatibility names."
+  ],
+  "implementation": {
+    "label_contract": "observed_exit_style_v1",
+    "label_meaning": "Known explicitly provided diagnostic styles, or a proxy derived from observed peak and realized return. Unknown, infinite and boolean measurements remain unknown. No realized return is substituted for peak and no optimal-costed-exit claim is made.",
+    "classes": ["balanced", "bird_runner", "defensive", "moonbag", "post_partial_protected", "runner"],
+    "temporal_acceptance": "Fit cloned classifiers on expanding mature token-disjoint outer training windows. Compare OOS classification loss with each training-fold majority baseline, require at least five independent observed tokens per class, at least thirty independent OOS tokens and positive paired token-cluster lower loss improvement. No in-sample fallback is published.",
+    "artifact_acceptance": "Write the normal checked family model/metadata/checksum/encoding contract only for a supported candidate; an unsupported new fit preserves old model and metadata bytes. Check diagnostic role, label semantics, classes, support, OOS evidence and non-leaking predictors before deserialization.",
+    "runtime": "Return only a checked multiclass style label or unknown, together with detached pinned model-selection provenance. Reuse the existing parent inference scope or own a short standalone scope. No class-balanced score is represented as a calibrated probability or confidence.",
+    "actual_entry": "Consume the same already-built vector at the original fixed entry clock, persist a separate exit_model_diagnostic payload through candidate/decision research logging and preserve the configured exit/runner profiles, admission permissions and amount. ML mode off yields an explicit disabled diagnostic.",
+    "nonpredictor": "Treat the diagnostic as safe T0 metadata for repeated builds and exclude the physical metadata column from generic primary feature selection, even if malformed as numeric. It is not part of the unchanged 77-column raw vector or financial acceptance.",
+    "reports": "Include the exit job in the manual model report bundle, with the observed-style qualification and no automatic policy activation. No training-daemon or automatic exit-policy lifecycle is introduced in this stage.",
+    "content_bound_cache": "Compute SHA-256 of the original model and metadata bytes before cache lookup and include both in artifact signatures. Deserialization reuses those captured bytes. Same-stat replacements invalidate the next scope and changes during whole-family capture return unknown, never a mixed family.",
+    "cache_tradeoff": "Artifact bytes are read and hashed for checked loads/captures; production inference latency and provider throughput have not been measured in this stage.",
+    "unchanged_financial_behavior": "No new buy veto, safety bypass, take-profit ceiling, live order or active model/policy activation. Exact 0.1 SOL paper sizing and uncapped proportional runner exits remain unchanged."
+  },
+  "historical_label_quality": {
+    "reporting_period_start_utc": "2026-07-13T12:06:34.183735+00:00",
+    "reporting_period_end_utc": "2026-07-15T17:46:15.159836+00:00",
+    "eligible_rows": 2147,
+    "eligible_distinct_tokens": 2132,
+    "unknown_label_rows": 0,
+    "excluded_invalid_timing_or_identity_rows": 0,
+    "label_source": "observed_peak_and_realized_proxy",
+    "row_counts": {"balanced": 1884, "defensive": 231, "moonbag": 14, "runner": 18},
+    "within_class_distinct_tokens": {"balanced": 1879, "defensive": 230, "moonbag": 14, "runner": 18},
+    "qualification": "Read-only historical proxy labeling, not actual model training, orders, optimal exit choices or costed profits. A token can occur in several style classes, so class distinct-token counts cannot be summed into independent support. The rare extreme classes and imbalanced population require held-out support; these counts alone do not establish diagnostic acceptance."
+  },
+  "source_hashes": {
+    "data/features/features_202607.parquet": "18edc6f91c13e617e0ba8b9afa96106807353ba7887ac062840ab54cac589ab0",
+    "data/features/features_202610.parquet": "9b5226d4284eedaa8d5e4cc1206128a04b13247f21e80d8ee26de67091a2c84c",
+    "data/metrics/candidate_outcomes.jsonl": "3e6721a861f4bdf012b9a66c410fd17caa53ba29ff726b9b249eba616563c96f"
+  },
+  "verification": {
+    "new_isolated_cases": 32,
+    "new_exit_cases": 30,
+    "new_same_stat_capture_cases": 2,
+    "focused_suite_before_clock_fixture_correction": "142 passed in 27.29s",
+    "pre_final_working_suite": "2354 passed in 287.30s",
+    "pre_final_publishing_suite": "1 failed, 2353 passed in 274.15s: the new repeated-vector fixture compared two generated timestamps. Production timestamps differed by one millisecond as expected; the fixture now supplies the same explicit T0 for both builds.",
+    "focused_suite_after_clock_fixture_correction": "110 passed in 7.99s",
+    "final_working_suite": "2354 passed in 255.24s on final source, including the explicit fixed-T0 repeated-vector fixture",
+    "final_publishing_suite": "2354 passed in 249.69s on final source without personal .env, local .venv or runtime DB, using the existing working-checkout Python",
+    "preflight_final_source": "PASS in both checkouts: compilation errors 0, configuration import return code 0, paper profile true and all seven empty-data report builders true",
+    "failure_path_repairs": [
+      "Allow separate diagnostic metadata through repeated feature construction without treating it as an outcome predictor.",
+      "Bind model/meta cache signatures and capture checks to contents after combined regression exposed two prior same-family coherence failures. Controlled same-stat tests establish the repaired insufficiency; no exact OS cause is claimed for the earlier failures.",
+      "Pin the repeated-feature fixture clock instead of assuming two current-time calls are equal."
+    ],
+    "notebook": {"code_cells_executed": 5, "errors": 0, "saved_figure_outputs": 1, "figure_inspected": true, "structured_outputs_inspected": true, "full_saved_rendered_notebook_preview_inspected": false, "qualification": "The existing project kernel was selected explicitly; no kernel installation, model training or runtime activation. Full saved rendered notebook presentation was not inspected, so complete presentation QA is not claimed."},
+    "qualification": "Automated software and temporary synthetic model artifacts only; no actual provider access, market execution, wallet/finality reconciliation or prospective full-strategy profitability acceptance."
+  },
+  "preservation": {"status": "CHECKED_UNCHANGED", "checked_at_utc": "2026-10-08T04:52:16.8348748Z", "stage_boundary_utc": "2026-10-08T04:20:00Z", "runtime_started": false, "active_model_trained_or_promoted": false, "provider_calls": 0, "live_orders": 0, "personal_env_changed": false, "both_checkouts_changed_files": {"models": 0, "ml/models": 0, "data/features": 0, "data/paper_closed_trades": 0, "data/learning/trade_closes": 0, "data/research": 0, "data/research_runs": 0, "active_policy.json": 0, "root_compatibility_models_and_registry": 0}, "qualification": "Observed modification-time inventory since the current stage boundary plus original source hashes; not a complete cryptographic census. The requested stop updates the stop log and authoritative stopped/idle SQL runtime state."},
+  "shutdown": {"status": "VERIFIED_OFF", "required_lock_path": "data/run_bot.lock", "lock_paths_checked_in_both_checkouts": ["bot.lock", "run_bot.lock", "data/bot.lock", "data/run_bot.lock"], "stop_command_exit_code": 0, "stop_log_at_utc": "2026-10-08T04:52:16Z", "killed": 0, "remaining": 0, "process_inventory_at_utc": "2026-10-08T04:52:18.1466380Z", "working_scoped_runtime_processes": 0, "publishing_scoped_runtime_processes": 0, "global_bot_training_research_processes": 0, "bot_lock_files_present": 0, "memebot_scheduled_tasks": 0, "memebot_services": 0, "sql_read_only_check_at_utc": "2026-10-08T04:52:18.196530+00:00", "sql_main": {"process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"}, "publishing_checkout": "Source only: no runtime DB or personal .env/.venv; no stop finalizer run in that checkout."},
+  "publication_contract": {"publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3", "previous_commit": "db0a3393919481be977611944de750992097704f", "scope": "Reviewed source, tests and technical audit evidence only; no personal configuration, runtime data, notebook outputs or active model artifacts.", "final_identity": "Verify actual HEAD, origin/main and ls-remote after committing; do not add a self-referential commit field."},
+  "remaining_goal_requirements": [
+    "Complete other applicable input-generation and strategy-subprofile contracts.",
+    "Complete durable full-strategy decision provenance and capital/admission/execution constraints; historical diagnostic style acceptance is not an optimal financial exit or cross-family strategy approval.",
+    "Verify successful actual provider responses/access, production depth and independently checked live wallet/finality boundaries without claiming mock coverage as production acceptance.",
+    "Obtain separately authorized fresh full-strategy costed closed evidence before a profitability or extreme-runner capture claim. Do not start a run while the user requires all services off."
+  ]
+}

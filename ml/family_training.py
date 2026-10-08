@@ -32,6 +32,7 @@ from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
 from ml.calibrated_ranker import fit_calibrated_ranker, reliability_bins
 from ml.prediction_validation import paired_token_loss_check, regression_error_check
 from ml.financial_targets import checked_financial_frame, financial_target
+from ml.exit_diagnostics import exit_style_labels, forward_exit_diagnostics, LABEL_CONTRACT, PREDICTION_KIND
 from ml.train import _filter_outcome_training_rows, _load_dataset
 from ml.model_validation_warnings import (
     WARNING_IN_SAMPLE_ONLY,
@@ -476,29 +477,53 @@ def train_exit_classifier(
     min_rows: int = 20,
 ) -> dict[str, Any]:
     df = load_training_frame(frame)
-    df, _ = prepare_training_frame(df, min_current_rows=min_rows)
-    if "best_exit_profile" not in df.columns:
-        peak = pd.to_numeric(df.get("max_pnl_pct_seen", df.get("target_total_pnl_pct")), errors="coerce").fillna(0)
-        risk = pd.to_numeric(df.get("target_total_pnl_pct"), errors="coerce").fillna(0)
-        df["best_exit_profile"] = np.where(peak >= 300, "moonbag", np.where(peak >= 100, "runner", np.where(risk < -30, "defensive", "balanced")))
+    source_rows = len(df)
+    valid, *_ = temporal_eligibility(df)
+    df = df.loc[valid].reset_index(drop=True)
+    df, semantics_filtering = prepare_training_frame(df, min_current_rows=min_rows)
+    labels, label_source = exit_style_labels(df)
+    known = labels.notna()
+    unknown_rows = int((~known).sum())
+    df, labels = df.loc[known].reset_index(drop=True), labels.loc[known].reset_index(drop=True)
     df = augment_context_frame(df, available_context_features(df))
     df = augment_numeric_frame(df, available_numeric_features(df))
     features = [column for column in feature_set("exit_features") if column in df.columns
                 and column != "exit_profile" and FEATURE_SOURCES.get(column) != "exit_profile"]
-    report: dict[str, Any] = {"family": "exit", "rows": int(len(df)), "targets": {}}
-    if len(df) < min_rows or not features or df["best_exit_profile"].nunique() < 2:
+    report: dict[str, Any] = {"family": "exit", "rows": len(df), "source_rows": source_rows,
+        "excluded_invalid_timing_or_identity_rows": int((~valid).sum()), "unknown_or_invalid_label_rows": unknown_rows,
+        "label_source": label_source, "label_contract": LABEL_CONTRACT,
+        "auxiliary_semantics_filtering": semantics_filtering, "targets": {},
+        "activation_role": "diagnostic_only", "automatic_live_activation": False,
+        "validation": target_validation_payload(warnings=[WARNING_NOT_READY_FOR_ENFORCEMENT])}
+    if len(df) < min_rows or not features or labels.nunique() < 2:
         report["status"] = "skipped"
         report["reason"] = "not_enough_rows_features_or_classes"
         return report
     X = coerce_feature_frame(df, features)
-    y = df["best_exit_profile"].astype("string")
     model = RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42, min_samples_leaf=5)
-    model.fit(X, y)
+    evaluation, temporal = forward_exit_diagnostics(df, X, labels, model, min_rows=min_rows)
+    item = {"family": "exit", "target": "best_exit_profile", "features": features,
+        "classes": evaluation["classes"], "prediction_kind": PREDICTION_KIND,
+        "activation_role": "diagnostic_only", "automatic_live_activation": False,
+        "label_contract": LABEL_CONTRACT, "label_source": label_source,
+        "classification_evaluation": evaluation,
+        "classification_validation_ready": evaluation["validation_ready"],
+        "auxiliary_semantics_training": population_proof(df),
+        "trained_at_utc": datetime.now(timezone.utc).isoformat(),
+        "validation": target_validation_payload(warnings=[WARNING_NOT_READY_FOR_ENFORCEMENT],
+            details={"mode": "purged_token_walk_forward" if temporal["out_of_sample_rows"] else "in_sample_only", "temporal": temporal})}
+    report["targets"]["best_exit_profile"] = item
+    if not evaluation["validation_ready"]:
+        report.update(status="skipped", reason="no_supported_oos_diagnostic")
+        return _json_safe(report)
+    model.fit(X, labels)
     target_dir = output_dir or PROJECT_ROOT / "ml" / "models" / "exit"
     target_dir.mkdir(parents=True, exist_ok=True)
     model_path = target_dir / "best_exit_profile.pkl"
-    joblib.dump(model, model_path)
-    return {"family": "exit", "status": "ok", "model_path": str(model_path), "rows": int(len(df)), "features": features}
+    item.update(status="trained", model_path=str(model_path))
+    _save_family_model(model, model_path, item)
+    report.update(status="ok", model_path=str(model_path), features=features)
+    return _json_safe(report)
 
 
 __all__ = ["load_training_frame", "train_classifier_family", "train_exit_classifier", "train_regressor_family"]

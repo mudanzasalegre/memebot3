@@ -4489,6 +4489,16 @@ def _score_entry_inputs(token: dict, *, captured_at: dt.datetime):
     proba = None if mode == "off" else should_buy(vec)
     risk = predict_risk(vec) if bool(getattr(CFG, "ML_RISK_MODEL_ENABLED", True)) else None
     ev = predict_ev(vec) if bool(getattr(CFG, "ML_EV_MODEL_ENABLED", True)) else None
+    # This historical style label is observable, never an exit-policy input.
+    try:
+        from analytics.exit_model_runtime import predict_exit_profile
+        token["exit_model_diagnostic"] = predict_exit_profile(vec) if mode != "off" else {
+            "exit_profile": None, "status": "disabled", "activation_role": "diagnostic_only",
+            "exit_policy_permission": False, "buy_permission": False}
+    except Exception:
+        token["exit_model_diagnostic"] = {"exit_profile": None, "status": "unknown",
+            "activation_role": "diagnostic_only", "exit_policy_permission": False, "buy_permission": False}
+    token["exit_model_diagnostic"]["input_captured_at_utc"] = captured_at.isoformat()
     state = entry_prediction_state()
     decision = decide_ml_action(token=token, feature_row=payload, proba=proba,
         base_rules_passed=True, dry_run=DRY_RUN, live=not DRY_RUN, risk_proba=risk,

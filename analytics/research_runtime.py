@@ -275,6 +275,8 @@ def _common_payload(
         "paper_cold_start_shadow_probe": bool(token.get("paper_cold_start_shadow_probe")),
         "paper_cold_start_shadow_probe_reason": token.get("paper_cold_start_shadow_probe_reason"),
     }
+    if isinstance(token.get("exit_model_diagnostic"), dict):
+        out["exit_model_diagnostic"] = _json_safe(token["exit_model_diagnostic"])
     if rank_info:
         out["rank_score"] = _to_float(rank_info.get("rank_score"))
         for key, value in (rank_info.get("components") or {}).items():

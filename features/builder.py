@@ -259,6 +259,7 @@ _FORBIDDEN_SUBSTR: tuple[str, ...] = (
 _SAFE_T0_PREFIXES: tuple[str, ...] = ("txns_last_",)
 _SAFE_T0_METADATA_KEYS: set[str] = {
     "exit_profile",
+    "exit_model_diagnostic",  # Detached prediction receipt, never a vector column.
     "profit_pnl_guard_failures",
     "runner_exit_profile",
 }

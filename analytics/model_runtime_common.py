@@ -23,10 +23,11 @@ from features.context_encoding import checked_context_schema
 from features.numeric_encoding import checked_numeric_schema
 from features.auxiliary_semantics import checked_semantics_schema, checked_model_frame, input_frame
 from features.builder import ALLOWED_FEATURES
+from ml.exit_diagnostics import checked_exit_metadata
 
 log = logging.getLogger(__name__)
 _lock = threading.RLock()
-_cache: dict[tuple[Any, ...], tuple[tuple[int, ...], Any, list[str], dict[str, Any]]] = {}
+_cache: dict[tuple[Any, ...], tuple[tuple[Any, ...], Any, list[str], dict[str, Any]]] = {}
 _SAFE_NAME = re.compile(r"[a-z][a-z0-9_]{0,79}\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 MAX_FAMILY_HEADS = 64
@@ -136,7 +137,8 @@ def _model_path(family: str, target: str) -> Path:
 def _artifact_signature(path: Path):
     try:
         model, meta = path.stat(), path.with_suffix(".meta.json").stat()
-        return model.st_mtime_ns, model.st_size, meta.st_mtime_ns, meta.st_size
+        return (model.st_mtime_ns, model.st_size, meta.st_mtime_ns, meta.st_size,
+            sha256(path.read_bytes()).hexdigest(), sha256(path.with_suffix(".meta.json").read_bytes()).hexdigest())
     except OSError:
         return None
 
@@ -218,19 +220,21 @@ def _load_unscoped(path: Path, *, require_temporal_validation: bool,
            tuple(sorted((expected_metadata or {}).items())))
     try:
         model_stat, meta_stat = path.stat(), meta_path.stat()
+        payload, metadata_payload = path.read_bytes(), meta_path.read_bytes()
     except OSError:
         with _lock:
             _cache.pop(key, None)
         return None, [], {}
-    signature = (model_stat.st_mtime_ns, model_stat.st_size, meta_stat.st_mtime_ns, meta_stat.st_size)
+    model_digest, metadata_digest = sha256(payload).hexdigest(), sha256(metadata_payload).hexdigest()
+    signature = (model_stat.st_mtime_ns, model_stat.st_size, meta_stat.st_mtime_ns, meta_stat.st_size,
+                 model_digest, metadata_digest)
     with _lock:
         cached = _cache.get(key)
         if cached is not None and cached[0] == signature:
             return cached[1], cached[2], cached[3]
         model, features, metadata = None, [], {}
         try:
-            metadata_payload = meta_path.read_bytes()
-            if expected_metadata_sha256 is not None and sha256(metadata_payload).hexdigest() != expected_metadata_sha256:
+            if expected_metadata_sha256 is not None and metadata_digest != expected_metadata_sha256:
                 raise ValueError("metadata differs from the frozen manifest approval")
             metadata = json.loads(metadata_payload)
             if not isinstance(metadata, dict):
@@ -250,8 +254,7 @@ def _load_unscoped(path: Path, *, require_temporal_validation: bool,
             expected_hash = metadata.get("model_sha256")
             if expected_model_sha256 is not None and expected_hash != expected_model_sha256:
                 raise ValueError("model differs from the frozen manifest approval")
-            payload = path.read_bytes()
-            if not expected_hash or sha256(payload).hexdigest() != expected_hash:
+            if not expected_hash or model_digest != expected_hash:
                 raise ValueError("model/metadata checksum mismatch")
             features = metadata.get("features")
             if (not isinstance(features, list) or not features or len(set(features)) != len(features)
@@ -260,6 +263,9 @@ def _load_unscoped(path: Path, *, require_temporal_validation: bool,
             if (not checked_context_schema(metadata, features) or not checked_numeric_schema(metadata, features)
                     or not checked_semantics_schema(metadata, features)):
                 raise ValueError("unproved specialized context encoding")
+            if (metadata.get("family") == "exit" and metadata.get("target") == "best_exit_profile"
+                    and not checked_exit_metadata(metadata)):
+                raise ValueError("unsupported diagnostic exit classification")
             model = joblib.load(io.BytesIO(payload))
         except Exception as exc:
             log.warning("Specialized model unavailable family=%s target=%s error=%s", path.parent.name, path.stem, type(exc).__name__)
@@ -377,6 +383,24 @@ def invalidate_model_cache(path: Path) -> None:
                 _cache.pop(key, None)
 
 
+def predict_diagnostic_exit_label(vec: Any) -> str | None:
+    path, model, features, metadata = _load_family("exit", "best_exit_profile", require_temporal_validation=True)
+    if model is None or not checked_exit_metadata(metadata):
+        return None
+    try:
+        if list(getattr(model, "classes_", [])) != metadata["classes"]:
+            return None
+        matrix = coerce_feature_frame(checked_model_frame(input_frame(vec), features), features)
+        prediction = scoped_prediction(("diagnostic_exit_label", str(path), id(model), metadata["model_sha256"]),
+            matrix, lambda: model.predict(matrix))
+        values = np.asarray(prediction)
+        if values.shape != (1,) or not isinstance(values[0], str) or values[0] not in metadata["classes"]:
+            return None
+        return str(values[0])
+    except Exception:
+        return None
+
+
 def predict_ranking_score(family: str, target: str, vec: Any) -> float | None:
     """Validated rank percentile (0-100), explicitly not an event probability."""
     path, model, features, metadata = _load_family(family, target, require_temporal_validation=True)
@@ -401,4 +425,4 @@ def predict_ranking_score(family: str, target: str, vec: Any) -> float | None:
 
 
 __all__ = ["predict_model", "predict_artifact", "predict_regression_estimate", "predict_ranking_score",
-           "invalidate_model_cache", "family_model_selection"]
+           "invalidate_model_cache", "family_model_selection", "predict_diagnostic_exit_label"]

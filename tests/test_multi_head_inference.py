@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -127,6 +128,42 @@ def test_changed_collection_during_capture_is_neutral_for_whole_decision(tmp_pat
         assert not runtime.family_model_selection("runner")["capture_stable"]
     with inference_scope():
         assert rank() == 80 and rank("runner_10000") == 20
+
+
+def replace_flat_with_same_stat(root, value):
+    path = root / "ml" / "models" / "runner" / "runner_10000.pkl"
+    metadata = path.with_suffix(".meta.json")
+    stamps = {p: p.stat() for p in (path, metadata)}
+    write_head(root, "runner_10000", value)
+    for p, original in stamps.items():
+        assert p.stat().st_size == original.st_size
+        os.utime(p, ns=(original.st_atime_ns, original.st_mtime_ns))
+
+
+def test_same_stat_replacement_does_not_make_cache_reuse_old_model(tmp_path):
+    write_head(tmp_path, "runner_100", .8)
+    write_head(tmp_path, "runner_10000", .8)
+    Ranker.hook = lambda: replace_flat_with_same_stat(tmp_path, .1)
+    with inference_scope():
+        assert rank() == rank("runner_10000") == 80
+    assert rank("runner_10000") == 20
+
+
+def test_same_stat_mutation_during_capture_invalidates_family(tmp_path, monkeypatch):
+    write_head(tmp_path, "runner_100", .8)
+    write_head(tmp_path, "runner_10000", .8)
+    original = runtime._load_unscoped
+    changed = []
+    def load(path, **kwargs):
+        result = original(path, **kwargs)
+        if not changed:
+            changed.append(True)
+            replace_flat_with_same_stat(tmp_path, .1)
+        return result
+    monkeypatch.setattr(runtime, "_load_unscoped", load)
+    with inference_scope():
+        assert rank() is None and rank("runner_10000") is None
+        assert not runtime.family_model_selection("runner")["capture_stable"]
 
 
 @pytest.mark.parametrize("initial", ["absent", "invalid", "empty"])

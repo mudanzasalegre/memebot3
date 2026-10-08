@@ -23,6 +23,7 @@ from ml.train_continuation_model import train_continuation_models
 from ml.train_ev_model import train_ev_models
 from ml.train_risk_model import train_risk_models
 from ml.train_runner_model import train_runner_models
+from ml.train_exit_model import train_exit_model
 
 
 TRAINING_JOBS: tuple[tuple[str, Callable[[], dict[str, Any]], str], ...] = (
@@ -30,6 +31,7 @@ TRAINING_JOBS: tuple[tuple[str, Callable[[], dict[str, Any]], str], ...] = (
     ("ev", train_ev_models, "ev_model_report.json"),
     ("runner", train_runner_models, "runner_model_report.json"),
     ("continuation", train_continuation_models, "continuation_model_report.json"),
+    ("exit", train_exit_model, "exit_model_report.json"),
 )
 
 
@@ -118,6 +120,7 @@ def write_model_training_bundle(
             "- These models are trained for reports only.",
             "- Target validation uses purged, token-disjoint temporal folds when observed label-availability times exist; otherwise metrics stay unavailable and in-sample warnings remain.",
             "- Runner targets distinguish observed peaks from realized profits and cover 50% through 10,000%; rare or unknown labels do not become invented negative observations.",
+            "- Exit classification describes observed outcome styles only; unknown outcomes remain unknown, temporal token-cluster checks are required and no classification activates an exit policy.",
             "- Critical warnings block enforcement in `strategy_quality_gate`.",
         ]
     )
