@@ -12,6 +12,7 @@ import pytest
 from analytics import exit_policy, runner_price_policy
 from research_loop import runner_forward as rf
 from research_loop.paper_exit_receipt import make_intent
+from paper_fx_fixtures import observation as synthetic_fx
 from utils.solana_addr import is_valid_base58_32
 
 T0 = dt.datetime(2026, 10, 1, tzinfo=dt.timezone.utc)
@@ -124,7 +125,7 @@ def closed_cohort(root, *, n=50, baseline=20, start=T0, same_token=False):
             arm["intent"] = make_intent(arm["subject"], quantity=800, reason="TIMEOUT_RUNNER", now=fill_at,
                                         cash_valuation=evidence)
             assert rf._apply_quote(case, arm, quote(output=out, source=mint, now=fill_at), 100.0, fill_at,
-                                   quote_started_at=fill_at)
+                                   quote_started_at=fill_at, fx_observation=synthetic_fx(fill_at))
         rf._write(rf._directory(root) / "closed" / path.name, case)
         path.unlink()
         result.append(case)
@@ -171,7 +172,8 @@ def test_bad_exit_quote_preserves_quantity_and_intent(tmp_path, changes):
     arm["intent"] = make_intent(arm["subject"], quantity=800, reason="stop", now=T0 + dt.timedelta(minutes=2))
     before = copy.deepcopy(arm)
     assert not rf._apply_quote(case, arm, quote(now=T0 + dt.timedelta(minutes=3), **changes), 100.0,
-                               T0 + dt.timedelta(minutes=3), quote_started_at=T0 + dt.timedelta(minutes=3))
+                               T0 + dt.timedelta(minutes=3), quote_started_at=T0 + dt.timedelta(minutes=3),
+                               fx_observation=synthetic_fx(T0 + dt.timedelta(minutes=3)))
     assert arm == before
 
 
@@ -180,11 +182,12 @@ def test_tick_quotes_once_for_identical_arms_and_keeps_unknown_unfilled(tmp_path
     calls = []
     async def prices(_): return {}
     async def sol(): return 100.0
+    async def original_fx(): pytest.fail("An unavailable quote must not fetch FX")
     async def failed(**kwargs):
         calls.append(kwargs)
         return quote(ok=False)
     result = asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(hours=25),
-                                 prices_func=prices, quote_func=failed, sol_price_func=sol))
+                                 prices_func=prices, quote_func=failed, sol_price_func=sol, fx_func=original_fx))
     assert result["quote_calls"] == len(calls) == 1
     case = read_active(tmp_path)
     assert all(arm["subject"]["qty_lamports"] == 800 and not arm["closed"] for arm in case["arms"].values())
@@ -199,11 +202,12 @@ def test_runner_tick_rechecks_fx_after_quote_and_keeps_all_arms_unfilled(tmp_pat
     rates, calls = iter([100., None]), []
     async def prices(_): return {}
     async def sol(): return next(rates)
+    async def original_fx(): pytest.fail("Unknown scalar FX must remain unfilled without another provider call")
     async def quoted(**kwargs):
         calls.append(kwargs)
         return quote(quantity=kwargs["amount_lamports"], now=T0 + dt.timedelta(hours=25))
     result = asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(hours=25),
-        prices_func=prices, quote_func=quoted, sol_price_func=sol))
+        prices_func=prices, quote_func=quoted, sol_price_func=sol, fx_func=original_fx))
     assert result["quote_calls"] == len(calls) == 1
     case = read_active(tmp_path)
     assert all(arm["subject"]["qty_lamports"] == 800 and not arm["closed"]
@@ -216,8 +220,9 @@ def test_budgeted_shadow_continues_after_actual_position_disappears(tmp_path):
     async def prices(_): return {MINT: 1.1}
     async def sol(): return 100.0
     async def valid(**kwargs): return quote(quantity=kwargs["amount_lamports"], now=T0 + dt.timedelta(hours=25))
+    async def original_fx(): return synthetic_fx(T0 + dt.timedelta(hours=25))
     asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(hours=25),
-                        prices_func=prices, quote_func=valid, sol_price_func=sol))
+                        prices_func=prices, quote_func=valid, sol_price_func=sol, fx_func=original_fx))
     closed = rf._read(next((rf._directory(tmp_path) / "closed").glob("*.json")))
     assert all(arm["closed"] for arm in closed["arms"].values())
     for arm in closed["arms"].values():
@@ -252,7 +257,7 @@ def test_paired_selection_applies_only_to_new_paper_entries_and_can_rollback(tmp
             arm["intent"] = make_intent(arm["subject"], quantity=800, reason="TIMEOUT_RUNNER", now=fill_at,
                                         cash_valuation=evidence)
             assert rf._apply_quote(case, arm, quote(output=out, source=case["token"], now=fill_at), 100.0, fill_at,
-                                   quote_started_at=fill_at)
+                                   quote_started_at=fill_at, fx_observation=synthetic_fx(fill_at))
         rf._write(rf._directory(tmp_path) / "closed" / f"{case['case_id']}.json", case)
     rollback = rf.evaluate_completed_cohorts(root=tmp_path, cfg=cfg(), now=later + dt.timedelta(hours=27))
     assert rollback["status"] == "selected" and rollback["action"] == "rollback"
@@ -356,7 +361,8 @@ def test_paper_buy_consumes_selection_and_first_partial_enrolls_isolated_store(t
     monkeypatch.setattr(paper.jupiter_router, "routing_quote_slippage_bps", lambda: router.DEFAULT_SLIPPAGE_BPS)
     monkeypatch.setattr(paper.jupiter_price, "get_usd_price", jupiter_price)
     monkeypatch.setattr(paper, "_resolve_buy_price_usd", buy_price)
-    monkeypatch.setattr(paper, "_resolve_entry_notional_usd", entry_notional)
+    from paper_fx_fixtures import install
+    install(monkeypatch, paper)
     monkeypatch.setattr(paper, "get_sol_usd", sol)
     async def run():
         bought = await paper.buy(token, .1, entry_regime="pump_early", entry_lane="normal", require_jupiter_for_buy=True)
@@ -412,11 +418,12 @@ def test_provider_throttle_pauses_secondary_work_and_keeps_pending_arm(tmp_path)
     calls = []
     async def prices(_): return {}
     async def sol(): return 100.0
+    async def original_fx(): pytest.fail("An unavailable quote must not fetch FX")
     async def limited(**kwargs):
         calls.append(kwargs)
         return quote(ok=False, other={"status": 429})
     first = asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(hours=25),
-                                prices_func=prices, quote_func=limited, sol_price_func=sol))
+                                prices_func=prices, quote_func=limited, sol_price_func=sol, fx_func=original_fx))
     assert first["quote_calls"] == 1
     later = asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(hours=25, minutes=1),
                                 prices_func=prices, quote_func=limited, sol_price_func=sol))
@@ -428,9 +435,12 @@ def test_monitor_market_and_exact_quote_are_reused_without_extra_requests(tmp_pa
     rf.register_partial(entry(buy_liquidity_usd=10000), root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(minutes=1))
     stamp = T0 + dt.timedelta(hours=25)
     assert rf.observe_market(MINT, 1.1, liq_now=1, root=tmp_path, cfg=cfg(), now=stamp) == 1
-    assert rf.observe_quote(MINT, quote(quantity=799, now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp, quote_started_at=stamp) == 0
-    assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp, quote_started_at=stamp) == 3
-    assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp, quote_started_at=stamp) == 0
+    assert rf.observe_quote(MINT, quote(quantity=799, now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp,
+                            quote_started_at=stamp, fx_observation=synthetic_fx(stamp)) == 0
+    assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp,
+                            quote_started_at=stamp, fx_observation=synthetic_fx(stamp)) == 3
+    assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp,
+                            quote_started_at=stamp, fx_observation=synthetic_fx(stamp)) == 0
     assert all(len(arm["fills"]) == 1 and arm["subject"]["qty_lamports"] == 0
                for arm in read_active(tmp_path)["arms"].values())
 
@@ -440,11 +450,13 @@ def test_quote_hook_during_secondary_network_wait_cannot_duplicate_fill(tmp_path
     stamp = T0 + dt.timedelta(hours=25)
     async def prices(_): return {}
     async def sol(): return 100.0
+    async def original_fx(): return synthetic_fx(stamp)
     async def interleaved(**kwargs):
-        assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp, quote_started_at=stamp) == 3
+        assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp,
+                                quote_started_at=stamp, fx_observation=synthetic_fx(stamp)) == 3
         return quote(now=stamp)
     asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=stamp, prices_func=prices,
-                        quote_func=interleaved, sol_price_func=sol))
+                        quote_func=interleaved, sol_price_func=sol, fx_func=original_fx))
     case = rf._read(next((rf._directory(tmp_path) / "closed").glob("*.json")))
     assert all(len(arm["fills"]) == 1 and arm["net_pnl_sol"] == pytest.approx(.099925)
                for arm in case["arms"].values())

@@ -12,6 +12,7 @@ from quote_fixtures import SOL, TOKEN, v2_quote
 from research_loop import runner_forward as rf
 from research_loop.paper_exit_receipt import make_intent
 from test_runner_forward import T0, cfg, entry
+from paper_fx_fixtures import observation as synthetic_fx
 
 FAMILIES = ("metis", "jupiterz", "dflow", "okx")
 STAMP = T0 + dt.timedelta(minutes=2)
@@ -47,7 +48,8 @@ def test_actual_research_fill_rejects_temporally_unowned_quote_without_cash_muta
     if fault == "naive_start": started = STAMP.replace(tzinfo=None)
     if fault == "received_before_start": started = STAMP + dt.timedelta(seconds=1)
     assert not rf.apply_paper_exit_quote(case, arm, reverse(family, received=received), 100.,
-        STAMP + dt.timedelta(seconds=2), quote_started_at=started)
+        STAMP + dt.timedelta(seconds=2), quote_started_at=started,
+        fx_observation=synthetic_fx(STAMP + dt.timedelta(seconds=2)))
     assert arm == before
 
 
@@ -63,7 +65,8 @@ def test_pending_intent_cannot_fill_after_its_financial_generation_changed(field
     case, arm = prepared()
     arm["subject"][field] = value
     before = copy.deepcopy(arm)
-    assert not rf.apply_paper_exit_quote(case, arm, reverse(), 100., STAMP, quote_started_at=STAMP)
+    assert not rf.apply_paper_exit_quote(case, arm, reverse(), 100., STAMP, quote_started_at=STAMP,
+                                       fx_observation=synthetic_fx(STAMP))
     assert arm == before
 
 
@@ -82,7 +85,8 @@ def test_unknown_or_forged_intent_is_not_repaired_into_a_fill(fault):
         arm["intent"] = make_intent(arm["subject"], quantity=100, reason="partial_tp", now=STAMP)
     before = copy.deepcopy(arm)
     quantity = arm["intent"]["quantity"]
-    assert not rf.apply_paper_exit_quote(case, arm, reverse(quantity=quantity), 100., STAMP, quote_started_at=STAMP)
+    assert not rf.apply_paper_exit_quote(case, arm, reverse(quantity=quantity), 100., STAMP, quote_started_at=STAMP,
+                                       fx_observation=synthetic_fx(STAMP))
     assert arm == before
 
 
@@ -90,7 +94,8 @@ def test_unknown_or_forged_intent_is_not_repaired_into_a_fill(fault):
 def test_original_intent_and_request_clock_survive_close_and_are_required_by_terminal_consumer(family):
     case, arm = prepared(family)
     original = copy.deepcopy(arm["intent"])
-    assert rf.apply_paper_exit_quote(case, arm, reverse(family), 100., STAMP, quote_started_at=STAMP)
+    assert rf.apply_paper_exit_quote(case, arm, reverse(family), 100., STAMP, quote_started_at=STAMP,
+                                   fx_observation=synthetic_fx(STAMP))
     assert arm["fills"][0]["exit_intent"] == original
     assert arm["fills"][0]["quote_started_at"] == STAMP.isoformat()
     assert arm["net_pnl_sol"] == pytest.approx(.139925)
@@ -112,13 +117,14 @@ def test_secondary_await_cannot_fill_replaced_financial_generation(tmp_path):
     rf._write(path, case)
     async def prices(_): return {}
     async def sol(): return 100.
+    async def original_fx(): return synthetic_fx(stamp)
     async def quoted(**kwargs):
         latest = rf._read(path)
         for arm in latest["arms"].values(): arm["subject"]["estimated_fees_usd"] += .1
         rf._write(path, latest)
         return reverse(received=stamp, quantity=kwargs["amount_lamports"])
     result = asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=stamp,
-        prices_func=prices, quote_func=quoted, sol_price_func=sol))
+        prices_func=prices, quote_func=quoted, sol_price_func=sol, fx_func=original_fx))
     assert result["quote_calls"] == 1
     latest = rf._read(path)
     assert all(not arm["fills"] and arm["subject"]["qty_lamports"] == 800 and arm.get("intent")
@@ -148,12 +154,14 @@ def test_partial_then_terminal_replays_each_original_financial_generation():
     case, arm = prepared()
     arm["intent"] = make_intent(arm["subject"], quantity=100, reason="partial_tp", now=STAMP)
     first_quote = v2_quote(TOKEN, SOL, 100, 20000000, now=STAMP)
-    assert rf.apply_paper_exit_quote(case, arm, first_quote, 100., STAMP, quote_started_at=STAMP)
+    assert rf.apply_paper_exit_quote(case, arm, first_quote, 100., STAMP, quote_started_at=STAMP,
+                                   fx_observation=synthetic_fx(STAMP))
     assert arm["subject"]["qty_lamports"] == 700
     later = STAMP + dt.timedelta(minutes=1)
     arm["intent"] = make_intent(arm["subject"], quantity=700, reason="synthetic_close", now=later)
     last_quote = v2_quote(TOKEN, SOL, 700, 180000000, now=later)
-    assert rf.apply_paper_exit_quote(case, arm, last_quote, 100., later, quote_started_at=later)
+    assert rf.apply_paper_exit_quote(case, arm, last_quote, 100., later, quote_started_at=later,
+                                   fx_observation=synthetic_fx(later))
     assert arm["net_pnl_usd"] == pytest.approx(13.99)
     assert rf.validate_paper_cash_terminal(case, arm, later)
     damaged = copy.deepcopy(arm)
@@ -196,7 +204,8 @@ def test_rehashed_boolean_financial_basis_is_not_a_typed_money_receipt(path):
     target[path[-1]] = path[-1] == "execution_fill_count"
     receipt["sha256"] = _hash({key: value for key, value in receipt.items() if key != "sha256"})
     before = copy.deepcopy(arm)
-    assert not rf.apply_paper_exit_quote(case, arm, reverse(), 100., STAMP, quote_started_at=STAMP)
+    assert not rf.apply_paper_exit_quote(case, arm, reverse(), 100., STAMP, quote_started_at=STAMP,
+                                       fx_observation=synthetic_fx(STAMP))
     assert arm == before
 
 
@@ -209,5 +218,6 @@ def test_cash_only_terminal_replay_does_not_invent_absent_policy_field(policy_pr
         case["prefix"]["runner_trailing_policy"] = None
         arm["subject"]["runner_trailing_policy"] = None
     arm["intent"] = make_intent(arm["subject"], quantity=800, reason="synthetic_close", now=STAMP)
-    assert rf.apply_paper_exit_quote(case, arm, reverse(), 100., STAMP, quote_started_at=STAMP)
+    assert rf.apply_paper_exit_quote(case, arm, reverse(), 100., STAMP, quote_started_at=STAMP,
+                                   fx_observation=synthetic_fx(STAMP))
     assert rf.validate_paper_cash_terminal(case, arm, STAMP)

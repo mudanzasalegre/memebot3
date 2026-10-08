@@ -87,11 +87,11 @@ def test_exact_cash_return_is_uncapped_and_preserves_a_runner_tail(return_pct):
     assert 0 < intent["quantity"] < 800 and not arm["fills"]
     if return_pct >= 10000:
         assert intent["quantity"] == 770  # 3% of original entry remains; no upper return cap.
-    assert not rf.apply_paper_exit_quote(case, arm, q, 100., stamp, quote_started_at=stamp)
+    assert not rf.apply_paper_exit_quote(case, arm, q, 100., stamp, quote_started_at=stamp, fx_observation=fx(stamp))
     # A separate, later exact-size quote executes the original intent.
     later = stamp + dt.timedelta(seconds=1)
     fill_quote = quote(quantity=intent["quantity"], output=round(output * intent["quantity"] / 800), now=later)
-    assert rf.apply_paper_exit_quote(case, arm, fill_quote, 100., later, quote_started_at=later)
+    assert rf.apply_paper_exit_quote(case, arm, fill_quote, 100., later, quote_started_at=later, fx_observation=fx(later))
     assert arm["subject"]["qty_lamports"] == 800 - intent["quantity"] > 0
     assert arm["fills"][0]["exit_intent"]["cash_valuation"]["current"]["valued_at"] == stamp.isoformat()
 
@@ -144,7 +144,7 @@ def test_peak_original_clocks_survive_partial_and_total_peak_is_not_remaining_pe
                                 cash_valuation=evidence(arm, stamp))
     fill_at = stamp + dt.timedelta(seconds=1)
     assert rf.apply_paper_exit_quote(case, arm, quote(quantity=700, output=300000000, now=fill_at), 100.,
-                                     fill_at, quote_started_at=fill_at)
+                                     fill_at, quote_started_at=fill_at, fx_observation=fx(fill_at))
     later = stamp + dt.timedelta(seconds=60)
     assert rf._observe_cash(case, arm_id, quote(quantity=100, output=60000000, now=later), fx(later), later,
                             request_decision=False, quote_started_at=later)
@@ -261,7 +261,9 @@ def test_actual_pending_exit_has_priority_over_new_valuations(tmp_path):
         calls.append(kwargs)
         return quote(quantity=kwargs["amount_lamports"], now=stamp)
     async def scalar(): return 100.
-    result = asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=stamp, quote_func=quoted, sol_price_func=scalar))
+    async def original_fx(): return fx(stamp)
+    result = asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=stamp, quote_func=quoted,
+                               sol_price_func=scalar, fx_func=original_fx))
     assert result["quote_calls"] == 1 and calls[0]["amount_lamports"] == 100
     case = read_active(tmp_path)
     assert sum(len(a["fills"]) for a in case["arms"].values()) == 1
@@ -292,7 +294,7 @@ def test_different_quantities_are_serviced_oldest_first_without_cross_size_cash(
         if index:
             arm["intent"] = make_intent(arm["subject"], quantity=index * 100, reason="synthetic_partial", now=stamp)
             assert rf.apply_paper_exit_quote(case, arm, quote(quantity=index * 100, output=index * 10000000,
-                now=stamp), 100., stamp, quote_started_at=stamp)
+                now=stamp), 100., stamp, quote_started_at=stamp, fx_observation=fx(stamp))
     path = rf._directory(tmp_path) / "active" / f"{case['case_id']}.json"
     rf._write(path, case)
     quantities = []

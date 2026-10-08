@@ -31,6 +31,7 @@ qty_lamports entry_qty buy_price_usd amount_sol entry_notional_usd execution_cos
 entry_route_quote quantity_basis price_source_close net_total_pnl_usd net_total_pnl_pct
 net_total_pnl_sol total_pnl_usd estimated_fees_usd estimated_fees_sol execution_fill_count
 total_proceeds_sol exit_fill_events max_pnl_pct_seen highest_pnl_pct
+paper_execution_fx_version entry_fx_observation entry_valued_at
 """.split())
 
 
@@ -160,6 +161,13 @@ def validate_source(source):
     for name, target in (("qty_lamports", "entry_qty"), ("buy_price_usd", "buy_price_usd"),
             ("entry_notional_usd", "entry_notional_usd"), ("signature", "buy_signature")):
         if fill.get(name) != trade.get(target): raise TradeLearningError("Buy and close lineage conflicts")
+    from execution.paper_execution_fx import ENTRY_FIELDS, validate_entry
+    if any(fill.get(name) != trade.get(name) for name in ENTRY_FIELDS):
+        raise TradeLearningError("Buy and close original FX lineage conflicts")
+    try:
+        validate_entry(fill, amount_sol=buy["amount_sol"], not_after=trade["opened_at"])
+    except (ValueError, TypeError, KeyError) as exc:
+        raise TradeLearningError("Buy source lost its original PAPER FX") from exc
     validate_entry_features(source["entry_features"], address=trade["token_address"])
     if "entry_decision" in source:
         from runtime.entry_decision import validate_entry_decision
@@ -238,7 +246,8 @@ def _capture(identity, *, root):
     source = {"version": VERSION, "trade_id": identity, "entry_features": copy.deepcopy(journal["entry_features"]),
         "buy_proof": {"intent_id": journal["intent_id"], "address": journal["address"],
             "run_id": journal["base_position"].get("run_id"), "amount_sol": journal["amount_sol"],
-            "fill": {k: journal["fill"].get(k) for k in ("qty_lamports", "buy_price_usd", "entry_notional_usd", "signature")}},
+            "fill": {k: copy.deepcopy(journal["fill"][k]) for k in ("qty_lamports", "buy_price_usd", "entry_notional_usd", "signature",
+                "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at") if k in journal["fill"]}},
         "trade": {k: copy.deepcopy(v) for k, v in trade.items() if k in FINANCIAL_FIELDS}}
     if "entry_decision" in journal:
         source["entry_decision"] = copy.deepcopy(journal["entry_decision"])

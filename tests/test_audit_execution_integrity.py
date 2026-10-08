@@ -76,7 +76,8 @@ def isolated_paper(monkeypatch, tmp_path):
     monkeypatch.setattr(paper, "_DATA_PATH", tmp_path / "paper_portfolio.json")
     monkeypatch.setattr(paper, "_has_jupiter_route", AsyncMock(return_value=(True, "QUOTE_OK")))
     monkeypatch.setattr(paper, "_resolve_buy_price_usd", AsyncMock(return_value=(1.0, "jupiter")))
-    monkeypatch.setattr(paper, "_resolve_entry_notional_usd", AsyncMock(return_value=10.0))
+    from paper_fx_fixtures import install
+    install(monkeypatch, paper)
     monkeypatch.setattr(paper, "get_sol_usd", AsyncMock(return_value=100.0))
     monkeypatch.setattr(paper.jupiter_price, "get_usd_price", AsyncMock(return_value=1.0))
     monkeypatch.delenv("TRADING_HOURS", raising=False)

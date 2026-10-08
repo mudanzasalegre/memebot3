@@ -49,6 +49,21 @@ def runtime_namespace(root, *, pending=None):
     return ns
 
 
+@pytest.mark.asyncio
+async def test_original_execution_fx_survives_model_source_and_rejects_rehashed_conflicts(closed):
+    from execution.paper_execution_fx import ENTRY_FIELDS, validate_entry
+    from runtime import paper_archive
+    source = learning.prepare_close(closed.identity, root=closed.root)
+    assert validate_entry(source["buy_proof"]["fill"], amount_sol=.1, not_after=source["trade"]["opened_at"])
+    assert all(source["buy_proof"]["fill"][name] == source["trade"][name] for name in ENTRY_FIELDS)
+    bad = copy.deepcopy(source)
+    bad["trade"]["entry_fx_observation"]["price_usd"] = 999.
+    bad["buy_proof"]["fill"]["entry_fx_observation"]["price_usd"] = 999.
+    bad["payload_sha256"] = learning._hash({k:v for k,v in bad.items() if k != "payload_sha256"})
+    with pytest.raises((learning.TradeLearningError, paper_archive.PaperArchiveError)):
+        learning.validate_source(bad)
+
+
 @pytest.fixture(autouse=True)
 def clean_learning(monkeypatch):
     monkeypatch.setattr(learning, "_REPAIR_STATE", {})

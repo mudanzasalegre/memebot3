@@ -585,6 +585,8 @@ async def test_partial_execution_is_cash_accounting_not_a_remaining_quantity_pea
     mark = capture(row)
     assert paper.record_cash_observation(TOKEN, mark)
     monkeypatch.setattr(paper.jupiter_router, "get_routing_quote", AsyncMock(return_value=quote(250, 125000000)))
+    from paper_fx_fixtures import install
+    install(monkeypatch, paper)
     monkeypatch.setattr(paper, "get_sol_usd", AsyncMock(return_value=100.))
     response = await paper.sell(TOKEN, 250, partial_ladder_plan={"pending_step_count": 1})
     assert response["ok"] is True and response["qty_left"] == 750
@@ -689,6 +691,8 @@ async def test_actual_costed_partial_and_close_archive_keep_original_cash_peak_p
     assert paper.record_cash_observation(TOKEN, original)
     monkeypatch.setattr(paper.jupiter_router, "get_routing_quote", AsyncMock(side_effect=[
         quote(250, 125000000), quote(750, 375000000)]))
+    from paper_fx_fixtures import install
+    install(monkeypatch, paper)
     monkeypatch.setattr(paper, "get_sol_usd", AsyncMock(return_value=100.))
     assert (await paper.sell(TOKEN, 250, partial_ladder_plan={"pending_step_count": 1}))["ok"]
     assert (await paper.sell(TOKEN, 750))["ok"]

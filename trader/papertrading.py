@@ -46,6 +46,7 @@ from trade_pnl import apply_partial_fill, summarize_trade
 from fetcher import jupiter_price, jupiter_router
 from execution.quote_observation import observe_quote
 from execution import paper_cash_mark
+from execution import paper_execution_fx
 from utils.raw_units import sol_to_lamports
 from research_loop import runner_forward
 from runtime.paper_entry_policy import snapshot as entry_policy_snapshot
@@ -216,6 +217,11 @@ async def _resolve_close_price_usd(
 async def _resolve_entry_notional_usd(amount_sol: float) -> float:
     notional = await amount_sol_to_usd(amount_sol)
     return float(notional or 0.0)
+
+
+async def _resolve_execution_fx():
+    from utils.sol_price import get_sol_usd_observation
+    return await get_sol_usd_observation()
 
 
 def _recompute_entry_totals(entry: Dict[str, Any]) -> None:
@@ -707,7 +713,11 @@ async def _buy_owned(
         tokens_received=tokens_received,
         ds_price_usd=price_hint,
     )
-    entry_notional_usd = await _resolve_entry_notional_usd(amount_sol)
+    from utils.sol_price import fresh_sol_usd
+    entry_fx = await _resolve_execution_fx()
+    entry_valued_at = utc_now()
+    entry_rate = fresh_sol_usd(entry_fx, now=entry_valued_at.timestamp())
+    entry_notional_usd = amount_sol * entry_rate if entry_rate is not None else None
     if not _positive_finite(buy_price_usd) or not _positive_finite(entry_notional_usd):
         return {"ok": False, "qty_lamports": 0, "signature": "ENTRY_PRICE_OR_NOTIONAL_UNAVAILABLE", "route": {}}
     cost_model = _cost_model()
@@ -737,6 +747,9 @@ async def _buy_owned(
         "peak_price": float(buy_price_usd),
         "amount_sol": amount_sol,
         "entry_notional_usd": float(entry_notional_usd),
+        "paper_execution_fx_version": paper_execution_fx.VERSION,
+        "entry_fx_observation": entry_fx.to_dict(),
+        "entry_valued_at": entry_valued_at.isoformat(),
         "buy_liquidity_usd": float(liquidity_usd) if _positive_finite(liquidity_usd) else None,
         "execution_cost_model": cost_model,
         "spot_entry_price_usd": spot_price_usd,
@@ -744,7 +757,7 @@ async def _buy_owned(
         "estimated_fees_sol": cost_model["fee_sol_per_fill"],
         "realized_proceeds_sol": 0.0,
         "execution_fill_count": 1,
-        "opened_at": utc_now().isoformat(),
+        "opened_at": entry_valued_at.isoformat(),
         "closed": False,
         "dry_run": True,
         "config_profile": os.getenv("CONFIG_PROFILE", ""),
@@ -809,6 +822,7 @@ async def _buy_owned(
         "price_source": price_src,
         "price_confidence": price_confidence,
         "entry_notional_usd": float(entry_notional_usd),
+        **{name: copy.deepcopy(_PORTFOLIO[mint_key][name]) for name in paper_execution_fx.ENTRY_FIELDS},
         "runner_trailing_policy": _PORTFOLIO[mint_key]["runner_trailing_policy"],
     }
 
@@ -927,6 +941,26 @@ def _reuse_research_cash_quote(address, quote, fx, sampled_at, *, quote_started_
                 quote_started_at=quote_started_at, slippage_bps=slippage_bps)
         except Exception as exc:
             log.warning("[%s] cash quote reuse unavailable: %s", name, type(exc).__name__)
+
+
+def _reuse_research_execution_quote(address, quote, fx, sampled_at, *, quote_started_at):
+    """Reuse a committed fill's original quote for already-pending research exits.
+
+    Each secondary bank is independent; neither may undo the primary fill.
+    This hook must not request quotes, create intents or change primary cash.
+    """
+    import importlib
+    from utils.sol_price import fresh_sol_usd
+    rate = fresh_sol_usd(fx, now=sampled_at.timestamp())
+    if rate is None:
+        return
+    for name in ("runner_forward", "entry_gate_forward"):
+        try:
+            component = importlib.import_module("research_loop." + name)
+            component.observe_quote(address, quote, rate, root=_research_root(), cfg=CFG,
+                now=sampled_at, quote_started_at=quote_started_at, fx_observation=fx)
+        except Exception as exc:
+            log.warning("[%s] execution quote reuse unavailable: %s", name, type(exc).__name__)
 
 
 def record_cash_observation(address: str, mark, *, expected_position=None) -> bool:
@@ -1111,7 +1145,9 @@ async def _sell_owned(
         )
 
     cost_model = entry.get("execution_cost_model")
-    sol_usd = await get_sol_usd() if cost_model else None
+    from utils.sol_price import fresh_sol_usd
+    fill_fx = await _resolve_execution_fx() if cost_model or entry.get("entry_route_quote") else None
+    sol_usd = fresh_sol_usd(fill_fx, now=utc_now().timestamp()) if fill_fx is not None else None
     exit_route_quote = None
     if entry.get("entry_route_quote"):
         # Price data alone does not prove exit liquidity. Quote the exact raw
@@ -1132,7 +1168,8 @@ async def _sell_owned(
                     "qty_sold": 0, "qty_left": total_qty}
         # Re-read the shared FX contract after the quote await. A cache hit
         # preserves its original clocks; an expired/failed refresh is unknown.
-        sol_usd = await get_sol_usd()
+        fill_fx = await _resolve_execution_fx()
+        sol_usd = fresh_sol_usd(fill_fx, now=utc_now().timestamp())
         try:
             exit_route_quote = capture_summary(quote, input_mint=key, output_mint=SOL_MINT,
                 amount=take_qty, slippage=slippage, limit=entry["entry_route_quote"]["max_impact_pct"], now=utc_now())
@@ -1142,14 +1179,6 @@ async def _sell_owned(
             return {"ok": False, "error": "EXIT_QUOTE_UNAVAILABLE", "signature": None,
                     "qty_sold": 0, "qty_left": total_qty}
         proceeds_usd = quote.out_amount / 1e9 * float(sol_usd)
-        try:
-            runner_forward.observe_quote(key, quote, float(sol_usd), root=_research_root(), cfg=CFG,
-                quote_started_at=research_quote_started_at)
-            from research_loop import entry_gate_forward
-            entry_gate_forward.observe_quote(key, quote, float(sol_usd), root=_research_root(), cfg=CFG,
-                quote_started_at=research_quote_started_at)
-        except Exception as exc:
-            log.warning("[runner_forward] quote reuse unavailable: %s", type(exc).__name__)
         reference_tokens = (take_qty / int(entry["entry_qty"])) * float(entry["entry_notional_usd"]) / float(entry["buy_price_usd"])
         price_now, price_src = proceeds_usd / reference_tokens, "jupiter_reverse_quote"
     # A missing exit cannot be fabricated as a break-even fill.
@@ -1173,11 +1202,17 @@ async def _sell_owned(
     intent_id = exit_intent_id or uuid.uuid4().hex
     sig = f"SIM-EXIT-{intent_id}"
     filled_at = utc_now().isoformat()
+    if fill_fx is not None and fresh_sol_usd(fill_fx, now=dt.datetime.fromisoformat(filled_at).timestamp()) != sol_usd:
+        return {"ok": False, "error": "FEE_VALUATION_UNAVAILABLE", "signature": None,
+                "qty_sold": 0, "qty_left": total_qty}
     response = {"ok": True, "signature": sig, "venue": "paper",
                 "price_used_usd": float(price_now), "price_source_close": price_src,
                 "price_confidence_close": price_confidence_close, "qty_sold": take_qty,
                 "qty_left": total_qty - take_qty, "partial": take_qty < total_qty,
                 "filled_at": filled_at, "exit_intent_id": intent_id}
+    if fill_fx is not None:
+        response.update(paper_execution_fx_version=paper_execution_fx.VERSION,
+                        fill_fx_observation=fill_fx.to_dict(), quote_sol_usd=float(sol_usd))
     if exit_route_quote is not None:
         response["exit_route_quote"] = exit_route_quote
         response["quote_sol_usd"] = float(sol_usd)
@@ -1233,6 +1268,9 @@ async def _sell_owned(
         entry["exit_reason"] = exit_reason or "partial_tp"
         _update_net_costs(entry, closing=False)
         _persist_sell_fill(key, original_entry, entry, response, total_qty)
+        if exit_route_quote is not None:
+            _reuse_research_execution_quote(key, quote, fill_fx, dt.datetime.fromisoformat(filled_at),
+                                           quote_started_at=research_quote_started_at)
         try:
             if entry.get("runner_research_source"):
                 from runtime.runner_enrollment import register_source
@@ -1280,6 +1318,9 @@ async def _sell_owned(
         entry["net_total_pnl_sol"] = total_proceeds_sol - float(entry["amount_sol"]) - float(entry["estimated_fees_sol"])
         entry["total_proceeds_sol"] = total_proceeds_sol
     _persist_sell_fill(key, original_entry, entry, response, total_qty)
+    if exit_route_quote is not None:
+        _reuse_research_execution_quote(key, quote, fill_fx, dt.datetime.fromisoformat(filled_at),
+                                       quote_started_at=research_quote_started_at)
     # A durable per-entry cell replaces fragile append-only writes. Existing
     # JSONL history stays untouched and is still read by the evidence readers.
     try:

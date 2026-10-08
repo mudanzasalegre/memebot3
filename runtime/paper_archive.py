@@ -36,6 +36,7 @@ time_to_partial_sec time_to_peak_sec peak_after_partial_pct exit_from_peak_giveb
 peak_valuation_basis last_cash_mark cash_peak_mark cash_max_adverse_mark cash_peak_observed_at
 cash_total_peak_mark
 legacy_market_peak_diagnostic
+paper_execution_fx_version entry_fx_observation entry_valued_at
 """.split())
 
 
@@ -77,6 +78,20 @@ def _validate_trade(trade):
         raise PaperArchiveError("Not a terminal paper trade snapshot")
     if _time(trade.get("closed_at")) < _time(trade.get("opened_at")):
         raise PaperArchiveError("Paper trade close precedes its entry")
+    from execution.paper_execution_fx import validate_entry, validate_exit
+    try:
+        original_entry = validate_entry(trade, amount_sol=trade.get("amount_sol", trade.get("buy_amount_sol")),
+                                        not_after=trade["opened_at"])
+        events = trade.get("exit_fill_events", [])
+        if original_entry and (not isinstance(events, list) or not events
+                or type(trade.get("execution_fill_count")) is not int
+                or len(events) != trade["execution_fill_count"] - 1):
+            raise ValueError("Incomplete original execution FX fill population")
+        for event in events:
+            if not validate_exit(event["response"]) and original_entry:
+                raise ValueError("Original entry lost its original exit FX")
+    except (ValueError, TypeError, KeyError) as exc:
+        raise PaperArchiveError("Paper archive lost its original execution FX") from exc
     for field in ("address", "token_mint"):
         if trade.get(field) and trade[field] != trade["token_address"]:
             raise PaperArchiveError("Paper trade address lineage conflicts")
@@ -155,7 +170,8 @@ def paper_snapshot(entry, token):
                 or not isinstance(event.get("response"), Mapping) for event in events)):
             raise PaperArchiveError("Malformed paper exit fill evidence")
         responses = {"ok", "signature", "venue", "price_used_usd", "price_source_close", "price_confidence_close",
-                     "qty_sold", "qty_left", "partial", "filled_at", "exit_intent_id", "exit_route_quote", "quote_sol_usd"}
+                     "qty_sold", "qty_left", "partial", "filled_at", "exit_intent_id", "exit_route_quote", "quote_sol_usd",
+                     "paper_execution_fx_version", "fill_fx_observation"}
         trade["exit_fill_events"] = [{"intent_id": event["intent_id"], "qty_before": event["qty_before"],
             "response": {key: value for key, value in event["response"].items() if key in responses}}
             for event in events]

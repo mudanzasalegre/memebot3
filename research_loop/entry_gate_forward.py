@@ -514,9 +514,11 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
             raise ValueError("empty raw SPL entry")
         lanes = {"rank_canary": "pump_early_research_rank_canary", "sniper_subprofile": "pump_early_sniper_research",
                  "late_momentum": "pump_early_late_momentum_watch", "moonshot": "pump_early_moonshot_micro_lottery"}
+        from execution.paper_execution_fx import VERSION as original_fx_version
         prefix = {"dry_run": True, "closed": False, "token_address": case["token"],
             "run_id": plan["run_id"], "run_started_at": plan["run_started_at"],
             "opened_at": filled.isoformat(), "amount_sol": .1, "entry_sol_usd": sol_usd, "entry_notional_usd": .1 * sol_usd,
+            "paper_execution_fx_version": original_fx_version, "entry_valued_at": filled.isoformat(),
             "entry_fx_observation": fx.to_dict(), "entry_quote_started_at": quote_started_at.isoformat(),
             "buy_price_usd": price * (1 + model["slippage_bps"] / 10000), "entry_qty": quantity,
             "qty_lamports": quantity, "realized_qty": 0, "realized_proceeds_sol": 0., "realized_proceeds_usd": 0.,

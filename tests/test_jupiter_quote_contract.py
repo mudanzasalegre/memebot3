@@ -346,7 +346,8 @@ async def test_actual_01_paper_entry_wrong_exit_and_extreme_partials_use_http_co
     monkeypatch.setattr(paper, "_PORTFOLIO", {})
     monkeypatch.setattr(paper, "_DATA_PATH", tmp_path / "paper_portfolio.json")
     monkeypatch.setattr(paper, "_resolve_buy_price_usd", AsyncMock(return_value=(1.0, "jupiter")))
-    monkeypatch.setattr(paper, "_resolve_entry_notional_usd", AsyncMock(return_value=10.0))
+    from paper_fx_fixtures import install
+    install(monkeypatch, paper)
     monkeypatch.setattr(paper, "get_sol_usd", AsyncMock(return_value=100.0))
     monkeypatch.setattr(paper.jupiter_price, "get_usd_price", AsyncMock(return_value=1.0))
     monkeypatch.delenv("TRADING_HOURS", raising=False)

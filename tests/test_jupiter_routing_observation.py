@@ -14,6 +14,7 @@ from execution.quote_receipt import capture_summary, valid_summary, public_summa
 from execution.jupiter_quote_v2 import QuoteRequest
 from fetcher import jupiter_router as router
 from quote_fixtures import SOL, TOKEN, v2_body, v2_quote
+from paper_fx_fixtures import observation as synthetic_fx
 from test_entry_observation import run_function
 from test_paper_archive import paper
 from trader.papertrading import _has_jupiter_route as actual_paper_route
@@ -192,8 +193,10 @@ async def test_actual_reverse_exit_rechecks_fx_after_quote_before_any_money_writ
     replies.append(Response(v2_body()))
     assert (await paper.buy(TOKEN, .1))["qty_lamports"] == 1000
     before, saved = copy.deepcopy(paper._PORTFOLIO[TOKEN]), paper._DATA_PATH.read_bytes()
-    fx = AsyncMock(side_effect=[100., None])
-    monkeypatch.setattr(paper, "get_sol_usd", fx)
+    from utils.sol_price import SolUsdObservation
+    stamp = paper.utc_now().timestamp()
+    fx = AsyncMock(side_effect=[SolUsdObservation("OK", 100., stamp, stamp), SolUsdObservation("ERR")])
+    monkeypatch.setattr(paper, "_resolve_execution_fx", fx)
     replies.append(Response(v2_body(TOKEN, SOL, 1000, 200000000)))
     result = await paper.sell(TOKEN, 1000, exit_intent_id="b" * 32)
     assert result["ok"] is False and result["qty_sold"] == 0
@@ -215,7 +218,8 @@ def test_runner_research_accepts_checked_opaque_quotes_and_rejects_stripped_proo
     stamp = T0 + dt.timedelta(minutes=2)
     arm["intent"] = rf.make_intent(arm["subject"], quantity=800, reason="synthetic_close", now=stamp)
     assert rf.apply_paper_exit_quote(case, arm, v2_quote(TOKEN, SOL, 800, 200000000,
-        now=stamp, family=family, impact=-12), 100., stamp, quote_started_at=stamp)
+        now=stamp, family=family, impact=-12), 100., stamp, quote_started_at=stamp,
+        fx_observation=synthetic_fx(stamp))
     assert rf.validate_paper_cash_terminal(case, arm, stamp)
     damaged = copy.deepcopy(arm)
     damaged["fills"][0]["route_quote"]["observation_receipt"]["sha256"] = "0" * 64

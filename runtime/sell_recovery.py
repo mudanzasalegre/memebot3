@@ -23,9 +23,11 @@ NO_FILL = {"INVALID_ADDRESS", "INVALID_MINT", "NO_QTY", "SKIP_LOW_LIQ", "INVALID
            "EXIT_QUOTE_UNAVAILABLE", "EXIT_PRICE_UNAVAILABLE", "FEE_VALUATION_UNAVAILABLE",
            "ENTRY_BASIS_UNAVAILABLE"}
 FILL_FIELDS = ("signature", "price_used_usd", "price_source_close", "price_confidence_close",
-               "qty_sold", "qty_left", "partial", "filled_at", "venue", "execution_receipt")
+               "qty_sold", "qty_left", "partial", "filled_at", "venue", "execution_receipt",
+               "paper_execution_fx_version", "fill_fx_observation", "quote_sol_usd", "exit_route_quote")
 LINEAGE = ("entry_intent_id", "buy_signature", "entry_qty", "buy_price_usd", "amount_sol",
-           "entry_notional_usd", "opened_at", "run_id")
+           "entry_notional_usd", "opened_at", "run_id",
+           "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at")
 
 
 class SellRecoveryError(RuntimeError):
@@ -100,7 +102,8 @@ class SellAttempt:
                 response.update(derived)
             except (ValueError, KeyError, TypeError) as exc:
                 raise SellOutcomeUncertain("Sell has no owned independent wallet fill") from exc
-        fill = {key: response.get(key) for key in FILL_FIELDS}
+        fill = {key: response.get(key) for key in FILL_FIELDS if key not in {
+            "paper_execution_fx_version", "fill_fx_observation", "quote_sol_usd", "exit_route_quote"} or key in response}
         fill["filled_at"] = fill.get("filled_at") or now_iso()
         self.store.validate_fill(self.row, fill)
         if self.row["state"] == "fill_received" and self.row.get("fill") != fill:
@@ -139,6 +142,12 @@ class SellRecoveryStore:
                 or type(fill.get("partial")) is not bool or fill["partial"] is not (requested < before_qty)):
             raise SellOutcomeUncertain("Sell quantity/price/identity is not a checked fill")
         _time(fill.get("filled_at"))
+        if row["paper"]:
+            from execution.paper_execution_fx import validate_exit
+            try:
+                validate_exit(fill)
+            except (ValueError, TypeError, KeyError) as exc:
+                raise SellOutcomeUncertain("Sell lost its original PAPER FX conversion") from exc
         if row.get("execution") is not None:
             from runtime.execution_provenance import checked_live_fill
             receipt = checked_live_fill(row, fill, side="sell")
@@ -171,6 +180,11 @@ class SellRecoveryStore:
                 raise ValueError("Sell SQL recovery identity mismatch")
             if row.get("execution") is not None and record.get("execution_provenance") != row["execution"]:
                 raise ValueError("Sell SQL recovery lost original chain provenance")
+            if row["paper"] and row["fill"].get("paper_execution_fx_version") is not None:
+                original = {name: row["fill"].get(name) for name in (
+                    "paper_execution_fx_version", "fill_fx_observation", "quote_sol_usd", "filled_at")}
+                if record.get("paper_fill_fx") != original or record.get("paper_fill_dry_run") is not True:
+                    raise ValueError("Sell SQL recovery lost its original PAPER FX")
             fill, event, snapshot = row["fill"], record.get("trade_event"), record.get("position_snapshot")
             if (not isinstance(event, Mapping) or not isinstance(snapshot, Mapping)
                     or record.get("expected_before_qty") != row["before"]["qty"]

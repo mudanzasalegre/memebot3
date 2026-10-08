@@ -30,6 +30,21 @@ def _true(value: Any) -> bool:
 
 def _costed_close(row: dict[str, Any]) -> tuple[float, float, float, float, bool] | None:
     """Check estimated cash accounting, not merely the presence of a cost label."""
+    from execution.paper_execution_fx import validate_entry, validate_exit
+    try:
+        original_entry_fx = validate_entry(row, amount_sol=row.get("amount_sol", row.get("buy_amount_sol")),
+                                          not_after=row.get("opened_at"))
+        events = row.get("exit_fill_events", [])
+        if original_entry_fx and (not isinstance(events, list) or not events
+                or type(row.get("execution_fill_count")) is not int
+                or len(events) != row["execution_fill_count"] - 1):
+            return None
+        for event in events:
+            original_exit_fx = validate_exit(event["response"])
+            if original_entry_fx and not original_exit_fx:
+                return None
+    except (ValueError, TypeError, KeyError):
+        return None
     model = row.get("execution_cost_model")
     if (not isinstance(model, dict) or model.get("version") != "estimated-v1"
             or model.get("observed_execution") is not False):

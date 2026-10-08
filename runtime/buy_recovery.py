@@ -33,7 +33,8 @@ NO_EXECUTION_SIGNATURES = {"SIMULATION", "OUT_OF_WINDOW", "LIMIT_REACHED", "INSU
     "PAPER_ARCHIVE_UNAVAILABLE", "ENTRY_INTENT_ALREADY_USED", "CANARY_RISK_LIMIT"}
 OBSERVATION_DEFERRAL_SIGNATURES = frozenset({"NO_ROUTE", "NO_JUP_PRICE", "NO_JUP_ROUTE", "NO_JUP_ORDER"})
 FILL_FIELDS = ("qty_lamports", "signature", "buy_price_usd", "price_source", "price_confidence",
-               "entry_notional_usd", "runner_trailing_policy", "venue", "execution_receipt")
+               "entry_notional_usd", "runner_trailing_policy", "venue", "execution_receipt",
+               "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at")
 
 
 class BuyRecoveryError(RuntimeError):
@@ -120,7 +121,15 @@ class BuyAttempt:
                 or not _positive(response.get("entry_notional_usd"))
                 or not str(response.get("signature") or "").strip()):
             raise BuyOutcomeUncertain("Buy price, notional or signature is unconfirmed")
-        fill = {key: response.get(key) for key in FILL_FIELDS}
+        fill = {key: response.get(key) for key in FILL_FIELDS
+                if key not in {"paper_execution_fx_version", "entry_fx_observation", "entry_valued_at"} or key in response}
+        if self.row["paper"]:
+            from execution.paper_execution_fx import validate_entry
+            try:
+                validate_entry(fill, amount_sol=self.row["amount_sol"],
+                               not_before=self.row["created_at"], not_after=_now())
+            except (ValueError, TypeError, KeyError) as exc:
+                raise BuyOutcomeUncertain("Buy lost its original PAPER FX conversion") from exc
         if self.row["state"] == "fill_received" and self.row.get("fill") != fill:
             raise BuyOutcomeUncertain("Buy receipt conflicts with the persisted fill")
         self._save(state="fill_received", fill=fill, fill_received_at=_now())
@@ -237,6 +246,10 @@ class BuyRecoveryStore:
                 receipt = checked_live_fill(row, fill, side="buy")
                 if fill["qty_lamports"] != receipt["actual_output_units"]:
                     raise ValueError("Durable buy quantity differs from original chain receipt")
+            if row["paper"]:
+                from execution.paper_execution_fx import validate_entry
+                validate_entry(fill, amount_sol=row["amount_sol"], not_before=row["created_at"],
+                               not_after=row["fill_received_at"])
         if row["state"] in {"position_prepared", "persisted"}:
             if not isinstance(row.get("position"), Mapping):
                 raise ValueError("Missing buy position snapshot")
@@ -336,6 +349,7 @@ class BuyRecoveryStore:
                     attempt.receive({"qty_lamports": entry.get("entry_qty"),
                         "signature": entry.get("buy_signature"), "buy_price_usd": entry.get("buy_price_usd"),
                         "entry_notional_usd": entry.get("entry_notional_usd"),
+                        **{key: entry.get(key) for key in ("paper_execution_fx_version", "entry_fx_observation", "entry_valued_at")},
                         "price_source": entry.get("price_source"), "price_confidence": entry.get("price_confidence"),
                         "runner_trailing_policy": entry.get("runner_trailing_policy"), "venue": "paper"})
                     row = attempt.row
@@ -346,6 +360,9 @@ class BuyRecoveryStore:
                         or entry.get("entry_notional_usd") != fill.get("entry_notional_usd")
                         or entry.get("buy_signature") != fill.get("signature")):
                     raise BuyOutcomeUncertain("Paper fill conflicts with its buy recovery record")
+                if any(entry.get(key) != fill.get(key) for key in (
+                        "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at")):
+                    raise BuyOutcomeUncertain("Paper original FX conflicts with its buy recovery record")
                 if row["state"] == "fill_received":
                     snapshot = {**row["base_position"], "qty": fill["qty_lamports"],
                         "entry_qty": fill["qty_lamports"], "buy_price_usd": fill["buy_price_usd"],

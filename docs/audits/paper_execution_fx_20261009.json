@@ -1,0 +1,59 @@
+{
+  "stage": "original_paper_execution_fx_end_to_end",
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Original typed FX for primary PAPER execution, original recovery/close/archive/net-learning sources and prospective entry/runner cash. Preserve 0.1 SOL PAPER and uncapped runners. No LIVE size, model/policy activation, provider, wallet or order changes.",
+  "source_grain": "One original PAPER buy intent/trade, each exact-quantity partial/close fill and its own original SolUsdObservation and UTC event clock; original research cases remain separately owned.",
+  "findings": [
+    {"id": "primary_entry_receipt_loss", "severity": "high", "confidence": "high", "evidence": "The original primary buy consumed scalar notional conversion without persisting its typed original FX receipt or conversion clock.", "risk": "A later financial source could not independently check original entry conversion; current FX must not repair historical missing proof.", "repair": "Persist and validate versioned entry FX and entry_valued_at across primary response/portfolio, original buy recovery and net-learning export."},
+    {"id": "primary_fill_secondary_loss", "severity": "high", "confidence": "high", "evidence": "The original primary fill hook forwarded only scalar SOL/USD to research banks; runner observe_quote could not receive typed FX and financial consumers require original fill proof.", "risk": "Pending research exits could remain unfilled or unverifiable despite a compatible original primary quote.", "repair": "Forward one unchanged typed original observation and pre-await quote start after the primary fill is durable. Isolate banks; require typed financial fill FX in actual pending runner tick/hook and terminal consumers."},
+    {"id": "recovery_archive_learning_drop", "severity": "high", "confidence": "high", "evidence": "Fixed field whitelists discarded new FX metadata at buy/sell recovery, close outbox, archive and learning source capture.", "risk": "Crash recovery or export could sever original conversion lineage without changing nominal PnL.", "repair": "Retain and compare original entry/fill metadata, require complete new archived fill populations and validate original event clocks. Reject altered data even after payload hash recalculation. Check PAPER against SQL mode without restoring execution mode from a close snapshot."}
+  ],
+  "population_observation": {
+    "observed_at_utc": "2026-10-08T23:01:43.629882+00:00",
+    "original_primary_portfolio_rows": 0,
+    "paper_buy_journal_rows": 0,
+    "paper_closed_archive_rows": 0,
+    "paper_net_learning_source_rows": 0,
+    "source": "data/memebotdatabase.db",
+    "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+    "sql_rows": [],
+    "method": "Read-only work/audit-paper-fx-population.py counts declaration coverage, not proof validity. SQLite opened mode=ro. No prices, wallet keys or row identities disclosed.",
+    "limitation": "The inspected original PAPER population is empty. No coverage rate with a zero denominator, market outcome, current financial acceptance or profitable trade can be inferred. No historical records were backfilled."
+  },
+  "frozen_verification_source": {
+    "files": 744,
+    "normalized_sha256": "5e83bb10e011e50a52c047fa3067b95f2edb4bfbdf05160eaa0378a0a1a469d3",
+    "checkouts_equal": true,
+    "scope": "Allowed executable, test and source assets; excludes docs/README and all operator state. Identical before and after both full suites and both preflights."
+  },
+  "verification": {
+    "new_isolated_cases": 42,
+    "new_isolated_result": "42 passed in 3.85s on the frozen final executable/test snapshot",
+    "uncapped_tail_result": "15 passed in 3.14s; synthetic extreme entry/runner cash and no fixed percentage exit ceiling",
+    "working_full_suite": "3968 passed in 774.83s; exit0",
+    "publishing_full_suite": "3968 passed in 750.36s; exit0; existing working-checkout Python runtime",
+    "preflight_working": {"at_utc": "2026-10-08T23:14:25.820892+00:00", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders_passed": 7, "pytest_external_returncode": 0},
+    "preflight_publishing": {"at_utc": "2026-10-08T23:14:22.214148+00:00", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders_passed": 7, "pytest_external_returncode": 0},
+    "git_diff_check": "PASS; normal Git LF/CRLF warnings only"
+  },
+  "runtime_handoff": {
+    "status": "VERIFIED_OFF",
+    "requested_stop": "D-only scripts/stop_stack.ps1 -RequestedBy user; requested23:14:32Z, completed23:14:34Z, exit0, killed0, remaining0. No stop script run in the publishing checkout.",
+    "observed_at_utc": "2026-10-08T23:14:36.2395449+00:00",
+    "runtime_processes": 0, "task_owned_previews": 0, "matching_tasks": 0, "running_tasks": 0,
+    "matching_services": 0, "running_services": 0,
+    "working_locks": 0, "publishing_locks": 0,
+    "sql_main": {"process_state": "stopped", "reports_refresh_state": "idle", "retrain_state": "idle", "updated_at_utc": "2026-10-08 23:14:34.107502"},
+    "protected_mtime_census": {"since_utc": "2026-10-08T16:09:40Z", "working_files": 3763, "publishing_files": 27, "changed": 0, "qualification": "Read-only modification-time census, not a cryptographic historical proof. Intended stop SQL/log and preflight metrics are excluded."},
+    "green_live_risk_file_exists_in_either_checkout": false
+  },
+  "remaining_required_work": [
+    "Fresh prospective full-strategy costed evidence and risk/coverage acceptance remain unestablished; unit/replay results do not prove future profitability or exhaustive opportunity capture.",
+    "The first-partial runner enrollment source retains original entry and partial receipts, but later runner terminal FX checks do not themselves certify reconstruction of all original realized-prefix cash from those receipts. That additional financial conservation boundary remains separate.",
+    "Complete other applicable original LIVE FX/current-wallet/finality, full-strategy decision/provenance/capital boundaries and provider-access acceptance separately.",
+    "Historical original records without proof remain explicitly unproved. Do not rewrite them with current FX or activate a model/policy to manufacture acceptance."
+  ],
+  "safety": {"bot_started": false, "api_or_ui_started": false, "operator_training_or_research_started": false, "operator_models_or_policies_changed": false, "operator_provider_or_wallet_calls": false, "profit_ceiling_added": false, "paper_trade_size_changed": false, "live_trade_size_changed": false}
+}

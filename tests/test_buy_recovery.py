@@ -373,7 +373,8 @@ def configure_paper(monkeypatch, tmp_path):
         return True, "SYNTHETIC_QUOTE"
     monkeypatch.setattr(paper, "_has_jupiter_route", route)
     monkeypatch.setattr(paper, "_resolve_buy_price_usd", AsyncMock(return_value=(1., "synthetic")))
-    monkeypatch.setattr(paper, "_resolve_entry_notional_usd", AsyncMock(return_value=10.))
+    from paper_fx_fixtures import install
+    install(monkeypatch, paper)
     return paper
 
 

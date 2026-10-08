@@ -169,6 +169,13 @@ def build_recovery_record(
     intent_id = response.get("_sell_intent_id")
     if intent_id is not None and re.fullmatch(r"[0-9a-f]{32}", str(intent_id)) is None:
         raise ValueError("invalid sell intent identity")
+    from execution.paper_execution_fx import validate_exit
+    original_fx = None
+    if validate_exit(response):
+        if getattr(position, "dry_run", None) is not True:
+            raise ValueError("Original PAPER FX cannot certify a LIVE close")
+        original_fx = {name: _json_value(response.get(name)) for name in (
+            "paper_execution_fx_version", "fill_fx_observation", "quote_sol_usd", "filled_at")}
     return {
         "schema_version": SCHEMA_VERSION,
         "ts_utc": _utc_now_iso(),
@@ -185,6 +192,10 @@ def build_recovery_record(
         "sell_venue": str(response.get("venue") or "") or None,
         "sell_qty": response.get("qty_sold"),
         "execution_provenance": _json_value(response.get("execution_provenance")),
+        "paper_fill_fx": original_fx,
+        # Immutable execution mode is checked against SQL, never restored as a
+        # mutable close field. Old records without FX need no new mode marker.
+        "paper_fill_dry_run": True if original_fx is not None else None,
         "execution_token_mint": str(getattr(position, "token_mint", None) or address),
         "position_snapshot": capture_position_snapshot(position),
         "trade_event": _json_value(dict(trade_event)),
@@ -382,6 +393,14 @@ def _validate_record(record: Mapping[str, Any]) -> None:
     before = record.get("expected_before_qty")
     if before is not None and (type(before) is not int or not 0 < before <= 2**63 - 1):
         raise ValueError("invalid pre-sell quantity")
+    fx = record.get("paper_fill_fx")
+    if fx is None and record.get("paper_fill_dry_run") is not None:
+        raise ValueError("Close replay lost its declared original PAPER FX")
+    if fx is not None:
+        from execution.paper_execution_fx import validate_exit
+        if (not validate_exit(fx) or record.get("paper_fill_dry_run") is not True
+                or _parse_datetime(fx["filled_at"]) != _parse_datetime(event["ts_utc"])):
+            raise ValueError("Close replay differs from its original PAPER FX event")
     proof = record.get("execution_provenance")
     if proof is not None:
         from execution import chain_reconciliation as chain
@@ -421,6 +440,8 @@ async def _apply_record(session: AsyncSession, record: Mapping[str, Any]) -> Pos
         raise ValueError("close recovery position ownership mismatch")
     if record.get("source_position_key") is not None and position.source_position_key != record["source_position_key"]:
         raise ValueError("close recovery entry lineage mismatch")
+    if record.get("paper_fill_fx") is not None and position.dry_run is not True:
+        raise ValueError("Original PAPER FX cannot replay over a LIVE SQL position")
     event_snapshot = dict(record["trade_event"])
     rid = recovery_id(record)
     candidates = await _candidate_events(session, position_id, str(event_snapshot["event_type"]))

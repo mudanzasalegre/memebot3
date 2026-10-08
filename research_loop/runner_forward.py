@@ -141,6 +141,11 @@ def prepare_partial_case(entry: dict[str, Any], *,
         return None
     policy = runner_price_policy.parse_policy(entry.get("runner_trailing_policy"))
     stamp = now or _now()
+    from execution.paper_execution_fx import validate_entry
+    try:
+        validate_entry(entry, amount_sol=entry.get("amount_sol"), not_after=entry.get("opened_at"))
+    except (ValueError, TypeError, KeyError):
+        return None
     opened, run_start = _time(entry.get("opened_at")), _time(entry.get("run_started_at"))
     if (policy is None or entry.get("closed") or entry.get("test_event") or not entry.get("run_id")
             or opened is None or run_start is None or not run_start <= opened <= stamp
@@ -187,7 +192,8 @@ def prepare_partial_case(entry: dict[str, Any], *,
             "highest_pnl_pct", "max_pnl_pct_seen", "max_adverse_pnl_pct", "partial_ladder_state",
             "first_partial_at", "last_partial_at", "buy_liquidity_usd", "dry_run", "entry_route_quote",
             "quantity_basis", "runner_trailing_policy", "entry_intent_id", "buy_signature",
-            "source_position_key", "paper_entry_policy", "first_partial_exit_intent_id"}
+            "source_position_key", "paper_entry_policy", "first_partial_exit_intent_id",
+            "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at"}
     prefix = {key: copy.deepcopy(entry[key]) for key in keys if key in entry}
     variants = policy_variants(policy)
     arms = {}
@@ -391,6 +397,8 @@ def _apply_quote_checked(case: dict[str, Any], arm: dict[str, Any], quote: Any, 
         return False
     if not _positive(sol_usd):
         return False
+    if case.get("financial_policy_version") == cash.VERSION and fx_observation is None:
+        return False  # New financial cases require their original fill FX.
     if fx_observation is not None:
         from utils.sol_price import fresh_sol_usd
         if fresh_sol_usd(fx_observation, now=now.timestamp()) != sol_usd:
@@ -530,7 +538,7 @@ def observe_cash_quote(token: str, quote: Any, fx_observation, *, root: Path | s
 
 def observe_quote(token: str, quote: Any, sol_usd: float, *, root: Path | str | None = None,
                   cfg: Any = None, now: dt.datetime | None = None,
-                  quote_started_at: dt.datetime | None = None) -> int:
+                  quote_started_at: dt.datetime | None = None, fx_observation=None) -> int:
     """Reuse only already-pending, exact-quantity exit probes; never infer intent.
 
     A quote of a smaller amount cannot prove liquidity for a larger sale. This
@@ -546,7 +554,8 @@ def observe_quote(token: str, quote: Any, sol_usd: float, *, root: Path | str | 
             changed = False
             for arm in case["arms"].values():
                 if arm.get("intent", {}).get("quantity") == getattr(quote, "in_amount", None):
-                    if _apply_quote(case, arm, quote, sol_usd, stamp, quote_started_at=quote_started_at):
+                    if _apply_quote(case, arm, quote, sol_usd, stamp, quote_started_at=quote_started_at,
+                                    fx_observation=fx_observation):
                         changed = True
                         count += 1
             if changed:
@@ -637,7 +646,11 @@ async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datet
                                              amount_lamports=quantity)
                     if role == 0:
                         sol_usd = await sol_price_func()  # recheck FX after network wait
-                    else:
+                        if getattr(quote, "ok", None) is True and _positive(sol_usd) and any(
+                               item[0] == 0 and item[4]["token"] == token and item[6] == quantity
+                               and item[4].get("financial_policy_version") == cash.VERSION for item in requests):
+                            fx = await fx_func()
+                    elif getattr(quote, "ok", None) is True:
                         fx = await fx_func()  # original typed FX, never a relabelled scalar
                 except Exception:
                     quote = None
@@ -656,7 +669,7 @@ async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datet
                         success = False
                         if role == 0:
                             success = _positive(sol_usd) and _apply_quote(latest, current_arm, quote, float(sol_usd), filled_at,
-                                quote_started_at=quote_started_at)
+                                quote_started_at=quote_started_at, fx_observation=fx)
                         elif _same_cash_generation(current_arm, arm):
                             success = _observe_cash(latest, arm_id, quote, fx, filled_at,
                                 slippage_bps=requested_slippage, quote_started_at=quote_started_at)
@@ -714,6 +727,17 @@ def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt
     if deadline is None or closed > deadline + dt.timedelta(hours=MAX_SETTLEMENT_HOURS):
         return False
     prefix = case.get("prefix") or {}
+    from execution.paper_execution_fx import ENTRY_FIELDS, validate_entry
+    try:
+        # Entry-gate research already had its own typed entry_fx_observation
+        # before this primary-execution contract. Do not retroactively require
+        # a new version for those originals; its dedicated consumer checks it.
+        if prefix.get("paper_execution_fx_version") is not None or prefix.get("entry_valued_at") is not None:
+            validate_entry(prefix, amount_sol=prefix.get("amount_sol"), not_after=prefix.get("opened_at"))
+        if any(subject.get(name) != prefix.get(name) for name in ENTRY_FIELDS):
+            return False
+    except (ValueError, TypeError, KeyError):
+        return False
     if (prefix.get("quantity_basis") != "quoted_raw_spl_units" or not _positive(prefix.get("entry_route_quote", {}).get("out_amount"))
             or not _positive(prefix.get("entry_route_quote", {}).get("max_impact_pct"))
             or not valid_summary(prefix.get("entry_route_quote"), output_mint=case.get("token"),
@@ -745,6 +769,8 @@ def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt
                 or not _positive(fill.get("output_lamports")) or not _positive(fill.get("sol_usd"))
                 or _number(fill.get("impact_bps")) is None
                 or not isinstance(fill["input_raw_spl"], int) or not isinstance(fill["output_lamports"], int)):
+            return False
+        if case.get("financial_policy_version") == cash.VERSION and "fx_observation" not in fill:
             return False
         if "fx_observation" in fill:
             from utils.sol_price import SolUsdObservation, fresh_sol_usd

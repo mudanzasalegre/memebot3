@@ -59,10 +59,21 @@ no crea ni escribe este registro. Los otros limites de estrategia/capital y
 la aceptacion financiera completa siguen siendo fronteras independientes.
 Vease `docs/audits/green_canary_risk_20261008.json` y sus pruebas aisladas.
 
+La ejecucion PAPER principal conserva ahora `SolUsdObservation` y el reloj
+original de cada compra y de cada venta, incluidos los parciales. Estos
+recibos pasan por buy/sell recovery, close outbox, archivo, fuente neta del
+modelo y los dos bancos prospectivos. Cada conversion se valida en su reloj
+original; un scalar, supuesto o recibo perdido no se convierte en beneficio.
+Los bancos solo reutilizan la cotizacion tras persistir el fill principal,
+sin solicitudes adicionales ni nuevos intents. Un fallo de un banco no
+bloquea el otro ni deshace la venta. El replay PAPER comprueba el modo SQL
+sin cambiarlo. Los historicos sin estos recibos siguen sin certificarse y
+no se reescriben. Vease `docs/audits/paper_execution_fx_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original
-de cada fill en todos los caminos y la aceptacion financiera prospectiva siguen
+de los fills LIVE y la aceptacion financiera prospectiva siguen
 pendientes. Las compras de 0.1 SOL PAPER y los runners sin techo de beneficio
 no se han cambiado. Vease `docs/audits/sol_usd_quality_20261008.ipynb` para las
 comprobaciones reproducibles con datos sinteticos, no trades del operador.
