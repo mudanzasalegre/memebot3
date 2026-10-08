@@ -116,6 +116,9 @@ def _gate_decision(gate: str, features: dict[str, Any], cfg: Any) -> bool | None
 
 def _entry_cash(case: dict[str, Any], plan: dict[str, Any], now: dt.datetime) -> tuple[float, float]:
     from research_loop.runner_forward import validate_paper_cash_terminal
+    from execution.quote_receipt import valid_summary
+    from execution.quote_observation import impact_within_limit
+    from fetcher.jupiter_router import SOL_MINT
     prefix, terminal = case["cash"]["prefix"], case["cash"]["terminal"]
     decision_at = _time(case["decision_at"])
     route, model = prefix["entry_route_quote"], prefix["execution_cost_model"]
@@ -129,10 +132,12 @@ def _entry_cash(case: dict[str, Any], plan: dict[str, Any], now: dt.datetime) ->
             or prefix.get("amount_sol") != .1 or route.get("in_amount") != 100000000
             or isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0
             or not isinstance(route.get("out_amount"), int) or route["out_amount"] <= 0
-            or not isinstance(route.get("route_count"), int) or route["route_count"] <= 0
-            or isinstance(route["out_amount"], bool) or isinstance(route["route_count"], bool)
+            or not valid_summary(route, input_mint=SOL_MINT, output_mint=case["token"],
+                amount=100000000, not_after=_time(prefix["opened_at"]), allow_legacy=True)
+            or isinstance(route["out_amount"], bool)
             or policy.number(route["max_impact_pct"]) <= 0
-            or abs(policy.number(route["impact_bps"])) / 100 > policy.number(route["max_impact_pct"])
+            or not impact_within_limit(policy.number(route["impact_bps"]), policy.number(route["max_impact_pct"]),
+                protocol=route.get("protocol", "metis_v1"))
             or not 0 <= slippage < 10000 or fee < 0 or entry_sol_usd <= 0
             or policy.number(prefix["buy_price_usd"]) <= 0
             or model.get("version") != "estimated-v1" or model.get("observed_execution") is not False
@@ -150,7 +155,7 @@ def _entry_cash(case: dict[str, Any], plan: dict[str, Any], now: dt.datetime) ->
             or case.get("cash_rule") != ("one_common_frozen_entry_and_exit_for_all_gate_arms"
                 if plan.get("comparison_version") else "one_common_frozen_entry_and_exit_for_both_gate_arms")):
         raise ValueError("incomplete or incomparable counterfactual coverage")
-    cash_case = {"prefix": prefix, "registered_at": prefix["opened_at"],
+    cash_case = {"prefix": prefix, "token": case["token"], "registered_at": prefix["opened_at"],
                  "cohort_ends_at": plan["cohort_ends_at"]}
     if not validate_paper_cash_terminal(cash_case, terminal, now):
         raise ValueError("unresolved or nonconserved quoted cash")

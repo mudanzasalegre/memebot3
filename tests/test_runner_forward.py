@@ -64,11 +64,10 @@ def entry(**changes):
     }
 
 
-def quote(quantity=800, output=160000000, **changes):
-    return SimpleNamespace(**{
-        "ok": True, "in_amount": quantity, "out_amount": output, "price_impact_bps": 20.0,
-        "other": {"routePlan_len": 1}, **changes,
-    })
+def quote(quantity=800, output=160000000, *, source=MINT, now=T0, **changes):
+    from quote_fixtures import v1_quote, SOL
+    q = v1_quote(source, SOL, quantity, output, now=now)
+    return SimpleNamespace(**{**vars(q), **changes})
 
 
 def read_active(root):
@@ -97,7 +96,7 @@ def closed_cohort(root, *, n=50, baseline=20, start=T0, same_token=False):
             out = {baseline - 5: 200000000, baseline: 160000000, baseline + 5: 120000000}.get(dd, 160000000)
             fill_at = start + dt.timedelta(hours=26, minutes=int((dd - baseline + 5) / 5))
             arm["intent"] = {"quantity": 800, "reason": "TIMEOUT_RUNNER", "requested_at": fill_at.isoformat()}
-            assert rf._apply_quote(case, arm, quote(output=out), 100.0, fill_at)
+            assert rf._apply_quote(case, arm, quote(output=out, source=mint, now=fill_at), 100.0, fill_at)
         rf._write(rf._directory(root) / "closed" / path.name, case)
         path.unlink()
         result.append(case)
@@ -143,7 +142,7 @@ def test_bad_exit_quote_preserves_quantity_and_intent(tmp_path, changes):
     arm = next(iter(case["arms"].values()))
     arm["intent"] = {"quantity": 800, "requested_at": (T0 + dt.timedelta(minutes=2)).isoformat(), "reason": "stop"}
     before = copy.deepcopy(arm)
-    assert not rf._apply_quote(case, arm, quote(**changes), 100.0, T0 + dt.timedelta(minutes=3))
+    assert not rf._apply_quote(case, arm, quote(now=T0 + dt.timedelta(minutes=3), **changes), 100.0, T0 + dt.timedelta(minutes=3))
     assert arm == before
 
 
@@ -170,7 +169,7 @@ def test_budgeted_shadow_continues_after_actual_position_disappears(tmp_path):
     rf.register_partial(entry(), root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(minutes=1))
     async def prices(_): return {MINT: 1.1}
     async def sol(): return 100.0
-    async def valid(**kwargs): return quote(quantity=kwargs["amount_lamports"])
+    async def valid(**kwargs): return quote(quantity=kwargs["amount_lamports"], now=T0 + dt.timedelta(hours=25))
     asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(hours=25),
                         prices_func=prices, quote_func=valid, sol_price_func=sol))
     closed = rf._read(next((rf._directory(tmp_path) / "closed").glob("*.json")))
@@ -204,7 +203,7 @@ def test_paired_selection_applies_only_to_new_paper_entries_and_can_rollback(tmp
             fill_at = later + dt.timedelta(hours=26, minutes=int(arm["parameters"]["max_price_drawdown_pct"]))
             arm["intent"] = {"quantity": 800, "reason": "TIMEOUT_RUNNER", "requested_at": fill_at.isoformat()}
             out = 240000000 if arm["parameters"]["max_price_drawdown_pct"] == 20 else 160000000
-            rf._apply_quote(case, arm, quote(output=out), 100.0, fill_at)
+            assert rf._apply_quote(case, arm, quote(output=out, source=case["token"], now=fill_at), 100.0, fill_at)
         rf._write(rf._directory(tmp_path) / "closed" / f"{case['case_id']}.json", case)
     rollback = rf.evaluate_completed_cohorts(root=tmp_path, cfg=cfg(), now=later + dt.timedelta(hours=27))
     assert rollback["status"] == "selected" and rollback["action"] == "rollback"
@@ -296,13 +295,16 @@ def test_paper_buy_consumes_selection_and_first_partial_enrolls_isolated_store(t
         body.update(inputMint=source, outputMint=target, priceImpactPct="0.002",
                     slippageBps=router.DEFAULT_SLIPPAGE_BPS)
         body["routePlan"] = [hop(source, target, amount, output)]
-        return router._checked_quote(body, input_mint=source, output_mint=target,
+        q = router._checked_quote(body, input_mint=source, output_mint=target,
             amount=amount, slippage=router.DEFAULT_SLIPPAGE_BPS, direct=False)
+        q.other["received_at_utc"] = stamp.isoformat()
+        return q
     async def buy_price(**_): return (1.0, "jupiter")
     async def jupiter_price(_): return 1.0
     async def entry_notional(_): return 10.0
     async def sol(): return 100.0
-    monkeypatch.setattr(paper.jupiter_router, "get_quote", get_quote)
+    monkeypatch.setattr(paper.jupiter_router, "get_routing_quote", get_quote)
+    monkeypatch.setattr(paper.jupiter_router, "routing_quote_slippage_bps", lambda: router.DEFAULT_SLIPPAGE_BPS)
     monkeypatch.setattr(paper.jupiter_price, "get_usd_price", jupiter_price)
     monkeypatch.setattr(paper, "_resolve_buy_price_usd", buy_price)
     monkeypatch.setattr(paper, "_resolve_entry_notional_usd", entry_notional)
@@ -377,9 +379,9 @@ def test_monitor_market_and_exact_quote_are_reused_without_extra_requests(tmp_pa
     rf.register_partial(entry(buy_liquidity_usd=10000), root=tmp_path, cfg=cfg(), now=T0 + dt.timedelta(minutes=1))
     stamp = T0 + dt.timedelta(hours=25)
     assert rf.observe_market(MINT, 1.1, liq_now=1, root=tmp_path, cfg=cfg(), now=stamp) == 1
-    assert rf.observe_quote(MINT, quote(quantity=799), 100.0, root=tmp_path, cfg=cfg(), now=stamp) == 0
-    assert rf.observe_quote(MINT, quote(), 100.0, root=tmp_path, cfg=cfg(), now=stamp) == 3
-    assert rf.observe_quote(MINT, quote(), 100.0, root=tmp_path, cfg=cfg(), now=stamp) == 0
+    assert rf.observe_quote(MINT, quote(quantity=799, now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp) == 0
+    assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp) == 3
+    assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp) == 0
     assert all(len(arm["fills"]) == 1 and arm["subject"]["qty_lamports"] == 0
                for arm in read_active(tmp_path)["arms"].values())
 
@@ -390,8 +392,8 @@ def test_quote_hook_during_secondary_network_wait_cannot_duplicate_fill(tmp_path
     async def prices(_): return {}
     async def sol(): return 100.0
     async def interleaved(**kwargs):
-        assert rf.observe_quote(MINT, quote(), 100.0, root=tmp_path, cfg=cfg(), now=stamp) == 3
-        return quote()
+        assert rf.observe_quote(MINT, quote(now=stamp), 100.0, root=tmp_path, cfg=cfg(), now=stamp) == 3
+        return quote(now=stamp)
     asyncio.run(rf.tick(root=tmp_path, cfg=cfg(), now=stamp, prices_func=prices,
                         quote_func=interleaved, sol_price_func=sol))
     case = rf._read(next((rf._directory(tmp_path) / "closed").glob("*.json")))

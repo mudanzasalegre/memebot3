@@ -335,21 +335,24 @@ async def _has_jupiter_route(token_mint: str, amount_sol: float = 0.1, *, proof:
     """
     # A Price API response proves a price, NOT an executable swap route.
     try:
-        quote = await jupiter_router.get_quote(input_mint=SOL_MINT, output_mint=token_mint, amount_sol=amount_sol)
+        slippage = jupiter_router.routing_quote_slippage_bps()
+        quote = await jupiter_router.get_routing_quote(input_mint=SOL_MINT, output_mint=token_mint,
+            amount_sol=amount_sol, slippage_bps=slippage)
         observed = observe_quote(quote, input_mint=SOL_MINT, output_mint=token_mint,
-            amount=sol_to_lamports(amount_sol), slippage=jupiter_router.DEFAULT_SLIPPAGE_BPS)
+            amount=sol_to_lamports(amount_sol), slippage=slippage, now=utc_now())
         if observed.has_route is not True:
             return observed.has_route, "NO_ROUTE" if observed.has_route is False else "QUOTE_UNVERIFIED"
         impact = observed.price_impact_bps
         limit = quote_impact_limit_pct()
         if limit is None:
             return False, "IMPACT_LIMIT_UNKNOWN"
-        if abs(impact) / 100 > limit:
+        from execution.quote_observation import impact_within_limit
+        from execution.quote_receipt import capture_summary
+        if not impact_within_limit(impact, limit, protocol=observed.protocol):
             return False, "HIGH_QUOTE_IMPACT"
         if proof is not None:
-            proof.update({"out_amount": observed.out_amount, "in_amount": observed.in_amount,
-                          "impact_bps": impact, "max_impact_pct": limit,
-                          "route_count": observed.route_count})
+            proof.update(capture_summary(quote, input_mint=SOL_MINT, output_mint=token_mint,
+                amount=sol_to_lamports(amount_sol), slippage=slippage, limit=limit, now=utc_now()))
         return True, "QUOTE_OK"
     except Exception:
         return None, "ERR"
@@ -963,15 +966,18 @@ async def _sell_owned(
 
     cost_model = entry.get("execution_cost_model")
     sol_usd = await get_sol_usd() if cost_model else None
+    exit_route_quote = None
     if entry.get("entry_route_quote"):
         # Price data alone does not prove exit liquidity. Quote the exact raw
         # token quantity being sold, never the original SOL input amount.
         try:
-            quote = await jupiter_router.get_quote(input_mint=key, output_mint=SOL_MINT, amount_lamports=take_qty)
-            valid = (quote.ok and quote.in_amount == take_qty and quote.out_amount is not None
-                     and quote.out_amount > 0 and quote.price_impact_bps is not None
-                     and math.isfinite(quote.price_impact_bps)
-                     and abs(quote.price_impact_bps) / 100 <= entry["entry_route_quote"]["max_impact_pct"])
+            from execution.quote_receipt import capture_summary
+            slippage = jupiter_router.routing_quote_slippage_bps()
+            quote = await jupiter_router.get_routing_quote(input_mint=key, output_mint=SOL_MINT,
+                amount_lamports=take_qty, slippage_bps=slippage)
+            exit_route_quote = capture_summary(quote, input_mint=key, output_mint=SOL_MINT,
+                amount=take_qty, slippage=slippage, limit=entry["entry_route_quote"]["max_impact_pct"], now=utc_now())
+            valid = True
         except Exception:
             valid = False
         if not valid or not _positive_finite(sol_usd):
@@ -1012,6 +1018,9 @@ async def _sell_owned(
                 "price_confidence_close": price_confidence_close, "qty_sold": take_qty,
                 "qty_left": total_qty - take_qty, "partial": take_qty < total_qty,
                 "filled_at": filled_at, "exit_intent_id": intent_id}
+    if exit_route_quote is not None:
+        response["exit_route_quote"] = exit_route_quote
+        response["quote_sol_usd"] = float(sol_usd)
 
     # 3) Parcial vs cierre total
     if take_qty < total_qty:

@@ -149,10 +149,13 @@ def validate_source(source):
         raise TradeLearningError("Close source identity/quantity conflicts")
     fill = buy["fill"]
     quote = trade.get("entry_route_quote")
+    from execution.quote_receipt import valid_summary
+    from fetcher.jupiter_router import SOL_MINT
     if (not isinstance(fill, dict) or type(fill.get("qty_lamports")) is not int
             or not 0 < trade["entry_qty"] <= 2**63 - 1 or not isinstance(quote, dict)
-            or any(type(quote.get(key)) is not int for key in ("in_amount", "out_amount", "route_count"))
-            or quote["route_count"] <= 0 or _time(trade["closed_at"]) > dt.datetime.now(dt.timezone.utc)):
+            or not valid_summary(quote, input_mint=SOL_MINT, output_mint=trade["token_address"],
+                amount=100000000, not_after=_time(trade["opened_at"]), allow_legacy=True)
+            or _time(trade["closed_at"]) > dt.datetime.now(dt.timezone.utc)):
         raise TradeLearningError("Unconfirmed raw quote quantity or future close")
     for name, target in (("qty_lamports", "entry_qty"), ("buy_price_usd", "buy_price_usd"),
             ("entry_notional_usd", "entry_notional_usd"), ("signature", "buy_signature")):
@@ -185,7 +188,17 @@ def validate_source(source):
             raise TradeLearningError("Exit receipt lineage/quantity/time conflicts")
         price = _number(response["price_used_usd"])
         if price <= 0: raise TradeLearningError("Invalid exit receipt price")
-        proceeds += qty / trade["entry_qty"] * trade["entry_notional_usd"] / trade["buy_price_usd"] * price
+        fill_proceeds = qty / trade["entry_qty"] * trade["entry_notional_usd"] / trade["buy_price_usd"] * price
+        route = response.get("exit_route_quote")
+        if route is not None or "observation_receipt" in quote:
+            if (not valid_summary(route, input_mint=trade["token_address"], output_mint=SOL_MINT,
+                    amount=qty, not_after=stamp) or route["max_impact_pct"] != quote["max_impact_pct"]):
+                raise TradeLearningError("Exit observation-only quote differs from paper fill")
+            sol_usd = _number(response.get("quote_sol_usd"))
+            expected = route["out_amount"] / 1e9 * sol_usd * (1 - trade["execution_cost_model"]["slippage_bps"] / 10000)
+            if sol_usd <= 0 or not math.isclose(fill_proceeds, expected, rel_tol=1e-7, abs_tol=1e-8):
+                raise TradeLearningError("Exit quote valuation does not conserve paper proceeds")
+        proceeds += fill_proceeds
         remaining, previous = remaining - qty, stamp
         seen.add(exit_id)
     if (remaining != 0 or previous != _time(trade["closed_at"])

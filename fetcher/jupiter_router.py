@@ -22,6 +22,7 @@ from utils import solana_execution
 from runtime import execution_provenance
 from utils import jupiter_access
 from execution.quote_observation import rejection_metadata
+from execution import jupiter_quote_v2
 
 log = logging.getLogger("jupiter_router")
 
@@ -161,9 +162,9 @@ def _normalize_query_params(d: Mapping[str, Any]) -> dict[str, str]:
 _MAX_QUOTE_ROUTE_STEPS = 128
 
 
-async def _read_route_error(response) -> dict:
+async def _read_route_error(response, *, maximum=65536) -> dict:
     """Bounded, duplicate-free negative envelope; never log response text."""
-    chunks, size, maximum = [], 0, 65536
+    chunks, size = [], 0
     while True:
         chunk = await response.content.read(min(8192, maximum + 1 - size))
         if not chunk:
@@ -182,6 +183,61 @@ async def _read_route_error(response) -> dict:
         return result
 
     return json.loads(b"".join(chunks), object_pairs_hook=unique)
+
+
+def routing_quote_slippage_bps():
+    return MANAGED_SLIPPAGE_BPS if JUP_MANAGED_ENABLED is True else DEFAULT_SLIPPAGE_BPS
+
+
+def _checked_v2_quote(data, *, input_mint, output_mint, amount, slippage, now=None):
+    try:
+        request = jupiter_quote_v2.QuoteRequest(input_mint, output_mint, amount, slippage)
+        checked = jupiter_quote_v2.check_quote(data, request, now=now)
+    except (ValueError, TypeError, KeyError, OverflowError):
+        return QuoteResult(False, None, None, None,
+            {"quote_contract_error": "v2_quote_unverified", "quote_protocol": "swap_v2"}, {})
+    other = {"quote_contract_version": 2, "quote_protocol": "swap_v2", "router": checked.router,
+        "inputMint": input_mint, "outputMint": output_mint, "requested_in_amount": amount,
+        "slippageBps": slippage, "onlyDirectRoutes": False, "routePlan_len": checked.steps,
+        "received_at_utc": (now or datetime.now(timezone.utc)).isoformat(),
+        "provider_url": _ORDER_URL, "market_asof_verified": False, "fill_verified": False,
+        "transaction_available": False, "taker_provided": False}
+    return QuoteResult(True, checked.impact_bps, amount, checked.output, other, checked.raw)
+
+
+async def get_routing_quote(*, input_mint, output_mint, amount_sol=None, amount_lamports=None,
+                            slippage_bps=None):
+    """Observation only. All managed routers, no wallet/taker/signable order.
+
+    Explicit managed disable retains the existing Metis-only observation adapter.
+    Never retry a failed V2 quote on another protocol or use it for execution.
+    """
+    if JUP_MANAGED_ENABLED is not True:
+        return await get_quote(input_mint=input_mint, output_mint=output_mint,
+            amount_sol=amount_sol, amount_lamports=amount_lamports, slippage_bps=slippage_bps)
+    try:
+        if amount_sol is not None:
+            if amount_lamports is not None or input_mint != SOL_MINT:
+                raise ValueError("Conflicting observation-only amount units")
+            amount_lamports = sol_to_lamports(amount_sol)
+        slippage = routing_quote_slippage_bps() if slippage_bps is None else slippage_bps
+        request = jupiter_quote_v2.QuoteRequest(input_mint, output_mint, amount_lamports, slippage)
+        url = managed_contract.endpoint(JUP_ORDER_URL, "order")
+        await jupiter_access.acquire(url, api_key=JUP_API_KEY,
+            priority=0 if output_mint == SOL_MINT else 2, max_wait=TIMEOUT_S)
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=TIMEOUT_S), headers=_headers(url)) as session:
+            async with session.get(url, params=_normalize_query_params(request.params()), allow_redirects=False) as response:
+                jupiter_access.observe(url, api_key=JUP_API_KEY, response=response)
+                if response.status != 200:
+                    raise ValueError("Observation-only V2 quote unavailable")
+                data = await _read_route_error(response, maximum=2 * 1024 * 1024)
+        return _checked_v2_quote(data, input_mint=input_mint, output_mint=output_mint,
+            amount=amount_lamports, slippage=slippage)
+    except Exception as exc:
+        reason = "provider_budget_unavailable" if isinstance(exc, jupiter_access.BudgetUnavailable) else "v2_quote_unverified"
+        log.debug("[jupiter_router] observation-only V2 quote unavailable (%s)", type(exc).__name__)
+        return QuoteResult(False, None, None, None,
+            {"quote_contract_error": reason, "quote_protocol": "swap_v2"}, {})
 
 
 def _extract_price_impact_bps(data: Dict[str, Any]) -> Optional[float]:

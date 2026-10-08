@@ -342,6 +342,17 @@ puede volver a esa cola; un envio incierto sigue en recuperacion, sin reintento.
 Los limites de impacto, capital y configuracion no se relajan. Evidencia:
 `docs/audits/route_observation_admission_20261008.json` (software, no rentabilidad).
 
+Con `JUP_MANAGED_ENABLED=true`, el scanner, las entradas/salidas PAPER y la
+investigacion prospectiva consultan Swap V2 sin `taker`: Metis, JupiterZ,
+DFlow y OKX. No se solicita wallet ni transaccion para firmar. Una cotizacion
+RFQ/externa puede tener cero pasos publicados; solo se admite con su contrato
+completo validado, sin inventar pasos Metis. Los recibos publicos conservan
+payload permitido, importe, router y hora originales a traves del archivo y
+las etiquetas de aprendizaje. No son prueba de ejecucion ni de liquidez actual.
+La orden real sigue su validacion y reconciliacion independientes. Desactivar
+explicitamente el modo managed conserva Metis V1, sin fallback silencioso entre
+protocolos. Evidencia: `docs/audits/jupiter_all_router_observations_20261008.json`.
+
 ## Machine Learning
 
 ML es opcional y seguro por defecto:

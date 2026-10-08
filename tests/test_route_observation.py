@@ -157,7 +157,7 @@ async def test_actual_run_probe_uses_checked_exact_quote_and_no_extra_price_requ
         quote = checked(payload()) if fault == "stale" else router.QuoteResult(False, None, None, None,
             {"quote_contract_error": "provider_budget_unavailable"}, {})
         if fault == "stale": quote.other["received_at_utc"] = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=60)).isoformat()
-        source = SimpleNamespace(DEFAULT_SLIPPAGE_BPS=100, get_quote=AsyncMock(return_value=quote))
+        source = SimpleNamespace(routing_quote_slippage_bps=lambda: 100, get_routing_quote=AsyncMock(return_value=quote))
     price = AsyncMock(side_effect=AssertionError("unused price request"))
     namespace = {"Dict": dict, "Any": object, "Optional": __import__("typing").Optional,
         "_JUP_ROUTER_AVAILABLE": True, "jupiter": source,

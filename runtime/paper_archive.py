@@ -92,21 +92,26 @@ def paper_snapshot(entry, token):
     trade["token_address"] = token
     # Keep public financial proof, never arbitrary provider payload/credentials.
     for name, allowed in (
-        ("entry_route_quote", {"in_amount", "out_amount", "impact_bps", "route_count", "max_impact_pct"}),
         ("execution_cost_model", {"version", "observed_execution", "slippage_bps", "fee_sol_per_fill"}),
     ):
         if isinstance(trade.get(name), Mapping):
             trade[name] = {key: value for key, value in trade[name].items() if key in allowed}
+    from execution.quote_receipt import public_summary
+    if isinstance(trade.get("entry_route_quote"), Mapping):
+        trade["entry_route_quote"] = public_summary(trade["entry_route_quote"])
     if "exit_fill_events" in trade:
         events = trade["exit_fill_events"]
         if (not isinstance(events, list) or any(not isinstance(event, Mapping)
                 or not isinstance(event.get("response"), Mapping) for event in events)):
             raise PaperArchiveError("Malformed paper exit fill evidence")
         responses = {"ok", "signature", "venue", "price_used_usd", "price_source_close", "price_confidence_close",
-                     "qty_sold", "qty_left", "partial", "filled_at", "exit_intent_id"}
+                     "qty_sold", "qty_left", "partial", "filled_at", "exit_intent_id", "exit_route_quote", "quote_sol_usd"}
         trade["exit_fill_events"] = [{"intent_id": event["intent_id"], "qty_before": event["qty_before"],
             "response": {key: value for key, value in event["response"].items() if key in responses}}
             for event in events]
+        for event in trade["exit_fill_events"]:
+            if "exit_route_quote" in event["response"]:
+                event["response"]["exit_route_quote"] = public_summary(event["response"]["exit_route_quote"])
     return trade
 
 

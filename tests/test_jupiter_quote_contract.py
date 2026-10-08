@@ -193,6 +193,7 @@ def network(monkeypatch):
     monkeypatch.setattr(router, "JUP_QUOTE_URL", router._LITE_QUOTE_URL)
     monkeypatch.setattr(router, "JUP_API_KEY", "")
     monkeypatch.setattr(router, "DEFAULT_SLIPPAGE_BPS", 100)
+    monkeypatch.setattr(router, "JUP_MANAGED_ENABLED", False)
     return calls, replies
 
 

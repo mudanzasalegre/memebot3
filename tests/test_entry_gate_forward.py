@@ -48,15 +48,16 @@ def capture(root, cfg, row=None, now=T0, start=T0, gate="rank_canary"):
         return bank.capture_gate(gate, row or token(), cfg, now=now)
 
 
-def quote(quantity=100000000, output=1000, **changes):
-    return SimpleNamespace(**{"ok": True, "in_amount": quantity, "out_amount": output,
-                              "price_impact_bps": 20., "other": {"routePlan_len": 1}, **changes})
+def quote(quantity=100000000, output=1000, *, source=None, target=None, now=T0, **changes):
+    from quote_fixtures import v1_quote, SOL
+    q = v1_quote(source or token()["address"], target or SOL, quantity, output, now=now)
+    return SimpleNamespace(**{**vars(q), **changes})
 
 
 def fill(root, cfg, case_id, now=T0 + dt.timedelta(seconds=1), changes=None):
     async def prices(tokens): return {mint: 1. for mint in tokens}
     async def sol(): return 100.
-    async def quoted(**kwargs): return quote(**(changes or {}))
+    async def quoted(**kwargs): return quote(source=kwargs["input_mint"], target=kwargs["output_mint"], now=now, **(changes or {}))
     return asyncio.run(bank.fill_entry(case_id, root=root, cfg=cfg, now=now,
         prices_func=prices, quote_func=quoted, sol_price_func=sol))
 
@@ -146,8 +147,8 @@ def test_virtual_case_survives_primary_absence_and_requires_exact_pending_quote(
     record["cash"]["terminal"]["intent"] = {"quantity": q, "reason": "test_stop", "requested_at": (T0 + dt.timedelta(minutes=1)).isoformat()}
     store.write(bank.directory(tmp_path) / "active" / f"{identity}.json", record)
     mint = record["token"]
-    assert bank.observe_quote(mint, quote(quantity=q - 1, output=200000000), 100., root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(minutes=2)) == 0
-    assert bank.observe_quote(mint, quote(quantity=q, output=200000000), 100., root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(minutes=2)) == 1
+    assert bank.observe_quote(mint, quote(quantity=q - 1, output=200000000, now=T0 + dt.timedelta(minutes=2)), 100., root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(minutes=2)) == 0
+    assert bank.observe_quote(mint, quote(quantity=q, output=200000000, now=T0 + dt.timedelta(minutes=2)), 100., root=tmp_path, cfg=cfg, now=T0 + dt.timedelta(minutes=2)) == 1
     assert not (bank.directory(tmp_path) / "active" / f"{identity}.json").exists()
     assert case(tmp_path, identity, "closed")["cash"]["terminal"]["net_pnl_sol"] == pytest.approx(.09995)
 
@@ -175,7 +176,7 @@ def complete(root, cfg, *, start=T0, losing=False, gate="rank_canary", features_
         record["cash"]["terminal"]["intent"] = {"quantity": quantity, "reason": "synthetic_common_exit", "requested_at": closed.isoformat()}
         store.write(bank.directory(root) / "active" / f"{identity}.json", record)
         output = 30000000 if losing and i < 30 else 200000000
-        assert bank.observe_quote(record["token"], quote(quantity=quantity, output=output), 100., root=root, cfg=cfg, now=closed) == 1
+        assert bank.observe_quote(record["token"], quote(quantity=quantity, output=output, source=record["token"], now=closed), 100., root=root, cfg=cfg, now=closed) == 1
     base = bank.directory(root)
     plan_id = store.read(base / "open_plan.json")["plan_id"]
     store.write(base / "heartbeats" / f"{plan_id}.json", {"times": [(start + dt.timedelta(minutes=i)).isoformat() for i in range(1441)]})
@@ -241,7 +242,7 @@ def test_raw_exit_quote_never_accepts_boolean_amount_or_route_count(tmp_path, fa
     record["cash"]["terminal"]["intent"] = {"quantity": 1, "reason": "synthetic_partial",
         "requested_at": (T0 + dt.timedelta(seconds=60)).isoformat()}
     store.write(bank.directory(tmp_path) / "active" / f"{identity}.json", record)
-    bad = quote(quantity=1, output=1000000, **fault)
+    bad = quote(quantity=1, output=1000000, now=T0 + dt.timedelta(seconds=61), **fault)
     assert bank.observe_quote(record["token"], bad, 100., root=tmp_path, cfg=cfg,
                               now=T0 + dt.timedelta(seconds=61)) == 0
     assert case(tmp_path, identity)["cash"]["terminal"]["subject"]["realized_qty"] == 0
@@ -379,7 +380,7 @@ def successor_fixture(root, cfg, *, normal_output=30000000, priority_output=2000
                                                    "requested_at": closed.isoformat()}
         store.write(base / "active" / f"{identity}.json", record)
         output = normal_output if i < 20 else priority_output if i < 40 else 200000000
-        assert bank.observe_quote(row["address"], quote(quantity=quantity, output=output), 100.,
+        assert bank.observe_quote(row["address"], quote(quantity=quantity, output=output, source=row["address"], now=closed), 100.,
             root=root, cfg=cfg, now=closed) == 1
     plan_id = store.read(base / "open_plan.json")["plan_id"]
     store.write(base / "heartbeats" / f"{plan_id}.json", {"times": [(start + dt.timedelta(minutes=i)).isoformat() for i in range(1441)]})

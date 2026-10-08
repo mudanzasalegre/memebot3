@@ -26,6 +26,7 @@ from analytics import exit_policy, runner_ladder, runner_price_policy
 from config.config import CFG, PROJECT_ROOT
 from utils.atomic_json import read_json_strict, write_json_atomic
 from runtime.paper_archive import entry_identity
+from execution.quote_receipt import capture_summary, valid_summary
 
 VERSION = "paired_paper_runner_forward_v1"
 MIN_TOKENS = 50
@@ -151,7 +152,7 @@ def prepare_partial_case(entry: dict[str, Any], *,
             or not _positive(entry.get("entry_notional_usd")) or not _positive(entry.get("buy_price_usd"))
             or _number(entry.get("amount_sol")) != .1 or route.get("in_amount") != 100000000
             or not _positive(route.get("out_amount")) or not _positive(route.get("max_impact_pct"))
-            or type(route.get("route_count")) is not int or route["route_count"] <= 0
+            or not valid_summary(route, output_mint=entry.get("token_address"), amount=100000000, allow_legacy=True)
             or type(route.get("out_amount")) is not int
             or any(type(entry.get(key)) is not int for key in ("entry_qty", "qty_lamports", "realized_qty"))
             or entry.get("quantity_basis") != "quoted_raw_spl_units"):
@@ -249,18 +250,16 @@ def _apply_quote(case: dict[str, Any], arm: dict[str, Any], quote: Any, sol_usd:
             or not isinstance(quantity, int) or isinstance(quantity, bool)
             or not 0 < quantity <= subject["qty_lamports"]):
         return False
-    impact = _number(getattr(quote, "price_impact_bps", None))
-    routes = getattr(quote, "other", {}).get("routePlan_len")
-    if (getattr(quote, "ok", False) is not True or getattr(quote, "in_amount", None) != quantity
-            or not isinstance(getattr(quote, "in_amount", None), int)
-            or isinstance(getattr(quote, "in_amount", None), bool)
-            or not isinstance(getattr(quote, "out_amount", None), int)
-            or isinstance(getattr(quote, "out_amount", None), bool)
-            or not isinstance(routes, int) or isinstance(routes, bool) or routes <= 0
-            or not _positive(getattr(quote, "out_amount", None)) or impact is None
-            or abs(impact) / 100 > subject["entry_route_quote"]["max_impact_pct"]
-            or not _positive(sol_usd)):
+    from fetcher import jupiter_router
+    try:
+        receipt = capture_summary(quote, input_mint=case["token"], output_mint=jupiter_router.SOL_MINT,
+            amount=quantity, slippage=jupiter_router.routing_quote_slippage_bps(),
+            limit=subject["entry_route_quote"]["max_impact_pct"], now=now)
+    except (ValueError, TypeError, KeyError, OverflowError):
         return False
+    if not _positive(sol_usd):
+        return False
+    impact, routes = receipt["impact_bps"], receipt["route_count"]
     model = subject["execution_cost_model"]
     proceeds_sol = quote.out_amount / 1e9 * (1 - model["slippage_bps"] / 10000)
     proceeds_usd = proceeds_sol * sol_usd
@@ -276,6 +275,7 @@ def _apply_quote(case: dict[str, Any], arm: dict[str, Any], quote: Any, sol_usd:
     subject["execution_fill_count"] += 1
     arm["fills"].append({"input_raw_spl": quantity, "output_lamports": quote.out_amount,
                          "route_count": routes,
+                         "route_quote": receipt,
                          "impact_bps": impact, "sol_usd": sol_usd, "filled_at": now.isoformat(),
                          "intent_at": intent["requested_at"], "reason": intent["reason"],
                          "proceeds_sol": proceeds_sol, "proceeds_usd": proceeds_usd,
@@ -407,7 +407,7 @@ async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datet
         from fetcher import jupiter_price, jupiter_router
         from utils.sol_price import get_sol_usd
         prices_func = prices_func or jupiter_price.get_many_usd_prices
-        quote_func = quote_func or jupiter_router.get_quote
+        quote_func = quote_func or jupiter_router.get_routing_quote
         sol_price_func = sol_price_func or get_sol_usd
         try:
             prices = await prices_func(sorted({case["token"] for _, case in cases}))
@@ -512,6 +512,8 @@ def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt
     prefix = case.get("prefix") or {}
     if (prefix.get("quantity_basis") != "quoted_raw_spl_units" or not _positive(prefix.get("entry_route_quote", {}).get("out_amount"))
             or not _positive(prefix.get("entry_route_quote", {}).get("max_impact_pct"))
+            or not valid_summary(prefix.get("entry_route_quote"), output_mint=case.get("token"),
+                amount=100000000, not_after=_time(prefix.get("opened_at")), allow_legacy=True)
             or not _positive(prefix.get("entry_notional_usd")) or prefix.get("test_event")):
         return False
     fees_sol, fees_usd = _number(prefix.get("estimated_fees_sol")), _number(prefix.get("estimated_fees_usd"))
@@ -526,11 +528,19 @@ def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt
                 or fill.get("observed_execution") is not False or not _positive(fill.get("input_raw_spl"))
                 or not _positive(fill.get("output_lamports")) or not _positive(fill.get("sol_usd"))
                 or _number(fill.get("impact_bps")) is None
-                or abs(fill["impact_bps"]) / 100 > prefix["entry_route_quote"]["max_impact_pct"]
                 or not isinstance(fill["input_raw_spl"], int) or not isinstance(fill["output_lamports"], int)):
             return False
-        if (not isinstance(fill.get("route_count"), int) or isinstance(fill["route_count"], bool)
-                or fill["route_count"] <= 0):
+        receipt = fill.get("route_quote")
+        if receipt is not None:
+            from fetcher.jupiter_router import SOL_MINT
+            if (not valid_summary(receipt, input_mint=case["token"], output_mint=SOL_MINT,
+                    amount=fill["input_raw_spl"], not_after=filled)
+                    or receipt["out_amount"] != fill["output_lamports"]
+                    or receipt["route_count"] != fill.get("route_count") or receipt["impact_bps"] != fill["impact_bps"]
+                    or receipt["max_impact_pct"] != prefix["entry_route_quote"]["max_impact_pct"]):
+                return False
+        elif (not isinstance(fill.get("route_count"), int) or isinstance(fill["route_count"], bool)
+                or fill["route_count"] <= 0 or abs(fill["impact_bps"]) / 100 > prefix["entry_route_quote"]["max_impact_pct"]):
             return False
         model = prefix["execution_cost_model"]
         if (model.get("version") != "estimated-v1" or model.get("observed_execution") is not False

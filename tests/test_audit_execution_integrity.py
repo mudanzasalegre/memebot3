@@ -152,7 +152,7 @@ async def test_bad_amount_never_creates_position(isolated_paper, value):
 @pytest.mark.asyncio
 async def test_price_api_success_is_not_a_quote_route(isolated_paper, monkeypatch):
     # Restore the real route checker, while the price endpoint still returns $1.
-    monkeypatch.setattr(paper.jupiter_router, "get_quote", AsyncMock(return_value=SimpleNamespace(ok=False)))
+    monkeypatch.setattr(paper.jupiter_router, "get_routing_quote", AsyncMock(return_value=SimpleNamespace(ok=False)))
     # isolated fixture patches this symbol: use original implementation below via saved reference.
     assert (await REAL_ROUTE_CHECK(MINT, 0.1))[0] is None
 
@@ -171,9 +171,10 @@ async def test_fresh_quote_checks_exact_size_output_and_impact(monkeypatch, in_a
     body["priceImpactPct"] = str(impact / 10000) if impact is not None else None
     quote = router._checked_quote(body, input_mint=MINT, output_mint=TOKEN, amount=AMOUNT, slippage=100, direct=False)
     mocked = AsyncMock(return_value=quote)
-    monkeypatch.setattr(paper.jupiter_router, "get_quote", mocked)
+    monkeypatch.setattr(paper.jupiter_router, "get_routing_quote", mocked)
+    monkeypatch.setattr(paper.jupiter_router, "routing_quote_slippage_bps", lambda: 100)
     assert (await REAL_ROUTE_CHECK(TOKEN, 0.1))[0] is expected
-    mocked.assert_awaited_once_with(input_mint=MINT, output_mint=TOKEN, amount_sol=0.1)
+    mocked.assert_awaited_once_with(input_mint=MINT, output_mint=TOKEN, amount_sol=0.1, slippage_bps=100)
 
 
 def test_dedupe_preserves_repeat_trades_case_and_net_costs():
@@ -250,7 +251,8 @@ async def test_exact_quote_units_and_reverse_exit_are_accounted_end_to_end(isola
         return router._checked_quote(body, input_mint=source, output_mint=target, amount=amount, slippage=100, direct=False)
 
     monkeypatch.setattr(paper, "_has_jupiter_route", REAL_ROUTE_CHECK)
-    monkeypatch.setattr(paper.jupiter_router, "get_quote", quote)
+    monkeypatch.setattr(paper.jupiter_router, "get_routing_quote", quote)
+    monkeypatch.setattr(paper.jupiter_router, "routing_quote_slippage_bps", lambda: 100)
     result = await paper.buy(token, 0.1, require_jupiter_for_buy=True)
     qty = result["qty_lamports"]
     assert qty == int(2000000 / 1.01)

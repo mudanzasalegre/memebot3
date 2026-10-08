@@ -4427,10 +4427,11 @@ async def _probe_jupiter_route(output_mint: str, amount_sol: float) -> Dict[str,
             units = sol_to_lamports(amount_sol)
             if units is None:
                 return probe
-            q = await jupiter.get_quote(input_mint=SOL_MINT, output_mint=output_mint,
-                amount_lamports=units, slippage_bps=jupiter.DEFAULT_SLIPPAGE_BPS)
+            slippage = jupiter.routing_quote_slippage_bps()
+            q = await jupiter.get_routing_quote(input_mint=SOL_MINT, output_mint=output_mint,
+                amount_lamports=units, slippage_bps=slippage)
             observed = observe_quote(q, input_mint=SOL_MINT, output_mint=output_mint,
-                amount=units, slippage=jupiter.DEFAULT_SLIPPAGE_BPS)
+                amount=units, slippage=slippage)
             impact_bps = observed.price_impact_bps
             probe = {
                 "has_route": observed.has_route,
@@ -4438,6 +4439,8 @@ async def _probe_jupiter_route(output_mint: str, amount_sol: float) -> Dict[str,
                 "price_impact_pct": impact_bps / 100.0 if impact_bps is not None else None,
                 "price_available": None,
                 "route_reason": observed.reason,
+                "route_protocol": observed.protocol,
+                "route_router": observed.router,
             }
     except Exception:
         pass

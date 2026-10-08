@@ -1,0 +1,53 @@
+{
+  "stage": "All-router anonymous route observations across scanner, PAPER and prospective learning",
+  "generated_at_utc": "2026-10-08T15:03:55Z",
+  "status": "PASS_SOFTWARE_ONLY",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "previous_stage_evidence": "docs/audits/route_observation_admission_20261008.json",
+  "requested_trade_size_sol": 0.1,
+  "uncapped_extreme_runner_objective_unchanged": true,
+  "runtime_requirement": "All bot/API/UI/training/research services stay stopped. No operator wallet/key, provider trading call, real order, active model fit/promotion or policy activation. Synthetic HTTP/SDK/temp-journal/dataframe tests are software evidence only.",
+  "findings": [
+    "The actual managed buyer already admitted four V2 routers, while scanner, PAPER entry/reverse exits and prospective research still used Metis V1 quotes. This current source mismatch could exclude opportunities reachable through other managed routers; no causal contribution to the historical no-buy run is asserted.",
+    "Several paper/research/export readers required route_count > 0, conflating published Metis topology with the existence of a checked non-Metis quote. Public response fields alone also did not recheck original raw/receipt identity on simulated exits and research fills.",
+    "V2 priceImpact is signed percentage points, unlike the legacy nonnegative decimal priceImpactPct ratio. A negative V2 impact is a quoted improvement, not an adverse impact and not realized financial profit."
+  ],
+  "implemented": [
+    "Add a pure V2 quote-only contract and one budgeted GET adapter using canonical mint/raw-uint64/slippage identity, ExactIn, maxSupportedTransactionVersion=0 and no taker/payer/receiver/referral. Accept four known routers; forbid transaction or taker material. Bound duplicate-free response parsing to2 MiB; no redirect, POST, signer, wallet, retry or cross-protocol fallback. Explicit managed disable uses existing Metis V1.",
+    "Validate whole-route output floor, signed percentage-point impact, optional RFQ expiry and original public/raw fields. Recheck original aware receipt age at most10 seconds without refreshing it. Metis still requires checked topology; other known routers may publish zero physical steps, honestly recorded as zero, never synthetic Metis depth or current/order/fill proof.",
+    "Use the shared adapter in actual scanner and PAPER entry/reverse exits, runner and entry-gate research defaults. Keep price/capital/configuration/adverse-impact guards, exact0.1 SOL PAPER, current intent quantity, no-send/uncertain ownership, full actual order/projection/execute/chain reconciliation and uncapped runner objectives independent and unchanged.",
+    "Capture only whitelisted public structural quote fields and original metadata with an integrity checksum. Persist typed protocol/router/request/amount/receipt through PAPER entry summaries, exact exit responses, immutable archives, prospective research fills and checked causal net-only export. Historical validation uses the original receipt time and cannot establish current availability or provider authenticity.",
+    "Require the new typed proof before accepting non-Metis zero-step evidence. Recheck original entry/fill identities, quantity, receipt chronology, allowed adverse impact and costed exit valuation during research/learning reads. Preserve historical legacy summaries as legacy rather than retroactively certifying them as V2.",
+    "Upgrade incomplete synthetic quote fixtures to complete request-bound payloads and aligned clocks while preserving quantity, fee, recovery, no-duplicate and negative-learning assertions. No operator data/models/policies are rewritten."
+  ],
+  "verification": {
+    "intermediate_integration_suite": "509 passed in97.60s; executed before the final learning receipt changes, not final acceptance",
+    "final_new_routing_and_learning_focused": "97 passed in6.98s, including actual anonymous adapter/scanner/PAPER/archive and four-router runner/entry research/causal learning net export with synthetic responses only",
+    "working_full_suite": "3365 passed in370.72s D, exit0",
+    "publishing_full_suite": "3365 passed in356.91s C, exit0; source-only checkout using the existing D Python runtime, without personal.env/venv/runtimeDB",
+    "source_snapshot": "Both731 publishable verification source/config/test files, excluding docs and README, match normalized aggregate SHA2560bad4bcba67954b7c145dd5b7b75ed251e4c998c84110ca0abdd4b4b6d69c087 after full suites and requested stop. Executable/test source frozen throughout both runs. Reconstructing the original732-file snapshot with the unchanged parent README exactly reproduces initial SHA25623b28a175d4b955d4c04685fc6e45815a699d363783fff1091eea00786134152; only documentation/README evidence was completed later.",
+    "preflights": "Both final preflights after complete suites and D-only stop PASS: compile errors empty, config import returncode0, exact paper profile true and allseven empty-data report builders pass. No operator/provider initialization or bot activation.",
+    "initial_off_check": "2026-10-08T14:41:10.8079204Z scoped bot/API/UI/training/research process count0 and allfour actual/compatibility locks count0 across both roots",
+    "final_off_check": "VERIFIED_OFF_2026-10-08T15:02:50.2323857Z: both-root scoped runtime processes0, global bot/training/research/API0, allfour actual/compatibility locks0, memebot scheduled tasks0/services0. D-only requested stop15:02:20Z exit0 killed0/remaining0; read-only SQL main stopped/idle/idle, updated2026-10-08 15:02:20.065847. No C stop finalizer.",
+    "protected_operator_artifacts": "2026-10-08T15:02:51.5473471Z modification-time inventory:3763 D/27 C protected existing files, changed0 since2026-10-08T14:22:40Z. Includes active models/registries/policies, features, paper portfolio/archives, causal closes, research and buy/sell journals plus personal.env. This is not a cryptographic historical census; authorized stop SQL/log updates are excluded.",
+    "intermediate_repairs": "Initial legacy-paper fixture lacked explicit managed disable (1 failure/166 passed); corrected its intended V1 fixture, not the production V2 contract. One indentation collection error and one later successor fixture with an incorrect token/clock (1 failure/377 passed) were repaired before final validation. Final97 focused and both3365 full suites above are the acceptance results."
+  },
+  "publication": {
+    "checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
+    "branch": "main",
+    "parent_commit": "b56f027d51b65cebe15d5c1dd92b238cf7f495d3",
+    "status": "SOURCE_VALIDATED_COMMIT_PUSH_NEXT_AT_THIS_SNAPSHOT",
+    "commit_subject": "Align scanner paper and learning with all-router observation-only quotes",
+    "scope": "Reviewed25 source/tests/documentation files only; no personal.env, venv, runtime data, models/policies or deletions. Enclosing commit and remote branch identity are verified after this pre-publication evidence snapshot."
+  },
+  "primary_documentation": [
+    "https://developers.jup.ag/docs/api-reference/swap/order"
+  ],
+  "limitations": [
+    "This stage has no real provider access, wallet, order or prospective production profitability acceptance. Quote receipt integrity is not cryptographic provider attestation, market-asof, depth, signable-order readiness, chain execution or finality.",
+    "Opaque non-Metis quotes do not prove AMM pool initialization or depth. A subsequent real managed order remains independently checked; all explicit risk/configuration controls still apply.",
+    "Legacy/GMGN applicable unsigned instruction semantics, full current-wallet/restart/finalized financial evidence, provider access/latency and fresh full-strategy prospective costed profitability remain incomplete.",
+    "No software battery can promise zero future errors or a winning bot. Higher runner targets and trailing/partial behavior are uncapped objectives, not guaranteed future profits or knowledge of which token will explode."
+  ]
+}

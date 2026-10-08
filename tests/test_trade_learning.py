@@ -27,9 +27,10 @@ from runtime.buy_recovery import BuyRecoveryStore
 from runtime.paper_archive import entry_identity
 from utils.atomic_json import read_json_strict, write_json_atomic
 from test_paper_archive import paper
+from trader.papertrading import _has_jupiter_route as ORIGINAL_ROUTE
 
 STAMP = dt.datetime(2026, 10, 1, 12, tzinfo=dt.timezone.utc)
-MINT = "A" * 32
+MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
 
 def vector():
@@ -66,6 +67,12 @@ async def closed(paper, tmp_path, monkeypatch, request):
     prototype = Position(address=MINT, token_mint=MINT, qty=0, entry_qty=0, buy_price_usd=0.,
         buy_amount_sol=.1, entry_notional_usd=0., dry_run=True, opened_at=STAMP, run_id="net-label-test")
     param = getattr(request, "param", 101000000)
+    if isinstance(param, dict) and param.get("v2"):
+        from quote_fixtures import v2_quote
+        monkeypatch.setattr(paper, "_has_jupiter_route", ORIGINAL_ROUTE)
+        async def entry_quote(**kwargs):
+            return v2_quote(now=clock[0], family=param["v2"], impact=-12)
+        monkeypatch.setattr(paper.jupiter_router, "get_routing_quote", AsyncMock(side_effect=entry_quote))
     original = vector()
     auxiliary = None
     if isinstance(param, dict):
@@ -131,9 +138,14 @@ async def closed(paper, tmp_path, monkeypatch, request):
         attempt.confirm(pos)
     clock[0] += dt.timedelta(minutes=1)
     async def reverse(**kwargs):
-        return SimpleNamespace(ok=True, in_amount=kwargs["amount_lamports"],
-            out_amount=param.get("quote", 101000000) if isinstance(param, dict) else param, price_impact_bps=1)
-    monkeypatch.setattr(paper.jupiter_router, "get_quote", AsyncMock(side_effect=reverse))
+        from quote_fixtures import v1_quote
+        if isinstance(param, dict) and param.get("v2"):
+            from quote_fixtures import v2_quote
+            return v2_quote(kwargs["input_mint"], kwargs["output_mint"], kwargs["amount_lamports"],
+                param.get("quote", 101000000), now=paper.utc_now(), family=param["v2"], impact=-12)
+        return v1_quote(kwargs["input_mint"], kwargs["output_mint"], kwargs["amount_lamports"],
+            param.get("quote", 101000000) if isinstance(param, dict) else param, now=paper.utc_now(), impact_bps=1)
+    monkeypatch.setattr(paper.jupiter_router, "get_routing_quote", AsyncMock(side_effect=reverse))
     paper._PORTFOLIO[MINT]["max_pnl_pct_seen"] = 10000.
     result = await paper.sell(MINT, pos.qty, exit_intent_id="c" * 32)
     assert result["ok"]
@@ -148,6 +160,22 @@ def dataset(root):
 
 def source_path(case):
     return learning._directory(case.root) / (case.identity + ".json")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("closed", [{"v2": family} for family in ("metis", "jupiterz", "dflow", "okx")], indirect=True)
+async def test_all_router_receipts_survive_buy_close_export_and_checked_net_label(closed):
+    from execution.quote_receipt import valid_summary
+    source = learning.prepare_close(closed.identity, root=closed.root)
+    assert valid_summary(source["trade"]["entry_route_quote"])
+    assert source["trade"]["entry_route_quote"]["protocol"] == "swap_v2"
+    assert learning.publish_close(closed.identity, root=closed.root)["status"] == "written"
+    row = dataset(closed.root).iloc[0]
+    assert checked_net_return(row) == pytest.approx(-3.)  # Synthetic costs, not the high paper peak.
+    altered = copy.deepcopy(source)
+    del altered["trade"]["exit_fill_events"][0]["response"]["exit_route_quote"]
+    altered["payload_sha256"] = learning._hash({k: v for k, v in altered.items() if k != "payload_sha256"})
+    with pytest.raises(learning.TradeLearningError): learning.validate_source(altered)
 
 
 def test_entry_features_are_detached_whitelisted_and_keep_missingness():
@@ -280,12 +308,12 @@ async def test_parquet_failure_retains_retryable_source_and_actual_financial_clo
     assert source_path(closed).exists() and not ns["_pending_ai_vectors"]
     with pytest.raises(OSError): learning.publish_close(closed.identity, root=closed.root)
     assert closed.paper._PORTFOLIO[MINT]["closed"] and ns["_stats"]["appended_at_close"] == 0
-    quote_calls = closed.paper.jupiter_router.get_quote.await_count
+    quote_calls = closed.paper.jupiter_router.get_routing_quote.await_count
     monkeypatch.setattr(store, "_atomic_write_table", writer)
     result = learning.repair_exports(root=closed.root, cfg=SimpleNamespace(DRY_RUN=True), force=True)
     assert result == {"status": "ok", "attempted": 1, "failed": 0, "written": 1}
     assert dataset(closed.root).iloc[0]["target_total_pnl_pct"] == pytest.approx(-3.)
-    assert closed.paper.jupiter_router.get_quote.await_count == quote_calls
+    assert closed.paper.jupiter_router.get_routing_quote.await_count == quote_calls
 
 
 @pytest.mark.asyncio

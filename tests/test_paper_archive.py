@@ -64,13 +64,14 @@ def paper(monkeypatch, tmp_path):
         proof.update(out_amount=1000, in_amount=100000000, impact_bps=1, route_count=1, max_impact_pct=3)
         return True, "SYNTHETIC_QUOTE"
     async def reverse(**kwargs):
-        return SimpleNamespace(ok=True, in_amount=kwargs["amount_lamports"], out_amount=200000000,
-            price_impact_bps=1)
+        from quote_fixtures import v1_quote
+        return v1_quote(kwargs["input_mint"], kwargs["output_mint"], kwargs["amount_lamports"], 200000000,
+            now=paper.utc_now(), impact_bps=1)
     monkeypatch.setattr(paper, "_has_jupiter_route", AsyncMock(side_effect=route))
     monkeypatch.setattr(paper, "_resolve_buy_price_usd", AsyncMock(return_value=(1., "synthetic")))
     monkeypatch.setattr(paper, "_resolve_entry_notional_usd", AsyncMock(return_value=10.))
     monkeypatch.setattr(paper, "get_sol_usd", AsyncMock(return_value=100.))
-    monkeypatch.setattr(paper.jupiter_router, "get_quote", AsyncMock(side_effect=reverse))
+    monkeypatch.setattr(paper.jupiter_router, "get_routing_quote", AsyncMock(side_effect=reverse))
     monkeypatch.setattr(paper.runner_forward, "observe_quote", lambda *args, **kwargs: None)
     monkeypatch.setattr(paper.runner_forward, "register_partial", lambda *args, **kwargs: None)
     import research_loop.entry_gate_forward as entry_forward
@@ -207,13 +208,13 @@ async def test_archive_failure_keeps_completed_fill_then_repairs_without_another
     assert durable["qty_lamports"] == 0 and len(durable["exit_fill_events"]) == 1
     financial = (entry["net_total_pnl_sol"], entry["execution_fill_count"], entry["estimated_fees_sol"])
     assert await paper.sell(MINT, 1000, exit_intent_id="c" * 32) == result
-    assert paper.jupiter_router.get_quote.await_count == 1
+    assert paper.jupiter_router.get_routing_quote.await_count == 1
     monkeypatch.setattr(paper, "archive_closed_trade", original_archive)
     repaired = await paper.repair_paper_archives(force=True)
     assert repaired == {"status": "ok", "attempted": 1, "failed": 0}
     assert not entry["closed_archive_pending"] and len(archive.read_closed_evidence(paper._DATA_PATH.parent)[0]) == 1
     assert financial == (entry["net_total_pnl_sol"], entry["execution_fill_count"], entry["estimated_fees_sol"])
-    assert paper.jupiter_router.get_quote.await_count == 1 and not paper._SELL_LOCKS
+    assert paper.jupiter_router.get_routing_quote.await_count == 1 and not paper._SELL_LOCKS
 
 
 @pytest.mark.asyncio
@@ -229,10 +230,10 @@ async def test_acknowledgement_write_failure_never_invalidates_the_sale(paper, m
     result = await paper.sell(MINT, 1000, exit_intent_id="c" * 32)
     assert result["ok"] and paper._PORTFOLIO[MINT]["closed_archive_pending"]
     assert len(archive.read_closed_evidence(paper._DATA_PATH.parent)[0]) == 1
-    before = paper.jupiter_router.get_quote.await_count
+    before = paper.jupiter_router.get_routing_quote.await_count
     await paper.repair_paper_archives(force=True)
     assert not paper._PORTFOLIO[MINT]["closed_archive_pending"]
-    assert before == paper.jupiter_router.get_quote.await_count == 1
+    assert before == paper.jupiter_router.get_routing_quote.await_count == 1
 
 
 @pytest.mark.asyncio

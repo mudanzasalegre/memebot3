@@ -424,7 +424,7 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
     async def fresh_prices(tokens):
         return await jupiter_price.get_many_usd_prices(tokens, force_refresh=True)
     prices_func = prices_func or fresh_prices
-    quote_func = quote_func or jupiter_router.get_quote
+    quote_func = quote_func or jupiter_router.get_routing_quote
     sol_price_func = sol_price_func or get_sol_usd
     try:
         prices, sol_usd = await asyncio.gather(prices_func([case["token"]]), sol_price_func())
@@ -435,15 +435,14 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
         quote = await quote_func(input_mint=jupiter_router.SOL_MINT, output_mint=case["token"], amount_lamports=100000000)
         if (getattr(quote, "other", None) or {}).get("status") == 429:
             record_provider_event("jupiter", "429")
-        impact = policy.number(getattr(quote, "price_impact_bps", None))
-        routes, output = (getattr(quote, "other", None) or {}).get("routePlan_len"), getattr(quote, "out_amount", None)
         limit = policy.number(quote_impact_limit_pct(cfg))
-        if (quote.ok is not True or quote.in_amount != 100000000
-                or not isinstance(quote.in_amount, int) or isinstance(quote.in_amount, bool) or not isinstance(output, int)
-                or isinstance(output, bool) or output <= 0 or not isinstance(routes, int) or routes <= 0
-                or isinstance(routes, bool) or abs(impact) / 100 > limit or limit <= 0):
-            raise ValueError("invalid exact 0.1 SOL entry quote")
+        from execution.quote_receipt import capture_summary
         filled = now or dt.datetime.now(dt.timezone.utc)
+        route = capture_summary(quote, input_mint=jupiter_router.SOL_MINT, output_mint=case["token"],
+            amount=100000000, slippage=jupiter_router.routing_quote_slippage_bps(), limit=limit, now=filled)
+        output = route["out_amount"]
+        if limit <= 0:
+            raise ValueError("invalid exact 0.1 SOL entry quote")
         latest = storage.read(path)
         if not latest or latest.get("cash") is not None:
             return False
@@ -463,8 +462,7 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
             "qty_lamports": quantity, "realized_qty": 0, "realized_proceeds_sol": 0., "realized_proceeds_usd": 0.,
             "execution_fill_count": 1, "estimated_fees_sol": model["fee_sol_per_fill"],
             "estimated_fees_usd": model["fee_sol_per_fill"] * sol_usd, "execution_cost_model": model,
-            "entry_route_quote": {"in_amount": 100000000, "out_amount": output, "impact_bps": impact,
-                                  "max_impact_pct": limit, "route_count": routes},
+            "entry_route_quote": route,
             "quantity_basis": "quoted_raw_spl_units", "entry_regime": "pump_early", "entry_lane": lanes[plan["gate"]],
             "buy_liquidity_usd": case["features"].get("liquidity_usd"), "partial_taken": False,
             "partial_count": 0, "partial_fill_events": 0, "highest_pnl_pct": 0., "max_pnl_pct_seen": 0.,
@@ -534,7 +532,7 @@ def observe_quote(token: str, quote: Any, sol_usd: float, *, root: Path | str, c
         if case and case["token"] == token and case.get("cash"):
             terminal = case["cash"]["terminal"]
             if terminal.get("intent", {}).get("quantity") == getattr(quote, "in_amount", None):
-                cash_case = {"prefix": case["cash"]["prefix"]}
+                cash_case = {"prefix": case["cash"]["prefix"], "token": case["token"]}
                 if apply_paper_exit_quote(cash_case, terminal, quote, sol_usd, stamp):
                     count += 1
                     if terminal["closed"]:
@@ -660,7 +658,7 @@ async def tick(*, root: Path | str, cfg: Any = None, now: dt.datetime | None = N
         async def fresh_prices(tokens):
             return await jupiter_price.get_many_usd_prices(tokens, force_refresh=True)
         prices_func = prices_func or fresh_prices
-        quote_func = quote_func or jupiter_router.get_quote
+        quote_func = quote_func or jupiter_router.get_routing_quote
         sol_price_func = sol_price_func or get_sol_usd
         try:
             prices = {} if provider_status("jupiter").get("degraded") else await prices_func(sorted({c["token"] for _, c in cases if c.get("cash")}))

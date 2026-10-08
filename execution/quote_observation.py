@@ -22,6 +22,8 @@ class RouteObservation:
     out_amount: int | None = None
     price_impact_bps: float | None = None
     route_count: int | None = None
+    protocol: str | None = None
+    router: str | None = None
 
 
 def rejection_metadata(data: Any, *, url: str, status: int, input_mint: str,
@@ -90,13 +92,22 @@ def observe_quote(quote: Any, *, input_mint: str, output_mint: str, amount: int,
             return RouteObservation(False, code.lower())
         return unknown
     if (getattr(quote, "ok", None) is not True or type(other.get("quote_contract_version")) is not int
-            or other["quote_contract_version"] != 1):
+            or other["quote_contract_version"] not in (1, 2)):
         return unknown
     # Local import avoids a router/observation cycle. This recomputes structural
     # identity only; its new timestamp is deliberately NOT used for freshness.
-    from fetcher.jupiter_router import _checked_quote
-    checked = _checked_quote(raw, input_mint=input_mint, output_mint=output_mint,
-        amount=amount, slippage=slippage, direct=direct)
+    from fetcher.jupiter_router import _checked_quote, _checked_v2_quote
+    v2 = other["quote_contract_version"] == 2
+    if v2:
+        if (direct or other.get("quote_protocol") != "swap_v2"
+                or other.get("provider_url") != "https://api.jup.ag/swap/v2/order"
+                or other.get("transaction_available") is not False or other.get("taker_provided") is not False):
+            return unknown
+        checked = _checked_v2_quote(raw, input_mint=input_mint, output_mint=output_mint,
+            amount=amount, slippage=slippage, now=current)
+    else:
+        checked = _checked_quote(raw, input_mint=input_mint, output_mint=output_mint,
+            amount=amount, slippage=slippage, direct=direct)
     impact = getattr(quote, "price_impact_bps", None)
     if (not checked.ok or type(getattr(quote, "in_amount", None)) is not int
             or type(getattr(quote, "out_amount", None)) is not int
@@ -105,8 +116,18 @@ def observe_quote(quote: Any, *, input_mint: str, output_mint: str, amount: int,
             or not math.isfinite(impact) or impact != checked.price_impact_bps
             or type(other.get("routePlan_len")) is not int
             or other["routePlan_len"] != checked.other["routePlan_len"]
+            or (v2 and other.get("router") != checked.other.get("router"))
             or type(other.get("contextSlot")) is not type(checked.other.get("contextSlot"))
             or other.get("contextSlot") != checked.other.get("contextSlot")):
         return unknown
     return RouteObservation(True, "quote_ok", checked.in_amount, checked.out_amount,
-        checked.price_impact_bps, checked.other["routePlan_len"])
+        checked.price_impact_bps, checked.other["routePlan_len"], "swap_v2" if v2 else "metis_v1",
+        checked.other.get("router") if v2 else "metis")
+
+
+def impact_within_limit(impact, limit, *, protocol="metis_v1") -> bool:
+    """V2 impact is signed: improvement is not adverse slippage or profit."""
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+           for v in (impact, limit)) or limit < 0:
+        return False
+    return (max(0, impact) if protocol == "swap_v2" else abs(impact)) / 100 <= limit

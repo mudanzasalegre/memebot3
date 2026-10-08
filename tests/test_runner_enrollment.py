@@ -222,14 +222,14 @@ async def test_original_source_survives_later_partials_close_restart_and_same_mi
     rf._ACTIVE_INDEX.clear()
     clock[0] += dt.timedelta(minutes=10)
     monkeypatch.setattr(intake, "write_json_atomic", writer)
-    quote_calls = paper.jupiter_router.get_quote.await_count
+    quote_calls = paper.jupiter_router.get_routing_quote.await_count
     result = await paper.repair_runner_research(force=True)
     assert result["attempted"] == 1 and result["failed"] == 0
     case = active(paper._research_root())
     assert case["registered_at"] == frozen["captured_at"] and case["prefix"]["qty_lamports"] == 800
     assert case["prefix"]["highest_pnl_pct"] != 50000 and case["observation_gap_limit_exceeded"]
     assert all(arm["subject"]["qty_lamports"] == 800 and not arm["fills"] for arm in case["arms"].values())
-    assert paper.jupiter_router.get_quote.await_count == quote_calls == 3
+    assert paper.jupiter_router.get_routing_quote.await_count == quote_calls == 3
     assert (await paper.repair_runner_research(force=True))["attempted"] == 0
 
 
