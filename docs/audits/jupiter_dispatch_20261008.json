@@ -1,0 +1,54 @@
+{
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Repair actual legacy Jupiter build/dispatch retry and duplicated SDK signing paths; own managed local signing cancellation. Verification uses detached synthetic keys, fake HTTP/RPC and actual SDK/consumer code only. No operator signing, wallet/provider network call, live order or runtime launch is authorized.",
+  "user_objective": "Preserve requested exact 0.1 SOL paper entries and existing uncapped extreme-runner protection; learning targets above 100/200 percent are not take-profit caps or guaranteed cash returns. Reliable execution is necessary but cannot make the strategy profitable by itself.",
+  "findings": [
+    "The legacy Jupiter retry loop included signing/broadcast. A lost response after a possibly accepted submission could build and sign a different order.",
+    "The duplicate Jupiter signer used outdated SDK imports and message/legacy mutation assumptions; correcting the separate common signer did not repair this distinct caller.",
+    "Legacy signing/RPC blocked the shared event loop; managed signing used an unowned worker. Cancellation could abandon actual in-flight work.",
+    "The actual seller discarded checked QuoteResult identity before execution and conservatively could not distinguish a proven unsigned-build failure from a possibly submitted transaction."
+  ],
+  "implementation": {
+    "build_snapshot": "Detach and recheck quote raw data, original checked metadata, complete route contract, exact uint64 amounts, impact and slippage before HTTP. Freeze payload and validate strict retry/boolean/wallet inputs before each bounded unsigned request. A raw-dict compatibility call is sanity checked but does not independently prove the original caller request intent.",
+    "unsigned_retry": "Only HTTP429, HTTP5xx, connection errors and timeout during unsigned construction retry, with at most max_retries+1 requests and retry bound0..5. Zero retries means one initial request. Close each response/session before backoff. Other HTTP, JSON/schema/base64/alias/size failures do not retry or invoke dispatch.",
+    "packet_transport": "Check nonempty strict base64, consistent canonical/compatibility aliases, optional integer uint64 response metadata and supported legacy/v0 packet bound1232 bytes. Do not claim support for newer v1 transaction format or certify freshness, priority budget or unsigned instruction content.",
+    "dispatch_once": "Remove the duplicate signer and invoke the existing common current-SDK sign_and_send once, outside the build retry loop, through run_owned_sync. Preserve original bytes/signature and inherited matching-acknowledgement endpoint relay rules. Ordinary errors after entering dispatch are SwapSubmissionUncertain, even if the callable raises SwapPreparationError; no rebuild/re-sign/order fallback is allowed.",
+    "preparation_fallback": "SwapPreparationError proves this actual adapter has not entered its signing/send callable. Preserve actual checked QuoteResult in the seller and allow existing liquidity-gated canonical-mint GMGN fallback only at this proven pre-dispatch boundary. All post-dispatch errors remain uncertain; no financial fill is invented.",
+    "managed_ownership": "Move the existing managed local signing callable onto the same owned worker mechanism. Repeated cancellation joins signing before propagating cancellation and cannot continue to execute POST afterward. Managed response/request/content/finality validation and protocol migration are explicitly separate incomplete work.",
+    "unchanged": "No .env, operator key, active model, policy, order size, activation gate or upside ceiling is changed. All fixture package replacements use direct namespace assignment rather than invoking the operator's lazy signer import."
+  },
+  "verification": {
+    "status": "PASS_SOFTWARE_ONLY_NO_CHAIN_OR_PROFITABILITY_ACCEPTANCE",
+    "new_isolated_cases": 87,
+    "new_suite_working": "87 passed in 2.17s",
+    "new_suite_publishing": "87 passed in 2.04s",
+    "integration_suite": "392 passed in 10.21s on final source",
+    "working_full_suite": "2812 passed in 344.20s on final source",
+    "publishing_full_suite": "2812 passed in 331.07s on final source without personal .env, local .venv or runtime database, using existing working-checkout Python dependencies",
+    "preflight": "PASS in both checkouts: zero compile errors, configuration return code zero, valid paper profile and all seven empty-data report builders pass. Existing working-checkout Python dependencies are used; this is not new-machine provisioning or live launch acceptance.",
+    "initial_failures": "None in the 10-case initial, 74-case intermediate and final87-case isolated suite. Earlier362-case integration passed before final wallet/checked-result/retry-session changes and is not final-source acceptance.",
+    "coverage": [
+      "Detached raw/checked quotes and uint64 amounts above2^53, strict options and wallet identity, conflicting checked fields and changed raw schemas fail before HTTP/signing.",
+      "Bounded unsigned429/5xx/timeout/connect retries, original payload across caller mutation, closed HTTP sessions before backoff, nontransient/JSON/packet/schema failures without retry/send, consistent aliases and legacy/v0 bounds.",
+      "Actual installed-SDK legacy/v0 signatures/message preservation, one signing/build, matching/lost/wrong RPC acknowledgements and identical original-byte relays without new orders.",
+      "Repeated cancellation during actual legacy dispatch retains ownership until success/error worker settlement; unsigned cancellation invokes no signer; managed signing cancellation cannot proceed to execute POST.",
+      "Actual seller passes checked QuoteResult identity, uses canonical-mint fallback only after unsigned preparation failure and refuses fallback after ordinary or spoofed-preparation post-dispatch failure."
+    ],
+    "qualification": "Software-only evidence. Common owned worker tests independently cover durable buy/sell owner and runtime stopped ordering; this stage tests the distinct actual Jupiter adapters/consumer. Matching submission acknowledgement is not chain finality, wallet reconciliation, fee accounting, actual provider acceptance/latency or profitable forward evidence. A hung owned thread can exceed a shutdown deadline."
+  },
+  "preservation": {"status": "CHECKED_UNCHANGED", "stage_boundary_utc": "2026-10-08T10:11:00Z", "checked_at_utc": "2026-10-08T10:38:14.3394315Z", "publishing_checked_at_utc": "2026-10-08T10:38:14.3818602Z", "runtime_started": false, "live_orders": 0, "wallet_or_provider_network_calls": 0, "active_model_trained_or_promoted": false, "personal_env_changed": false, "both_checkouts_changed_files": {"models": 0, "ml/models": 0, "data/features": 0, "data/paper_closed_trades": 0, "data/learning/trade_closes": 0, "data/research": 0, "data/research_runs": 0, "data/metrics/buy_recovery": 0, "data/metrics/sell_recovery": 0, "data/paper_portfolio.json": 0, "active_policy.json": 0, "all_data_active_policy_json": 0, "root_compatibility_models_and_registry": 0, ".env": 0}, "qualification": "Modification-time inventory since the stage boundary; existing directories fail explicitly on read errors. Missing source-only publishing runtime paths have no files. This is not a complete cryptographic census. Requested stop updates its log and authoritative stopped/idle SQL state."},
+  "shutdown": {"status": "VERIFIED_OFF", "required_lock_path": "data/run_bot.lock", "lock_paths_checked_in_both_checkouts": ["bot.lock", "run_bot.lock", "data/bot.lock", "data/run_bot.lock"], "stop_command_exit_code": 0, "stop_log_at_utc": "2026-10-08T10:37:44Z", "killed": 0, "remaining": 0, "working_process_inventory_at_utc": "2026-10-08T10:37:45.0343501Z", "publishing_process_inventory_at_utc": "2026-10-08T10:37:45.0656844Z", "global_inventory_at_utc": "2026-10-08T10:37:45.7152840Z", "working_scoped_runtime_processes": 0, "publishing_scoped_runtime_processes": 0, "global_bot_training_research_api_processes": 0, "bot_lock_files_present": 0, "memebot_scheduled_tasks": 0, "memebot_services": 0, "sql_read_only_check_at_utc": "2026-10-08T10:37:46.208220+00:00", "sql_main": {"process_state": "stopped", "retrain_state": "idle", "reports_refresh_state": "idle"}, "publishing_checkout": "Source only; no stop finalizer, personal .env/.venv or runtime DB."},
+  "publication_contract": {"publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3", "previous_commit": "0a95679666790d202a3abd6f94c71473cb697af1", "scope": "Reviewed source, synthetic tests and technical evidence only; no secrets/runtime artifacts.", "final_identity": "Verify actual HEAD/origin/main/ls-remote after commit/push; no self-referential revision field."},
+  "primary_protocol_references": [
+    {"url": "https://developers.jup.ag/docs/api-reference/swap/v1/swap", "usage": "Unsigned Metis swap build is distinct from local submission; current documentation identifies its SwapV2 successor. No current protocol migration is claimed."},
+    {"url": "https://developers.jup.ag/docs/api-reference/ultra/execute", "usage": "Managed execute has its own request/response protocol and successor. Local signing ownership does not approve that protocol or a financial fill."},
+    {"url": "https://solana.com/docs/core/transactions", "usage": "Packet bound applies to installed-SDK legacy/v0, not newer v1 format support."}
+  ],
+  "remaining_goal_requirements": [
+    "Validate actual unsigned instructions against original wallet/mints/raw quantities/recipient/program/fee budgets; complete current applicable Jupiter/GMGN protocol/access migration and strict managed request/response/signature contracts.",
+    "Independently reconcile original-signature chain finality/errors, wallet debits/credits, fees and raw token quantities before financial fill/learning admission. No owned callable result or submission acknowledgement proves these.",
+    "Complete remaining full-strategy source/config/capital/admission/exit constraints and serial monitor behavior while its own position awaits sell providers; validate production timing separately.",
+    "Obtain separately authorized fresh costed full-strategy closed evidence, including extreme-runner capture and market-asof/depth, before profitability claims. Leave all runtime off as requested."
+  ]
+}

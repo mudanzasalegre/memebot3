@@ -44,9 +44,13 @@ from runtime.sell_recovery import SellOutcomeUncertain
 # Router Jupiter opcional (quote + swap real)
 try:
     from fetcher import jupiter_router as jupiter  # type: ignore
+    from fetcher.jupiter_router import SwapPreparationError, QuoteResult as _JupiterQuoteResult
     _JUP_ROUTER_AVAILABLE = True
 except Exception:
     jupiter = None  # type: ignore
+    class SwapPreparationError(RuntimeError):
+        pass
+    _JupiterQuoteResult = ()
     _JUP_ROUTER_AVAILABLE = False
 
 # gmgn SDK local
@@ -306,7 +310,8 @@ async def _sell_execute_prefer_jupiter(
                     parameters = inspect.signature(jupiter.execute_swap).parameters
                     keyword = "quote" in parameters and parameters["quote"].kind != inspect.Parameter.POSITIONAL_ONLY
                     submission_started = True
-                    txid = (await jupiter.execute_swap(quote=quote.raw) if keyword
+                    execution_quote = quote if isinstance(quote, _JupiterQuoteResult) else quote.raw
+                    txid = (await jupiter.execute_swap(quote=execution_quote) if keyword
                             else await jupiter.execute_swap(quote))
 
                     route_meta = {
@@ -316,6 +321,11 @@ async def _sell_execute_prefer_jupiter(
                         "outAmount": getattr(quote, "out_amount", None),
                     }
                     return True, {"signature": txid, "route": route_meta, "ok": True, "venue": "jupiter_legacy"}
+                except SwapPreparationError as exc:
+                    # The adapter proves it never entered signing/broadcast;
+                    # fallback is permitted, unlike an uncertain submission.
+                    submission_started = False
+                    log.warning("[seller] Jupiter unsigned build unavailable: %s", type(exc).__name__)
                 except Exception as exc:
                     if submission_started:
                         raise SellOutcomeUncertain("Jupiter sell submission is unconfirmed; do not retry") from exc

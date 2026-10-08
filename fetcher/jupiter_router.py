@@ -7,6 +7,7 @@ import base64
 import copy
 import json
 import logging
+import math
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Optional, Mapping, Union
 from urllib.parse import urlsplit
 from utils.raw_units import U64_MAX as _U64_MAX, raw_uint as _raw_uint, sol_to_lamports
+from runtime.owned_dispatch import run_owned_sync
 
 log = logging.getLogger("jupiter_router")
 
@@ -104,6 +106,18 @@ class QuoteResult:
     out_amount: Optional[int]      # cantidad de salida (enteros del output token)
     other: Dict[str, Any]          # campos útiles (slippageBps efectivo, routePlan, etc.)
     raw: Dict[str, Any]            # payload completo de Jupiter para auditoría
+
+
+class SwapPreparationError(RuntimeError):
+    """This adapter has not invoked a signing/broadcast execution callable."""
+
+
+class SwapSubmissionUncertain(RuntimeError):
+    """Execution began; do not build/sign/send another order or fall back."""
+
+
+class _TransientSwapBuild(RuntimeError):
+    pass
 
 
 # ─────────────────────── Helpers internos ───────────────────────
@@ -523,7 +537,7 @@ async def execute_managed_swap(
     except Exception as exc:
         raise RuntimeError(f"sol_signer not available for managed Jupiter execution: {exc}") from exc
 
-    signed_transaction = await asyncio.to_thread(sol_signer.sign_base64_transaction, tx_b64)
+    signed_transaction = await run_owned_sync(sol_signer.sign_base64_transaction, tx_b64)
     execute_response = await execute_order(
         signed_transaction=signed_transaction,
         request_id=request_id,
@@ -566,203 +580,149 @@ async def execute_swap(
     skip_preflight: bool = _SWAP_SKIP_PREFLIGHT_DEFAULT,
     max_retries: int = _SWAP_MAX_RETRIES,
 ) -> str:
+    """Build an unsigned transaction with bounded retries, then dispatch once.
+
+    Only the unsigned build request may retry. After entering the signing/send
+    callable, every ordinary error is uncertain; never request a new packet.
+    This validates transport, not swap instruction content or chain fills.
     """
-    Ejecuta un swap real con Jupiter (/swap):
-      1) POST /swap con quoteResponse + userPublicKey
-      2) decodifica swapTransaction (base64)
-      3) firma y envía la transacción
-      4) retorna la signature (txid)
+    try:
+        quote_resp = _swap_quote_snapshot(quote)
+        if type(max_retries) is not int or not 0 <= max_retries <= 5:
+            raise ValueError("max_retries must be an integer from 0 through 5")
+        if any(type(value) is not bool for value in (wrap_and_unwrap_sol,
+                as_legacy_transaction, dynamic_compute_unit_limit, skip_preflight)):
+            raise ValueError("Swap options must be booleans")
+        user_public_key = _configured_swap_wallet(user_public_key)
+        if prioritization_fee_lamports is None:
+            prioritization_fee_lamports = _parse_priority_fee(_PRIORITY_FEE_RAW)
+        if (prioritization_fee_lamports is not None and not isinstance(prioritization_fee_lamports, dict)
+                and (type(prioritization_fee_lamports) is not int
+                     or not 0 <= prioritization_fee_lamports <= _U64_MAX)):
+            raise ValueError("Invalid prioritization fee input")
+        payload = {"quoteResponse": quote_resp, "userPublicKey": user_public_key,
+            "wrapAndUnwrapSol": wrap_and_unwrap_sol, "asLegacyTransaction": as_legacy_transaction,
+            "dynamicComputeUnitLimit": dynamic_compute_unit_limit}
+        if prioritization_fee_lamports is not None:
+            payload["prioritizationFeeLamports"] = copy.deepcopy(prioritization_fee_lamports)
+        json.dumps(payload, allow_nan=False)  # Unknown/nonfinite options cannot authorize execution.
+        raw_tx = await _build_swap_transaction(payload, max_retries=max_retries)
+    except SwapPreparationError:
+        raise
+    except Exception as exc:
+        raise SwapPreparationError("Jupiter swap preparation failed before dispatch") from exc
 
-    Compatibilidad:
-      - Acepta `quote` como QuoteResult o como dict (raw quoteResponse).
-      - Firma con tu clave del proyecto (trader/sol_signer.py) si existe.
-      - Soporta legacy tx y, si solders lo permite, VersionedTransaction (fallback).
+    # This boundary is deliberately outside the build retry loop. Even an
+    # execution callable raising SwapPreparationError here is not a no-send proof.
+    try:
+        return await _sign_and_send_raw_transaction(raw_tx, skip_preflight=skip_preflight)
+    except Exception as exc:
+        raise SwapSubmissionUncertain("Jupiter dispatch requires reconciliation; no new order sent") from exc
 
-    Requisitos:
-      - trader/sol_signer.py correctamente configurado (SOL_PRIVATE_KEY, SOL_RPC_URL).
-    """
-    # normaliza quoteResponse (dict)
-    if isinstance(quote, QuoteResult):
-        quote_resp = quote.raw
-    elif isinstance(quote, dict):
-        quote_resp = quote
-    else:
-        raise TypeError("execute_swap: quote must be QuoteResult or dict")
 
-    if not isinstance(quote_resp, dict) or not quote_resp:
-        raise ValueError("execute_swap: empty quoteResponse")
+def _swap_quote_snapshot(quote: Union[QuoteResult, Dict[str, Any]]) -> dict:
+    result = quote if isinstance(quote, QuoteResult) else None
+    raw = result.raw if result is not None else quote
+    if not isinstance(raw, dict) or not raw or result is not None and result.ok is not True:
+        raise ValueError("Swap requires an available complete quote")
+    raw = copy.deepcopy(raw)
+    input_mint, output_mint = raw.get("inputMint"), raw.get("outputMint")
+    amount, slippage = _raw_uint(raw.get("inAmount")), raw.get("slippageBps")
+    if (not isinstance(input_mint, str) or not input_mint.strip()
+            or not isinstance(output_mint, str) or not output_mint.strip()
+            or amount is None or amount <= 0 or type(slippage) is not int or not 0 <= slippage <= 65535):
+        raise ValueError("Invalid swap quote request identity")
+    direct = False
+    if result is not None:
+        if not isinstance(result.other, dict):
+            raise ValueError("Invalid quote metadata")
+        direct = result.other.get("onlyDirectRoutes", False)
+        if type(direct) is not bool:
+            raise ValueError("Invalid direct-route metadata")
+        for key, value in (("inputMint", input_mint), ("outputMint", output_mint),
+                           ("requested_in_amount", amount), ("slippageBps", slippage)):
+            if key in result.other and (type(result.other[key]) is not type(value) or result.other[key] != value):
+                raise ValueError("Conflicting quote request metadata")
+    checked = _checked_quote(raw, input_mint=input_mint, output_mint=output_mint,
+        amount=amount, slippage=slippage, direct=direct)
+    if not checked.ok:
+        raise ValueError("Incomplete or malformed swap quote")
+    if result is not None and (type(result.in_amount) is not int or type(result.out_amount) is not int
+            or result.in_amount != checked.in_amount or result.out_amount != checked.out_amount
+            or isinstance(result.price_impact_bps, bool) or not isinstance(result.price_impact_bps, (int, float))
+            or not math.isfinite(result.price_impact_bps) or result.price_impact_bps != checked.price_impact_bps):
+        raise ValueError("Conflicting quote result fields")
+    return raw
 
-    # user public key
-    if not user_public_key:
-        # Intento 1: trader.sol_signer.PUBLIC_KEY
-        try:
-            from trader import sol_signer  # type: ignore
-            pk = getattr(sol_signer, "PUBLIC_KEY", None)
-            user_public_key = str(pk) if pk is not None else None
-        except Exception:
-            user_public_key = None
 
-    if not user_public_key:
-        # Intento 2: env SOL_PUBLIC_KEY
-        user_public_key = os.getenv("SOL_PUBLIC_KEY", "").strip() or None
+def _configured_swap_wallet(requested: str | None) -> str:
+    if requested is not None and not isinstance(requested, str):
+        raise ValueError("Invalid swap wallet identity")
+    from trader import sol_signer
+    configured = str(getattr(sol_signer, "PUBLIC_KEY", "") or "")
+    if not configured or not callable(getattr(sol_signer, "sign_and_send", None)):
+        raise ValueError("Configured swap signer unavailable")
+    declared = os.getenv("SOL_PUBLIC_KEY", "").strip()
+    if declared and declared != configured:
+        raise ValueError("Declared wallet differs from configured swap signer")
+    requested = (requested or configured).strip()
+    if requested != configured:
+        raise ValueError("Swap wallet differs from configured signer")
+    return configured
 
-    if not user_public_key:
-        raise RuntimeError("execute_swap: missing user_public_key (define SOL_PUBLIC_KEY o configura trader/sol_signer)")
 
-    swap_url = _derive_swap_url()
+def _swap_packet(data: Any) -> bytes:
+    if (not isinstance(data, dict) or data.get("error") or data.get("errorCode")
+            or data.get("simulationError") is not None):
+        raise SwapPreparationError("Jupiter build returned no usable unsigned transaction")
+    packets = [data[key] for key in ("swapTransaction", "swap_transaction", "transaction") if key in data]
+    if (not packets or any(not isinstance(value, str) or not value for value in packets)
+            or any(value != packets[0] for value in packets) or len(packets[0]) > 1644):
+        raise SwapPreparationError("Jupiter build returned missing/conflicting transaction bytes")
+    try:
+        raw = base64.b64decode(packets[0], validate=True)
+    except (ValueError, TypeError) as exc:
+        raise SwapPreparationError("Jupiter build returned invalid transaction base64") from exc
+    if not 0 < len(raw) <= 1232:
+        raise SwapPreparationError("Jupiter transaction exceeds supported legacy/v0 packet bounds")
+    for key in ("lastValidBlockHeight", "prioritizationFeeLamports"):
+        if key in data and (type(data[key]) is not int or _raw_uint(data[key]) is None):
+            raise SwapPreparationError("Jupiter build returned invalid numeric metadata")
+    return raw
 
-    if prioritization_fee_lamports is None:
-        prioritization_fee_lamports = _parse_priority_fee(_PRIORITY_FEE_RAW)
 
-    payload: Dict[str, Any] = {
-        "quoteResponse": quote_resp,
-        "userPublicKey": user_public_key,
-        "wrapAndUnwrapSol": bool(wrap_and_unwrap_sol),
-        "asLegacyTransaction": bool(as_legacy_transaction),
-        "dynamicComputeUnitLimit": bool(dynamic_compute_unit_limit),
-    }
-    if prioritization_fee_lamports is not None:
-        payload["prioritizationFeeLamports"] = prioritization_fee_lamports
-
+async def _build_swap_transaction(payload: dict, *, max_retries: int) -> bytes:
     timeout = aiohttp.ClientTimeout(total=SWAP_TIMEOUT_S)
-
-    last_err: Optional[str] = None
-    for attempt in range(max(1, int(max_retries)) + 1):
+    for attempt in range(max_retries + 1):
         try:
             async with aiohttp.ClientSession(timeout=timeout, headers=_headers()) as sess:
-                async with sess.post(swap_url, json=payload) as resp:
+                async with sess.post(_derive_swap_url(), json=copy.deepcopy(payload)) as resp:
                     if resp.status != 200:
-                        body: Any = None
-                        try:
-                            body = await resp.json(content_type=None)
-                        except Exception:
-                            try:
-                                body = await resp.text()
-                            except Exception:
-                                body = None
-                        last_err = f"swap non-200 ({resp.status}) body={body}"
-                        log.debug("[jupiter_router] %s url=%s", last_err, swap_url)
-                        # retry suave en 429/5xx
-                        if resp.status in (429, 500, 502, 503, 504) and attempt <= max_retries:
-                            await asyncio.sleep(0.6 * attempt)
-                            continue
-                        raise RuntimeError(last_err)
-
+                        if resp.status == 429 or 500 <= resp.status <= 599:
+                            raise _TransientSwapBuild(f"Jupiter unsigned build HTTP {resp.status}")
+                        raise SwapPreparationError(f"Jupiter unsigned build unavailable (HTTP {resp.status})")
                     data = await resp.json(content_type=None)
-
-            # Jupiter suele devolver swapTransaction en base64
-            tx_b64 = (
-                data.get("swapTransaction")
-                or data.get("swap_transaction")
-                or data.get("transaction")
-            )
-            if not tx_b64 or not isinstance(tx_b64, str):
-                raise RuntimeError(f"swap response missing swapTransaction: keys={list(data.keys())}")
-
-            raw_tx = base64.b64decode(tx_b64)
-
-            # Firma y envío
-            sig = await _sign_and_send_raw_transaction(raw_tx, skip_preflight=skip_preflight)
-            return sig
-
-        except Exception as e:
-            last_err = str(e)
-            if attempt <= max_retries:
-                await asyncio.sleep(0.6 * attempt)
+        except (_TransientSwapBuild, aiohttp.ClientConnectionError, asyncio.TimeoutError) as exc:
+            if attempt < max_retries:
+                await asyncio.sleep(.6 * (attempt + 1))
                 continue
-            break
-
-    raise RuntimeError(f"execute_swap failed after retries: {last_err}")
+            raise SwapPreparationError("Jupiter unsigned build transport unavailable") from exc
+        return _swap_packet(data)  # Malformed responses do not retry or dispatch.
+    raise SwapPreparationError("Jupiter unsigned build exhausted")
 
 
 async def _sign_and_send_raw_transaction(raw_tx: bytes, *, skip_preflight: bool = False) -> str:
-    """
-    Firma (si hace falta) y envía una transacción raw (bytes) usando:
-      - trader/sol_signer.KEYPAIR + trader/sol_signer.client si existe
-    Soporta legacy y versioned (si solders expone VersionedTransaction).
-    """
-    # Carga signer + client del proyecto
-    try:
-        from trader import sol_signer  # type: ignore
-    except Exception as e:
-        raise RuntimeError(f"sol_signer not available: {e}")
-
-    keypair = getattr(sol_signer, "KEYPAIR", None)
-    client = getattr(sol_signer, "client", None)
-
-    if keypair is None or client is None:
-        raise RuntimeError("sol_signer missing KEYPAIR/client (revisa SOL_PRIVATE_KEY / SOL_RPC_URL)")
-
-    # Imports lazy para no romper import-time si faltan deps en ciertos entornos
-    try:
-        from solana.rpc.types import TxOpts  # type: ignore
-    except Exception:
-        TxOpts = None  # type: ignore
-
-    # 1) Intentar VersionedTransaction primero (si existe)
-    signed_bytes: Optional[bytes] = None
-    versioned_used = False
-
-    try:
-        from solders.versioned_transaction import VersionedTransaction  # type: ignore
-
-        try:
-            vtx = VersionedTransaction.from_bytes(raw_tx)
-            # firmar el mensaje
-            msg_bytes = bytes(vtx.message)
-            sig_obj = keypair.sign_message(msg_bytes)
-
-            # mantener firmas existentes si ya hay placeholders
-            try:
-                sigs = list(vtx.signatures)
-            except Exception:
-                sigs = []
-            if sigs:
-                sigs[0] = sig_obj
-            else:
-                sigs = [sig_obj]
-
-            vtx_signed = VersionedTransaction.populate(vtx.message, sigs)
-            signed_bytes = bytes(vtx_signed)
-            versioned_used = True
-        except Exception:
-            signed_bytes = None
-            versioned_used = False
-    except Exception:
-        signed_bytes = None
-        versioned_used = False
-
-    # 2) Fallback legacy Transaction
-    if signed_bytes is None:
-        try:
-            from solders.transaction import Transaction  # type: ignore
-
-            tx = Transaction.from_bytes(raw_tx)
-            # firmar (legacy)
-            tx.sign([keypair], tx.recent_blockhash)
-            signed_bytes = bytes(tx)
-        except Exception as e:
-            raise RuntimeError(f"failed to decode/sign transaction (versioned={versioned_used}): {e}")
-
-    # 3) Enviar
-    try:
-        if TxOpts is not None:
-            resp = client.send_raw_transaction(signed_bytes, opts=TxOpts(skip_preflight=bool(skip_preflight)))
-        else:
-            resp = client.send_raw_transaction(signed_bytes)
-        sig = getattr(resp, "value", None)
-        if sig is None:
-            # algunos clients devuelven dict
-            if isinstance(resp, dict) and resp.get("result"):
-                return str(resp["result"])
-            raise RuntimeError(f"send_raw_transaction returned no signature: {resp}")
-        return str(sig)
-    except Exception as e:
-        raise RuntimeError(f"send_raw_transaction failed: {e}")
+    """Use the checked common signer and retain off-loop execution ownership."""
+    if not isinstance(raw_tx, bytes) or type(skip_preflight) is not bool:
+        raise ValueError("Invalid original transaction transport")
+    from trader import sol_signer
+    return await run_owned_sync(sol_signer.sign_and_send, raw_tx, skip_preflight=skip_preflight)
 
 
 __all__ = [
     "QuoteResult",
+    "SwapPreparationError",
+    "SwapSubmissionUncertain",
     "SOL_MINT",
     "execute_managed_swap",
     "execute_order",
