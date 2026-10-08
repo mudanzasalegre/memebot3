@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from hashlib import sha256
+from copy import deepcopy
+from dataclasses import dataclass
 import json
 import logging
 from pathlib import Path
+import re
 import threading
 import io
 from typing import Any
@@ -23,8 +26,80 @@ from features.builder import ALLOWED_FEATURES
 
 log = logging.getLogger(__name__)
 _lock = threading.RLock()
-_cache: dict[tuple[str, bool], tuple[tuple[int, ...], Any, list[str], dict[str, Any]]] = {}
-_registry_cache: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
+_cache: dict[tuple[Any, ...], tuple[tuple[int, ...], Any, list[str], dict[str, Any]]] = {}
+_SAFE_NAME = re.compile(r"[a-z][a-z0-9_]{0,79}\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+MAX_FAMILY_HEADS = 64
+
+
+@dataclass(frozen=True)
+class _HeadReference:
+    target: str
+    path: Path
+    model_sha256: str | None = None
+    metadata_sha256: str | None = None
+    version: str | None = None
+    valid: bool = True
+
+
+@dataclass(frozen=True)
+class _FamilySelection:
+    family: str
+    mode: str
+    references: tuple[_HeadReference, ...] = ()
+    manifest_sha256: str | None = None
+
+
+def _family_selection_unscoped(family: str) -> _FamilySelection:
+    """Read the whole selector once, including its absence or invalidity."""
+    if not isinstance(family, str) or not _SAFE_NAME.fullmatch(family):
+        return _FamilySelection(str(family), "unavailable")
+    directory = PROJECT_ROOT / "ml" / "models" / family
+    manifest_path = directory / "advisory_manifest.json"
+    try:
+        if not manifest_path.exists():
+            paths = sorted(directory.glob("*.pkl"))
+            if len(paths) > MAX_FAMILY_HEADS:
+                return _FamilySelection(family, "unavailable")
+            return _FamilySelection(family, "legacy_flat", tuple(
+                _HeadReference(path.stem, path) for path in paths if _SAFE_NAME.fullmatch(path.stem)))
+        payload = manifest_path.read_bytes()
+        manifest = json.loads(payload)
+        digest = sha256(payload).hexdigest()
+        if not isinstance(manifest, dict) or manifest.get("role") != "scanner_ranking_only":
+            return _FamilySelection(family, "unavailable", manifest_sha256=digest)
+        heads = manifest.get("heads")
+        if not isinstance(heads, dict) or len(heads) > MAX_FAMILY_HEADS:
+            return _FamilySelection(family, "unavailable", manifest_sha256=digest)
+        references = []
+        for target, entry in sorted(heads.items()):
+            if not isinstance(target, str) or not _SAFE_NAME.fullmatch(target) or not isinstance(entry, dict):
+                continue
+            relative = entry.get("path")
+            if not isinstance(relative, str):
+                continue
+            try:
+                path = (directory / relative).resolve()
+                parts = path.relative_to(directory.resolve()).parts
+            except (OSError, ValueError):
+                continue
+            if (len(parts) != 3 or parts[0] != "versions" or path.name != f"{target}.pkl"
+                    or not path.is_relative_to((directory / "versions").resolve())):
+                continue
+            checksum, metadata_checksum, version = entry.get("model_sha256"), entry.get("metadata_sha256"), entry.get("version")
+            valid = (isinstance(checksum, str) and _SHA256.fullmatch(checksum) is not None
+                     and isinstance(metadata_checksum, str) and _SHA256.fullmatch(metadata_checksum) is not None
+                     and isinstance(version, str) and version == parts[1])
+            references.append(_HeadReference(target, path, model_sha256=checksum,
+                metadata_sha256=metadata_checksum, version=version, valid=valid))
+        return _FamilySelection(family, "manifest", tuple(references), digest)
+    except (OSError, ValueError, TypeError):
+        return _FamilySelection(family, "unavailable")
+
+
+def _family_selection(family: str) -> _FamilySelection:
+    return scoped_value(("family_selection", str(PROJECT_ROOT), family),
+                        lambda: _family_selection_unscoped(family))
 
 
 def _supported_cluster_skill(evaluation: Any) -> bool:
@@ -40,42 +115,107 @@ def _supported_cluster_skill(evaluation: Any) -> bool:
 
 
 def _model_path_unscoped(family: str, target: str) -> Path:
-    directory = PROJECT_ROOT / "ml" / "models" / family
-    manifest_path = directory / "advisory_manifest.json"
-    if not manifest_path.exists():
+    selection = _family_selection_unscoped(family)
+    return _selected_path(selection, target)
+
+
+def _selected_path(selection: _FamilySelection, target: str) -> Path:
+    for reference in selection.references:
+        if reference.target == target:
+            return reference.path
+    directory = PROJECT_ROOT / "ml" / "models" / selection.family
+    if selection.mode == "legacy_flat":
         return directory / f"{target}.pkl"
-    unavailable = directory / "_unavailable_" / f"{target}.pkl"
-    try:
-        stat = manifest_path.stat()
-        signature = (stat.st_mtime_ns, stat.st_size)
-        with _lock:
-            cached = _registry_cache.get(str(manifest_path))
-            if cached is None or cached[0] != signature:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                _registry_cache[str(manifest_path)] = (signature, manifest)
-            else:
-                manifest = cached[1]
-        if manifest.get("role") != "scanner_ranking_only":
-            return unavailable
-        relative = manifest.get("heads", {}).get(target, {}).get("path")
-        if not relative:
-            return unavailable
-        path = (directory / relative).resolve()
-        if not path.is_relative_to((directory / "versions").resolve()) or path.name != f"{target}.pkl":
-            return unavailable
-        return path
-    except Exception:
-        return unavailable
+    return directory / "_unavailable_" / f"{target}.pkl"
 
 
 def _model_path(family: str, target: str) -> Path:
-    return scoped_value(("family_path", str(PROJECT_ROOT), family, target),
-                        lambda: _model_path_unscoped(family, target))
+    return _selected_path(_family_selection(family), target)
 
 
-def _load_unscoped(path: Path, *, require_temporal_validation: bool):
+def _artifact_signature(path: Path):
+    try:
+        model, meta = path.stat(), path.with_suffix(".meta.json").stat()
+        return model.st_mtime_ns, model.st_size, meta.st_mtime_ns, meta.st_size
+    except OSError:
+        return None
+
+
+def _capture_family(selection: _FamilySelection, *, require_temporal_validation: bool):
+    """Pin all selected heads before the first prediction, not one at a time.
+
+    Flat compatibility artifacts have no published training-generation claim.
+    Require a stable file collection while capturing their checked snapshots.
+    Versioned heads may intentionally come from different accepted training
+    cohorts; the exact common manifest, not a fabricated common fit, is bound.
+    """
+    before = {reference.target: _artifact_signature(reference.path) for reference in selection.references}
+    snapshots = {}
+    for reference in selection.references:
+        model, features, metadata = (None, [], {})
+        if reference.valid:
+            model, features, metadata = _load_unscoped(reference.path,
+                require_temporal_validation=require_temporal_validation,
+                expected_model_sha256=reference.model_sha256 if selection.mode == "manifest" else None,
+                expected_metadata_sha256=reference.metadata_sha256 if selection.mode == "manifest" else None,
+                expected_metadata={"family": selection.family, "target": reference.target,
+                    **({"activation_role": "scanner_ranking_only"} if selection.mode == "manifest" else {})})
+            if (metadata.get("family") != selection.family or metadata.get("target") != reference.target
+                    or (selection.mode == "manifest" and (
+                        metadata.get("activation_role") != "scanner_ranking_only"
+                        or metadata.get("model_sha256") != reference.model_sha256))):
+                model, features, metadata = None, [], {}
+        snapshots[reference.target] = model, tuple(features), deepcopy(metadata)
+    after = {reference.target: _artifact_signature(reference.path) for reference in selection.references}
+    # A newly created flat peer also invalidates the capture. No fallback to a
+    # mixed selection and no retry that slides the observation within a decision.
+    stable = selection.mode != "unavailable" and before == after
+    if selection.mode == "legacy_flat":
+        directory = PROJECT_ROOT / "ml" / "models" / selection.family
+        try:
+            stable &= {p.stem for p in directory.glob("*.pkl") if _SAFE_NAME.fullmatch(p.stem)} == set(before)
+        except OSError:
+            stable = False
+    if not stable:
+        snapshots = {target: (None, (), {}) for target in snapshots}
+    return selection, snapshots, stable
+
+
+def _family_snapshots(family: str, *, require_temporal_validation: bool):
+    return scoped_value(("family_snapshots", str(PROJECT_ROOT), family, require_temporal_validation),
+        lambda: _capture_family(_family_selection(family), require_temporal_validation=require_temporal_validation))
+
+
+def _load_family(family: str, target: str, *, require_temporal_validation: bool):
+    selection, snapshots, _ = _family_snapshots(family, require_temporal_validation=require_temporal_validation)
+    model, features, metadata = snapshots.get(target, (None, (), {}))
+    return _selected_path(selection, target), model, list(features), deepcopy(metadata)
+
+
+def family_model_selection(family: str, *, targets: list[str] | None = None) -> dict[str, Any]:
+    """Detached non-predictor provenance; never implies buy or exit permission."""
+    selection, snapshots, stable = _family_snapshots(family, require_temporal_validation=True)
+    wanted = set(targets) if targets is not None else set(snapshots)
+    references = {reference.target: reference for reference in selection.references}
+    heads = {}
+    for target in sorted(wanted):
+        model, _, metadata = snapshots.get(target, (None, (), {}))
+        reference = references.get(target)
+        heads[target] = {"status": "checked_artifact" if model is not None else "unknown",
+                         "model_sha256": metadata.get("model_sha256") if model is not None else None,
+                         "metadata_sha256": reference.metadata_sha256 if model is not None and reference is not None else None,
+                         "version": reference.version if reference is not None and reference.valid and selection.mode == "manifest" else None}
+    return {"mode": selection.mode, "manifest_sha256": selection.manifest_sha256,
+            "capture_stable": stable, "heads": heads, "role": "advisory_provenance_only",
+            "buy_permission": False, "same_training_cohort_asserted": False}
+
+
+def _load_unscoped(path: Path, *, require_temporal_validation: bool,
+                   expected_model_sha256: str | None = None, expected_metadata_sha256: str | None = None,
+                   expected_metadata: dict[str, Any] | None = None):
     meta_path = path.with_suffix(".meta.json")
-    key = (str(path), require_temporal_validation)
+    key = (str(path), require_temporal_validation, expected_model_sha256, expected_metadata_sha256,
+           tuple(sorted((expected_metadata or {}).items())))
     try:
         model_stat, meta_stat = path.stat(), meta_path.stat()
     except OSError:
@@ -89,9 +229,14 @@ def _load_unscoped(path: Path, *, require_temporal_validation: bool):
             return cached[1], cached[2], cached[3]
         model, features, metadata = None, [], {}
         try:
-            metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+            metadata_payload = meta_path.read_bytes()
+            if expected_metadata_sha256 is not None and sha256(metadata_payload).hexdigest() != expected_metadata_sha256:
+                raise ValueError("metadata differs from the frozen manifest approval")
+            metadata = json.loads(metadata_payload)
             if not isinstance(metadata, dict):
                 raise ValueError("model metadata must be an object")
+            if any(metadata.get(name) != value for name, value in (expected_metadata or {}).items()):
+                raise ValueError("model identity differs from selected head")
             validation = metadata.get("validation") or {}
             temporal = validation.get("temporal") or {}
             if path.parent.parent.name == "versions" and path.parent.parent.parent.name == "runner" and metadata.get("activation_role") != "scanner_ranking_only":
@@ -103,6 +248,8 @@ def _load_unscoped(path: Path, *, require_temporal_validation: bool):
                 _cache[key] = (signature, None, [], metadata)
                 return None, [], metadata
             expected_hash = metadata.get("model_sha256")
+            if expected_model_sha256 is not None and expected_hash != expected_model_sha256:
+                raise ValueError("model differs from the frozen manifest approval")
             payload = path.read_bytes()
             if not expected_hash or sha256(payload).hexdigest() != expected_hash:
                 raise ValueError("model/metadata checksum mismatch")
@@ -187,16 +334,16 @@ def predict_artifact(path: Path, vec: Any, *, require_temporal_validation: bool 
 def predict_model(family: str, target: str, vec: Any, *, default_features: list[str] | None = None,
                   require_temporal_validation: bool = True) -> float | str | None:
     """Advisory prediction; absence/corruption is unknown, not fabricated zero."""
-    return predict_artifact(_model_path(family, target), vec,
-                            require_temporal_validation=require_temporal_validation,
-                            expected_metadata={"family": family, "target": target})
+    path, model, features, metadata = _load_family(family, target,
+        require_temporal_validation=require_temporal_validation)
+    return _predict_snapshot(path, model, features, metadata, vec,
+                             expected_metadata={"family": family, "target": target})
 
 
 def predict_regression_estimate(family: str, target: str, vec: Any) -> dict[str, Any]:
     # Read one verified snapshot. A concurrent retrain must not combine an old
     # point prediction with a new model's error metadata.
-    path = _model_path(family, target)
-    model, features, metadata = _load(path, require_temporal_validation=True)
+    path, model, features, metadata = _load_family(family, target, require_temporal_validation=True)
     value = _predict_snapshot(path, model, features, metadata, vec,
                               expected_metadata={"family": family, "target": target,
                                                  "prediction_kind": "regression_pct_points"})
@@ -232,7 +379,7 @@ def invalidate_model_cache(path: Path) -> None:
 
 def predict_ranking_score(family: str, target: str, vec: Any) -> float | None:
     """Validated rank percentile (0-100), explicitly not an event probability."""
-    model, features, metadata = _load(_model_path(family, target), require_temporal_validation=True)
+    path, model, features, metadata = _load_family(family, target, require_temporal_validation=True)
     if model is None or not metadata.get("ranking_validation_ready"):
         return None
     if financial_target(family, target) and not supported_financial_training(metadata):
@@ -253,4 +400,5 @@ def predict_ranking_score(family: str, target: str, vec: Any) -> float | None:
         return None
 
 
-__all__ = ["predict_model", "predict_artifact", "predict_regression_estimate", "predict_ranking_score", "invalidate_model_cache"]
+__all__ = ["predict_model", "predict_artifact", "predict_regression_estimate", "predict_ranking_score",
+           "invalidate_model_cache", "family_model_selection"]

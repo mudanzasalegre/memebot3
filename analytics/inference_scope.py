@@ -38,6 +38,17 @@ def inference_scope() -> Iterator[InferenceScope]:
         _CURRENT.reset(token)
 
 
+@contextmanager
+def ensure_inference_scope() -> Iterator[InferenceScope]:
+    """Standalone multi-head reads own a scope; entry children reuse theirs."""
+    state = _CURRENT.get()
+    if state is not None and not state.closed:
+        yield state
+    else:
+        with inference_scope() as state:
+            yield state
+
+
 def scoped_value(key: Any, loader: Callable[[], Any]) -> Any:
     state = _CURRENT.get()
     if state is None or state.closed:

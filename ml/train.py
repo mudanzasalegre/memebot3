@@ -27,7 +27,7 @@ from ml.data_contract import (
     normalize_sample_type,
 )
 from ml.feature_matrix import coerce_feature_frame
-from features.auxiliary_semantics import prepare_training_frame, population_proof, semantics_schema
+from features.auxiliary_semantics import prepare_training_frame, population_proof, semantics_schema, PROOF_COLUMN
 from ml.financial_targets import checked_financial_frame, supported_financial_training
 from features.builder import ALLOWED_FEATURES
 from features.context_encoding import (CONTEXT_FEATURES, augment_context_frame,
@@ -78,6 +78,7 @@ _FORBIDDEN_SUBSTR = (
     "sl_",
 )
 _META_COLS = (
+    PROOF_COLUMN,
     "label",
     "timestamp",
     "ts",

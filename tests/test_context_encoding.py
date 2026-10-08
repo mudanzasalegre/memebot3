@@ -288,15 +288,21 @@ def test_advisory_rollback_cannot_activate_a_different_context_schema(tmp_path):
     checksum = sha256(path.read_bytes()).hexdigest()
     features = ["t0ctx_entry_lane__pump_early_green_candle_sniper"]
     metadata = {"activation_role": "scanner_ranking_only", "model_sha256": checksum,
+        "family": "runner", "target": "runner_10000",
         "features": features, "context_encoding": context_encoding_schema(features)}
     metadata["context_encoding"]["schema_sha256"] = "invalid"
     path.with_suffix(".meta.json").write_text(json.dumps(metadata))
     manifest = directory / "advisory_manifest.json"
     manifest.write_text(json.dumps({"role": "scanner_ranking_only", "heads": {}, "previous_heads": {
-        "runner_10000": {"path": "versions/one/runner_10000.pkl", "model_sha256": checksum}}}))
+        "runner_10000": {"path": "versions/one/runner_10000.pkl", "model_sha256": checksum,
+            "version": "one", "metadata_sha256": sha256(path.with_suffix(".meta.json").read_bytes()).hexdigest()}}}))
     before = manifest.read_bytes()
     assert not rollback_runner_advisory(root=tmp_path)
     assert manifest.read_bytes() == before
     metadata["context_encoding"] = context_encoding_schema(features)
     path.with_suffix(".meta.json").write_text(json.dumps(metadata))
+    # The repaired fixture is a new complete approval, not metadata-only repair.
+    selected = json.loads(manifest.read_text())
+    selected["previous_heads"]["runner_10000"]["metadata_sha256"] = sha256(path.with_suffix(".meta.json").read_bytes()).hexdigest()
+    manifest.write_text(json.dumps(selected))
     assert rollback_runner_advisory(root=tmp_path)

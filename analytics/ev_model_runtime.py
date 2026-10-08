@@ -4,9 +4,15 @@ from typing import Any
 
 from analytics.ev_predict import predict_ev
 from analytics.model_runtime_common import predict_model, predict_regression_estimate
+from analytics.inference_scope import ensure_inference_scope
 
 
 def predict_ev_scores(vec: Any) -> dict[str, Any]:
+    with ensure_inference_scope():
+        return _predict_ev_scores(vec)
+
+
+def _predict_ev_scores(vec: Any) -> dict[str, Any]:
     estimate = predict_regression_estimate("ev", "ev_realized_clipped", vec)
     pred = estimate["value"]
     if pred is None:

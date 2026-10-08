@@ -25,6 +25,7 @@ Persiste cada vector de features en un Parquet mensual
 from __future__ import annotations
 
 import datetime as dt
+import errno
 import logging
 import os
 import tempfile
@@ -229,6 +230,13 @@ _LOCK_POLL_SECONDS = 0.05
 _REPLACE_TIMEOUT_SECONDS = 10.0
 
 
+def _is_windows_lock_contention(error: PermissionError) -> bool:
+    """Reconoce errores de sharing/delete-pending, sin eludir permisos."""
+    return getattr(error, "winerror", None) in {5, 32, 33} or (
+        os.name == "nt" and error.errno == errno.EACCES
+    )
+
+
 @contextmanager
 def _exclusive_parquet_lock(path: Path) -> Iterator[None]:
     """Serializa read-modify-write entre procesos sin dependencias externas."""
@@ -243,7 +251,6 @@ def _exclusive_parquet_lock(path: Path) -> Iterator[None]:
                 lock_path,
                 os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0),
             )
-            os.write(fd, f"pid={os.getpid()} created_at={time.time()}\n".encode("ascii"))
         except FileExistsError:
             try:
                 lock_age = max(0.0, time.time() - lock_path.stat().st_mtime)
@@ -252,11 +259,22 @@ def _exclusive_parquet_lock(path: Path) -> Iterator[None]:
                     continue
             except FileNotFoundError:
                 continue
+            except PermissionError as error:
+                if not _is_windows_lock_contention(error) or time.monotonic() >= deadline:
+                    raise
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"Timed out waiting for parquet lock: {lock_path}")
             time.sleep(_LOCK_POLL_SECONDS)
+        except PermissionError as error:
+            # Windows puede devolver EACCES mientras el lock anterior se borra.
+            # Solo un nuevo O_EXCL exitoso permite entrar; el mismo plazo limita
+            # también un permiso denegado persistente, que conserva su error.
+            if not _is_windows_lock_contention(error) or time.monotonic() >= deadline:
+                raise
+            time.sleep(_LOCK_POLL_SECONDS)
 
     try:
+        os.write(fd, f"pid={os.getpid()} created_at={time.time()}\n".encode("ascii"))
         yield
     finally:
         os.close(fd)

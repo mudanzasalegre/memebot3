@@ -321,16 +321,21 @@ def test_advisory_comparison_and_rollback_require_same_numeric_contract(tmp_path
     path.parent.mkdir(parents=True)
     path.write_bytes(b"synthetic checksum fixture; never deserialized")
     checksum = sha256(path.read_bytes()).hexdigest()
-    metadata.update(activation_role="scanner_ranking_only", model_sha256=checksum)
+    metadata.update(activation_role="scanner_ranking_only", model_sha256=checksum,
+                    family="runner", target="runner_10000")
     metadata["numeric_encoding"]["schema_sha256"] = "invalid"
     path.with_suffix(".meta.json").write_text(json.dumps(metadata))
     manifest = directory / "advisory_manifest.json"
     manifest.write_text(json.dumps({"role": "scanner_ranking_only", "heads": {}, "previous_heads": {
-        "runner_10000": {"path": "versions/one/runner_10000.pkl", "model_sha256": checksum}}}))
+        "runner_10000": {"path": "versions/one/runner_10000.pkl", "model_sha256": checksum,
+            "version": "one", "metadata_sha256": sha256(path.with_suffix(".meta.json").read_bytes()).hexdigest()}}}))
     before = manifest.read_bytes()
     assert not rollback_runner_advisory(root=tmp_path) and manifest.read_bytes() == before
     metadata["numeric_encoding"] = numeric_encoding_schema(names)
     path.with_suffix(".meta.json").write_text(json.dumps(metadata))
+    selected = json.loads(manifest.read_text())
+    selected["previous_heads"]["runner_10000"]["metadata_sha256"] = sha256(path.with_suffix(".meta.json").read_bytes()).hexdigest()
+    manifest.write_text(json.dumps(selected))
     assert rollback_runner_advisory(root=tmp_path)
 
 

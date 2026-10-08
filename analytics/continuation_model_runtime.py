@@ -3,9 +3,15 @@ from __future__ import annotations
 from typing import Any
 
 from analytics.model_runtime_common import predict_model, predict_regression_estimate
+from analytics.inference_scope import ensure_inference_scope
 
 
 def predict_continuation(vec: Any) -> dict[str, Any]:
+    with ensure_inference_scope():
+        return _predict_continuation(vec)
+
+
+def _predict_continuation(vec: Any) -> dict[str, Any]:
     one_details = predict_regression_estimate("continuation", "continuation_peak_after_seen_1m", vec)
     three_details = predict_regression_estimate("continuation", "continuation_peak_after_seen_3m", vec)
     one, three = one_details["value"], three_details["value"]

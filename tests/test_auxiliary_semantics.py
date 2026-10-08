@@ -248,6 +248,9 @@ def test_advisory_outer_cohort_uses_current_generation_and_checked_rollback(tmp_
         meta = json.loads(meta_path.read_text())
         meta.pop("auxiliary_semantics")
         meta_path.write_text(json.dumps(meta))
+        # Construct an intact historical approval, not a later metadata mutation.
+        head["metadata_sha256"] = sha256(meta_path.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest))
     assert runtime.predict_ranking_score("runner", "runner_100", current_vector(monkeypatch, 1)) is None
     replacement = advisory.train_runner_advisory(root=tmp_path, frame=current_frame(monkeypatch, 160), force=True)
     assert replacement["updated"] and replacement["decisions"]["runner_100"]["obsolete_incumbent_generation"]

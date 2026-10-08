@@ -4,9 +4,15 @@ from typing import Any
 
 from analytics.model_runtime_common import predict_model
 from analytics.risk_predict import predict_risk
+from analytics.inference_scope import ensure_inference_scope
 
 
 def predict_severe_loss_risk(vec: Any) -> dict[str, float | str | None]:
+    with ensure_inference_scope():
+        return _predict_severe_loss_risk(vec)
+
+
+def _predict_severe_loss_risk(vec: Any) -> dict[str, float | str | None]:
     risk30 = predict_model("risk", "severe_loss_30", vec)
     risk50 = predict_model("risk", "severe_loss_50", vec)
     crush = predict_model("risk", "liquidity_crush_loss", vec)

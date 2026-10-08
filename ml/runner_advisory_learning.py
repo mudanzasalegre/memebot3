@@ -32,7 +32,7 @@ from features.auxiliary_semantics import (checked_semantics_schema, checked_mode
     prepare_training_frame, SCHEMA_SHA256 as AUXILIARY_SCHEMA_SHA256)
 
 ROLE = "scanner_ranking_only"
-PIPELINE_VERSION = 5  # Also bind the current auxiliary source meanings.
+PIPELINE_VERSION = 6  # Bind original auxiliary meanings and complete head approvals.
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -225,6 +225,13 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
                 checksum = sha256(old_path.read_bytes()).hexdigest()
                 if checksum != old_meta.get("model_sha256") or checksum != incumbent.get("model_sha256"):
                     raise ValueError("Incumbent artifact checksum mismatch; preserve it for diagnosis")
+                approved_metadata = incumbent.get("metadata_sha256")
+                if approved_metadata is not None and sha256(old_path.with_suffix(".meta.json").read_bytes()).hexdigest() != approved_metadata:
+                    raise ValueError("Incumbent metadata approval checksum mismatch; preserve it for diagnosis")
+                if (old_meta.get("family") != "runner" or old_meta.get("target") != target
+                        or old_meta.get("activation_role") != ROLE
+                        or incumbent.get("version") != old_path.parent.name):
+                    raise ValueError("Incumbent head identity mismatch; preserve it for diagnosis")
                 if (not checked_context_schema(old_meta, old_meta.get("features") or [])
                         or not checked_numeric_schema(old_meta, old_meta.get("features") or [])):
                     raise ValueError("Incumbent input encoding is unsupported")
@@ -233,6 +240,12 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
                     # Only the independently validated later-cohort candidate
                     # can replace this obsolete interpretation.
                     decision["obsolete_incumbent_generation"] = True
+                    incumbent = None
+                if approved_metadata is None:
+                    # Legacy selectors never bound the original validation
+                    # metadata. Do not manufacture an approval by hashing its
+                    # current bytes; preserve it and require a checked successor.
+                    decision["unproved_incumbent_metadata_approval"] = True
                     incumbent = None
             if incumbent:
                 old_available = pd.to_datetime(old_meta.get("training_label_latest"), utc=True, errors="coerce")
@@ -256,7 +269,9 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
             _atomic_json(path.with_suffix(".meta.json"), metadata)
             if selected:
                 heads[target] = {"path": str(path.relative_to(family_dir)).replace("\\", "/"),
-                                 "model_sha256": metadata["model_sha256"], "version": version}
+                                 "model_sha256": metadata["model_sha256"],
+                                 "metadata_sha256": sha256(path.with_suffix(".meta.json").read_bytes()).hexdigest(),
+                                 "version": version}
         _atomic_json(version_dir / "training_report.json", report)
         result["status"] = "completed"
         result["updated"] = heads != old_heads
@@ -288,6 +303,10 @@ def rollback_runner_advisory(*, root: Path | None = None) -> bool:
             model_path = _safe_model_path(path.parent, entry["path"])
             metadata = _read_json(model_path.with_suffix(".meta.json"))
             if (model_path.stem != target or metadata.get("activation_role") != ROLE
+                    or metadata.get("family") != "runner" or metadata.get("target") != target
+                    or entry.get("version") != model_path.parent.name
+                    or not entry.get("metadata_sha256")
+                    or sha256(model_path.with_suffix(".meta.json").read_bytes()).hexdigest() != entry.get("metadata_sha256")
                     or not checked_context_schema(metadata, metadata.get("features") or [])
                     or not checked_numeric_schema(metadata, metadata.get("features") or [])
                     or not checked_semantics_schema(metadata, metadata.get("features") or [])

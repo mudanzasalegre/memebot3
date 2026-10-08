@@ -53,6 +53,8 @@ def test_bootstrap_versions_have_disjoint_holdout_and_no_financial_permission(tr
     assert "runner_5000" not in manifest["heads"]  # no invented rare positives
     path = directory / manifest["heads"]["runner_100"]["path"]
     metadata = json.loads(path.with_suffix(".meta.json").read_text())
+    from hashlib import sha256
+    assert sha256(path.with_suffix(".meta.json").read_bytes()).hexdigest() == manifest["heads"]["runner_100"]["metadata_sha256"]
     holdout_start = pd.Timestamp(result["temporal"]["folds"][-1]["test_start"])
     assert pd.Timestamp(metadata["training_label_latest"]) < holdout_start
     assert metadata["activation_role"] == "scanner_ranking_only"
@@ -100,6 +102,47 @@ def test_failed_training_preserves_manifest(trained, monkeypatch):
     assert path.read_bytes() == before
     status = json.loads((root / "data" / "metrics" / "runner_advisory_status.json").read_text())
     assert status["status"] == "failed" and status["error_type"] == "RuntimeError"
+
+
+def test_changed_incumbent_metadata_preserves_selector_and_refuses_rollback(trained):
+    from hashlib import sha256
+    root, _ = trained
+    path = root / "ml" / "models" / "runner" / "advisory_manifest.json"
+    manifest = json.loads(path.read_text())
+    entry = manifest["heads"]["runner_100"]
+    meta_path = (path.parent / entry["path"]).with_suffix(".meta.json")
+    meta = json.loads(meta_path.read_text())
+    meta["rank_reference_quantiles"] = [0.0, 0.1, 0.2, 0.3, 1.0]
+    meta_path.write_text(json.dumps(meta))
+    assert sha256(meta_path.read_bytes()).hexdigest() != entry["metadata_sha256"]
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="metadata approval checksum"):
+        learning.train_runner_advisory(root=root, frame=_frame(), force=True)
+    assert path.read_bytes() == before
+    manifest["previous_heads"] = manifest["heads"]
+    path.write_text(json.dumps(manifest))
+    before = path.read_bytes()
+    assert not learning.rollback_runner_advisory(root=root)
+    assert path.read_bytes() == before
+
+
+def test_old_model_only_approval_stays_unknown_until_checked_successor(trained, monkeypatch):
+    import analytics.model_runtime_common as runtime
+    root, _ = trained
+    path = root / "ml" / "models" / "runner" / "advisory_manifest.json"
+    manifest = json.loads(path.read_text())
+    for entry in manifest["heads"].values():
+        entry.pop("metadata_sha256")
+    path.write_text(json.dumps(manifest))
+    monkeypatch.setattr(runtime, "PROJECT_ROOT", root)
+    assert runtime.predict_ranking_score("runner", "runner_100", {"price_pct_5m": 80}) is None
+    replacement = learning.train_runner_advisory(root=root, frame=_frame(), force=True)
+    assert replacement["updated"]
+    assert replacement["decisions"]["runner_100"]["unproved_incumbent_metadata_approval"]
+    assert runtime.predict_ranking_score("runner", "runner_100", {"price_pct_5m": 80}) is not None
+    before = path.read_bytes()
+    assert not learning.rollback_runner_advisory(root=root)
+    assert path.read_bytes() == before
 
 
 def test_decision_requires_same_cohort_and_later_positives():
