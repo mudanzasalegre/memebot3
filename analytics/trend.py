@@ -8,7 +8,7 @@ from typing import List, Literal
 import aiohttp
 
 from config import DEX_API_BASE
-from utils.simple_cache import cache_get, cache_set
+from utils.auxiliary_observation import trend_observation, checked_auxiliary_observation
 
 log = logging.getLogger("trend")
 
@@ -36,6 +36,11 @@ def _ema(series: List[float], length: int) -> float:
 
 
 async def _fetch_closes(address: str) -> List[float]:
+    """Legacy diagnostic only; never called on the entry hot path.
+
+    The public provider reference does not specify this chart route. Results
+    here are not accepted as fresh executable entry observations.
+    """
     url = f"{DEX_API_BASE.rstrip('/')}/chart/solana/{address}?interval=5m&limit=200"
     backoff = _BACKOFF
 
@@ -76,66 +81,16 @@ async def _fetch_closes(address: str) -> List[float]:
     return []
 
 
-async def trend_signal(address: str) -> tuple[Literal["up", "down", "flat", "unknown"], bool]:
-    ck = f"trend:{address}"
-    if (hit := cache_get(ck)) is not None:
-        if isinstance(hit, tuple) and len(hit) == 2:
-            return hit
-        return hit, False
-
-    fallback_used = False
-    try:
-        closes = await _fetch_closes(address)
-    except Trend404Retry:
-        raise
-    except Exception:
-        closes = []
-
-    if len(closes) >= EMA_SLOW:
-        fast = _ema(closes[-EMA_FAST * 3 :], EMA_FAST)
-        slow = _ema(closes[-EMA_SLOW * 3 :], EMA_SLOW)
-
-        if fast > slow * 1.02:
-            sig: Literal["up", "down", "flat", "unknown"] = "up"
-        elif fast < slow * 0.98:
-            sig = "down"
-        else:
-            sig = "flat"
-
-        cache_set(ck, (sig, fallback_used), ttl=_CACHE_TTL_OK)
-        return sig, fallback_used
-
-    from fetcher import dexscreener
-
-    pair = await dexscreener.get_pair(address)
-    if not pair:
-        sig = "unknown"
-        fallback_used = True
-        cache_set(ck, (sig, fallback_used), ttl=_CACHE_TTL_ERR)
-        return sig, fallback_used
-
-    pct5_raw = pair.get("price_pct_5m")
-    if pct5_raw is None:
-        pct5_raw = (pair.get("priceChange") or {}).get("m5")
-
-    try:
-        pct5 = float(pct5_raw)
-    except Exception:
-        sig = "unknown"
-        fallback_used = True
-        cache_set(ck, (sig, fallback_used), ttl=_CACHE_TTL_ERR)
-        return sig, fallback_used
-
-    if pct5 >= 15:
-        sig = "up"
-    elif pct5 <= -15:
-        sig = "down"
-    else:
-        sig = "flat"
-
-    fallback_used = True
-    cache_set(ck, (sig, fallback_used), ttl=_CACHE_TTL_OK)
-    return sig, fallback_used
+async def trend_signal(address: str, *, snapshot: dict | None = None) -> tuple[Literal["up", "down", "flat", "unknown"], bool]:
+    """Compatibility API: explicitly a fresh m5 momentum proxy, not an EMA."""
+    if snapshot is None:
+        from fetcher import dexscreener
+        snapshot = await dexscreener.get_pair(address, force_refresh=True)
+    if not isinstance(snapshot, dict) or snapshot.get("address") != address:
+        return "unknown", True
+    record = checked_auxiliary_observation(trend_observation(snapshot), address, "trend")
+    value = record["value"] if record is not None else None
+    return {1: "up", -1: "down", 0: "flat"}.get(value, "unknown"), True
 
 
 if __name__ == "__main__":  # pragma: no cover

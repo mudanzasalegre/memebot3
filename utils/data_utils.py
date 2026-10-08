@@ -302,9 +302,9 @@ def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
 
 
 DEFAULTS = {
-    "cluster_bad": 0,
-    "mint_auth_renounced": 0,
-    "insider_sig": 0,
+    "cluster_bad": None,
+    "mint_auth_renounced": None,
+    "insider_sig": None,
     "score_total": 0,
 }
 

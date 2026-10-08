@@ -1,58 +1,60 @@
+"""Public documented summary API; higher normalised score is higher risk.
+
+Receipt age is local HTTP receipt age, not a claim about report generation time.
+No paid forced refresh and no hot-path retry/backoff chain.
+"""
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
+from urllib.parse import quote
 
 import aiohttp
-import tenacity
 
 from config import RUGCHECK_API_BASE, RUGCHECK_API_KEY
 from utils.simple_cache import cache_get, cache_set
+from utils.auxiliary_observation import observation, checked_auxiliary_observation, whole_number, observation_clock
 
 log = logging.getLogger("rugcheck")
-
-_TTL_OK = 900
-_TTL_MISS = 300
-_SENTINEL_NIL = object()
+TIMEOUT = 4.
+HEADERS = {"Authorization": f"Bearer {RUGCHECK_API_KEY}"} if RUGCHECK_API_KEY else {}
 
 
-if not (RUGCHECK_API_BASE and RUGCHECK_API_KEY):
+async def fetch_observation(address: str) -> dict:
+    key = f"rug:receipt:v1:{address}"
+    if (hit := checked_auxiliary_observation(cache_get(key), address, "rug")) is not None:
+        return hit
+    result = observation("rug", address, reason="request_failed_or_unavailable")
+    if not RUGCHECK_API_BASE:
+        return result
+    base = RUGCHECK_API_BASE.rstrip("/")
+    if not base.endswith("/v1"):
+        base += "/v1"
+    url = f"{base}/tokens/{quote(address, safe='')}/report/summary"
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=TIMEOUT)) as session:
+            async with session.get(url, headers=HEADERS) as response:
+                if response.status != 200:
+                    cache_set(key, deepcopy(result), ttl=15)
+                    return result
+                data = await response.json()
+                received = observation_clock()
+        # Single-token responses need not include mint; conflicting identity is
+        # rejected. The client's requested route binds the proof to this mint.
+        if (isinstance(data, dict) and data.get("mint") in (None, "", address)
+                and type(data.get("score_normalised")) is int
+                and whole_number(data["score_normalised"], maximum=100) is not None
+                and type(data.get("score")) is int
+                and whole_number(data["score"], maximum=2**63 - 1) is not None):
+            candidate = observation("rug", address, data["score_normalised"],
+                source="rugcheck_report_summary", observed_at=received,
+                inputs={"score": data["score"], "score_normalised": data["score_normalised"]})
+            result = checked_auxiliary_observation(candidate, address, "rug") or result
+    except Exception as exc:
+        log.debug("RugCheck unavailable (%s)", type(exc).__name__)
+    cache_set(key, deepcopy(result), ttl=120 if result["value"] is not None else 15)
+    return result
 
-    async def check_token(address: str) -> int | None:  # type: ignore
-        return None
 
-    log.warning("[RugCheck] Deshabilitado: faltan credenciales")
-
-else:
-    HEADERS = {"Authorization": f"Bearer {RUGCHECK_API_KEY}"}
-
-    @tenacity.retry(wait=tenacity.wait_fixed(2), stop=tenacity.stop_after_attempt(3))
-    async def _fetch_score(address: str) -> int | None:
-        url = f"{RUGCHECK_API_BASE.rstrip('/')}/score/{address}"
-        async with aiohttp.ClientSession() as sess:
-            async with sess.get(url, headers=HEADERS, timeout=10) as resp:
-                if resp.status == 404:
-                    return None
-                resp.raise_for_status()
-                data = await resp.json()
-        score = data.get("score")
-        return None if score is None else int(score)
-
-    async def check_token(address: str) -> int | None:  # type: ignore
-        ck = f"rug:{address}"
-        hit = cache_get(ck)
-        if hit is not None:
-            return None if hit is _SENTINEL_NIL else hit  # type: ignore[return-value]
-
-        try:
-            score = await _fetch_score(address)
-            if score is None:
-                cache_set(ck, _SENTINEL_NIL, ttl=_TTL_MISS)
-                return None
-            value = max(int(score), 0)
-            cache_set(ck, value, ttl=_TTL_OK)
-            log.debug("[RugCheck] %s -> %s", address[:4], value)
-            return value
-        except Exception as exc:  # noqa: BLE001
-            log.warning("[RugCheck] error %s", exc)
-            cache_set(ck, _SENTINEL_NIL, ttl=_TTL_MISS)
-            return None
+async def check_token(address: str) -> int | None:
+    return (await fetch_observation(address))["value"]

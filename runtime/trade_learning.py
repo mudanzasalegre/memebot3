@@ -22,6 +22,7 @@ from utils.atomic_json import read_json_strict, write_json_atomic
 VERSION = "paper_costed_trade_learning_v1"
 ENTRY_VERSION = "frozen_entry_features_v1"
 ENTRY_AUX_VERSION = "frozen_entry_features_with_auxiliary_receipts_v2"
+ENTRY_ALL_AUX_VERSION = "frozen_entry_features_with_auxiliary_receipts_v3"
 _REPAIR_STATE: dict[str, tuple[float, int]] = {}
 FINANCIAL_FIELDS = frozenset("""
 entry_intent_id source_position_key buy_signature token_address run_id dry_run closed opened_at closed_at
@@ -69,7 +70,9 @@ def freeze_entry_features(vector, *, address, captured_at, positive_pnl_ratio=0.
     payload = {"version": ENTRY_VERSION, "captured_at": _time(captured_at).isoformat(),
         "positive_pnl_ratio": _number(positive_pnl_ratio), "vector": values}
     if auxiliary_observations is not None:
-        payload["version"] = ENTRY_AUX_VERSION
+        payload["version"] = (ENTRY_ALL_AUX_VERSION if isinstance(auxiliary_observations, dict)
+                              and set(auxiliary_observations) == {"social", "trend", "early_accumulation", "rug", "cluster"}
+                              else ENTRY_AUX_VERSION)
         payload["auxiliary_observations"] = copy.deepcopy(auxiliary_observations)
     payload["payload_sha256"] = _hash(payload)
     validate_entry_features(payload, address=address)
@@ -78,27 +81,35 @@ def freeze_entry_features(vector, *, address, captured_at, positive_pnl_ratio=0.
 
 def validate_entry_features(payload, *, address):
     keys = {"version", "captured_at", "positive_pnl_ratio", "vector", "payload_sha256"}
-    if isinstance(payload, dict) and payload.get("version") == ENTRY_AUX_VERSION:
+    if isinstance(payload, dict) and payload.get("version") in {ENTRY_AUX_VERSION, ENTRY_ALL_AUX_VERSION}:
         keys.add("auxiliary_observations")
     if (not isinstance(payload, dict) or set(payload) != keys
-            or payload.get("version") not in {ENTRY_VERSION, ENTRY_AUX_VERSION} or not isinstance(payload.get("vector"), dict)
+            or payload.get("version") not in {ENTRY_VERSION, ENTRY_AUX_VERSION, ENTRY_ALL_AUX_VERSION} or not isinstance(payload.get("vector"), dict)
             or set(payload["vector"]) != set(COLUMNS)
             or payload["vector"].get("address") != address
             or payload["payload_sha256"] != _hash({k: v for k, v in payload.items() if k != "payload_sha256"})
             or _time(payload["vector"]["timestamp"]) > _time(payload["captured_at"])
             or _number(payload["positive_pnl_ratio"]) < 0):
         raise TradeLearningError("Invalid frozen entry feature proof")
-    if payload["version"] == ENTRY_AUX_VERSION:
-        from runtime.entry_observation import social_observation_problem
+    if payload["version"] in {ENTRY_AUX_VERSION, ENTRY_ALL_AUX_VERSION}:
+        from runtime.entry_observation import social_observation_problem, auxiliary_observation_problem
+        from utils.auxiliary_observation import KINDS, clock_after
         observations = payload["auxiliary_observations"]
-        if not isinstance(observations, dict) or set(observations) != {"social"}:
+        expected = {"social"} | (KINDS if payload["version"] == ENTRY_ALL_AUX_VERSION else set())
+        if not isinstance(observations, dict) or set(observations) != expected:
             raise TradeLearningError("Unsupported frozen auxiliary observation schema")
         social = observations["social"]
         captured = _time(payload["vector"]["timestamp"]).timestamp()
         problem = social_observation_problem(social, address=address, vector=payload["vector"], now=captured)
-        if (problem is not None or any(social.get(field) is not None and social[field] > captured
+        if (problem is not None or any(social.get(field) is not None
+                                     and clock_after(social[field], captured)
                                      for field in ("received_at", "risk_checked_at"))):
             raise TradeLearningError("Invalid or noncausal frozen social observation")
+        if payload["version"] == ENTRY_ALL_AUX_VERSION:
+            problem = auxiliary_observation_problem({k: observations[k] for k in KINDS},
+                address=address, vector=payload["vector"], now=captured, causal=True)
+            if problem is not None:
+                raise TradeLearningError("Invalid or noncausal frozen auxiliary observation")
 
 
 def validate_source(source):

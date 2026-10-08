@@ -143,8 +143,9 @@ from runtime.fast_enrichment import enrich_fast  # noqa: E402
 from runtime.entry_observation import (  # noqa: E402
     discovery_candidate, prepare_entry_candidate, apply_paper_liquidity_proxy,
     freeze_entry_observation, entry_observation_problem,
-    freeze_entry_social_observation, entry_auxiliary_observations,
+    freeze_entry_social_observation, freeze_entry_auxiliary_observation, entry_auxiliary_observations,
 )
+from runtime.auxiliary_enrichment import prepare_cheap_auxiliary, enrich_entry_risk  # noqa: E402
 from runtime.hot_queue import GLOBAL_HOT_QUEUE  # noqa: E402
 from runtime import live_canary  # noqa: E402
 from runtime.live_canary_guard import LiveCanaryGuardError, ensure_live_start_allowed  # noqa: E402
@@ -159,9 +160,7 @@ from analytics.social_signal import (  # noqa: E402
 # ───────── Fetchers / analytics ─────────────────────────────────────────────
 from fetcher import (  # noqa: E402
     dexscreener,
-    helius_cluster as clusters,
     pumpfun,
-    rugcheck,
     socials,
     jupiter_price,  # batch de precios
 )
@@ -175,7 +174,7 @@ except Exception:
     jupiter = None  # type: ignore
     _JUP_ROUTER_AVAILABLE = False
 
-from analytics import filters, insider, trend, requeue_policy  # noqa: E402
+from analytics import filters, requeue_policy  # noqa: E402
 import analytics.api_budget as api_budget  # noqa: E402
 import analytics.sizing as entry_sizing  # noqa: E402
 import analytics.exit_policy as exit_policy  # noqa: E402
@@ -4902,6 +4901,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     # Select the current snapshot/background result once; never reuse queued
     # social booleans or await a provider on the green-sniper hot path.
     entry_social_signal = consume_social_enrichment(token)
+    prepare_cheap_auxiliary(token)
+    token["auxiliary_semantics_version"] = "fresh_snapshot_momentum_and_normalised_risk_v1"
     token["strategy_version"] = str(getattr(CFG, "SNIPER_STRATEGY_VERSION", "2026-04-green-sniper-v1") or "")
     token["experiment_id"] = str(getattr(CFG, "SNIPER_EXPERIMENT_ID", "green_v1") or "")
     green_decision = None
@@ -5020,9 +5021,6 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     if green_fast_path:
         token.setdefault("social_ok", None)
         token.setdefault("social_status", "unknown")
-        token.setdefault("trend", None)
-        token.setdefault("trend_fallback_used", True)
-        token.setdefault("insider_sig", False)
         token["score_total"] = filters.total_score(token)
     else:
         if entry_social_signal.status == SOCIAL_STATUS_UNKNOWN and bool(getattr(CFG, "SOCIALS_ENABLED", True)):
@@ -5035,20 +5033,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                     address=addr, symbol=token.get("symbol"))
             apply_social_signal_to_token(token, entry_social_signal)
     sniper_micro_fallback_probe = _sniper_research_micro_fallback_probe_allowed(token)
-    if not (green_fast_path and DRY_RUN and bool(getattr(CFG, "PAPER_SNIPER_MODE", False))):
-        try:
-            token["trend"], token["trend_fallback_used"] = await trend.trend_signal(addr)
-        except trend.Trend404Retry:
-            pass
-        log.debug("⚠️  %s sin datos trend – continúa", addr[:4])
-        if False:
-            token["trend"] = None
-            token["trend_fallback_used"] = True
-        token.setdefault("trend", None)
-        token.setdefault("trend_fallback_used", token.get("trend") is None)
-
-        token["insider_sig"] = await insider.insider_alert(addr)
-        token["score_total"] = filters.total_score(token)
+    # Momentum uses the original current entry snapshot. No chart retry chain
+    # or second cached market read may replace the frozen decision inputs.
+    token["score_total"] = filters.total_score(token)
 
     entry_observation = freeze_entry_social_observation(token, entry_observation)
     if not _entry_observation_is_current(token, entry_observation, stage="post_social_enrichment"):
@@ -5100,12 +5087,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
         return
 
     # 8) — señales caras —
-    if green_fast_path and DRY_RUN and bool(getattr(CFG, "PAPER_SNIPER_MODE", False)):
-        token.setdefault("rug_score", None)
-        token.setdefault("cluster_bad", False)
-    else:
-        token["rug_score"]   = await rugcheck.check_token(addr)
-        token["cluster_bad"] = await clusters.suspicious_cluster(addr)
+    await enrich_entry_risk(token, skip=bool(green_fast_path and DRY_RUN and getattr(CFG, "PAPER_SNIPER_MODE", False)))
+    entry_observation = freeze_entry_auxiliary_observation(token, entry_observation)
     token["score_total"] = filters.total_score(token)
     if not _entry_observation_is_current(token, entry_observation, stage="post_risk_enrichment"):
         return

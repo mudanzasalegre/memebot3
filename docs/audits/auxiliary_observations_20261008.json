@@ -1,0 +1,90 @@
+{
+  "stage": "same-snapshot momentum, typed normalised risk and original auxiliary receipt contracts",
+  "status": "IMPLEMENTED_SOFTWARE_VALIDATED",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Source implementation and isolated synthetic provider/order/model tests only. No bot service, credentialed provider request, transaction, active model training/promotion or active-policy write.",
+  "references": [
+    "https://api.rugcheck.xyz/swagger/doc.json",
+    "https://solana.com/docs/rpc/http/gettokenlargestaccounts",
+    "https://solana.com/docs/rpc/http/gettokensupply",
+    "https://docs.dexscreener.com/api/reference"
+  ],
+  "findings_and_repairs": [
+    "Remove chart retries and secondary cached-market reads from the common entry path. The private legacy chart helper remains diagnostic-only; the public reference inspected does not specify that chart route. Momentum now uses the original current price_pct_5m receipt before green-sniper ranking and is explicitly not an EMA.",
+    "Correct the buying proxy to use actual txns_last_5m_buys rather than total transactions, canonical percentage points without multiplying small changes by 100, original observed real liquidity and a known nonfuture creation timestamp. Keep confirmed insider risk unknown; early buying is a separate positive hint, not evidence of insiders or a clean ownership graph.",
+    "Use the documented public RugCheck token report summary endpoint and its score_normalised field. Preserve the raw score as a separate diagnostic and use an explicit local expected integer range 0..100. Higher risk no longer earns safe-score points; only known normalised scores at or below 30 receive the existing 15-point safe-risk bonus. The inspected field schema does not itself declare the 0..100 range.",
+    "Validate JSON-RPC protocol/request identity/error envelopes. Fetch largest token accounts and total supply concurrently at confirmed commitment, preserve both original client receipt clocks and require coherent slots, decimals, sorted unique accounts and exact bounded raw integer quantities. Truncated fewer-than-20 populations must reconcile the full supply. Missing/error/zero-supply results stay unknown instead of becoming healthy for 15 minutes.",
+    "Use exact integer cross-multiplication for the top-ten greater-than-20-percent boundary, including uint64 quantities. This is a token-account concentration proxy, not a wallet/owner relationship graph; pool vaults can be included, and confirmed RPC reads are not one atomic chain snapshot.",
+    "Replace sliding scalar caches with detached identity-bound original receipt proofs, validated on every read. Known RugCheck age is at most 120 seconds, concentration at most 60 seconds, and negative caching is 15 seconds. A returned response cannot mutate the cached original.",
+    "Run independent RugCheck and concentration heads in parallel under a five-second per-head deadline, with four-second HTTP timeouts and no hot-path retry/backoff chain. One failed head does not erase a valid peer. Cancellation drains owned child tasks. Existing paper green-sniper risk-skip mode keeps both skipped values unknown, not fabricated safe flags.",
+    "Remove fabricated cluster/auth/insider T0 defaults while retaining separate legacy SQL defaults. Soft scoring accepts typed known flags and counts only; missing holders at a zero configured threshold, unknown risk, absent insiders and string truthiness do not earn false confidence points. Do not renormalise unknown coverage into a perfect score or blindly lower admission thresholds.",
+    "Use one canonical typed toxic-sell-pressure calculation. Tiny percentage-point moves stay tiny; explicit canonical unknown does not revive raw aliases; missing price change is not observed flat price; fractional/negative/conflicting counts do not prove toxic pressure.",
+    "Freeze the four original auxiliary records after risk enrichment and recheck original age, mint, unchanged scalar inputs, final vector outputs, underlying momentum/buy/liquidity vector inputs and real-liquidity basis before intents. New managed v3 entry proofs retain these records with the social proof through original buy, costed close, immutable source, Parquet export, restart and checked training restoration. Legacy v1/v2 schemas and the 77 raw columns are preserved.",
+    "Use the same UTC evaluation clock as feature-vector timestamps. Preserve original source clocks and explicitly handle only the one-microsecond mixed-clock/serialization quantum observed on Windows, not a seconds-wide causal tolerance. Future observations remain rejected. Extreme observed momentum remains an input, never a fabricated positive realised-profit label."
+  ],
+  "contracts": {
+    "receipt_version": "auxiliary_t0_receipt_v1",
+    "entry_version": "frozen_entry_features_with_auxiliary_receipts_v3",
+    "legacy_entry_versions_preserved": ["frozen_entry_features_v1", "frozen_entry_features_with_auxiliary_receipts_v2"],
+    "trend_basis": "fresh_snapshot_m5_percentage_point_momentum_not_ema",
+    "accumulation_basis": "fresh_snapshot_early_buying_proxy_not_confirmed_insider",
+    "rug_basis": "rugcheck_normalised_risk_http_receipt_not_report_asof",
+    "concentration_basis": "rpc_top10_token_account_concentration_not_wallet_cluster",
+    "maximum_original_age_s": {"trend": 30, "early_accumulation": 30, "rug": 120, "cluster": 60},
+    "maximum_rpc_slot_gap": 8,
+    "risk_head_deadline_s": 5,
+    "http_timeout_s": 4,
+    "mixed_clock_precision_quantum_microseconds": 1,
+    "new_raw_feature_columns": 0,
+    "new_required_global_risk_buy_gate": false,
+    "paper_order_size_sol_unchanged": 0.1,
+    "economic_upside_cap": false
+  },
+  "evidence": [
+    "utils/auxiliary_observation.py", "runtime/auxiliary_enrichment.py", "runtime/entry_observation.py",
+    "runtime/trade_learning.py", "analytics/trend.py", "analytics/insider.py", "analytics/filters.py",
+    "fetcher/rugcheck.py", "fetcher/helius_cluster.py", "utils/data_utils.py", "run_bot.py",
+    "tests/test_auxiliary_observation_contract.py", "tests/test_trade_learning.py", "tests/test_fallback.py"
+  ],
+  "verification": {
+    "new_isolated_cases": 84,
+    "focused_final_source": "463 passed in 20.54s, including exact paper sizing and uncapped runner protection",
+    "clock_stress_diagnostic": "1000 current original-receipt/model-T0 replays with zero causal errors after UTC producer-clock alignment; 10000 synthetic mixed-clock HTTP receipt replays per momentum and RugCheck head with zero false-unknown results on final precision handling",
+    "intermediate_failures_repaired": "Tests exposed missing-holder bonuses, mutable provider caches, vector/source-input mismatch and Windows mixed-clock false future/causal failures. Fixes retain original receipts and production guards; no always-success validation substitute was introduced.",
+    "full_working_suite": "2258 passed in 269.86s on final source",
+    "full_publishing_suite": "2258 passed in 265.00s on final source without personal .env or local .venv, using the existing working-checkout Python runtime",
+    "preflight_both": {"ok": true, "compile_errors": 0, "config_import_rc": 0, "paper_profile_ok": true, "report_builders": 7, "report_builders_ok": true},
+    "publication_baseline_commit": "3462a214b6ba6ef57d8a914f40863d129970d522",
+    "publication": "Reviewed source only; commit, push, remote equality and zero-difference dry sync must be verified before handoff",
+    "artifact_inventory_at_utc": "2026-10-08T02:27:55.6626611Z",
+    "runtime_models_changed": 0,
+    "runtime_features_changed": 0,
+    "managed_trade_and_forward_json_changed": 0,
+    "active_policies_changed": 0,
+    "personal_env_changed": false,
+    "final_shutdown": {
+      "verified_at_utc": "2026-10-08T02:27:56.4842757Z",
+      "working_stop_script_exit_code": 0,
+      "working_stop_script_result": "2026-10-08T02:27:54Z stop_stack done killed=0 remaining=0",
+      "working_runtime_processes": 0,
+      "publishing_runtime_processes": 0,
+      "global_bot_training_research_processes": 0,
+      "bot_locks_present_both": false,
+      "working_sql": [["main", "stopped", "idle", "idle"]],
+      "matching_windows_scheduled_tasks": 0,
+      "matching_windows_services": 0,
+      "windows_scheduler_inventory_at_utc": "2026-10-08T02:27:31.4622631Z",
+      "publishing_finalizer": "Not invoked: source-only checkout; OFF verified independently by process/lock inventory"
+    }
+  },
+  "remaining_boundaries": [
+    "Only official documentation and synthetic responses were checked in this stage. Successful production provider access, real response acceptance and provider report/market-asof timing are unverified; local receipt freshness is not provider freshness or execution proof.",
+    "Momentum and early buying are explicit proxies. Concentration is not holder ownership or insider-network detection, and its two confirmed RPC reads are not an atomic/finalized ownership snapshot. Conservative contradictions become unknown rather than being hidden.",
+    "Original auxiliary ages are carried in managed v3 close proofs, not new age predictor columns or retroactively invented history. Legacy raw shadow/export paths do not automatically gain this managed proof.",
+    "Soft-score and source semantics changed deliberately; historical raw rows and active models are not rewritten, retrained, promoted or profitability-certified. Broader strategy-subprofile descriptors, semantic-generation acceptance and full-strategy decision provenance still require work.",
+    "Diagnostic multiclass exit acceptance, atomic multi-head provenance, full-strategy capital/admission/execution constraints, authorized fresh prospective costed financial acceptance and independently reconciled live execution remain separate required work.",
+    "Uncapped inputs/exits can accompany moves above 200 percent but cannot guarantee discovering or entering every 5x/10x token, selling at its peak or making positive net profits. All bot services remain OFF.",
+    "The publishing checkout is source-only with no personal .env, local .venv or runtime database. Tests use the existing working-checkout Python runtime; runtime data and secrets are not copied."
+  ]
+}

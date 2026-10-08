@@ -120,6 +120,8 @@ from config.config import (
     TRADING_HOURS_EXTRA,
 )
 from utils.time import is_in_trading_window, parse_iso_utc, utc_now
+from utils.numeric_types import binary_value
+from utils.auxiliary_observation import auxiliary_scalar
 
 log = logging.getLogger("filters")
 
@@ -427,13 +429,13 @@ def _is_nan_or_none(x: Any) -> bool:
 
 def _to_float_or_none(x: Any) -> Optional[float]:
     try:
-        if x is None:
+        if x is None or isinstance(x, bool):
             return None
         # Evitar tratar strings vacíos como 0
         if isinstance(x, str) and not x.strip():
             return None
         v = float(x)
-        if math.isnan(v):
+        if not math.isfinite(v):
             return None
         return v
     except Exception:
@@ -496,25 +498,30 @@ def has_toxic_initial_sell_pressure(token: dict[str, Any]) -> bool:
     age_sec = _token_age_seconds(token)
     if age_sec is None or age_sec < 0 or age_sec >= 600:
         return False
-    sells = int(_to_float_or_none(token.get("txns_last_5m_sells")) or 0)
-    total_5m = int(_to_float_or_none(token.get("txns_last_5m")) or 0)
-    buys = max(0, total_5m - sells) if total_5m else int(_to_float_or_none(token.get("txns_last_5m_buys")) or 0)
+    def count(value):
+        number = _to_float_or_none(value)
+        return int(number) if number is not None and number.is_integer() and 0 <= number <= 2**31 - 1 else None
+    sells = count(token.get("txns_last_5m_sells"))
+    total_5m = count(token.get("txns_last_5m"))
+    buys = count(token.get("txns_last_5m_buys"))
+    if buys is None and "txns_last_5m_buys" not in token and total_5m is not None and sells is not None and total_5m >= sells:
+        buys = total_5m - sells  # Legacy explicit total, not total-as-buys.
+    if sells is None or buys is None or (total_5m is not None and total_5m != sells + buys):
+        return False  # Unknown/conflicting evidence cannot prove toxic pressure.
     denom = sells + buys
     if denom <= 0 or (sells / denom) <= 0.7:
         return False
 
-    pc5 = None
-    price_change = token.get("priceChange")
-    if isinstance(price_change, dict):
-        pc5 = price_change.get("m5")
-    if pc5 is None:
-        pc5 = token.get("price_change_5m")
-    if pc5 is None:
-        pc5 = token.get("price_pct_5m")
-    pc5_val = _to_float_or_none(pc5) or 0.0
-    if abs(pc5_val) < 1.0 and pc5_val != 0.0:
-        pc5_val *= 100.0
-    return -5.0 < pc5_val < 5.0
+    if "price_pct_5m" in token:
+        pc5 = token["price_pct_5m"]  # Explicit unknown never resurrects raw aliases.
+    elif "price_change_5m" in token:
+        pc5 = token["price_change_5m"]
+    else:
+        raw = token.get("priceChange")
+        pc5 = raw.get("m5") if isinstance(raw, dict) else None
+    pc5_val = _to_float_or_none(pc5)
+    # Dex changes are percentage points: .5 is .5%, never guessed as 50%.
+    return pc5_val is not None and -5.0 < pc5_val < 5.0
 
 
 def basic_filters(token: dict[str, Any]) -> Optional[bool]:
@@ -708,33 +715,6 @@ def basic_filters(token: dict[str, Any]) -> Optional[bool]:
     if has_toxic_initial_sell_pressure(token):
         log.debug("toxic initial sell pressure %s", sym)
         return False
-    if age_sec < 600:
-        sells = int(_to_float_or_none(token.get("txns_last_5m_sells")) or 0)
-
-        # buys aproximado: si la fuente da txns_last_5m como total,
-        # separamos con sells; si no, asumimos buys == txns_last_5m (legacy).
-        total_5m = int(_to_float_or_none(token.get("txns_last_5m")) or 0)
-        buys = max(0, total_5m - sells) if total_5m else int(_to_float_or_none(token.get("txns_last_5m")) or 0)
-
-        denom = sells + buys
-        if denom > 0 and (sells / denom) > 0.7:
-            pc5 = None
-            price_change = token.get("priceChange")
-            if isinstance(price_change, dict):
-                pc5 = price_change.get("m5")
-            if pc5 is None:
-                pc5 = token.get("price_change_5m")
-
-            pc5_val = _to_float_or_none(pc5) or 0.0
-
-            # Normalización suave: si parece fracción, a %
-            if abs(pc5_val) < 1.0 and pc5_val != 0.0:
-                pc5_val *= 100.0
-
-            # Si el precio apenas se movió (±5%) pero hay 70% ventas, mala señal
-            if -5.0 < pc5_val < 5.0:
-                log.debug("✗ %s >70%% ventas iniciales (precio estable ±5%%)", sym)
-                return False
 
     return True
 
@@ -748,25 +728,19 @@ def total_score(tok: dict[str, Any]) -> int:
     if not isinstance(tok, dict):
         return 0
 
-    def f(x: Any) -> float:
-        v = _to_float_or_none(x)
-        return float(v) if v is not None else 0.0
-
-    def i(x: Any) -> int:
-        try:
-            return int(f(x))
-        except Exception:
-            return 0
-
     thresholds = effective_thresholds(tok)
+    liq = _to_float_or_none(tok.get("liquidity_usd"))
+    vol = _to_float_or_none(tok.get("volume_24h_usd"))
+    holders = _to_float_or_none(tok.get("holders"))
     score = 0
-    score += 15 if f(tok.get("liquidity_usd")) >= float(thresholds.min_liquidity_usd) * 2 else 0
-    score += 20 if f(tok.get("volume_24h_usd")) >= float(thresholds.min_vol_usd_24h) * 3 else 0
-    score += 10 if i(tok.get("holders")) >= int(thresholds.min_holders) * 2 else 0
-    score += 15 if f(tok.get("rug_score")) >= 70 else 0
-    score += 15 if not bool(tok.get("cluster_bad", 0)) else 0
-    score += 10 if bool(tok.get("social_ok", 0)) else 0
-    score += 10 if not bool(tok.get("insider_sig", 0)) else 0
+    score += 15 if liq is not None and liq > 0 and liq >= float(thresholds.min_liquidity_usd) * 2 else 0
+    score += 20 if vol is not None and vol > 0 and vol >= float(thresholds.min_vol_usd_24h) * 3 else 0
+    score += 10 if holders is not None and holders.is_integer() and 0 < holders <= 2**31 - 1 and holders >= int(thresholds.min_holders) * 2 else 0
+    rug = auxiliary_scalar(tok, "rug")
+    score += 15 if rug is not None and rug <= 30 else 0
+    score += 15 if binary_value(tok.get("cluster_bad")) == 0 else 0
+    score += 10 if binary_value(tok.get("social_ok")) == 1 else 0
+    score += 10 if binary_value(tok.get("early_accumulation_sig")) == 1 else 0
     return int(score)
 
 

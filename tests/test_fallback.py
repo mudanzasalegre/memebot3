@@ -42,8 +42,9 @@ def make_session(resp):
 
 @pytest.mark.asyncio
 async def test_trend_signal_fallback(monkeypatch):
-    async def fake_get_pair(addr):
-        return {"address": addr, "price_pct_5m": 10}
+    async def fake_get_pair(addr, **kwargs):
+        from utils.market_observation import stamp_market_observation
+        return stamp_market_observation({"address": addr, "price_pct_5m": 10}, "test_http")
 
     monkeypatch.setattr("fetcher.dexscreener.get_pair", fake_get_pair)
     monkeypatch.setattr(trend.aiohttp, "ClientSession", make_session(FakeResp(404)))

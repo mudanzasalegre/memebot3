@@ -74,6 +74,32 @@ async def closed(paper, tmp_path, monkeypatch, request):
             address=MINT, received_at=(STAMP - dt.timedelta(seconds=2)).timestamp())
         original.update(social_feature_values(signal))
         auxiliary = {"social": signal.to_dict()}
+        if param.get("auxiliary"):
+            from utils import auxiliary_observation as aux
+            from utils.market_observation import stamp_market_observation
+            from runtime.auxiliary_enrichment import prepare_cheap_auxiliary
+            # Original inputs precede the fixed model timestamp; no current
+            # provider result or runtime data is used for this historical case.
+            monkeypatch.setattr(aux, "observation_clock", lambda: (STAMP - dt.timedelta(seconds=1.5)).timestamp())
+            monkeypatch.setattr(aux.time, "time", lambda: (STAMP - dt.timedelta(seconds=1.5)).timestamp())
+            snapshot = stamp_market_observation({"address": MINT, "price_usd": 1.,
+                "price_pct_5m": 100000., "txns_last_5m_buys": 10,
+                "liquidity_usd": 10000., "created_at": (STAMP - dt.timedelta(minutes=2)).isoformat()},
+                "test_original_snapshot", received_at=(STAMP - dt.timedelta(seconds=2)).timestamp())
+            prepare_cheap_auxiliary(snapshot)
+            records = snapshot["auxiliary_observations"]
+            records["rug"] = aux.observation("rug", MINT, 12, source="rugcheck_report_summary",
+                observed_at=(STAMP - dt.timedelta(seconds=2)).timestamp(),
+                inputs={"score": 1200, "score_normalised": 12})
+            rpc_clock = (STAMP - dt.timedelta(seconds=2)).timestamp()
+            records["cluster"] = aux.observation("cluster", MINT, False, source="solana_rpc_confirmed",
+                observed_at=rpc_clock, inputs={
+                    "accounts": [{"address": f"account-{n}", "amount": "100", "decimals": 6} for n in range(20)],
+                    "total_supply": "10000", "decimals": 6, "largest_slot": 100, "supply_slot": 101,
+                    "largest_received_at": rpc_clock, "supply_received_at": rpc_clock, "commitment": "confirmed"})
+            auxiliary.update(records)
+            original.update(price_pct_5m=100000., trend=1, rug_score=12, cluster_bad=False,
+                txns_last_5m_buys=10, liquidity_usd=10000., liquidity_is_proxy=0)
     with journal.scope():
         attempt = journal.begin(prototype, paper=True, amount_sol=.1, feature_vector=original,
             positive_pnl_ratio=.1, auxiliary_observations=auxiliary)
@@ -155,6 +181,30 @@ async def test_v2_social_receipt_survives_actual_buy_close_export_restart_and_ch
     restored, report = checked_financial_frame(mutated)
     assert report["ready"] and restored.iloc[0]["twitter_present"] == 1
     assert restored.iloc[0]["social_link_count"] == 1
+    assert learning.prepare_close(closed.identity, root=closed.root) == source
+    assert learning.publish_close(closed.identity, root=closed.root)["status"] == "already_written"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("closed", [{"auxiliary": True}], indirect=True)
+async def test_v3_original_auxiliary_receipts_survive_buy_close_export_restart_and_training(closed):
+    from ml.financial_targets import checked_financial_frame
+    source = learning.prepare_close(closed.identity, root=closed.root)
+    proof = source["entry_features"]
+    assert proof["version"] == learning.ENTRY_ALL_AUX_VERSION
+    records = proof["auxiliary_observations"]
+    assert set(records) == {"social", "trend", "early_accumulation", "rug", "cluster"}
+    assert records["early_accumulation"]["value"] is True
+    assert records["rug"]["inputs"]["score"] == 1200 and records["rug"]["value"] == 12
+    assert records["cluster"]["basis"] == "rpc_top10_token_account_concentration_not_wallet_cluster"
+    assert learning.publish_close(closed.identity, root=closed.root)["status"] == "written"
+    row = dataset(closed.root).iloc[0]
+    assert json.loads(row["outcome_execution_proof"])["entry_features"] == proof
+    assert row["price_pct_5m"] == 100000. and row["trend"] == 1
+    restored, report = checked_financial_frame(pd.DataFrame([{**row, "trend": -1, "rug_score": 99, "cluster_bad": 1}]))
+    assert report["ready"] and restored.iloc[0]["trend"] == 1
+    assert restored.iloc[0]["rug_score"] == 12 and restored.iloc[0]["cluster_bad"] == 0
+    assert checked_net_return(row) == pytest.approx(-3.)  # Extreme observed momentum is not a profit label.
     assert learning.prepare_close(closed.identity, root=closed.root) == source
     assert learning.publish_close(closed.identity, root=closed.root)["status"] == "already_written"
 

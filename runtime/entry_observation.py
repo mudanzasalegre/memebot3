@@ -16,6 +16,7 @@ from analytics.social_signal import (
     SOCIAL_STATUS_UNKNOWN, SOCIAL_MAX_AGE_S, checked_social_receipt,
     social_cache_ttl_s, social_feature_values, social_signal_from_dict,
 )
+from utils.auxiliary_observation import KINDS, checked_auxiliary_observation, auxiliary_scalar, clock_after
 
 # Queue items carry discovery identity, not reusable decisions/model inputs.
 _DISCOVERY_FIELDS = (
@@ -89,6 +90,7 @@ class EntryObservation:
     proxy: tuple[str, float, float] | None = None
     provider_proxy: bool = False
     social: str | None = None
+    auxiliary: str | None = None
 
 
 def freeze_entry_social_observation(token: dict, observation: EntryObservation) -> EntryObservation:
@@ -97,7 +99,55 @@ def freeze_entry_social_observation(token: dict, observation: EntryObservation) 
 
 
 def entry_auxiliary_observations(observation: EntryObservation) -> dict | None:
-    return {"social": json.loads(observation.social)} if observation.social is not None else None
+    receipts = {"social": json.loads(observation.social)} if observation.social is not None else None
+    auxiliary = getattr(observation, "auxiliary", None)
+    if auxiliary is not None:
+        if receipts is None:
+            raise ValueError("Full auxiliary proof requires the frozen social receipt")
+        receipts.update(json.loads(auxiliary))
+    return receipts
+
+
+def freeze_entry_auxiliary_observation(token: dict, observation: EntryObservation) -> EntryObservation:
+    from dataclasses import replace
+    return replace(observation, auxiliary=json.dumps(token["auxiliary_observations"], sort_keys=True, allow_nan=False))
+
+
+def auxiliary_observation_problem(payload, *, address, token=None, vector=None, now=None, causal=False):
+    if not isinstance(payload, dict) or set(payload) != KINDS:
+        return "missing_auxiliary_receipts"
+    for kind, raw in payload.items():
+        record = checked_auxiliary_observation(raw, address, kind, now=now)
+        if record is None:
+            return "expired_or_invalid_auxiliary_receipt"
+        if causal and record["value"] is not None:
+            times = [record["observed_at"], record["evaluated_at"]]
+            if kind in {"trend", "early_accumulation"}:
+                times += [item["received_at"] for item in record["inputs"]["market"].values()]
+            elif kind == "cluster":
+                times += [record["inputs"][key] for key in ("largest_received_at", "supply_received_at")]
+            # Entry vectors persist datetime's microsecond precision. Compare
+            # in that same representation, not float sub-microsecond residue.
+            if now is None or any(clock_after(stamp, now) for stamp in times):
+                return "noncausal_auxiliary_receipt"
+        if token is not None and auxiliary_scalar(token, kind) != record["value"]:
+            return "changed_auxiliary_inputs"
+        if vector is not None and record["value"] is not None and kind in {"trend", "early_accumulation"}:
+            for field, source in record["inputs"]["market"].items():
+                if market_number(vector.get(field), field) != market_number(source["value"], field):
+                    return "changed_model_auxiliary_market_inputs"
+            if kind == "early_accumulation" and auxiliary_scalar({"cluster_bad": vector.get("liquidity_is_proxy")}, "cluster") is not False:
+                return "changed_model_auxiliary_liquidity_basis"
+        field = {"trend": "trend", "rug": "rug_score", "cluster": "cluster_bad"}.get(kind)
+        if vector is not None and field is not None:
+            actual = vector.get(field)
+            if record["value"] is None:
+                if actual is None or type(actual) is float and math.isnan(actual):
+                    continue
+                return "changed_model_auxiliary_inputs"
+            if auxiliary_scalar({field: actual}, kind) != record["value"]:
+                return "changed_model_auxiliary_inputs"
+    return None
 
 
 def social_observation_problem(payload, *, address: str, vector=None, now=None, max_age_s=SOCIAL_MAX_AGE_S):
@@ -170,6 +220,13 @@ def entry_observation_problem(
             return "changed_social_inputs"
         problem = social_observation_problem(payload, address=observation.address, vector=vector,
                                               max_age_s=social_cache_ttl_s())
+        if problem is not None:
+            return problem
+    if observation.auxiliary is not None:
+        payload = json.loads(observation.auxiliary)
+        if token.get("auxiliary_observations") != payload:
+            return "changed_auxiliary_receipts"
+        problem = auxiliary_observation_problem(payload, address=observation.address, token=token, vector=vector)
         if problem is not None:
             return problem
     expected = dict(observation.values)

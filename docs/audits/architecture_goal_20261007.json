@@ -13,7 +13,8 @@
   ],
   "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
   "historical_initial_publication_state": {"branch": "main", "origin_main_commit_before_sync": "3479e24", "working_tree_clean_before_sync": true, "remote_fetch_completed": true, "source_sync_completed": true, "implementation_commit": "0c7aa6c0d2bc10462d29b1d8207a68a23fc7fbb8", "commit_push": "COMPLETE", "remote_revision_verified": true, "scope": "Initial publication proof, not the current Git HEAD after later source stages"},
-  "latest_stage_evidence": "docs/audits/social_observations_20261008.json",
+  "latest_stage_evidence": "docs/audits/auxiliary_observations_20261008.json",
+  "latest_stage_summary": "Replace chart/secondary market reads with current-snapshot momentum and an explicitly separate actual-buying proxy; correct percentage units, normalised RugCheck risk direction, fabricated healthy RPC/default flags and soft-score bonuses. Preserve original typed source/receipt ages, bounded parallel risk heads and owned cancellation, freeze/recheck scalar and underlying model inputs, and persist causal managed v3 proofs through buy/close/export/restart/net-training restoration. Legacy v1/v2 and 77 raw columns remain unchanged. No active artifact, runtime run, provider access acceptance or profitability evidence is produced.",
   "implemented_this_stage": [
     "Restore observed peak targets through a bounded causal historical join; preserve all entry features unchanged",
     "Persist observed peak and outcome-availability timestamp as outcome-only Parquet columns on future shadow and real closes",
@@ -141,7 +142,11 @@
     "utils/numeric_types.py",
     "tests/test_numeric_encoding.py",
     "docs/audits/social_observations_20261008.json",
-    "tests/test_social_observation_contract.py"
+    "tests/test_social_observation_contract.py",
+    "docs/audits/auxiliary_observations_20261008.json",
+    "utils/auxiliary_observation.py",
+    "runtime/auxiliary_enrichment.py",
+    "tests/test_auxiliary_observation_contract.py"
   ],
   "verification": {
     "pre_final_changes_full_pytest": "856 passed in 31.49s",
@@ -170,7 +175,8 @@
     "previous_primary_champion_working_suite": "1953 passed in 329.53s after primary same-later-cohort comparison, atomic model/meta/threshold approval/rollback and final API mode/snapshot checks",
     "previous_numeric_working_suite": "2086 passed in 328.91s after typed numeric missingness, cold-start dependency isolation and pre-Parquet validity checks, before final pre-matrix precision preservation",
     "previous_numeric_precision_working_suite": "2087 passed in 339.50s after final typed numeric missingness, cold-start dependency isolation, pre-Parquet validity and pre-matrix raw precision preservation",
-    "final_working_suite": "2174 passed in 350.58s after final social source-age, nullable metadata, off-thread enrichment and frozen-entry v2 changes",
+    "previous_social_working_suite": "2174 passed in 350.58s after final social source-age, nullable metadata, off-thread enrichment and frozen-entry v2 changes",
+    "final_working_suite": "2258 passed in 269.86s after final same-snapshot momentum, typed risk source-age and causal managed v3 changes",
     "previous_sizing_publishing_suite": "1031 passed in 71.96s without personal .env",
     "previous_runner_forward_publishing_suite": "1068 passed in 62.78s without personal .env",
     "previous_uncertainty_publishing_suite": "1097 passed in 74.08s without personal .env using existing working-checkout Python runtime",
@@ -193,7 +199,8 @@
     "previous_primary_champion_publishing_suite": "1953 passed in 324.94s after final primary champion/atomic lifecycle checks, without personal .env or local .venv using existing working-checkout Python runtime",
     "previous_numeric_publishing_suite": "2086 passed in 320.83s before final pre-matrix precision preservation, without personal .env or local .venv using existing working-checkout Python runtime",
     "previous_numeric_precision_publishing_suite": "2087 passed in 321.91s on final source, without personal .env or local .venv using existing working-checkout Python runtime",
-    "final_publishing_suite": "2174 passed in 336.49s after final social source-age and frozen-entry v2 changes, without personal .env or local .venv using existing working-checkout Python runtime",
+    "previous_social_publishing_suite": "2174 passed in 336.49s after final social source-age and frozen-entry v2 changes, without personal .env or local .venv using existing working-checkout Python runtime",
+    "final_publishing_suite": "2258 passed in 265.00s after final same-snapshot momentum, typed risk source-age and causal managed v3 changes, without personal .env or local .venv using existing working-checkout Python runtime",
     "publishing_preflight": "PASS: both checkouts, compilation, configuration, paper profile and seven report builders",
     "publishing_ui_build": "Previously passed with bundle-size warning; UI unchanged in uncertainty, transport, collector, incumbent-successor, composition, independent-monitor, buy-integrity, sell-integrity, paper-archive, runner-intake, net-learning, financial-model and market-freshness stages",
     "focused_runner_and_forward_suite": "147 passed in 59.65s in previous runner stage",
@@ -223,8 +230,10 @@
     "numeric_missingness_suite": "134 new isolated cases, 340 final focused tests and both final 2087-test suites cover all 51 typed T0 numeric inputs, measured zero/absence/invalid distinctions, strict false/count/trend normalization, full paired ordered float32 matrices and independent-source readiness, original raw/schema/receipt preservation, actual nullable Parquet roundtrip and decoded raw precision retention until final matrix conversion, extreme momentum through +1000000 percent, current primary/family calibration and memoization, unsupported schema pre-deserialization rejection, actual same-later-cohort primary approval/atomic bundle reads, advisory comparison/rollback and cold paper imports without a live signer. Final source preflight passes in both checkouts; no active artifact, policy or profitability evidence is generated",
     "previous_numeric_final_shutdown": "VERIFIED_OFF_2026-10-08T01:08:19.6857714Z",
     "social_observations_suite": "87 new isolated cases, 446 focused integration checks and both final 2174-test full suites cover exact-mint documented-route parsing, partial/malformed metadata, typed flags/URLs/counts/bonuses, original cache ages, provider failure/timeout/HTTP403/429 handling, current snapshot-to-entry and queue consumption, preserved same-profile risk evidence, changed-profile off-thread enrichment without extra GET, immutable receipt/vector rechecks and transient waits, causal v2 buy/close/export/restart/net-training restoration and unchanged v1/raw schemas. Preflight passes in both checkouts and 72 exact-size/uncapped-runner tests pass. Public GET probes returned 403 on both routes; successful real provider access and financial profitability remain unverified. No active artifact is changed",
-    "final_shutdown": "VERIFIED_OFF_2026-10-08T01:46:23.9477713Z",
-    "current_shutdown_evidence": "docs/audits/social_observations_20261008.json"
+    "previous_social_final_shutdown": "VERIFIED_OFF_2026-10-08T01:46:23.9477713Z",
+    "auxiliary_observations_suite": "84 new isolated cases, 463 focused checks and both final 2258-test suites cover same-snapshot uncapped percentage-point momentum, actual buys not transaction totals, nullable unknowns/defaults, low-risk rather than high-risk score bonuses, coherent confirmed RPC inputs with exact uint64 concentration boundaries, original non-sliding detached caches, bounded parallel heads and cancellation drain, immutable scalar/vector/source-input checks, future-component rejection, Windows one-microsecond precision handling and real temporary managed v3 buy/close/export/restart/net-training restoration. Both preflights pass. No active artifact or profitability evidence is generated; actual provider access and full-strategy acceptance remain unverified",
+    "final_shutdown": "VERIFIED_OFF_2026-10-08T02:27:56.4842757Z",
+    "current_shutdown_evidence": "docs/audits/auxiliary_observations_20261008.json"
   },
   "isolated_advisory_result": {"source_period": "2026-07-13 through 2026-07-15", "settled_source_rows": 2147, "comparison_rows": 536, "selected_ranking_targets": ["runner_50", "runner_100"], "active_runtime_models_changed": false, "bot_started": false, "interpretation": "Useful historical ranking discrimination only; rare higher targets remain unvalidated and no costed future profits are established"},
   "remaining_required_work": [
@@ -232,7 +241,7 @@
     "Complete uncertainty, rare-runner and risk/continuation model validation on fresh evidence; calibrated event probabilities are not financial profitability evidence",
     "Complete scanner/feed follow-up and first-launch execution constraints; exact 0.1 SOL paper sizing and frozen runner exits are integrated but trading-policy activation remains separate",
     "Owned buy/sell intents, primary paper JSON/SQL fill recovery, durable closed-trade archival/reentry protection, original first-partial research intake/recovery, managed paper T0/net-label export, checked net-only financial model acceptance and primary fallback/monitor HTTP-receipt freshness are implemented; complete independently checked live wallet/quantity/finality reconciliation, provider market-asof/depth and production response contracts, other research/export error paths, full-strategy forward-source integrity and prospective financial acceptance. No client receipt, submission receipt or green paper test certifies these separate financial integrity boundaries",
-    "Independent paper entry-component composition, checked incumbent/successor lifecycle, actual late-router consumption, common fresh market preparation, current-vector inference under pinned models, fixed-vocabulary context encoding, typed T0 numeric validity/missingness, primary temporal probability acceptance, primary same-later-cohort atomic lifecycle and original social receipt ages/causal consumption are implemented; complete trend/insider/rug/cluster and other auxiliary source-age contracts, additional strategy-subprofile descriptors, diagnostic multiclass exit acceptance, atomic multi-head provenance, durable full-strategy decision provenance and full-strategy capital/admission/execution constraints. Primary historical admission-label-proxy acceptance is not full-strategy profitability. Obtain separately authorized fresh full-strategy closed evidence before a profitability claim",
+    "Independent paper entry-component composition, checked incumbent/successor lifecycle, actual late-router consumption, common fresh market preparation, pinned current-vector inference, fixed-vocabulary context, typed T0 missingness, primary temporal calibration and atomic champion lifecycle, social receipts and same-snapshot momentum/actual-buying/normalised-risk/concentration receipt contracts are implemented. Complete other auxiliary source contracts, successful provider response/access acceptance, strategy-subprofile descriptors and semantic-generation acceptance, diagnostic multiclass exit acceptance, atomic multi-head provenance, durable full-strategy decision provenance and full-strategy capital/admission/execution constraints. Buying momentum is not an insider graph and token-account concentration is not owner clustering. Primary historical admission-label-proxy acceptance is not full-strategy profitability. Obtain separately authorized fresh full-strategy closed evidence before a profitability claim",
     "Perform proportionate integration, first-launch and failure-path validation while keeping trading disabled",
     "Keep future implementation commits synchronized and leave all runtime services stopped after each verification stage"
   ],
