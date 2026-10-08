@@ -27,7 +27,8 @@ from config.config import CFG, PROJECT_ROOT
 from utils.atomic_json import read_json_strict, write_json_atomic
 from runtime.paper_archive import entry_identity
 from execution.quote_receipt import capture_summary, valid_summary
-from research_loop.paper_exit_receipt import make_intent, valid_intent, causal_quote
+from execution import paper_cash_mark as cash
+from research_loop.paper_exit_receipt import make_intent, valid_intent, causal_quote, financial_basis
 
 VERSION = "paired_paper_runner_forward_v1"
 MIN_TOKENS = 50
@@ -193,12 +194,16 @@ def prepare_partial_case(entry: dict[str, Any], *,
     for arm_id, parameters in variants.items():
         subject = copy.deepcopy(prefix)
         subject["runner_trailing_policy"] = json.dumps(parameters, sort_keys=True)
-        arms[arm_id] = {"parameters": parameters, "subject": subject, "fills": [], "closed": False}
+        subject.update(closed=False, paper_cash_owner="case:" + _hash([case_id, arm_id]))
+        arms[arm_id] = {"parameters": parameters, "subject": subject, "fills": [], "closed": False,
+            "cash_last_observed_at": stamp.isoformat(), "cash_observation_count": 0,
+            "cash_observation_gap_limit_exceeded": False}
     case = {"version": VERSION, "case_id": case_id, "cohort_id": cohort,
             "cohort_started_at": day.isoformat(), "cohort_ends_at": (day + dt.timedelta(hours=24)).isoformat(),
             "registered_at": stamp.isoformat(), "baseline_id": base_id, "token": token,
             "prefix": prefix, "arms": arms, "last_observed_at": stamp.isoformat(), "quote_failures": 0,
-            "observation_count": 0, "observation_gap_limit_exceeded": False}
+            "observation_count": 0, "observation_gap_limit_exceeded": False,
+            "financial_policy_version": cash.VERSION}
     return case
 
 
@@ -216,13 +221,25 @@ def register_partial(entry: dict[str, Any], *, root: Path | str | None = None,
     return register_source(capture_source(entry, captured_at=stamp), root=root, cfg=cfg, now=stamp)["created"]
 
 
-def _request(arm: dict[str, Any], price: Any, now: dt.datetime, *, liq_now: float | None = None) -> None:
+def _request(arm: dict[str, Any], price: Any, now: dt.datetime, *, liq_now: float | None = None,
+             cash_context=None, cash_valuation=None) -> None:
     if arm["closed"] or arm.get("intent"):
         return
     subject = arm["subject"]
     price = _number(price)
     valid_price = price is not None and price > 0
     pnl = (price / subject["buy_price_usd"] - 1) * 100 if valid_price else None
+    if not valid_price and liq_now is not None:
+        opened = _time(subject.get("opened_at"))
+        if opened is not None and now >= opened:
+            # Preserve the independent safeguard before the shared engine's
+            # no-price early return; never use a legacy spot peak to activate it.
+            peak = subject.get("highest_pnl_pct", 0.) if arm.get("cash_observation_count", 0) > 0 else 0.
+            reason = exit_policy.liquidity_crush_reason(subject, exit_policy.effective_exit_policy(subject),
+                liq_now=liq_now, age_min=(now - opened).total_seconds() / 60, peak=peak)
+            if reason is not None:
+                _set_intent(arm, quantity=subject["qty_lamports"], reason=reason, now=now)
+                return
     if pnl is not None:
         exit_policy.update_exit_state(subject, pnl_pct=pnl)
     # Retain the real partial ladder; don't compare a hold-all shadow tail with
@@ -231,11 +248,99 @@ def _request(arm: dict[str, Any], price: Any, now: dt.datetime, *, liq_now: floa
         plan = exit_policy.partial_ladder_plan(subject, pnl)
         fraction = exit_policy.partial_sell_fraction(subject, pnl)
         quantity = min(subject["qty_lamports"], max(1, round(subject["qty_lamports"] * fraction)))
-        _set_intent(arm, quantity=quantity, reason="partial_tp", now=now, ladder_plan=plan)
+        _set_intent(arm, quantity=quantity, reason="partial_tp", now=now, ladder_plan=plan,
+                    cash_valuation=cash_valuation)
         return
-    reason = exit_policy.should_exit(subject, price, now, pnl_pct=pnl, liq_now=liq_now)
+    reason = exit_policy.should_exit(subject, price, now, pnl_pct=pnl, liq_now=liq_now, cash_context=cash_context)
     if reason is not None:
-        _set_intent(arm, quantity=subject["qty_lamports"], reason=reason, now=now)
+        _set_intent(arm, quantity=subject["qty_lamports"], reason=reason, now=now,
+                    cash_valuation=cash_valuation)
+
+
+def _observe_cash(case: dict, arm_id: str, quote: Any, fx: Any, stamp: dt.datetime,
+                  *, request_decision: bool = True, slippage_bps: int | None = None,
+                  quote_started_at: dt.datetime | None = None) -> bool:
+    """Observe one arm's original exact remaining cash, never a market proxy.
+
+    A valuation can create an intent, but cannot execute that newly-created
+    intent with the already-received valuation quote. Mutation is atomic.
+    """
+    try:
+        original = case["arms"][arm_id]
+        if original.get("closed") or original.get("intent"):
+            return False
+        arm = copy.deepcopy(original)
+        subject, owner = arm["subject"], "case:" + _hash([case["case_id"], arm_id])
+        if subject.get("paper_cash_owner") != owner:
+            return False
+        from fetcher.jupiter_router import routing_quote_slippage_bps
+        current = cash.capture(subject, quote, fx, token=case["token"], owner=owner,
+            now=stamp, slippage_bps=routing_quote_slippage_bps() if slippage_bps is None else slippage_bps).to_dict()
+        received = _time(current["route_quote"]["observation_receipt"]["other"].get("received_at_utc"))
+        started = _time(quote_started_at)
+        if started is None or received is None or not started <= received <= stamp:
+            return False
+        previous_at = _time(arm.get("cash_last_observed_at"))
+        if previous_at is None or stamp < previous_at:
+            return False
+        previous_mark = arm.get("cash_last_mark")
+        if previous_mark is not None and stamp == previous_at:
+            return previous_mark == current  # Conflicting same-instant observations cannot replace a peak.
+        remaining_peak = arm.get("cash_peak_mark")
+        total_peak = arm.get("cash_total_peak_mark")
+        for peak in (remaining_peak, total_peak):
+            if peak is not None:
+                cash.public_historical_mark(peak, subject, token=case["token"], owner=owner)
+                if _time(peak["valued_at"]) > stamp:
+                    return False
+        if remaining_peak is None or current["values"]["gross_remaining_return_pct"] > remaining_peak["values"]["gross_remaining_return_pct"]:
+            remaining_peak = copy.deepcopy(current)
+        if total_peak is None or current["values"]["estimated_total_liquidation_net_pnl_usd"] > total_peak["values"]["estimated_total_liquidation_net_pnl_usd"]:
+            total_peak = copy.deepcopy(current)
+        # Original spot peaks remain diagnostic. They do not acquire cash provenance.
+        if not arm.get("cash_observation_count"):
+            arm["legacy_market_peak_diagnostic"] = {"role": "unverified_market_peak_only",
+                "values": {key: value for key in ("highest_pnl_pct", "max_pnl_pct_seen", "max_adverse_pnl_pct")
+                    if type(value := subject.get(key)) in (int, float) and math.isfinite(value)}}
+            for key in ("highest_pnl_pct", "max_pnl_pct_seen", "peak_pnl_pct", "max_adverse_pnl_pct"):
+                subject[key] = 0.
+        subject["highest_pnl_pct"] = max(0., remaining_peak["values"]["gross_remaining_return_pct"])
+        subject["max_pnl_pct_seen"] = subject["highest_pnl_pct"]
+        arm.update(cash_last_mark=current, cash_peak_mark=remaining_peak, cash_total_peak_mark=total_peak,
+            cash_last_observed_at=stamp.isoformat(), cash_observation_count=arm.get("cash_observation_count", 0) + 1,
+            cash_observation_gap_limit_exceeded=arm.get("cash_observation_gap_limit_exceeded") is not False
+                or (stamp - previous_at).total_seconds() > 300)
+        price = cash.checked_price(current, subject, token=case["token"], owner=owner, now=stamp)
+        context = cash.protection_context(subject, current, total_peak, token=case["token"], owner=owner, now=stamp)
+        if price is None or context.receipt_json is None:
+            return False
+        if request_decision:
+            _request(arm, price, stamp, cash_context=context,
+                cash_valuation={"current": current, "remaining_peak": remaining_peak, "total_peak": total_peak,
+                                "quote_started_at": started.isoformat()})
+        original.clear()
+        original.update(arm)
+        return True
+    except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
+        return False
+
+
+def _cash_quoteable(case: dict, arm_id: str, arm: dict) -> bool:
+    try:
+        if arm.get("closed") or arm.get("intent"):
+            return False
+        owner = "case:" + _hash([case["case_id"], arm_id])
+        cash.basis(arm["subject"], token=case["token"], owner=owner)
+        return True
+    except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
+        return False
+
+
+def _same_cash_generation(first: dict, second: dict) -> bool:
+    try:
+        return financial_basis(first["subject"]) == financial_basis(second["subject"])
+    except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
+        return False
 
 
 def _set_intent(arm: dict, **arguments) -> bool:
@@ -313,6 +418,8 @@ def _apply_quote_checked(case: dict[str, Any], arm: dict[str, Any], quote: Any, 
     if subject["qty_lamports"] == 0:
         arm["closed"] = True
         arm["closed_at"] = now.isoformat()
+        if "closed" in subject:
+            subject.update(closed=True, closed_at=now.isoformat())
         arm["net_pnl_sol"] = subject["realized_proceeds_sol"] - .1 - subject["estimated_fees_sol"]
         arm["net_pnl_usd"] = subject["realized_proceeds_usd"] - subject["entry_notional_usd"] - subject["estimated_fees_usd"]
     else:
@@ -342,7 +449,8 @@ def active_tokens(root: Path | str | None = None) -> set[str]:
 def has_quote_demand(root: Path | str | None = None) -> bool:
     for path in (_directory(root) / "active").glob("*.json"):
         case = _read(path)
-        if case and any(arm.get("intent") for arm in (case.get("arms") or {}).values()):
+        if case and any(arm.get("intent") or _cash_quoteable(case, arm_id, arm)
+                        for arm_id, arm in (case.get("arms") or {}).items()):
             return True
     return False
 
@@ -358,7 +466,9 @@ def _observe_case(case: dict[str, Any], price: Any, stamp: dt.datetime,
         case["last_observed_at"] = stamp.isoformat()
         case["observation_count"] += 1
     for arm in case["arms"].values():
-        _request(arm, price, stamp, liq_now=liq_now)
+        # Market data can support independent liquidity/time safeguards, not
+        # a financial partial, cash peak, runner drawdown or net-profit floor.
+        _request(arm, None, stamp, liq_now=liq_now, cash_context=cash.PaperCashProtection())
 
 
 def observe_market(token: str, price: Any, *, root: Path | str | None = None,
@@ -407,7 +517,7 @@ def observe_quote(token: str, quote: Any, sol_usd: float, *, root: Path | str | 
 
 
 async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datetime | None = None,
-               prices_func=None, quote_func=None, sol_price_func=None) -> dict[str, Any]:
+               prices_func=None, quote_func=None, sol_price_func=None, fx_func=None) -> dict[str, Any]:
     """Best-effort secondary workload, after the authoritative position monitor."""
     cfg = CFG if cfg is None else cfg
     if getattr(cfg, "DRY_RUN", False) is not True or getattr(cfg, "PAPER_RUNNER_RESEARCH_ENABLED", False) is not True:
@@ -435,13 +545,15 @@ async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datet
         if not cases:
             return {"status": "idle", "quote_calls": 0,
                     "selection": evaluate_completed_cohorts(root=root, cfg=cfg, now=stamp)}
-        from fetcher import jupiter_price, jupiter_router
-        from utils.sol_price import get_sol_usd
-        prices_func = prices_func or jupiter_price.get_many_usd_prices
+        from fetcher import jupiter_router
+        from utils.sol_price import get_sol_usd, get_sol_usd_observation
         quote_func = quote_func or jupiter_router.get_routing_quote
         sol_price_func = sol_price_func or get_sol_usd
+        fx_func = fx_func or get_sol_usd_observation
         try:
-            prices = await prices_func(sorted({case["token"] for _, case in cases}))
+            # No extra spot request is needed to value a research arm. Retain
+            # injected readers for diagnostics and backwards-compatible callers.
+            prices = await prices_func(sorted({case["token"] for _, case in cases})) if prices_func else {}
             if not isinstance(prices, dict):
                 prices = {}
         except Exception:
@@ -455,26 +567,40 @@ async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datet
             _write(path, case)
         # One raw-quantity quote per minute; share it across exactly identical
         # requests. Persisted FIFO intents account for actual research latency.
-        requests = [(arm["intent"]["requested_at"], case["case_id"], arm_id, case, arm)
-                    for _, case in cases for arm_id, arm in case["arms"].items() if arm.get("intent")]
-        requests.sort(key=lambda item: item[:3])
+        # Pending fills have priority; otherwise service the oldest exact-size
+        # valuation. Identical quantities can share cash, never arm ownership.
+        requests = []
+        for _, case in cases:
+            for arm_id, arm in case["arms"].items():
+                if arm.get("intent"):
+                    requests.append((0, arm["intent"]["requested_at"], case["case_id"], arm_id, case, arm,
+                                     arm["intent"]["quantity"]))
+                elif _cash_quoteable(case, arm_id, arm):
+                    requests.append((1, arm.get("cash_last_observed_at") or case["registered_at"],
+                                     case["case_id"], arm_id, case, arm, arm["subject"]["qty_lamports"]))
+        requests.sort(key=lambda item: item[:4])
         quote_calls = 0
         from research_loop import entry_gate_forward, forward_budget
         if requests and forward_budget.claim(Path(root or PROJECT_ROOT), "runner_exit",
                 other_pending=entry_gate_forward.has_quote_demand(root), now=sampled_at):
-            _, _, _, selected_case, selected_arm = requests[0]
-            quantity, token = selected_arm["intent"]["quantity"], selected_case["token"]
+            role, _, _, _, selected_case, selected_arm, quantity = requests[0]
+            token = selected_case["token"]
             try:
-                sol_usd = await sol_price_func()
+                sol_usd = await sol_price_func() if role == 0 else None
             except Exception:
                 sol_usd = None
-            if _positive(sol_usd):
+            if role == 1 or _positive(sol_usd):
                 quote_calls = 1
+                quote, fx = None, None
+                requested_slippage = jupiter_router.routing_quote_slippage_bps()
                 try:
                     quote_started_at = now or _now()
                     quote = await quote_func(input_mint=token, output_mint=jupiter_router.SOL_MINT,
                                              amount_lamports=quantity)
-                    sol_usd = await sol_price_func()  # recheck FX after network wait
+                    if role == 0:
+                        sol_usd = await sol_price_func()  # recheck FX after network wait
+                    else:
+                        fx = await fx_func()  # original typed FX, never a relabelled scalar
                 except Exception:
                     quote = None
                 if (getattr(quote, "other", None) or {}).get("status") == 429:
@@ -483,14 +609,20 @@ async def tick(*, root: Path | str | None = None, cfg: Any = None, now: dt.datet
                 latest_cases = {case["case_id"]: (path, _read(path)) for path, case in cases}
                 filled_at = now or _now()
                 changed = set()
-                for _, case_id, arm_id, case, arm in requests:
-                    if case["token"] == token and arm["intent"]["quantity"] == quantity:
+                for request_role, _, case_id, arm_id, case, arm, requested_quantity in requests:
+                    if request_role == role and case["token"] == token and requested_quantity == quantity:
                         _, latest = latest_cases[case_id]
                         current_arm = latest["arms"].get(arm_id) if latest else None
-                        if not current_arm or current_arm.get("intent") != arm["intent"]:
+                        if not current_arm or current_arm.get("intent") != arm.get("intent"):
                             continue  # Already filled/replaced by the real-quote hook.
-                        if not _positive(sol_usd) or not _apply_quote(latest, current_arm, quote, float(sol_usd), filled_at,
-                                quote_started_at=quote_started_at):
+                        success = False
+                        if role == 0:
+                            success = _positive(sol_usd) and _apply_quote(latest, current_arm, quote, float(sol_usd), filled_at,
+                                quote_started_at=quote_started_at)
+                        elif _same_cash_generation(current_arm, arm):
+                            success = _observe_cash(latest, arm_id, quote, fx, filled_at,
+                                slippage_bps=requested_slippage, quote_started_at=quote_started_at)
+                        if not success:
                             latest["quote_failures"] += 1
                         changed.add(case_id)
                 for case_id in changed:
@@ -557,6 +689,13 @@ def _valid_terminal_unchecked(case: dict[str, Any], arm: dict[str, Any], now: dt
         return False
     previous = registered
     generation = copy.deepcopy(prefix)
+    if "paper_cash_owner" in subject:
+        if not case.get("case_id") or not arm.get("parameters"):
+            return False
+        owner = "case:" + _hash([case["case_id"], _policy_id(arm["parameters"])])
+        if subject["paper_cash_owner"] != owner:
+            return False
+        generation.update(paper_cash_owner=owner, closed=False)
     if "runner_trailing_policy" in subject:
         generation["runner_trailing_policy"] = subject["runner_trailing_policy"]
     else:
@@ -630,6 +769,32 @@ def compare_cohort(cases: list[dict[str, Any]], *, now: dt.datetime | None = Non
         return {"version": VERSION, "accepted": False, "reasons": ["malformed_or_nonfinite_cohort"]}
 
 
+def _valid_cash_coverage(case: dict, arm_id: str, arm: dict) -> bool:
+    """Original per-arm estimated cash coverage, not a shared market heartbeat."""
+    try:
+        observed, closed = _time(arm.get("cash_last_observed_at")), _time(arm.get("closed_at"))
+        registered = _time(case.get("registered_at"))
+        if (arm.get("cash_observation_gap_limit_exceeded") is not False
+                or type(arm.get("cash_observation_count")) is not int or arm["cash_observation_count"] <= 0
+                or observed is None or closed is None or registered is None
+                or not registered <= observed <= closed or (closed - observed).total_seconds() > 300):
+            return False
+        owner = "case:" + _hash([case["case_id"], arm_id])
+        subject = arm["subject"]
+        if subject.get("paper_cash_owner") != owner:
+            return False
+        last = cash.public_historical_mark(arm["cash_last_mark"], subject, token=case["token"], owner=owner)
+        remaining = cash.public_historical_mark(arm["cash_peak_mark"], subject, token=case["token"], owner=owner)
+        total = cash.public_historical_mark(arm["cash_total_peak_mark"], subject, token=case["token"], owner=owner)
+        return (_time(last["valued_at"]) == observed
+            and all(registered <= _time(peak["valued_at"]) <= observed for peak in (remaining, total))
+            and remaining["values"]["gross_remaining_return_pct"] + 1e-10 >= last["values"]["gross_remaining_return_pct"]
+            and total["values"]["estimated_total_liquidation_net_pnl_usd"] + 1e-10
+                >= last["values"]["estimated_total_liquidation_net_pnl_usd"])
+    except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
+        return False
+
+
 def _compare_cohort(cases: list[dict[str, Any]], *, now: dt.datetime | None = None) -> dict[str, Any]:
     stamp = now or _now()
     reasons = []
@@ -673,12 +838,20 @@ def _compare_cohort(cases: list[dict[str, Any]], *, now: dt.datetime | None = No
             reasons.append("case_identity_or_enrollment_window_mismatch")
         if case.get("observation_gap_limit_exceeded") is not False or case.get("observation_count", 0) <= 0:
             reasons.append("incomplete_observation_coverage")
+        if case.get("financial_policy_version") != cash.VERSION:
+            reasons.append("unknown_financial_policy_basis")
         registered_times.append(registered)
         base_parameters = runner_price_policy.parse_policy(case["arms"].get(baseline, {}).get("parameters"))
         expected_variants = policy_variants(base_parameters or {})
         if set(expected_variants) != arm_ids:
             reasons.append("invalid_policy_variants")
         for arm_id, arm in case["arms"].items():
+            if not _valid_cash_coverage(case, arm_id, arm):
+                reasons.append("incomplete_arm_cash_coverage")
+            for fill in arm.get("fills") or []:
+                if (not str(fill.get("reason", "")).startswith("TIMEOUT") and fill.get("reason") != "LIQUIDITY_CRUSH"
+                        and not fill.get("exit_intent", {}).get("cash_valuation")):
+                    reasons.append("unknown_financial_decision_mark")
             if expected_variants.get(arm_id) != arm.get("parameters") or not _valid_terminal(case, arm, stamp):
                 reasons.append("unresolved_or_uncosted_arm")
             else:

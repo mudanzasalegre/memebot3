@@ -21,7 +21,7 @@ VERSION = "paper_research_exit_intent_v1"
 _MONEY = ("amount_sol", "entry_notional_usd", "buy_price_usd", "realized_proceeds_sol",
           "realized_proceeds_usd", "estimated_fees_sol", "estimated_fees_usd")
 _IDENTITY = ("run_id", "run_started_at", "opened_at", "token_address", "entry_intent_id",
-             "source_position_key", "buy_signature", "runner_trailing_policy")
+             "source_position_key", "buy_signature", "runner_trailing_policy", "paper_cash_owner")
 
 
 def _hash(value: Any) -> str:
@@ -67,7 +67,7 @@ def financial_basis(subject: dict) -> dict:
 
 
 def make_intent(subject: dict, *, quantity: int, reason: str, now: dt.datetime,
-                ladder_plan: dict | None = None) -> dict:
+                ladder_plan: dict | None = None, cash_valuation: dict | None = None) -> dict:
     basis = financial_basis(subject)
     stamp = _time(now)
     if (type(quantity) is not int or not 0 < quantity <= basis["qty_lamports"]
@@ -77,6 +77,10 @@ def make_intent(subject: dict, *, quantity: int, reason: str, now: dt.datetime,
     intent = {"quantity": quantity, "reason": reason, "requested_at": stamp.isoformat()}
     if ladder_plan is not None:
         intent["ladder_plan"] = copy.deepcopy(ladder_plan)
+    if cash_valuation is not None:
+        if not valid_cash_valuation(cash_valuation, subject, now=stamp):
+            raise ValueError("Unknown original financial decision mark")
+        intent["cash_valuation"] = copy.deepcopy(cash_valuation)
     receipt = {"version": VERSION, "role": "estimated_paper_intent_only", "observed_execution": False,
                "decision": copy.deepcopy(intent), "financial_basis": basis}
     receipt["sha256"] = _hash(receipt)
@@ -95,8 +99,38 @@ def valid_intent(intent: Any, subject: dict) -> bool:
             and receipt["decision"] == {key: value for key, value in intent.items() if key != "receipt"}
             and financial_basis(receipt["financial_basis"]) == receipt["financial_basis"]
             and receipt["financial_basis"] == financial_basis(subject)
+            and ("cash_valuation" not in intent or valid_cash_valuation(
+                intent["cash_valuation"], subject, now=_time(intent["requested_at"])))
             and type(intent["quantity"]) is int and 0 < intent["quantity"] <= subject["qty_lamports"]
             and _time(intent["requested_at"]) >= _time(subject["opened_at"]))
+    except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
+        return False
+
+
+def valid_cash_valuation(evidence: Any, subject: dict, *, now: dt.datetime) -> bool:
+    """Recheck original own-size cash, remaining peak and whole-trade net peak.
+
+    This establishes estimated financial inputs, not optimal strategy, complete
+    sampling, a signed fill, or future profitability.
+    """
+    from execution import paper_cash_mark as cash
+    try:
+        if not isinstance(evidence, dict) or set(evidence) != {"current", "remaining_peak", "total_peak", "quote_started_at"}:
+            return False
+        owner, token = subject["paper_cash_owner"], subject["token_address"]
+        row = dict(subject, closed=False)
+        price = cash.checked_price(evidence["current"], row, token=token, owner=owner, now=now)
+        received = evidence["current"]["route_quote"]["observation_receipt"]["other"]["received_at_utc"]
+        if not _time(evidence["quote_started_at"]) <= _time(received) <= _time(evidence["current"]["valued_at"]) <= now:
+            return False
+        peak = cash.public_historical_mark(evidence["remaining_peak"], row, token=token, owner=owner)
+        if (price is None or _time(peak["valued_at"]) > _time(evidence["current"]["valued_at"])
+                or peak["values"]["gross_remaining_return_pct"] + 1e-10
+                    < evidence["current"]["values"]["gross_remaining_return_pct"]):
+            return False
+        context = cash.protection_context(row, evidence["current"], evidence["total_peak"],
+            token=token, owner=owner, now=now)
+        return cash.protection_returns(context, row, now=now, price=price) is not None
     except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
         return False
 

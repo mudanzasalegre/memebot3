@@ -1459,6 +1459,28 @@ def green_sniper_early_dump_reason(
     return None
 
 
+def liquidity_crush_reason(subject: Any, policy: ExitPolicy, *, liq_now: Any,
+                           age_min: float, peak: float) -> str | None:
+    """Independent liquidity safeguard; no token price or inferred PnL needed."""
+    entry_liq = _to_float(_get(subject, "buy_liquidity_usd"), 0.0)
+    if entry_liq <= 0:
+        entry_liq = _to_float(_get(subject, "liq_at_buy_usd"), 0.0)
+    liq_now = market_number(liq_now, "liquidity_usd")
+    if entry_liq > 0 and liq_now is not None and policy.liq_crush_window_min >= 0:
+        window_ok = (policy.liq_crush_window_min <= 0 or age_min <= float(policy.liq_crush_window_min)
+                     or _active_runner_price_policy(subject, peak=peak) is not None)
+        if window_ok:
+            if policy.liq_crush_fraction > 0 and float(liq_now) <= entry_liq * float(policy.liq_crush_fraction):
+                return "LIQUIDITY_CRUSH"
+            drop_frac = (entry_liq - float(liq_now)) / entry_liq
+            if policy.liq_crush_drop_pct > 0 and drop_frac >= float(policy.liq_crush_drop_pct) / 100.0:
+                return "LIQUIDITY_CRUSH"
+            min_liq = _to_float(getattr(CFG, "MIN_LIQUIDITY_USD", 0.0), 0.0)
+            if min_liq > 0 and float(liq_now) < min_liq * float(policy.liq_crush_abs_fract):
+                return "LIQUIDITY_CRUSH"
+    return None
+
+
 def should_exit(
     subject: Any,
     price_now: float | None,
@@ -1610,22 +1632,9 @@ def should_exit(
             if drop_pct >= float(policy.early_drop_kill_pct):
                 return "EARLY_DROP"
 
-    entry_liq = _to_float(_get(subject, "buy_liquidity_usd"), 0.0)
-    if entry_liq <= 0:
-        entry_liq = _to_float(_get(subject, "liq_at_buy_usd"), 0.0)
-    liq_now = market_number(liq_now, "liquidity_usd")
-    if entry_liq > 0 and liq_now is not None and policy.liq_crush_window_min >= 0:
-        window_ok = (policy.liq_crush_window_min <= 0 or age_min <= float(policy.liq_crush_window_min)
-                     or _active_runner_price_policy(subject, peak=peak) is not None)
-        if window_ok:
-            if policy.liq_crush_fraction > 0 and float(liq_now) <= entry_liq * float(policy.liq_crush_fraction):
-                return "LIQUIDITY_CRUSH"
-            drop_frac = (entry_liq - float(liq_now)) / entry_liq
-            if policy.liq_crush_drop_pct > 0 and drop_frac >= float(policy.liq_crush_drop_pct) / 100.0:
-                return "LIQUIDITY_CRUSH"
-            min_liq = _to_float(getattr(CFG, "MIN_LIQUIDITY_USD", 0.0), 0.0)
-            if min_liq > 0 and float(liq_now) < min_liq * float(policy.liq_crush_abs_fract):
-                return "LIQUIDITY_CRUSH"
+    liquidity_reason = liquidity_crush_reason(subject, policy, liq_now=liq_now, age_min=age_min, peak=peak)
+    if liquidity_reason is not None:
+        return liquidity_reason
 
     if pnl_pct is not None and not partial_taken:
         pre_partial_reason = pre_partial_exit_reason(

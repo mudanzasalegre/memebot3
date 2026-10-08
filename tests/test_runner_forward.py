@@ -46,7 +46,7 @@ def isolated_exit_policy(monkeypatch):
 
 
 def entry(**changes):
-    return {
+    row = {
         "dry_run": True, "closed": False, "run_id": "FORWARD_REAL_PAPER",
         "run_started_at": T0.isoformat(), "opened_at": T0.isoformat(), "token_address": MINT,
         "amount_sol": .1, "entry_notional_usd": 10.0, "buy_price_usd": 1.0,
@@ -63,6 +63,14 @@ def entry(**changes):
         "runner_trailing_policy": runner_price_policy.freeze_policy(cfg(), dry_run=True),
         **changes,
     }
+    if "entry_route_quote" not in changes:
+        from execution.quote_receipt import capture_summary
+        from quote_fixtures import v1_quote, SOL
+        opened = dt.datetime.fromisoformat(row["opened_at"])
+        q = v1_quote(SOL, row["token_address"], 100000000, 1000, now=opened)
+        row["entry_route_quote"] = capture_summary(q, input_mint=SOL, output_mint=row["token_address"],
+            amount=100000000, slippage=q.other["slippageBps"], limit=8., now=opened)
+    return row
 
 
 def quote(quantity=800, output=160000000, *, source=MINT, now=T0, **changes):
@@ -73,6 +81,22 @@ def quote(quantity=800, output=160000000, *, source=MINT, now=T0, **changes):
 
 def read_active(root):
     return rf._read(next((rf._directory(root) / "active").glob("*.json")))
+
+
+def synthetic_cash_decision(case, arm_id, stamp, output):
+    """Explicit synthetic complete-cadence fixture, never production evidence."""
+    from utils.sol_price import SolUsdObservation
+    arm = case["arms"][arm_id]
+    arm["subject"].update(closed=False, paper_cash_owner="case:" + rf._hash([case["case_id"], arm_id]))
+    for key in ("cash_last_mark", "cash_peak_mark", "cash_total_peak_mark"):
+        arm.pop(key, None)
+    arm.update(cash_last_observed_at=(stamp - dt.timedelta(seconds=60)).isoformat(),
+        cash_observation_count=1559, cash_observation_gap_limit_exceeded=False)
+    rate = SolUsdObservation("OK", 100., stamp.timestamp(), stamp.timestamp())
+    q = quote(quantity=arm["subject"]["qty_lamports"], output=output, source=case["token"], now=stamp)
+    assert rf._observe_cash(case, arm_id, q, rate, stamp, request_decision=False, quote_started_at=stamp)
+    return {"current": arm["cash_last_mark"], "remaining_peak": arm["cash_peak_mark"],
+            "total_peak": arm["cash_total_peak_mark"], "quote_started_at": stamp.isoformat()}
 
 
 def closed_cohort(root, *, n=50, baseline=20, start=T0, same_token=False):
@@ -91,12 +115,14 @@ def closed_cohort(root, *, n=50, baseline=20, start=T0, same_token=False):
         case = rf._read(path)
         # Synthetic complete-cadence metadata, not an observed production run.
         case["observation_count"] = 1560
-        for arm in case["arms"].values():
+        for arm_id, arm in case["arms"].items():
             dd = arm["parameters"]["max_price_drawdown_pct"]
             # Synthetic fixture quotes are deliberately not profitability evidence.
             out = {baseline - 5: 200000000, baseline: 160000000, baseline + 5: 120000000}.get(dd, 160000000)
             fill_at = start + dt.timedelta(hours=26, minutes=int((dd - baseline + 5) / 5))
-            arm["intent"] = make_intent(arm["subject"], quantity=800, reason="TIMEOUT_RUNNER", now=fill_at)
+            evidence = synthetic_cash_decision(case, arm_id, fill_at, out)
+            arm["intent"] = make_intent(arm["subject"], quantity=800, reason="TIMEOUT_RUNNER", now=fill_at,
+                                        cash_valuation=evidence)
             assert rf._apply_quote(case, arm, quote(output=out, source=mint, now=fill_at), 100.0, fill_at,
                                    quote_started_at=fill_at)
         rf._write(rf._directory(root) / "closed" / path.name, case)
@@ -216,13 +242,15 @@ def test_paired_selection_applies_only_to_new_paper_entries_and_can_rollback(tmp
     for case in cases:
         # Rebuild conserved cash using a better quote for the 20% challenger.
         prefix = case["prefix"]
-        for arm in case["arms"].values():
+        for arm_id, arm in case["arms"].items():
             arm["subject"] = copy.deepcopy(prefix)
             arm["subject"]["runner_trailing_policy"] = json.dumps(arm["parameters"])
             arm.update(closed=False, fills=[])
             fill_at = later + dt.timedelta(hours=26, minutes=int(arm["parameters"]["max_price_drawdown_pct"]))
-            arm["intent"] = make_intent(arm["subject"], quantity=800, reason="TIMEOUT_RUNNER", now=fill_at)
             out = 240000000 if arm["parameters"]["max_price_drawdown_pct"] == 20 else 160000000
+            evidence = synthetic_cash_decision(case, arm_id, fill_at, out)
+            arm["intent"] = make_intent(arm["subject"], quantity=800, reason="TIMEOUT_RUNNER", now=fill_at,
+                                        cash_valuation=evidence)
             assert rf._apply_quote(case, arm, quote(output=out, source=case["token"], now=fill_at), 100.0, fill_at,
                                    quote_started_at=fill_at)
         rf._write(rf._directory(tmp_path) / "closed" / f"{case['case_id']}.json", case)

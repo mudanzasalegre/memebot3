@@ -68,6 +68,8 @@ def basis(entry: Mapping, *, token: str, owner: str) -> dict:
         from runtime.paper_archive import entry_identity
         if entry_identity(entry) != owner[4:] or entry.get("buy_signature") != "SIM-" + owner[4:]:
             raise ValueError("Conflicting original PAPER buy")
+    elif entry.get("paper_cash_owner") != owner:
+        raise ValueError("Conflicting original research arm")
     entry_qty = _quantity(entry.get("entry_qty"), positive=True)
     remaining = _quantity(entry.get("qty_lamports"), positive=True)
     realized = _quantity(entry.get("realized_qty"))
@@ -241,7 +243,7 @@ def protection_context(entry: Mapping, mark: Any, peak: Any, *, token: str,
     fields = {"dry_run", "closed", "token_address", "entry_intent_id", "source_position_key",
         "buy_signature", "opened_at", "run_id", "entry_qty", "qty_lamports", "realized_qty",
         "amount_sol", "entry_notional_usd", "buy_price_usd", "realized_proceeds_usd",
-        "estimated_fees_usd", "execution_cost_model", "entry_route_quote", "quantity_basis"}
+        "estimated_fees_usd", "execution_cost_model", "entry_route_quote", "quantity_basis", "paper_cash_owner"}
     try:
         frozen = {key: value for key, value in entry.items() if key in fields}
         current = mark.to_dict() if isinstance(mark, PaperCashMark) else mark
@@ -266,12 +268,10 @@ def protection_returns(context: Any, subject: Any, *, now: dt.datetime,
             return None
         row = json.loads(context.receipt_json)
         entry, token, owner = row["entry"], row["token"], row["owner"]
-        if not owner.startswith("buy:"):
-            return None
         if isinstance(subject, Mapping):
             if basis(subject, token=token, owner=owner) != basis(entry, token=token, owner=owner):
                 return None
-        elif not matches_sql(entry, subject, token=token):
+        elif not owner.startswith("buy:") or not matches_sql(entry, subject, token=token):
             return None
         checked = checked_price(row["current"], entry, token=token, owner=owner, now=now)
         if checked is None or not math.isclose(checked, _number(price, positive=True), rel_tol=1e-12, abs_tol=0.):

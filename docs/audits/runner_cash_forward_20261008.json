@@ -1,0 +1,54 @@
+{
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "financial_acceptance": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "requested_trade_size_sol": 0.1,
+  "parent_commit": "c440f877fc2268fef6272475604398b46b823c8e",
+  "scope": "Per-arm exact-remaining cash observations and financial exit consumers in the paired PAPER runner experiment. No change to live execution, active operator models, learned policies, environment or primary trade size.",
+  "implementation": [
+    "Original research cash owner derives independently from the immutable case and policy arm. A research owner can consume only a mapping of its own financial generation; it cannot consume an actual SQL position. Original buy/SQL guards remain mandatory.",
+    "The actual runner tick now requests valuations for arms without a pending intent. Pending execution probes have priority. Oldest valuations are serviced next; exact matching token/raw quantities may share a returned quote, but each arm captures and checks its own cash, costs and original typed FX.",
+    "Raw market prices cannot create runner financial intents or peaks. Independent no-price time and checked liquidity-crush safeguards remain available. The existing price-bearing shared exit path uses the same extracted liquidity rule without changing its priority. Original market peaks are retained only as finite diagnostic values.",
+    "Remaining-leg and whole-trade net peaks are separate original receipts, including historical quantity and realized cash. Policy prices are normalized cash references, not physical token prices. The shared actual exit engine receives checked whole-trade net protection context.",
+    "A valuation may create an intent but never fills it with the already-received valuation quote. A separate subsequent exact-size quote is required; the existing original intent/start/receipt chronology and copy-on-write fill guards remain active.",
+    "Original cash valuation, remaining peak, total net peak and pre-await quote start bind to the existing intent receipt. Public financial inputs are rechecked at fill and terminal replay without refreshing their original clocks.",
+    "Per-arm original cash coverage and historical receipt integrity are required by cohort selection and manifest consumption. A shared market heartbeat, receiptless spot-only legacy cohort, scalar FX or fabricated zero return cannot certify financial policy acceptance. Existing data/intakes/manifests are not rewritten."
+  ],
+  "synthetic_regressions": {
+    "new_cases": 50,
+    "extreme_cash_returns_pct": [300, 1000, 10000, 1000000],
+    "extreme_fixture_tail_fraction": 0.03,
+    "fixture_tail_is_not_an_operator_setting_change": true,
+    "coverage": ["uncapped exact cash and residual position", "separate valuation/fill quotes", "arm ownership", "typed FX faults", "wrong-size and stale/pre-request quotes", "whole versus remaining peak", "immutable original clocks", "modified receipts", "legacy intake preservation", "actual tick and shared budget", "pending exit priority", "different own remaining quantities", "generation change during provider await", "provider failure", "per-arm gap and cohort rejection"]
+  },
+  "verification": {
+    "preliminary_related_tests": "255 passed in 124.61s before the final added cohort coverage checks",
+    "new_noncohort_and_shared_liquidity_final_subset": "67 passed, 9 deselected in 2.88s",
+    "compile_changed_modules": "PASS",
+    "intermediate_checks": "274 related tests passed in 264.95s before the final liquidity repair. Both first full runs were deliberately stopped with independently verified owned pytest child identities before source repair; no complete result is claimed for those runs. The three first fixture failures reflected an operator-inherited 15 percent tail and policy decisions in a scheduling-only fixture, and were corrected with an explicit synthetic 3 percent fixture and valuation-only scheduling isolation. A later string-liquidity fixture expectation was corrected to the existing market contract, which accepts numeric provider strings; financial cash and FX remain strictly typed.",
+    "original_function_reproduction": {"scope": "Original c440f877 _observe_case AST function executed alone with current shared financial helpers in an isolated synthetic namespace, not a full parent runtime", "original_spot_created_financial_intents": true, "current_spot_created_financial_intents": false, "actual_cash_changed": false},
+    "complete_regressions": {"working": {"passed": 3783, "seconds": 615.24}, "publishing": {"passed": 3783, "seconds": 597.02}},
+    "both_first_launch_preflights": {"working": {"ok": true, "generated_at_utc": "2026-10-08T20:11:04.499614Z"}, "publishing": {"ok": true, "generated_at_utc": "2026-10-08T20:10:21.556414Z"}, "each": {"compile_errors": 0, "config_import_return_code": 0, "paper_profile_ok": true, "empty_report_builders_ok": 7, "external_complete_pytest_return_code": 0}},
+    "frozen_source_fingerprint": {"files_each": 737, "sha256_each": "ee90b0f81fb54ccf2a68ed9bc5c5037dca624edfdfc2e5e0ee3d675993acb98c", "scope": "Normalized allowed verification source; excludes docs, README and all operator state. Unchanged through both complete suites and preflights."},
+    "publication": "VERIFIED_READY_FOR_COMMIT_PUSH; precommit evidence only. Actual final commit, clean checkout and remote revision are checked separately in the handoff."
+  },
+  "runtime": {
+    "must_remain_off": true,
+    "requested_stop_utc": "2026-10-08T19:37:50Z",
+    "stop_result": "killed=0 remaining=0; SQL main process_state=stopped",
+    "real_provider_wallet_order_calls": 0,
+    "bot_api_ui_training_research_daemon_starts": 0,
+    "final_requested_stop_utc": "2026-10-08T20:11:06Z",
+    "final_requested_stop_result": "killed=0 remaining=0",
+    "final_post_verification_inventory": {"checked_at_utc": "2026-10-08T20:11:08.5579606Z", "runtime_processes": 0, "running_memebot_tasks": 0, "running_memebot_services": 0, "actual_and_compatibility_locks_both_roots": 0},
+    "readonly_sql_main": {"process_state": "stopped", "reports_refresh_state": "idle", "retrain_state": "idle", "updated_at_utc": "2026-10-08T20:11:06.724137Z"},
+    "protected_operator_mtime_census": {"checked_at_utc": "2026-10-08T20:11:40.1658587Z", "boundary_utc": "2026-10-08T16:09:40Z", "working_entries": 3763, "publishing_entries": 27, "changed_since_boundary_each": 0, "scope": "Operator environment, portfolio, model/registry/policy/features/research/recovery/closed-trade file modification-time census, not cryptographic historical proof. Intended stop SQL/log and preflight metrics outputs are excluded."}
+  },
+  "limitations_and_remaining_work": [
+    "This stage integrates runner research, not the entry-gate research cash consumer. Complete that consumer, quote demand/budget scheduling and its independent financial cohort acceptance next.",
+    "Complete original typed per-entry/per-fill FX persistence across execution, recovery, SQL and learning, durable canary risk reconciliation across restarts and the remaining scanner/sniper/model architecture work.",
+    "Coverage fields and original public financial receipts are estimated research inputs, not cryptographic strategy-decision proof or an exhaustive sampling journal. Full-strategy decision provenance remains required.",
+    "No fresh prospective full-strategy costed financial acceptance or current provider/wallet/finality reconciliation was performed. Synthetic extreme returns do not prove realistic sell depth, maximum profit, future gains, perfect detection or zero future errors.",
+    "All operator data, active models, active policies and secrets remain outside source publication. Existing legacy records are preserved and not retroactively certified."
+  ]
+}
