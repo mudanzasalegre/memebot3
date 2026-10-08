@@ -102,6 +102,8 @@ class Response:
 
 @pytest.fixture
 def http(monkeypatch):
+    from jupiter_access_fixtures import isolate_budget
+    isolate_budget(monkeypatch)
     calls, replies = [], []
     class Session:
         def __init__(self, *args, **kwargs): self.headers = kwargs.get("headers")
@@ -251,9 +253,8 @@ async def test_no_api_credentials_or_order_reach_unapproved_endpoints(managed, h
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("field,value", [("JUP_MANAGED_ENABLED", False), ("JUP_API_KEY", "")])
-async def test_disabled_or_unavailable_managed_mode_is_pre_http(managed, http, monkeypatch, field, value):
-    monkeypatch.setattr(router, field, value)
+async def test_explicitly_disabled_managed_mode_is_pre_http(managed, http, monkeypatch):
+    monkeypatch.setattr(router, "JUP_MANAGED_ENABLED", False)
     with pytest.raises(router.SwapPreparationError):
         await router.execute_managed_swap(input_mint=SOL, output_mint=TOKEN, amount_lamports=AMOUNT)
     assert not http.calls

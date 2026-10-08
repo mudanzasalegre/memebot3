@@ -417,7 +417,7 @@ async def buy(
     if units is None:
         return {"qty_lamports": 0, "signature": "INVALID_AMOUNT", "route": {}}
     use_managed = bool(_JUP_ROUTER_AVAILABLE and jupiter is not None
-        and hasattr(jupiter, "execute_managed_swap") and getattr(jupiter, "JUP_API_KEY", "")
+        and hasattr(jupiter, "execute_managed_swap")
         and getattr(jupiter, "JUP_MANAGED_ENABLED", False) is True)
     if (_REQUIRE_JUP_PRICE or use_managed) and (
             isinstance(_IMPACT_MAX_PCT_DEFAULT, bool) or not isinstance(_IMPACT_MAX_PCT_DEFAULT, (int, float))

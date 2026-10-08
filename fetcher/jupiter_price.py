@@ -45,12 +45,15 @@ logger = logging.getLogger("jupiter_price")
 # ────────────────────────────────────────────────────────────────────────────────
 # Config por entorno (con defaults seguros)
 # ────────────────────────────────────────────────────────────────────────────────
-JUPITER_PRICE_URL: str = (
-    _CFG_URL
-    or os.getenv("JUPITER_PRICE_URL", "https://lite-api.jup.ag/price/v3")
-)
+from utils import jupiter_access
 
-# Límite Lite típico: 60 req / min → 1 req/seg
+JUPITER_PRICE_URL: str = _CFG_URL or os.getenv("JUPITER_PRICE_URL", "https://api.jup.ag/price/v3")
+try:
+    JUPITER_PRICE_URL = jupiter_access.endpoint(JUPITER_PRICE_URL, "price")
+except ValueError:
+    pass  # Invalid optional transport is refused per request, not at paper import.
+
+# Additional local price-only cap; the shared plan budget applies to all requests.
 JUPITER_RPM: int = int(os.getenv("JUPITER_RPM", str(_CFG_RPM or 60)))
 _MIN_DELAY_S: float = max(0.0, 60.0 / max(1, JUPITER_RPM))
 
@@ -156,8 +159,7 @@ def _log_boot_if_needed():
         _BOOT_LOGGED = True
         try:
             logger.info(
-                "[jupiter_price] Ready (url=%s, rpm=%d, ttl_ok=%ds, ttl_nil=[%d..%ds])",
-                JUPITER_PRICE_URL,
+                "[jupiter_price] Ready (gateway=Jupiter, rpm=%d, ttl_ok=%ds, ttl_nil=[%d..%ds])",
                 JUPITER_RPM,
                 JUPITER_TTL_OK,
                 JUPITER_TTL_NIL_SHORT,
@@ -175,8 +177,6 @@ async def _ensure_session() -> aiohttp.ClientSession:
             logger.debug("[jupiter_price] creando nueva sesión HTTP (timeout=%ss)", _HTTP_TIMEOUT.total)
         # UA explícito: a veces mejora la aceptación en algunos proxies/CDNs
         headers = {"User-Agent": os.getenv("JUPITER_UA", "MemeBot3/1.0 (+bot)")}
-        if _JUP_API_KEY:
-            headers["x-api-key"] = _JUP_API_KEY
         _SESSION = aiohttp.ClientSession(timeout=_HTTP_TIMEOUT, headers=headers)
     return _SESSION
 
@@ -341,32 +341,34 @@ async def _fetch_batch(mints: List[str]) -> Dict[str, Optional[float]]:
             logger.debug("[jupiter_price] mints: %s", ", ".join(_fmt_id(m) for m in mints))
 
     ids = quote(",".join(mints), safe=",")
-    url = f"{JUPITER_PRICE_URL}?ids={ids}"
-
-    await _throttle()
-    sess = await _ensure_session()
 
     try:
-        async with sess.get(url) as resp:
+        url = jupiter_access.endpoint(JUPITER_PRICE_URL, "price") + f"?ids={ids}"
+        headers = jupiter_access.headers(_JUP_API_KEY, url)
+        await _throttle()
+        await jupiter_access.acquire(url, api_key=_JUP_API_KEY, priority=3, max_wait=6)
+        sess = await _ensure_session()
+        async with sess.get(url, headers=headers, allow_redirects=False) as resp:
+            jupiter_access.observe(url, api_key=_JUP_API_KEY, response=resp)
             if resp.status == 429:
                 logger.warning("[jupiter_price] 429 Too Many Requests; backing off…")
                 _record_rate_limit()
                 return {m: None for m in mints}
 
             if resp.status >= 500:
-                logger.warning("[jupiter_price] %s → %s", JUPITER_PRICE_URL, resp.status)
+                logger.warning("[jupiter_price] unavailable (HTTP %s)", resp.status)
                 return {m: None for m in mints}
 
             if resp.status != 200:
-                logger.debug("[jupiter_price] Non-200 (%s) para %s", resp.status, JUPITER_PRICE_URL)
+                logger.debug("[jupiter_price] Non-200 (%s)", resp.status)
                 return {m: None for m in mints}
 
             data = await resp.json(content_type=None)
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        logger.debug("[jupiter_price] HTTP error para %s -> %s", JUPITER_PRICE_URL, e)
+    except (aiohttp.ClientError, asyncio.TimeoutError, jupiter_access.BudgetUnavailable) as e:
+        logger.debug("[jupiter_price] unavailable (%s)", type(e).__name__)
         return {m: None for m in mints}
     except Exception as e:
-        logger.exception("[jupiter_price] Unexpected error parsing response: %s", e)
+        logger.debug("[jupiter_price] response unavailable (%s)", type(e).__name__)
         return {m: None for m in mints}
 
     out: Dict[str, Optional[float]] = {m: None for m in mints}
@@ -424,35 +426,37 @@ async def _fetch_batch_with_status(mints: List[str]) -> Dict[str, Tuple[Status, 
             logger.debug("[jupiter_price] mints: %s", ", ".join(_fmt_id(m) for m in mints))
 
     ids = quote(",".join(mints), safe=",")
-    url = f"{JUPITER_PRICE_URL}?ids={ids}"
-
-    await _throttle()
-    sess = await _ensure_session()
 
     # Por defecto marcamos todo como ERR; lo iremos corrigiendo
     err_default: Dict[str, Tuple[Status, Optional[float]]] = {m: ("ERR", None) for m in mints}
 
     try:
-        async with sess.get(url) as resp:
+        url = jupiter_access.endpoint(JUPITER_PRICE_URL, "price") + f"?ids={ids}"
+        headers = jupiter_access.headers(_JUP_API_KEY, url)
+        await _throttle()
+        await jupiter_access.acquire(url, api_key=_JUP_API_KEY, priority=3, max_wait=6)
+        sess = await _ensure_session()
+        async with sess.get(url, headers=headers, allow_redirects=False) as resp:
+            jupiter_access.observe(url, api_key=_JUP_API_KEY, response=resp)
             if resp.status == 429:
                 logger.warning("[jupiter_price] 429 Too Many Requests; backing off…")
                 _record_rate_limit()
                 return err_default
 
             if resp.status >= 500:
-                logger.warning("[jupiter_price] %s → %s", JUPITER_PRICE_URL, resp.status)
+                logger.warning("[jupiter_price] unavailable (HTTP %s)", resp.status)
                 return err_default
 
             if resp.status != 200:
-                logger.debug("[jupiter_price] Non-200 (%s) para %s", resp.status, JUPITER_PRICE_URL)
+                logger.debug("[jupiter_price] Non-200 (%s)", resp.status)
                 return err_default
 
             data = await resp.json(content_type=None)
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        logger.debug("[jupiter_price] HTTP error para %s -> %s", JUPITER_PRICE_URL, e)
+    except (aiohttp.ClientError, asyncio.TimeoutError, jupiter_access.BudgetUnavailable) as e:
+        logger.debug("[jupiter_price] unavailable (%s)", type(e).__name__)
         return err_default
     except Exception as e:
-        logger.exception("[jupiter_price] Unexpected error parsing response: %s", e)
+        logger.debug("[jupiter_price] response unavailable (%s)", type(e).__name__)
         return err_default
 
     # Si llegamos aquí, la respuesta es 200 → NIL/OK según payload

@@ -1,0 +1,53 @@
+{
+  "stage": "Current Jupiter keyed/keyless gateway and shared bounded request admission",
+  "generated_at_utc": "2026-10-08T13:27:14Z",
+  "status": "PASS_SOFTWARE_ONLY",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "previous_stage_evidence": "docs/audits/unsigned_wallet_projection_20261008.json",
+  "requested_trade_size_sol": 0.1,
+  "uncapped_extreme_runner_objective_unchanged": true,
+  "runtime_requirement": "Keep bot/API/UI/training/research stopped. No operator signing, orders, wallet/provider calls, active model fit/promotion or policy activation is authorized by this source stage.",
+  "findings": [
+    "Actual managed get_order/execute_order and buyer/seller route selection incorrectly required a nonempty API key, although the current official gateway supports keyless requests. This is a present source-contract mismatch, not proof that it caused the historical no-buy run.",
+    "Default quote, unsigned build and price routes retained Lite gateway dependencies. Official documentation describes progressive Lite retirement and keyless api.jup.ag replacement; it does not establish an exact already-completed global retirement date.",
+    "Price had a separate local throttle and persistent secret-bearing session. Main gateway quote/order/build/price requests lacked shared cross-loop admission, while signed execute requires its independent gateway bucket."
+  ],
+  "implemented": [
+    "Migrate known Lite and legacy v6 observation/build aliases before the first HTTP request. Use api.jup.ag defaults and retain explicit self-hosted observation/build adapters without forwarding Jupiter credentials. Preserve explicit managed/legacy disable switches and all four managed routers; no operator environment is rewritten.",
+    "Permit keyless managed orders/execution and actual buyer/seller route selection. Keep complete original packet/projection/signature/chain proof checks. Do not convert invalid keys, permissions, redirects or gateway failures into anonymous retries or additional signed execute requests.",
+    "Use one process-wide threading-locked, cross-event-loop admission manager for keyed/keyless main buckets and independent execute buckets. Default main 0.5/1 RPS and execute20/50 RPS; explicit keyed paid-plan rate selects execute100 RPS. Add pacing, sixty-second sliding windows, a bounded128-ticket priority queue, bounded caller deadlines, cancellation cleanup and redacted counters. Exit probes/orders precede queued entries, generic quotes and background prices; already admitted requests are not preempted.",
+    "Observe200/429 remaining/reset headers. Treat reset as an absolute Unix timestamp freeing one slot, not clearing local reservations or expanding quota. Preserve admissions and credentials on auth/permission/server errors. Bound corrupt/server-skew metadata and use conservative missing-header fallback. No execute POST retry.",
+    "Move actual managed dispatch-started provenance and original expiry/projection-age checks to immediately before POST, after execute budget waiting. Proved local pre-HTTP budget refusal or pre-POST aging remains a preparation failure; errors after the actual dispatch marker remain uncertain even if their exception type resembles a pre-dispatch failure.",
+    "Add per-request scoped credentials, no redirects and sanitized transport diagnostics to quote/build/price. Persistent price sessions carry no API key. Keep existing price-only throttling and observation/fill contracts. Invalid optional transport refuses requests without crashing cold paper imports or initializing a live signer. Correct the public legacy priority-fee example to the documented nested v1 shape; this does not certify full legacy instruction semantics."
+  ],
+  "primary_sources": [
+    {"url": "https://developers.jup.ag/docs/portal/rate-limits", "retrieved_utc": "2026-10-08", "used_for": "Shared organisation main limits, independent execute bucket, sixty-second sliding window and epoch reset headers"},
+    {"url": "https://developers.jup.ag/docs/portal/migration", "retrieved_utc": "2026-10-08", "used_for": "Keyless current gateway and progressive Lite retirement"},
+    {"url": "https://developers.jup.ag/docs/portal/setup", "retrieved_utc": "2026-10-08", "used_for": "Optional current gateway API key"},
+    {"url": "https://developers.jup.ag/docs/portal/responses", "retrieved_utc": "2026-10-08", "used_for": "No-key versus invalid-key response distinction"},
+    {"url": "https://developers.jup.ag/docs/api-reference/swap/v1/swap", "retrieved_utc": "2026-10-08", "used_for": "Nested priorityLevelWithMaxLamports public example"}
+  ],
+  "verification": {
+    "new_module": "tests/test_jupiter_gateway_access.py",
+    "gateway_cases": 82,
+    "new_cold_import_cases": 2,
+    "preliminary": "80 gateway cases plus4 paper startup cases passed in11.40s D. Earlier909 focused pass used an intermediate source snapshot and is not final acceptance.",
+    "focused": "919 passed in64.04s D, exit0: all current original unsigned projection/chain/buy/sell/close/owned-dispatch and quote/market contracts, plus current gateway budgets, actual four-router keyless buys/sells, auth/quota/no-redirect/header scope, pre-POST wait/age provenance, post-POST uncertainty and cold no-signer/no-HTTP imports. Final executable/test source frozen through this run and both following full runs.",
+    "working_full_suite": "3211 passed, exit0, final executable/test source frozen throughout this complete run.",
+    "publishing_full_suite": "3211 passed, exit0, final executable/test source frozen throughout this complete run; source-only publishing checkout without personal.env/venv/runtimeDB.",
+    "full_suite_elapsed_seconds_unordered": [383.11, 393.48],
+    "preflights": "Both PASS: compile_errors=[], config_import returncode0, paperprofileok=true and allseven empty-data report builders pass. No bot/provider/operator initialization.",
+    "source_snapshot": "Both source-only inventories match:726 publishable non-doc source/config/test files, normalized aggregate SHA256 a657d7f72d007adc54a0ff3b919d827c90b221848d745ef650f6bb224525ef71. Docs may be updated with final evidence after the executable/test snapshot is frozen.",
+    "publication": "Reviewed20 source/test/audit paths synchronized to C with no deletion, secrets or runtime data. Before commit: branch main, HEAD=origin/main=remote 6a05461f8b45ff32d2376320757c0c8006876cf5 and exactly20 expected changes. Commit/push and postpublication remote equality verified separately after this evidence file is saved; no self-referential commit hash is embedded.",
+    "final_shutdown": "D-only user-requested stop_stack13:26:34Z exit0 killed0/remaining0. Verified13:27:13Z both scoped checkout process counts0/allfour actual or compatibility lock counts0, global bot/training/research/API0, memebot tasks0/services0. Read-only SQL main stopped/idle/idle updated_at13:26:34.238656. No C stop finalizer.",
+    "protected_artifact_inventory": "Modification-time inventory13:27:14Z, boundary12:51:59Z, changed0 across3761 D/27 C protected entries for existing model, feature, paperclosed, causal learningclose, research, buy/sell journal, paperportfolio, activepolicy/registry/rootartifact and personal.env paths. Not a full cryptographic census; absent C paths are empty and existing-path traversal failures are fatal. Requested stop log/SQL state update excluded.",
+    "initial_failures": "Three existing legacy seller fixtures depended on the obsolete empty-key disable behavior; they now explicitly disable managed mode while preserving all fallback/uncertainty assertions. Twelve initial new cases used a noncanonical mock mint or the wrong session variable name; corrected the fixtures without weakening production validation or assertions. Intermediate12-failure/592-pass and909/917 focused runs are not final acceptance. Final919 focused and both3211 complete suites pass."
+  },
+  "limits": [
+    "Local admission is process-wide only; separate processes, keys/organisations and firewall peers may exhaust provider quota. JUP_API_RPS is operator-declared configuration, not verified plan entitlement. No paid plan is purchased or auto-expanded.",
+    "Keyless access permits HTTP requests, not successful production order/node simulation, fresh market depth, wallet capital, timely fills or profitable entry/exit behavior. Provider latency/freshness/access acceptance remains untested while runtime is stopped.",
+    "The existing five-second local projection-to-dispatch contract remains enforced after waiting; unsupported, missing or aged observations may legitimately refuse a route. It is not relaxed to generate more trades.",
+    "Full static router/Token2022 semantics, equivalent other-provider proofs, fresh original current-wallet/restart reconciliation, finalized financial labels and separately authorized prospective closed full-strategy evidence remain incomplete. Exact0.1 SOL paper size and uncapped extreme-runner targets do not guarantee gains."
+  ]
+}

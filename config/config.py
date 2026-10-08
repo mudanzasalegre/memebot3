@@ -20,7 +20,7 @@ Añadidos 2025-08-02
 
 Añadidos 2025-08-15
 ──────────────────
-• USE_JUPITER_PRICE      (activar Jupiter Price v3 Lite)
+• USE_JUPITER_PRICE      (activar Jupiter Price v3)
 • JUPITER_PRICE_URL      (endpoint base)
 • JUPITER_RPM            (rate-limit sencillo en fetcher/jupiter_price)
 • JUPITER_TTL_NIL_SHORT  (TTL caché negativa corto)
@@ -527,9 +527,9 @@ class _Config:
     GECKO_API_URL: str = os.getenv("GECKO_API_URL", "https://api.geckoterminal.com/api/v2")
     GECKO_SOL_ENDPOINT: str = f"{GECKO_API_URL}/networks/solana/pools"
 
-    # ------- Jupiter Price v3 (Lite) -------------------------------
+    # ------- Jupiter Price v3 (current keyed/keyless gateway) ------
     USE_JUPITER_PRICE: bool = _bool_env("USE_JUPITER_PRICE", True)
-    JUPITER_PRICE_URL: str = os.getenv("JUPITER_PRICE_URL", "https://lite-api.jup.ag/price/v3")
+    JUPITER_PRICE_URL: str = os.getenv("JUPITER_PRICE_URL", "https://api.jup.ag/price/v3")
     JUPITER_RPM: int = _num_env("JUPITER_RPM", int, 60)
     JUPITER_TTL_NIL_SHORT: int = _num_env("JUPITER_TTL_NIL_SHORT", int, 120)
     JUPITER_TTL_NIL_MAX: int = _num_env("JUPITER_TTL_NIL_MAX", int, 600)
@@ -3440,7 +3440,7 @@ DEXSCREENER_API = CFG.DEXSCREENER_API
 USE_GECKO_TERMINAL = CFG.USE_GECKO_TERMINAL
 GECKO_API_URL = CFG.GECKO_API_URL
 
-# Jupiter Price v3 (Lite)
+# Jupiter Price v3 (gateway actual con o sin clave)
 USE_JUPITER_PRICE = CFG.USE_JUPITER_PRICE
 JUPITER_PRICE_URL = CFG.JUPITER_PRICE_URL
 JUPITER_RPM = CFG.JUPITER_RPM

@@ -35,7 +35,7 @@ def guarded(monkeypatch):
     monkeypatch.setattr(buyer, "_resolve_entry_notional_usd", AsyncMock(return_value=10.))
     monkeypatch.setattr(router, "execute_managed_swap", managed)
     monkeypatch.setattr(router, "JUP_API_KEY", "")
-    monkeypatch.setattr(router, "JUP_MANAGED_ENABLED", True)
+    monkeypatch.setattr(router, "JUP_MANAGED_ENABLED", False)
     monkeypatch.setattr(buyer, "_GAS_RESERVE_LAMPORTS", 6000)
     monkeypatch.setattr(buyer.gmgn, "buy", legacy)
     return managed, legacy
@@ -63,6 +63,7 @@ async def test_one_actual_quote_allows_supported_route_before_one_order(network,
     replies.append(Response(payload()))
     monkeypatch.setattr(buyer, "_REQUIRE_JUP_PRICE", required)
     monkeypatch.setattr(router, "JUP_API_KEY", "synthetic" if managed else "")
+    monkeypatch.setattr(router, "JUP_MANAGED_ENABLED", managed)
     response = await buyer.buy(TOKEN, .1)
     assert response["qty_lamports"] == 1000 and len(calls) == (0 if managed else 1)
     if not managed:

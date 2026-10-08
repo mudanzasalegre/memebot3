@@ -51,6 +51,8 @@ def packet(raw=b"synthetic-unsigned"):
 
 @pytest.fixture
 def http(monkeypatch):
+    from jupiter_access_fixtures import isolate_budget
+    isolate_budget(monkeypatch)
     calls, responses, closed, delays = [], [], [], []
     class Session:
         def __init__(self, *args, **kwargs): pass
@@ -70,6 +72,7 @@ def http(monkeypatch):
     monkeypatch.setattr(router, "JUP_SWAP_URL", "https://synthetic.invalid/swap")
     monkeypatch.setattr(router, "JUP_API_KEY", "")
     monkeypatch.setattr(router, "JUP_LEGACY_SWAP_ENABLED", True)
+    monkeypatch.setattr(router, "JUP_MANAGED_ENABLED", False)
     monkeypatch.setattr(router, "_PRIORITY_FEE_RAW", "")
     return SimpleNamespace(calls=calls, responses=responses, closed=closed, delays=delays)
 

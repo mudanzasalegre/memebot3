@@ -22,6 +22,8 @@ OTHER = "B" * 44
 
 @pytest.fixture(autouse=True)
 def isolated_sources(monkeypatch):
+    from jupiter_access_fixtures import isolate_budget
+    isolate_budget(monkeypatch)
     simple_cache._CACHE.clear()
     jupiter_price.clear_caches()
     monkeypatch.setattr(price_service, "_RETRY_ON_FAIL", 0)

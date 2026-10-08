@@ -169,6 +169,8 @@ class Response:
 
 @pytest.fixture
 def network(monkeypatch):
+    from jupiter_access_fixtures import isolate_budget
+    isolate_budget(monkeypatch)
     calls, replies = [], []
 
     class Session:
@@ -181,7 +183,8 @@ def network(monkeypatch):
         async def __aexit__(self, *args):
             return False
 
-        def get(self, url, params):
+        def get(self, url, params, **kwargs):
+            assert kwargs == {"allow_redirects": False}
             calls.append((url, dict(params)))
             assert replies, "Unplanned HTTP request"
             return replies.pop(0)
@@ -200,6 +203,7 @@ async def test_actual_get_quote_sends_exact_01_sol_and_explicit_mode(network, am
     replies.append(Response(payload()))
     q = await router.get_quote(input_mint=SOL, output_mint=TOKEN, amount_sol=amount)
     assert q.ok and len(calls) == 1
+    assert calls[0][0] == router._API_QUOTE_URL
     assert calls[0][1]["amount"] == "100000000"
     assert calls[0][1]["swapMode"] == "ExactIn"
 
@@ -270,16 +274,28 @@ async def test_http_cancellation_propagates_without_fallback(network):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("primary", ["api", "lite"])
-async def test_each_fallback_rechecks_full_response_and_lite_host_is_not_api(network, monkeypatch, primary):
+async def test_known_gateway_aliases_do_not_retry_invalid_evidence(network, monkeypatch, primary):
     calls, replies = network
     monkeypatch.setattr(router, "JUP_API_KEY", "synthetic-test-key")
     monkeypatch.setattr(router, "JUP_QUOTE_URL", router._API_QUOTE_URL if primary == "api" else router._LITE_QUOTE_URL)
     wrong = payload()
     wrong["outputMint"] = MID
+    replies.append(Response(wrong))
+    q = await router.get_quote(input_mint=SOL, output_mint=TOKEN, amount_sol=0.1)
+    assert not q.ok and q.other["quote_contract_error"] == "mint_mismatch"
+    assert len(calls) == 1 and calls[0][0] == router._API_QUOTE_URL
+
+
+@pytest.mark.asyncio
+async def test_custom_adapter_fallback_rechecks_full_gateway_response(network, monkeypatch):
+    calls, replies = network
+    monkeypatch.setattr(router, "JUP_QUOTE_URL", "https://synthetic.invalid/quote")
+    wrong = payload()
+    wrong["outputMint"] = MID
     replies.extend([Response(wrong), Response(payload())])
     q = await router.get_quote(input_mint=SOL, output_mint=TOKEN, amount_sol=0.1)
     assert q.ok and q.raw["outputMint"] == TOKEN
-    assert len(calls) == 2 and calls[0][0] != calls[1][0]
+    assert [c[0] for c in calls] == ["https://synthetic.invalid/quote", router._API_QUOTE_URL]
     assert calls[0][1] == calls[1][1]
 
 
@@ -288,9 +304,9 @@ async def test_malformed_custom_url_does_not_crash_fallback(network, monkeypatch
     calls, replies = network
     monkeypatch.setattr(router, "JUP_QUOTE_URL", "http://[malformed")
     monkeypatch.setattr(router, "_preferred_quote_url", lambda: router._LITE_QUOTE_URL)
-    replies.extend([Response({}, status=400), Response(payload())])
+    replies.append(Response(payload()))
     assert (await router.get_quote(input_mint=SOL, output_mint=TOKEN, amount_sol=0.1)).ok
-    assert len(calls) == 2
+    assert len(calls) == 1 and calls[0][0] == router._API_QUOTE_URL
 
 
 @pytest.mark.asyncio

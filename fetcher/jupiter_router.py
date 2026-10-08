@@ -20,6 +20,7 @@ from execution import jupiter_managed_contract as managed_contract
 from execution import chain_reconciliation
 from utils import solana_execution
 from runtime import execution_provenance
+from utils import jupiter_access
 
 log = logging.getLogger("jupiter_router")
 
@@ -51,16 +52,18 @@ def _is_legacy_swap_url(url: str | None) -> bool:
 
 def _preferred_quote_url() -> str:
     raw = (os.getenv("JUP_QUOTE_URL", "") or "").strip()
-    if raw and not _is_legacy_quote_url(raw):
-        return raw
-    return _API_QUOTE_URL if JUP_API_KEY else _LITE_QUOTE_URL
+    try:
+        return jupiter_access.endpoint(raw, "quote")
+    except ValueError:
+        return raw  # Invalid optional transport cannot crash paper imports.
 
 
 def _preferred_swap_url() -> str:
     raw = (os.getenv("JUP_SWAP_URL", "") or "").strip()
-    if raw and not _is_legacy_swap_url(raw):
-        return raw
-    return _API_SWAP_URL if JUP_API_KEY else _LITE_SWAP_URL
+    try:
+        return jupiter_access.endpoint(raw, "swap")
+    except ValueError:
+        return raw  # Execution validates before any HTTP/signing.
 
 
 JUP_QUOTE_URL = _preferred_quote_url()
@@ -95,7 +98,7 @@ _SWAP_MAX_RETRIES = int(os.getenv("JUP_SWAP_MAX_RETRIES", "2"))
 # - Puede ser int (lamports) o JSON (dict) si tu endpoint lo acepta.
 #   Ejemplos:
 #     JUP_PRIORITY_FEE_LAMPORTS=20000
-#     JUP_PRIORITY_FEE_LAMPORTS={"priorityLevel":"high","maxLamports":200000}
+#     JUP_PRIORITY_FEE_LAMPORTS={"priorityLevelWithMaxLamports":{"priorityLevel":"high","maxLamports":200000}}
 _PRIORITY_FEE_RAW = os.getenv("JUP_PRIORITY_FEE_LAMPORTS", "").strip()
 
 # Para conveniencia con SOL (wsSOL mint):
@@ -256,20 +259,16 @@ def _derive_swap_url() -> str:
     - .../quote -> .../swap
     """
     if JUP_SWAP_URL:
-        return JUP_SWAP_URL
+        return jupiter_access.endpoint(JUP_SWAP_URL, "swap")
     q = (JUP_QUOTE_URL or "").strip().lower()
     if "/quote" in q:
-        return q.replace("/quote", "/swap")
-    return _API_SWAP_URL if JUP_API_KEY else _LITE_SWAP_URL
+        return jupiter_access.endpoint(q.replace("/quote", "/swap"), "swap")
+    return _API_SWAP_URL
 
 
-def _headers() -> Dict[str, str]:
-    h = {
-        "accept": "application/json",
-        "User-Agent": os.getenv("JUPITER_UA", "MemeBot3/1.0 (+bot)"),
-    }
-    if JUP_API_KEY:
-        h["x-api-key"] = JUP_API_KEY
+def _headers(url=_API_QUOTE_URL) -> Dict[str, str]:
+    h = jupiter_access.headers(JUP_API_KEY, url)
+    h["User-Agent"] = os.getenv("JUPITER_UA", "MemeBot3/1.0 (+bot)")
     return h
 
 
@@ -370,26 +369,21 @@ async def get_quote(
 
     async def _do(url: str) -> QuoteResult:
         try:
-            async with aiohttp.ClientSession(timeout=timeout, headers=_headers()) as sess:
-                async with sess.get(url, params=params) as resp:
+            url = jupiter_access.endpoint(url, "quote")
+            headers = _headers(url)
+            await jupiter_access.acquire(url, api_key=JUP_API_KEY,
+                priority=0 if output_mint == SOL_MINT else 2, max_wait=TIMEOUT_S)
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as sess:
+                async with sess.get(url, params=params, allow_redirects=False) as resp:
+                    jupiter_access.observe(url, api_key=JUP_API_KEY, response=resp)
                     if resp.status != 200:
-                        body: Any = None
-                        try:
-                            body = await resp.json(content_type=None)
-                        except Exception:
-                            try:
-                                body = await resp.text()
-                            except Exception:
-                                body = None
-                        log.debug("[jupiter_router] quote non-200 (%s) url=%s body=%s", resp.status, url, body)
-                        return QuoteResult(False, None, None, None, {"status": resp.status}, {"status": resp.status, "body": body})
+                        log.debug("[jupiter_router] quote unavailable (HTTP %s)", resp.status)
+                        return QuoteResult(False, None, None, None, {"status": resp.status}, {"status": resp.status})
                     data = await resp.json(content_type=None)
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            log.debug("[jupiter_router] quote HTTP error url=%s: %s", url, e)
-            return QuoteResult(False, None, None, None, {"error": str(e)}, {"error": str(e)})
-        except Exception as e:
-            log.exception("[jupiter_router] quote unexpected url=%s: %s", url, e)
-            return QuoteResult(False, None, None, None, {"error": str(e)}, {"error": str(e)})
+        except Exception as exc:
+            reason = "provider_budget_unavailable" if isinstance(exc, jupiter_access.BudgetUnavailable) else "provider_observation_unavailable"
+            log.debug("[jupiter_router] quote unavailable (%s)", type(exc).__name__)
+            return QuoteResult(False, None, None, None, {"quote_contract_error": reason}, {"error": reason})
 
         return _checked_quote(data, input_mint=input_mint, output_mint=output_mint,
                               amount=amount_lamports, slippage=slippage, direct=only_direct_routes)
@@ -397,35 +391,17 @@ async def get_quote(
     # 1) intento principal
     qr = await _do(JUP_QUOTE_URL)
 
-    # 2) Independent v1 fallback; an invalid response is never partial evidence.
+    # Only an explicitly configured nonofficial quote adapter may fall back to
+    # the current gateway. Lite/v6 aliases migrate before the first request;
+    # neither quota/auth failure nor invalid evidence retries the same gateway.
     if qr.ok:
         return qr
 
     try:
-        host = urlsplit(JUP_QUOTE_URL or "").hostname
+        primary_url = jupiter_access.endpoint(JUP_QUOTE_URL, "quote")
     except ValueError:
-        host = None  # Malformed custom URL is unavailable, not a caller crash.
-    fallbacks: list[str] = []
-    if host == "api.jup.ag":
-        fallbacks.append(_LITE_QUOTE_URL)
-    elif host == "lite-api.jup.ag":
-        if JUP_API_KEY:
-            fallbacks.append(_API_QUOTE_URL)
-    else:
-        fallbacks.append(_preferred_quote_url())
-        fallbacks.append(_LITE_QUOTE_URL)
-        if JUP_API_KEY:
-            fallbacks.append(_API_QUOTE_URL)
-    seen = {JUP_QUOTE_URL}
-    for fb in fallbacks:
-        if not fb or fb in seen:
-            continue
-        seen.add(fb)
-        qr2 = await _do(fb)
-        if qr2.ok:
-            return qr2
-
-    return qr
+        primary_url = None
+    return qr if primary_url == _API_QUOTE_URL else await _do(_API_QUOTE_URL)
 
 
 async def get_order(
@@ -439,16 +415,17 @@ async def get_order(
     """Get a checked request-bound Swap v2 order; never sign or submit here."""
     if not JUP_MANAGED_ENABLED:
         raise RuntimeError("managed Jupiter execution disabled")
-    if not JUP_API_KEY:
-        raise RuntimeError("managed Jupiter execution requires JUP_API_KEY")
     request = managed_contract.ManagedRequest(input_mint, output_mint, amount_lamports, taker,
         MANAGED_SLIPPAGE_BPS if slippage_bps is None else slippage_bps)
     url = managed_contract.endpoint(JUP_ORDER_URL, "order")
     params = _normalize_query_params(request.params())
     timeout = aiohttp.ClientTimeout(total=TIMEOUT_S)
 
-    async with aiohttp.ClientSession(timeout=timeout, headers=_headers()) as sess:
+    await jupiter_access.acquire(url, api_key=JUP_API_KEY,
+        priority=0 if request.output_mint == SOL_MINT else 1, max_wait=TIMEOUT_S)
+    async with aiohttp.ClientSession(timeout=timeout, headers=_headers(url)) as sess:
         async with sess.get(url, params=params, allow_redirects=False) as resp:
+            jupiter_access.observe(url, api_key=JUP_API_KEY, response=resp)
             if resp.status != 200:
                 raise RuntimeError(f"Jupiter unsigned order unavailable (HTTP {resp.status})")
             data = await resp.json(content_type=None)
@@ -456,11 +433,9 @@ async def get_order(
 
 
 async def execute_order(*, signed_transaction: str, request_id: str,
-                        last_valid_block_height: str | None = None) -> Dict[str, Any]:
+                        last_valid_block_height: str | None = None, before_post=None) -> Dict[str, Any]:
     if not JUP_MANAGED_ENABLED:
         raise RuntimeError("managed Jupiter execution disabled")
-    if not JUP_API_KEY:
-        raise RuntimeError("managed Jupiter execution requires JUP_API_KEY")
     managed_contract.packet(signed_transaction)
     payload = {"signedTransaction": signed_transaction, "requestId": managed_contract.opaque_id(request_id)}
     if last_valid_block_height is not None:
@@ -469,8 +444,14 @@ async def execute_order(*, signed_transaction: str, request_id: str,
         payload["lastValidBlockHeight"] = str(last_valid_block_height)
     url = managed_contract.endpoint(JUP_EXECUTE_URL, "execute")
     timeout = aiohttp.ClientTimeout(total=SWAP_TIMEOUT_S)
-    async with aiohttp.ClientSession(timeout=timeout, headers=_headers()) as sess:
+    try:
+        await jupiter_access.acquire(url, api_key=JUP_API_KEY, priority=0, max_wait=SWAP_TIMEOUT_S)
+    except jupiter_access.BudgetUnavailable as exc:
+        raise _ManagedBudgetBeforeDispatch("Local execute budget unavailable before HTTP") from exc
+    async with aiohttp.ClientSession(timeout=timeout, headers=_headers(url)) as sess:
+        if before_post is not None: before_post()
         async with sess.post(url, json=payload, allow_redirects=False) as resp:
+            jupiter_access.observe(url, api_key=JUP_API_KEY, response=resp)
             if resp.status != 200:
                 raise RuntimeError(f"Jupiter managed submission uncertain (HTTP {resp.status})")
             return await resp.json(content_type=None)
@@ -490,19 +471,32 @@ class _ManagedExpiredBeforeDispatch(ValueError):
     """Only the owned worker's pre-POST expiry/age check may produce this."""
 
 
+class _ManagedBudgetBeforeDispatch(ValueError):
+    """Only the actual execute adapter's pre-HTTP budget may produce this."""
+
+
 def _execute_managed_once(signed_transaction, order, binding, capsule, observation_url,
                           projection_started):
     # Its own HTTP loop lives entirely in an owned executor invocation. Parent
     # cancellation cannot abandon a POST or publish stopped while it settles.
     async def execute_and_check():
+        dispatched = False
+        def before_post():
+            nonlocal dispatched
+            try:
+                solana_execution.check_projection_age(projection_started)
+                order.check_expiry()
+            except ValueError as exc:
+                raise _ManagedExpiredBeforeDispatch("Original managed order aged before dispatch") from exc
+            execution_provenance.record("dispatch_started", {"capsule_sha256": capsule["sha256"]})
+            dispatched = True
         try:
-            solana_execution.check_projection_age(projection_started)
-            order.check_expiry()
-        except ValueError as exc:
-            raise _ManagedExpiredBeforeDispatch("Original managed order aged before dispatch") from exc
-        execution_provenance.record("dispatch_started", {"capsule_sha256": capsule["sha256"]})
-        response = await execute_order(signed_transaction=signed_transaction,
-            request_id=order.request_id, last_valid_block_height=order.last_valid_block_height)
+            response = await execute_order(signed_transaction=signed_transaction,
+                request_id=order.request_id, last_valid_block_height=order.last_valid_block_height, before_post=before_post)
+        except (_ManagedExpiredBeforeDispatch, _ManagedBudgetBeforeDispatch) as exc:
+            if dispatched:
+                raise SwapSubmissionUncertain("A pre-dispatch error cannot undo an actual POST") from exc
+            raise
         response, _ = managed_contract.check_execution(response, order, binding)
         execution_provenance.record("provider_response", response)
         receipt = await solana_execution.reconcile_original(capsule, response, endpoint=observation_url)
@@ -530,7 +524,7 @@ async def execute_managed_swap(
     No automatic order rebuild, POST retry or response-as-financial-proof.
     """
     try:
-        if not JUP_MANAGED_ENABLED or not JUP_API_KEY:
+        if not JUP_MANAGED_ENABLED:
             raise ValueError("Managed Jupiter is disabled or unavailable")
         user_public_key = _configured_swap_wallet(user_public_key)
         request = managed_contract.ManagedRequest(input_mint, output_mint, amount_lamports,
@@ -570,8 +564,8 @@ async def execute_managed_swap(
     try:
         execute_response, receipt = await run_owned_sync(_execute_managed_once, signed_transaction,
             order, binding, capsule, observation_url, projection_started)
-    except _ManagedExpiredBeforeDispatch as exc:
-        raise SwapPreparationError("Original managed order aged before execute POST") from exc
+    except (_ManagedExpiredBeforeDispatch, _ManagedBudgetBeforeDispatch) as exc:
+        raise SwapPreparationError("Original managed order unavailable before execute POST") from exc
     except Exception as exc:
         raise SwapSubmissionUncertain("Managed execution needs reconciliation; no new order sent") from exc
     route_meta = {"router": f"jupiter_managed:{order.raw['router']}", "requestId": order.request_id,
@@ -710,10 +704,15 @@ def _swap_packet(data: Any) -> bytes:
 
 async def _build_swap_transaction(payload: dict, *, max_retries: int) -> bytes:
     timeout = aiohttp.ClientTimeout(total=SWAP_TIMEOUT_S)
+    url = _derive_swap_url()
     for attempt in range(max_retries + 1):
         try:
-            async with aiohttp.ClientSession(timeout=timeout, headers=_headers()) as sess:
-                async with sess.post(_derive_swap_url(), json=copy.deepcopy(payload)) as resp:
+            await jupiter_access.acquire(url, api_key=JUP_API_KEY,
+                priority=0 if payload["quoteResponse"].get("outputMint") == SOL_MINT else 1,
+                max_wait=SWAP_TIMEOUT_S)
+            async with aiohttp.ClientSession(timeout=timeout, headers=_headers(url)) as sess:
+                async with sess.post(url, json=copy.deepcopy(payload), allow_redirects=False) as resp:
+                    jupiter_access.observe(url, api_key=JUP_API_KEY, response=resp)
                     if resp.status != 200:
                         if resp.status == 429 or 500 <= resp.status <= 599:
                             raise _TransientSwapBuild(f"Jupiter unsigned build HTTP {resp.status}")

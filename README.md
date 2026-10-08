@@ -132,7 +132,8 @@ Variables relevantes:
 | `SOL_RPC_URL`, `RPC_URL`, `HELIUS_RPC_URL` | RPC Solana. |
 | `HELIUS_API_KEY`, `BIRDEYE_API_KEY`, `RUGCHECK_API_KEY` | Enriquecimiento de datos. |
 | `PUMPPORTAL_API_KEY` | PumpPortal websocket discovery si esta habilitado. |
-| `JUP_API_KEY` | Jupiter si tu plan lo requiere. |
+| `JUP_API_KEY` | Opcional: gateway actual con o sin clave; una clave inválida no se descarta para reintentar. |
+| `JUP_API_RPS` | Vacío: 0.5 sin clave / 1 con clave. Con clave, ajustar solo al cupo real del plan contratado. |
 | `UI_AUTH_MODE`, `UI_LOCAL_USERS`, `UI_SESSION_SECRET` | Login local de la UI/API. |
 
 No subas `.env`, claves privadas, backups con secretos, `data/` ni `logs/`.

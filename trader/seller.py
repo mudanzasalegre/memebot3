@@ -281,7 +281,7 @@ async def _sell_execute_prefer_jupiter(
     # 1) Jupiter swap real si está disponible
     if _JUP_ROUTER_AVAILABLE and jupiter is not None:
         try:
-            if (hasattr(jupiter, "execute_managed_swap") and bool(getattr(jupiter, "JUP_API_KEY", ""))
+            if (hasattr(jupiter, "execute_managed_swap")
                     and getattr(jupiter, "JUP_MANAGED_ENABLED", False) is True):
                 submission_started = True
                 managed_resp = await jupiter.execute_managed_swap(
