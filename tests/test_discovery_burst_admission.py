@@ -235,15 +235,20 @@ def test_actual_discovery_scheduler_yields_between_bounded_chunks_without_loss(c
 
 def test_run_bot_native_stream_routes_bulk_queue_and_retains_guarded_disabled_path():
     tree = ast.parse((Path(__file__).resolve().parents[1] / "run_bot.py").read_text(encoding="utf-8"))
-    # Extract only the actual discovery conditional, never import/start run_bot.
-    statement = next(node for node in ast.walk(tree) if isinstance(node, ast.If)
-        and isinstance(node.test, ast.UnaryOp) and isinstance(node.test.operand, ast.Name)
-        and node.test.operand.id == "_runtime_discovery_paused"
+    # Extract the actual supervised hot pull tick and legacy main conditional;
+    # never import/start run_bot or permit two owners to drain the same feed.
+    owner = next(node for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_pump_discovery_loop")
+    tick = next(node for node in owner.body if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "tick")
+    main = next(node for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "main_loop")
+    statement = next(node for node in ast.walk(main) if isinstance(node, ast.If)
         and any(isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
             and call.func.attr == "get_latest_pumpfun" for call in ast.walk(node)))
     wrapper = ast.AsyncFunctionDef(name="stream", args=ast.arguments(posonlyargs=[], args=[],
         kwonlyargs=[], kw_defaults=[], defaults=[]), body=[statement], decorator_list=[])
-    module = ast.fix_missing_locations(ast.Module(body=[wrapper], type_ignores=[]))
+    module = ast.fix_missing_locations(ast.Module(body=[tick, wrapper], type_ignores=[]))
     from types import SimpleNamespace
     incoming, evaluated, errors = rows(3), [], []
     async def fetch():
@@ -253,14 +258,16 @@ def test_run_bot_native_stream_routes_bulk_queue_and_retains_guarded_disabled_pa
     queue = HotQueue(max_size=10, persist_events=False)
     queue._now = lambda: 1791504000.
     namespace = {"_runtime_discovery_paused": False, "pumpfun": SimpleNamespace(get_latest_pumpfun=fetch),
-        "CFG": SimpleNamespace(HOT_QUEUE_ENABLED=True), "GLOBAL_HOT_QUEUE": queue,
+        "hot_queue_enabled": True, "GLOBAL_HOT_QUEUE": queue,
+        "admit_hot_candidates": loop_scheduler.admit_hot_candidates,
         "_evaluate_and_buy_guarded": evaluate, "_note_runtime_error": lambda *args: errors.append(args),
         "log": SimpleNamespace(error=lambda *args: None)}
     exec(compile(module, "run_bot.py", "exec"), namespace)
-    asyncio.run(namespace["stream"]())
+    asyncio.run(namespace["tick"]())
+    asyncio.run(namespace["stream"]())  # hot mode cannot drain again
     assert not errors and not evaluated and queue.snapshot()["size"] == 3
     assert [token["source"] for _, _, token in sorted(queue._heap, key=lambda entry: entry[1])] == [row["source"] for row in incoming]
-    namespace["CFG"].HOT_QUEUE_ENABLED = False
+    namespace["hot_queue_enabled"] = False
     asyncio.run(namespace["stream"]())
     assert evaluated == [(row["address"], None, "pumpfun") for row in incoming]
     assert not errors

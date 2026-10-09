@@ -192,6 +192,19 @@ de mercado ni permite compras. Mantiene 0.1 SOL PAPER y remanentes sin techo
 fijo de subida, sujetos a riesgo y salidas. Las pruebas sinteticas no prueban
 cobertura ni beneficios. Vease `docs/audits/discovery_burst_20261009.json`.
 
+El modo HotQueue tiene ahora un propietario serial supervisado por fuente:
+DexScreener y el drenado/admisión de PumpPortal esperan la reconciliacion de
+arranque, pero no esperan entre si ni a una evaluacion lenta. Las compras
+conservan un unico propietario y los controles actuales. El modo sin HotQueue
+retiene su ruta Pump guardada dentro de ese propietario; la seleccion de modo
+se fija para cada arranque. Una pausa no inicia nuevos pulls, aunque uno ya
+iniciado puede completar su admision. El shutdown drena tambien el socket
+PumpPortal antes de publicar stopped, sin vaciar su historial original.
+Son contratos de concurrencia y apagado, no una garantia de latencia del
+proveedor, cobertura completa ni beneficios. Mantiene 0.1 SOL PAPER y los
+remanentes elegibles sin techo porcentual. Vease
+`docs/audits/discovery_loop_ownership_20261009.json`.
+
 La procedencia de las entradas aprendidas incluye ahora una comprobacion
 acotada del codigo Python cargado y sus namespaces, aliases y cierres de
 funcion frente a las fuentes originales. Una funcion sustituida, un alias

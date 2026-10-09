@@ -249,7 +249,8 @@ async def test_owned_entry_sessions_rollback_exception_timeout_and_allow_next_co
 
 
 @pytest.mark.asyncio
-async def test_real_runner_drains_owned_loops_and_background_before_stopped_publication(tmp_path, monkeypatch):
+@pytest.mark.parametrize("hot_enabled", [True, False])
+async def test_real_runner_drains_owned_loops_and_background_before_stopped_publication(tmp_path, monkeypatch, hot_enabled):
     import runtime.social_enrichment_queue as socials
     import research_loop.entry_gate_forward as research
     monitor_started, background_started = asyncio.Event(), asyncio.Event()
@@ -263,7 +264,8 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
     async def archive_recovery(**kwargs):
         assert kwargs["force"]
         cleaned.add("archive_recovery")
-    async def main(*, positions_ready):
+    async def main(*, positions_ready, hot_queue_enabled):
+        assert hot_queue_enabled is hot_enabled
         try:
             positions_ready.set()
             await asyncio.Event().wait()
@@ -289,6 +291,9 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
     task = asyncio.create_task(background())
     async def stop_social(): cleaned.add("social")
     async def stop_research(): cleaned.add("research")
+    async def stop_pump():
+        assert "dex" in cleaned and ("pump" in cleaned) is hot_enabled
+        cleaned.add("socket")
     from runtime import trade_learning
     async def export_loop(**kwargs):
         await kwargs["ready"].wait()
@@ -298,14 +303,20 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
     monkeypatch.setattr(research, "stop_background_tasks", stop_research)
     async def publish():
         assert namespace["_runtime_process_state"] == "stopped"
-        assert cleaned == {"recovery", "archive_recovery", "main", "monitor", "labeler", "state", "background", "social", "research", "trade_export"}
+        expected = {"recovery", "archive_recovery", "main", "monitor", "labeler", "state", "background", "social", "research", "trade_export", "dex", "socket"}
+        if hot_enabled:
+            expected.add("pump")
+        assert cleaned == expected
         published.append(True)
-    namespace = {"asyncio": asyncio, "CFG": SimpleNamespace(ML_RETRAIN_IN_MAIN_LOOP=False),
+    namespace = {"asyncio": asyncio, "CFG": SimpleNamespace(ML_RETRAIN_IN_MAIN_LOOP=False,
+        HOT_QUEUE_ENABLED=hot_enabled), "pumpfun": SimpleNamespace(stop_background_tasks=stop_pump),
         "DRY_RUN": True, "_repair_paper_archive_evidence": archive_recovery, "PROJECT_ROOT": tmp_path,
         "_stats": {"appended_at_close": 0},
         "async_init_db": init, "SessionLocal": RecoverySession, "_recover_close_persistence_outbox": recovery,
         "_recover_buy_persistence_outbox": buy_recovery,
         "main_loop": main, "_position_monitor_loop": monitor, "_periodic_labeler": lambda: loop("labeler"),
+        "_dex_discovery_loop": lambda ready: loop("dex"),
+        "_pump_discovery_loop": lambda ready: loop("pump"),
         "runtime_state_loop": lambda: loop("state"), "control_command_loop": fault,
         "_background_tasks": {task}, "_publish_runtime_state_once": publish,
         "_note_runtime_error": lambda *args: None,

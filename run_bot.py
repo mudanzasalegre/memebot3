@@ -9620,12 +9620,48 @@ async def _position_monitor_loop(ready: asyncio.Event) -> None:
         on_success=succeeded, on_error=failed)
 
 
-async def main_loop(*, positions_ready: asyncio.Event | None = None) -> None:
+async def _dex_discovery_loop(ready: asyncio.Event) -> None:
+    from runtime.loop_scheduler import poll_discovery
+
+    async def tick():
+        global _last_discovery_ok_at
+        for addr in await fetch_candidate_pairs():
+            _queue_add_if_new(addr)
+        _last_discovery_ok_at = utc_now()
+
+    def failed(exc):
+        _note_runtime_error("fetch_candidate_pairs", exc)
+        log.error("fetch_candidate_pairs -> %s", exc)
+
+    await poll_discovery(ready=ready, tick=tick, interval=lambda: DISCOVERY_INTERVAL,
+        enabled=lambda: not _runtime_discovery_paused, on_error=failed)
+
+
+async def _pump_discovery_loop(ready: asyncio.Event) -> None:
+    from runtime.loop_scheduler import admit_hot_candidates, poll_discovery
+
+    async def tick():
+        discovered = await pumpfun.get_latest_pumpfun()
+        await admit_hot_candidates(GLOBAL_HOT_QUEUE, discovered)
+
+    def failed(exc):
+        _note_runtime_error("pumpfun_stream", exc)
+        log.error("PumpFun stream -> %s", exc)
+
+    await poll_discovery(ready=ready, tick=tick, interval=lambda: SLEEP_SECONDS,
+        enabled=lambda: not _runtime_discovery_paused, on_error=failed)
+
+
+async def main_loop(*, positions_ready: asyncio.Event | None = None,
+                    hot_queue_enabled: bool | None = None) -> None:
     global _runtime_started_at, _runtime_process_state
     global _last_discovery_ok_at, _last_monitor_ok_at, _runtime_reports_refresh_state
     global _wallet_sol_balance, _last_stats_print, _last_csv_export, _last_wallet_checked_at
     global _BOOT_AUDIT_EMITTED
-    last_discovery  = 0.0
+    # A runtime generation has exactly one Pump drain/entry owner. Configuration
+    # edits take effect on restart, not midway through an awaited feed pull.
+    if hot_queue_enabled is None:
+        hot_queue_enabled = bool(getattr(CFG, "HOT_QUEUE_ENABLED", True))
     if _runtime_started_at is None:
         _runtime_started_at = utc_now()
     _runtime_process_state = "starting"
@@ -9928,36 +9964,20 @@ async def main_loop(*, positions_ready: asyncio.Event | None = None) -> None:
         now_mono = time.monotonic()
         await _refresh_balance(now_mono)
 
-        # 1) Descubrimiento DexScreener
-        if now_mono - last_discovery >= DISCOVERY_INTERVAL:
-            if _runtime_discovery_paused:
-                last_discovery = now_mono
-            else:
-                try:
-                    for addr in await fetch_candidate_pairs():
-                        _queue_add_if_new(addr)
-                    _last_discovery_ok_at = utc_now()
-                except Exception as exc:
-                    _note_runtime_error("fetch_candidate_pairs", exc)
-                    log.error("fetch_candidate_pairs → %s", exc)
-                last_discovery = now_mono
-
-        # 2) Stream Pump Fun
-        if not _runtime_discovery_paused:
+        # Hot-mode feeds have separate serial supervised pull owners. Neither
+        # a slow Dex request nor a slow entry holds Pump admission. Disabled
+        # HotQueue mode retains its legacy guarded path in this one entry owner.
+        if not hot_queue_enabled and not _runtime_discovery_paused:
             try:
                 discovered = await pumpfun.get_latest_pumpfun()
-                if bool(getattr(CFG, "HOT_QUEUE_ENABLED", True)):
-                    from runtime.loop_scheduler import admit_hot_candidates
-                    await admit_hot_candidates(GLOBAL_HOT_QUEUE, discovered)
-                else:
-                    for tok in discovered:
-                        await _evaluate_and_buy_guarded(tok, None, source="pumpfun")
+                for tok in discovered:
+                    await _evaluate_and_buy_guarded(tok, None, source="pumpfun")
             except Exception as exc:
                 _note_runtime_error("pumpfun_stream", exc)
                 log.error("PumpFun stream → %s", exc)
 
         # 3) Validación cola
-        if bool(getattr(CFG, "HOT_QUEUE_ENABLED", True)):
+        if hot_queue_enabled:
             try:
                 from runtime.loop_scheduler import evaluate_hot_queue
                 async def evaluate_hot(token):
@@ -10057,13 +10077,18 @@ async def _runner() -> None:
             await _repair_paper_archive_evidence(force=True)
         from runtime.loop_scheduler import supervise
         positions_ready = asyncio.Event()
+        hot_queue_enabled = bool(getattr(CFG, "HOT_QUEUE_ENABLED", True))
         tasks = [
-            ("discovery-entry", main_loop(positions_ready=positions_ready)),
+            ("entry-service", main_loop(positions_ready=positions_ready,
+                hot_queue_enabled=hot_queue_enabled)),
+            ("dex-discovery", _dex_discovery_loop(positions_ready)),
             ("position-monitor", _position_monitor_loop(positions_ready)),
             ("periodic-labeler", _periodic_labeler()),
             ("control-commands", control_command_loop()),
             ("runtime-state", runtime_state_loop()),
         ]
+        if hot_queue_enabled:
+            tasks.append(("pump-discovery", _pump_discovery_loop(positions_ready)))
         if DRY_RUN:
             from runtime.trade_learning import run_export_loop
             def exported(result):
@@ -10090,6 +10115,9 @@ async def _runner() -> None:
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+        # The feed pull owners above are already drained. Its independently
+        # owned socket must also finish cleanup before stopped state is visible.
+        await pumpfun.stop_background_tasks()
         from runtime.social_enrichment_queue import stop_background_tasks as stop_social_tasks
         await stop_social_tasks()
         from research_loop.entry_gate_forward import stop_background_tasks

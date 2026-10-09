@@ -76,6 +76,29 @@ async def admit_hot_candidates(queue: Any, tokens: Iterable, *, source: str = "p
     return admitted
 
 
+async def poll_discovery(*, ready: asyncio.Event, tick: Callable,
+                         interval: Callable, enabled: Callable,
+                         on_error: Callable, sleep: Callable = asyncio.sleep,
+                         clock: Callable = time.monotonic) -> None:
+    """One serial pull owner per feed, independent of entry and other feeds.
+
+    Wait for startup reconciliation; do not start new pulls while paused.
+    An already owned pull may finish admission after a pause. Slow requests
+    never overlap or create catch-up bursts. Cancellation propagates and the
+    runtime supervisor drains this owner before publishing stopped state.
+    """
+    await ready.wait()
+    while True:
+        started = clock()
+        if enabled():
+            try:
+                await tick()
+            except Exception as exc:
+                on_error(exc)
+        period = positive_interval(interval())
+        await sleep(max(.1, period - max(0., clock() - started)))
+
+
 async def evaluate_ready_queue(next_item: Callable, evaluate: Callable, *, max_items: int,
                                budget_s: float, clock: Callable = time.monotonic,
                                identity: Callable | None = lambda item: item) -> int:

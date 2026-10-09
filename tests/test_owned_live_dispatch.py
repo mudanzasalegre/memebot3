@@ -355,7 +355,8 @@ async def test_actual_runner_cannot_publish_stopped_while_execution_thread_is_li
     class Session:
         async def __aenter__(self): return self
         async def __aexit__(self, *args): pass
-    async def main(*, positions_ready):
+    async def main(*, positions_ready, hot_queue_enabled):
+        assert hot_queue_enabled is False
         positions_ready.set()
         try: await owned.run_owned_sync(worker)
         finally: cleaned.add("entry")
@@ -367,17 +368,26 @@ async def test_actual_runner_cannot_publish_stopped_while_execution_thread_is_li
         await started.wait()
         raise RuntimeError("synthetic supervised failure")
     async def forever(): await asyncio.Event().wait()
+    async def dex(ready):
+        await ready.wait()
+        try: await asyncio.Event().wait()
+        finally: cleaned.add("dex")
+    async def stop_pump():
+        assert "dex" in cleaned and owned.pending_dispatch_count() == 0
+        cleaned.add("socket")
     async def publish():
-        assert owned.pending_dispatch_count() == 0 and cleaned == {"entry", "monitor"}
+        assert owned.pending_dispatch_count() == 0 and cleaned == {"entry", "monitor", "dex", "socket"}
         assert ns["_runtime_process_state"] == "stopped"
         published.append(True)
     monkeypatch.setattr(socials, "stop_background_tasks", AsyncMock())
     monkeypatch.setattr(research, "stop_background_tasks", AsyncMock())
-    ns = {"asyncio": asyncio, "DRY_RUN": False, "CFG": SimpleNamespace(ML_RETRAIN_IN_MAIN_LOOP=False),
+    ns = {"asyncio": asyncio, "DRY_RUN": False, "CFG": SimpleNamespace(ML_RETRAIN_IN_MAIN_LOOP=False,
+        HOT_QUEUE_ENABLED=False), "pumpfun": SimpleNamespace(stop_background_tasks=stop_pump),
         "async_init_db": AsyncMock(), "SessionLocal": Session,
         "_recover_buy_persistence_outbox": AsyncMock(), "_recover_close_persistence_outbox": AsyncMock(),
         "_refresh_green_live_risk": AsyncMock(return_value=True),
-        "main_loop": main, "_position_monitor_loop": monitor, "control_command_loop": fault,
+        "main_loop": main, "_dex_discovery_loop": dex,
+        "_position_monitor_loop": monitor, "control_command_loop": fault,
         "_periodic_labeler": forever, "runtime_state_loop": forever, "_background_tasks": set(),
         "_publish_runtime_state_once": publish, "_note_runtime_error": Mock(),
         "log": SimpleNamespace(info=Mock(), error=Mock())}

@@ -57,13 +57,18 @@ def test_main_loop_starts_running_before_background_research_refresh() -> None:
 
     discovery_loop = main_loop.body[discovery_loop_index]
     assert isinstance(discovery_loop, ast.While)
-    assert any(
+    assert not any(
         isinstance(node, ast.Await)
         and isinstance(node.value, ast.Call)
         and isinstance(node.value.func, ast.Name)
         and node.value.func.id == "fetch_candidate_pairs"
         for node in ast.walk(discovery_loop)
     )
+    dex_owner = next(node for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_dex_discovery_loop")
+    assert any(isinstance(node, ast.Await) and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name) and node.value.func.id == "fetch_candidate_pairs"
+        for node in ast.walk(dex_owner))
 
     awaited_initial_refreshes = []
     for node in ast.walk(main_loop):

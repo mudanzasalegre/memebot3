@@ -450,6 +450,35 @@ async def _ensure_started() -> None:
 
 
 # ───────────────────────── API pública ─────────────────────────
+async def stop_background_tasks() -> None:
+    """Drain the one owned WebSocket before runtime stopped publication.
+
+    Discovery callers must already be drained by their runtime supervisor.
+    Retain pending/delivered original records; stopping is not queue reset.
+    A later explicit runtime start can create a new consumer.
+    """
+    global _ws_task
+    cancelled = False
+    async with _ws_lock:
+        task = _ws_task
+        if task is not None:
+            if not task.done():
+                task.cancel()
+            drained = asyncio.gather(task, return_exceptions=True)
+            while not drained.done():
+                try:
+                    await asyncio.shield(drained)
+                except asyncio.CancelledError:
+                    # Repeated caller cancellation must not interrupt the
+                    # socket/session's already owned asynchronous cleanup.
+                    cancelled = True
+            if _ws_task is task:
+                _ws_task = None
+        _started.clear()
+    if cancelled:
+        raise asyncio.CancelledError
+
+
 async def get_latest_pumpfun() -> List[Dict[str, Any]]:
     """
     Devuelve hasta `_LIMIT_RETURN` tokens recientes descubiertos en Pump.fun.

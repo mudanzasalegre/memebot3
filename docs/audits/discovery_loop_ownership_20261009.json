@@ -1,0 +1,250 @@
+{
+  "stage": "independent_owned_discovery_feed_loops",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "status": "SOFTWARE_VERIFIED_RUNTIME_OFF",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Independent serial Dex discovery and HotQueue Pump drain/admission owners, single entry owner and ordered socket shutdown. No operational start, provider/order call or active model/policy promotion.",
+  "finding": {
+    "id": "dex_pull_holds_existing_hot_opportunities",
+    "severity": "high",
+    "native_evidence": "Against original published commit6d24ac26b9cbb270ab61d7bc1e5f809c086eb10d, the actual main service loop cannot evaluate an already queued opportunity while its synthetic Dex pull is stalled. The final scope-preserving regression fails1case in2.02s; this is a software scheduling defect, not measured market opportunity loss.",
+    "repair": "Move serial provider pulls to separate supervised owners after startup readiness; HotQueue Pump admission no longer waits for Dex or entry service. Preserve one entry owner, bounded existing queues, original clocks, priorities, evaluation guards and disabled-HotQueue legacy routing."
+  },
+  "contracts": {
+    "startup": "Both discovery owners wait for the same actual completed startup readiness used by position supervision.",
+    "cadence": "Start-to-start targets at existing configured intervals; no overlapping pulls, catch-up bursts or busy loops on malformed intervals. Not a provider latency SLA.",
+    "pause": "No new pulls while paused. An already owned pull may complete admission after pause; pause is not cancellation or discard of original returned events.",
+    "entry_ownership": "One entry service owns guarded HotQueue and ordinary queue evaluation. HotQueue mode is captured once per runner generation; config edits require restart.",
+    "disabled_hot_queue": "Only the main entry service drains/evaluates legacy Pump events; no second Pump discovery owner is created.",
+    "queue": "Existing max-size, expiry, cooldown, vectorized priority generation and original birth/receipt semantics unchanged.",
+    "shutdown": "Supervision drains feed callers; Pump socket cancellation/session cleanup is drained before runtime stopped publication. Repeated shutdown-caller cancellation cannot interrupt its already owned socket cleanup. Buffer, pending and delivered receipt histories are not reset.",
+    "trading": "Exact0.1 SOL PAPER and eligible uncapped residual tails preserved; no entry/risk/exit threshold or size change."
+  },
+  "implementation": [
+    "runtime/loop_scheduler.py",
+    "fetcher/pumpfun.py",
+    "run_bot.py"
+  ],
+  "tests": [
+    "tests/test_discovery_loop_ownership.py",
+    "tests/test_main_loop_startup_refresh.py",
+    "tests/test_main_loop_position_monitor.py",
+    "tests/test_discovery_burst_admission.py",
+    "tests/test_owned_live_dispatch.py"
+  ],
+  "verification": {
+    "original_published_regression": {
+      "failed": 1,
+      "deselected": 18,
+      "seconds": 2.02,
+      "exit_code": 1
+    },
+    "repaired_native": {
+      "passed": 19,
+      "seconds": 3.54,
+      "exit_code": 0
+    },
+    "native_scope": "Original service while body plus its global declarations and original legacy cadence initializer; real source owners and supervisor wiring, with controlled in-memory feeds/queues/clocks and no startup or operator I/O.",
+    "interim": {
+      "passed": 75,
+      "seconds": 12.9,
+      "exit_code": 0,
+      "scope": "Before additional native source/socket failure/cancellation cases."
+    },
+    "harness_incidents": "Two expanded attempts exposed incomplete AST-wrapper scoping/cadence in test isolation. Original globals and original legacy cadence initializer are now retained and cleanup exceptions checked. A controlled fast cadence replaces production sleep only in concurrency simulation. Final original-source reproduction and repaired19-case run were reissued; earlier failed391-pass broad run is not final acceptance. The original owned-dispatch fixture was updated for the captured disabled-HotQueue mode and drained Dex/socket. Its worker completes before socket callback; the initially mistaken pending-count assertion was corrected to its observed original order, retaining the original no-stopped-publication-before-worker-release check. A cold import probe used a nonexistent CFG.RUNNER_THRESHOLDS attribute; the narrow three-module probe was reissued without that unrelated attribute.",
+    "focused_working": {
+      "passed": 414,
+      "seconds": 26.89,
+      "exit_code": 0
+    },
+    "focused_publishing": {
+      "passed": 414,
+      "seconds": 26.59,
+      "exit_code": 0
+    },
+    "full_working": {
+      "passed": 4891,
+      "seconds": 1201.78,
+      "exit_code": 0
+    },
+    "full_publishing": {
+      "passed": 4891,
+      "seconds": 1178.92,
+      "exit_code": 0
+    },
+    "preflights": {
+      "working": {
+        "generated_at_utc": "2026-10-09T14:14:14.355282+00:00",
+        "ok": true,
+        "config_import_returncode": 0,
+        "compile_errors": 0,
+        "paper_profile_ok": true,
+        "report_builders": 7,
+        "report_builders_ok": true,
+        "external_pytest_returncode": 0,
+        "exit_code": 0
+      },
+      "publishing": {
+        "generated_at_utc": "2026-10-09T14:14:13.291682+00:00",
+        "ok": true,
+        "config_import_returncode": 0,
+        "compile_errors": 0,
+        "paper_profile_ok": true,
+        "report_builders": 7,
+        "report_builders_ok": true,
+        "external_pytest_returncode": 0,
+        "exit_code": 0
+      }
+    },
+    "source_snapshot": [
+      {
+        "checkout": "working",
+        "files": 769,
+        "sha256": "fb9df1bc4e36c6be9a809b87d9f41304cc2e63b0aed079cdc7a6db0b2d4c8714"
+      },
+      {
+        "checkout": "publishing",
+        "files": 769,
+        "sha256": "fb9df1bc4e36c6be9a809b87d9f41304cc2e63b0aed079cdc7a6db0b2d4c8714"
+      }
+    ],
+    "final_full_state": "BOTH_FINAL_TERMINAL_EXIT_ZERO_ON_MATCHING_FROZEN_SNAPSHOT",
+    "interim_full_qa_stop": {
+      "cause": "Existing owned execution-thread runner fixture still had old main signature and no separate feed owners.",
+      "action": "Stopped only two confirmed owned interim pytest trees after read-only PID/parent/executable/creation-time inventory; both session handles returned terminal exit1. No interim full run is counted as passing.",
+      "observed_at": "2026-10-09T13:50:54.5734654+00:00",
+      "stopped_processes": 4,
+      "remaining": 0,
+      "scope": "No bot or unrelated process stopped. Current both414 focused suites include the updated original worker-drain assertion and pass."
+    },
+    "post_full_source_snapshot": [
+      {
+        "checkout": "working",
+        "files": 769,
+        "sha256": "fb9df1bc4e36c6be9a809b87d9f41304cc2e63b0aed079cdc7a6db0b2d4c8714"
+      },
+      {
+        "checkout": "publishing",
+        "files": 769,
+        "sha256": "fb9df1bc4e36c6be9a809b87d9f41304cc2e63b0aed079cdc7a6db0b2d4c8714"
+      }
+    ],
+    "publishing_import_probe": {
+      "observed_at": "2026-10-09T14:08:15.652275+00:00",
+      "imports_scoped_to_checkout": true,
+      "modules_checked": [
+        "config.config",
+        "runtime.loop_scheduler",
+        "fetcher.pumpfun"
+      ],
+      "discovery_poll_callable": true,
+      "pump_shutdown_callable": true,
+      "socket_started": false,
+      "DRY_RUN": true,
+      "HOT_QUEUE_ENABLED": true,
+      "PAPER_EXACT_TRADE_SIZE_ENABLED": true,
+      "PAPER_EXACT_TRADE_SIZE_SOL": 0.1,
+      "RUNNER_PRICE_TRAILING_PAPER_ENABLED": true
+    }
+  },
+  "analysis_workflow": "Scoped Data Analytics original event/receipt, ownership, missingness and clock checks support the engineering audit; native tests and source/audit records are the inspectable companion.",
+  "runtime_off": {
+    "requested_stop": {
+      "checkout": "working_only",
+      "started_at_utc": "2026-10-09T14:14:15Z",
+      "completed_at_utc": "2026-10-09T14:14:17Z",
+      "exit_code": 0,
+      "killed": 0,
+      "remaining": 0,
+      "finalizer_status": "ok",
+      "rows_updated": 1
+    },
+    "inventory": {
+      "observed_at": "2026-10-09T14:17:56.2287234+00:00",
+      "since_utc": "2026-10-08T16:09:40.0000000Z",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "checkouts": [
+        {
+          "protected_files": 3763,
+          "green_live_risk_file_exists": false,
+          "changed_by_mtime": 0,
+          "checkout": "working",
+          "locks": 0
+        },
+        {
+          "protected_files": 27,
+          "green_live_risk_file_exists": false,
+          "changed_by_mtime": 0,
+          "checkout": "publishing",
+          "locks": 0
+        }
+      ],
+      "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+    },
+    "runtime_sql": {
+      "observed_at": "2026-10-09T14:17:54.936628+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-09 14:14:17.279474"
+        }
+      ]
+    },
+    "paper_population": {
+      "observed_at": "2026-10-09T14:17:54.971609+00:00",
+      "groups": {
+        "primary_portfolio": {
+          "rows": 0,
+          "original_entry_fx_declared": 0,
+          "exit_events": 0,
+          "original_exit_fx_declared": 0
+        },
+        "buy_journals": {
+          "grain": "One paper original buy intent, active or resolved",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        },
+        "closed_archives": {
+          "grain": "One archived paper trade",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        },
+        "learning_sources": {
+          "grain": "One original financial learning source",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        }
+      },
+      "sql_source": "data/memebotdatabase.db",
+      "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+      "sql_rows": [],
+      "interpretation": "Declaration coverage, not proof validation or profitability. Existing unproved records are not rewritten. Empty scope is not zero investment risk or future market coverage."
+    }
+  },
+  "publication": {
+    "status": "SOURCE_MATCHING_COMMIT_PUSH_RECORDED_IN_PRIVATE_DELIVERY_RECEIPT",
+    "parent_commit": "6d24ac26b9cbb270ab61d7bc1e5f809c086eb10d",
+    "branch": "main",
+    "delivery_receipt": "work/discovery-loop-ownership-delivery-receipt.json",
+    "protected_operator_assets": "Not synchronized, staged or published; preserve .env, .venv, data, logs, models and work."
+  },
+  "remaining": [
+    "Independent fresh provider response/access and production artifact/latency/feed-opportunity coverage remain unestablished.",
+    "Single entry execution and maintenance can still take time; independent admission is not proof of complete or timely entry coverage.",
+    "Pure fixed-clock source review separately identifies a legacy discovery birth-age timezone fallback and unverified endpoint/pair-versus-mint semantics. These next-stage inputs are not repaired or verified as real provider opportunity loss in this scheduling stage.",
+    "Complete other original architecture, source/input-generation, capital/execution/finality and financial sampling boundaries from the full goal.",
+    "Prospective costed net profitability remains unestablished; do not activate trading or models based on synthetic tests."
+  ]
+}
