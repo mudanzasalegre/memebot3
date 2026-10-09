@@ -20,15 +20,21 @@ class InferenceScope:
     observations_dropped: int = 0
     lock: Any = field(default_factory=threading.RLock)
     closed: bool = False
+    record_observations: bool = True
 
 
 _CURRENT: ContextVar[InferenceScope | None] = ContextVar("entry_inference_scope", default=None)
 
 
 @contextmanager
-def inference_scope() -> Iterator[InferenceScope]:
-    """Each candidate owns its versions; nested/concurrent entries are isolated."""
-    state = InferenceScope()
+def inference_scope(*, record_observations: bool = True) -> Iterator[InferenceScope]:
+    """Each candidate owns versions; entry observation capture stays on by default.
+
+    A standalone scheduling cohort may opt out of ephemeral *entry* telemetry,
+    retaining its own per-candidate advisory receipts instead. An explicit
+    nested scheduling scope cannot mute the ambient entry's query evidence.
+    """
+    state = InferenceScope(record_observations=record_observations)
     token = _CURRENT.set(state)
     try:
         yield state
@@ -94,13 +100,13 @@ def scoped_prediction(key: Any, frame: Any, predict: Callable[[], Any]) -> Any:
 
 def observations_enabled() -> bool:
     state = _CURRENT.get()
-    return state is not None and not state.closed
+    return state is not None and not state.closed and state.record_observations
 
 
 def record_observation(record: dict) -> None:
     """Bounded task-local telemetry; no model loading or buy permission."""
     state = _CURRENT.get()
-    if state is None or state.closed:
+    if state is None or state.closed or not state.record_observations:
         return
     key = (record["family"], record["target"], record["operation"], record["input_vector_sha256"],
            record["input_receipt_sha256"],

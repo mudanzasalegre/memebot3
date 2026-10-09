@@ -1,0 +1,61 @@
+{
+  "stage": "checked_runner_generation_pending_queue_repricing",
+  "status": "SOFTWARE_VERIFIED_PUBLICATION_READY_RUNTIME_OFF",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Automatically reprice the actual bounded HotQueue on checked advisory model/content changes, retain newer full pending snapshots and stable waiting fairness, and vectorize rare-runner ranking without relaxing trading gates. Operational runtime, providers, wallets, orders, training and model/policy promotion remain OFF.",
+  "findings": [
+    {"id": "pending_scores_survive_model_replacement", "severity": "high", "evidence": "Native queue chooses the old winner after an approved temporary ranking model is replaced; an invalidated artifact leaves its old stored bonus. This also reproduces with unchanged model/metadata byte sizes and mtimes.", "repair": "Own one fresh family inference scope at admission/pop. Compare checked selector/model/metadata content provenance, rebuild pending priorities together on a generation change, and make unavailable or disabled ranking neutral. A mid-prediction replacement belongs to the next queue operation, never a mixed-head observation."},
+    {"id": "dedup_suppresses_changed_learning_inputs", "severity": "high", "evidence": "An unchanged market bucket suppresses a new model generation for thirty minutes after evaluation, and a pending holders update is discarded.", "repair": "Include checked evaluated generation and non-bucket learned inputs in bounded reconsideration. Preserve the original 15-second evaluation cooldown and unchanged-snapshot dedup TTL. Retain exact full pending snapshots even when market movement buckets do not change."},
+    {"id": "updates_lose_waiting_order_and_freeze_age_bonus", "severity": "medium", "evidence": "A pending same-score update loses its original waiting turn; an old measured-age bonus can outrank a genuinely fresher candidate.", "repair": "Retain the original waiting sequence and original enqueue/measurement clocks; advance deterministic measured age without fabricating birth from queue residence. Refresh at every actual pop, at most one second apart during admission bursts, and immediately for a new generation."},
+    {"id": "full_generation_refresh_blocks_service", "severity": "high", "evidence": "Initial one-by-one 1000-candidate repricing takes16.620603s with one synthetic accepted head. The first batched attempt still takes15.780181s with nine heads because it repeatedly prepares one-row frames and transient entry telemetry.", "repair": "Prepare a vectorized checked frame per head, retain independent invalid-row semantics, exact output-shape checks and row-aligned percentile results, and reuse same-generation snapshot predictions. Queue-owned scheduling scopes retain candidate advisory receipts rather than ephemeral entry observations; ordinary entry telemetry remains enabled and isolated. Final nine-head workload reprices998 pending snapshots in0.813362s."}
+  ],
+  "priority_contract": {
+    "generation": "SHA256 of enabled state and detached checked runner family selection, including manifest/model/metadata hashes, validation availability and stable capture. Content is read afresh; same-mtime/same-size replacements cannot borrow an old identity. This does not attest executed Python or provider inputs.",
+    "targets_pct": [50, 100, 200, 300, 500, 1000, 2000, 5000, 10000],
+    "bonus_cap": 20,
+    "meaning": "Rank percentiles, not event probabilities or buy permission. Existing missing/corrupt models remain neutral; source, risk, route, liquidity, impact, amount, loss, confirmation and exit guards are unchanged.",
+    "snapshot_reuse": "A learned bonus belongs to the same checked generation and unchanged feed snapshot. It is snapshot-based advisory evidence, not a newly measured market snapshot or continuously re-predicted age model. New snapshots and new generations recompute it; deterministic age priority advances separately.",
+    "batch_bound": "At most1000 snapshots per vectorized chunk, with one family scope across all chunks and targets. Queue capacity, evaluation item limits and existing just-in-time scheduler budget remain unchanged. Refresh is synchronous local work, not a production latency SLA.",
+    "age_and_fairness": "Model-only refresh does not reenqueue, reset dedup/evaluation clocks, increase waiting lifetime or count as evaluation. Updates keep their original waiting tie sequence. Original unknown birth age remains unknown; forged internal clocks, cached bonus and generation are discarded at admission. Nested feed snapshots are detached.",
+    "telemetry": "Only explicit standalone scheduling scopes opt out of ephemeral entry query observations. Each queued token retains its learned rank/model selection and generation, with one aggregate generation-change event and snapshot refresh counters. Default, parent and ordinary nested entry scopes keep existing per-query provenance; batching also records original per-row query evidence in an entry scope.",
+    "failure_isolation": "Nonfinite output is unknown per row; wrong output shape makes the head unknown, never silently truncates or broadcasts. Unproved semantic rows cannot disable valid peers. Model/policy activation and profitability approval are not implemented by queue ordering."
+  },
+  "implemented_paths": ["analytics/inference_scope.py", "analytics/model_runtime_common.py", "runtime/candidate_priority.py", "runtime/hot_queue.py", "runtime/runner_priority.py", "tests/test_hot_queue_model_refresh.py"],
+  "verification": {
+    "native_before_repair": "8 failed in2.71s, exit1, using native queue APIs and checked temporary models. No active operator artifacts or orders.",
+    "initial_after_repair": "78 passed in3.71s, including the8 original reproductions.",
+    "intermediate_learned_signal_failure": "2 failed,96 passed in4.81s after adding broader learning-input identity. Incoming source defaults were normalized after dedup, making unchanged snapshots appear changed. Defaults were moved before signal capture; cooldown/TTL rules were not relaxed.",
+    "interrupted_full_runs": "Two earlier full suites were intentionally stopped around14 percent before code changes, after the nine-head latency gap was observed. Both exit1 by targeted QA process termination; neither is final regression proof.",
+    "command_incident": "One focused command named a nonexistent test_decision_provenance.py and collected no tests. The actual test_entry_decision_provenance.py was discovered and included in final focused and full verification. A tool-orchestration syntax error executed no calls. These are not successful validation.",
+    "new_cases": 54,
+    "final_focused_working": {"passed": 391, "seconds": 15.58, "exit_code": 0},
+    "focused_publishing": {"passed": 126, "seconds": 4.70, "exit_code": 0, "scope": "All54 new queue/batch cases and72 exact-size/extreme-exit cases."},
+    "full_working": {"passed": 4596, "seconds": 1012.43, "exit_code": 0},
+    "full_publishing": {"passed": 4596, "seconds": 993.33, "exit_code": 0},
+    "preflight_working": {"generated_at_utc": "2026-10-09T06:46:39.7550200Z", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders": 7, "report_builders_ok": true, "external_pytest_returncode": 0, "exit_code": 0},
+    "preflight_publishing": {"generated_at_utc": "2026-10-09T06:46:38.6022810Z", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders": 7, "report_builders_ok": true, "external_pytest_returncode": 0, "exit_code": 0},
+    "verification_source_snapshot": {"files": 760, "normalized_sha256": "57cd2a400858681cddbe179e51c731b7b471508c935d0fdaac55d46fe6bc1702", "identical_both_roots": true, "scope": "Approved source/configuration/tests, excluding docs,README and protected operator artifacts."},
+    "synthetic_latency": {"observed_at_utc": "2026-10-09T06:28:24.444599Z", "samples": [
+      {"candidates": 50, "accepted_heads": 1, "cumulative_admission_seconds": 0.190173, "unchanged_generation_pop_seconds": 0.00224, "changed_generation_pop_seconds": 0.023726, "pending_after_two_pops": 48},
+      {"candidates": 300, "accepted_heads": 1, "cumulative_admission_seconds": 1.253894, "unchanged_generation_pop_seconds": 0.007454, "changed_generation_pop_seconds": 0.12095, "pending_after_two_pops": 298},
+      {"candidates": 1000, "accepted_heads": 1, "cumulative_admission_seconds": 5.431266, "unchanged_generation_pop_seconds": 0.022184, "changed_generation_pop_seconds": 0.422895, "pending_after_two_pops": 998},
+      {"candidates": 1000, "accepted_heads": 9, "cumulative_admission_seconds": 26.46527, "unchanged_generation_pop_seconds": 0.027293, "changed_generation_pop_seconds": 0.813362, "pending_after_two_pops": 998}
+    ], "qualification": "One local synthetic observation per workload with tiny temporary checked rankers, no providers or real trades. Admission is cumulative sequential cost for1000 candidates, not one-pop latency. Not production throughput, nine real model payload acceptance, a latency SLA or profitability proof."}
+  },
+  "runtime_off": {
+    "stop": {"checkout": "working_only", "requested_by": "user", "completed_at_utc": "2026-10-09T06:46:47Z", "killed": 0, "remaining": 0, "proof": "Actual stop_stack log ends with no failures and runtime_finalizer status ok; the combined wrapper's final exit0 is not used as independent stop exit proof."},
+    "inventory_at_utc": "2026-10-09T06:46:48.4459760Z",
+    "runtime_processes": 0, "owned_previews": 0, "running_tasks": 0, "running_services": 0, "both_root_locks": 0,
+    "sql_at_utc": "2026-10-09T06:46:47.205129Z",
+    "main_state": {"process_state": "stopped", "reports_refresh_state": "idle", "retrain_state": "idle", "updated_at": "2026-10-09 06:46:46.779445"},
+    "protected_operator_files": {"working": 3763, "publishing": 27, "newer_mtimes": 0, "baseline_utc": "2026-10-08T16:09:40Z", "qualification": "Read-only mtime census, not cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics excluded."},
+    "paper_population_at_utc": "2026-10-09T06:46:47.132557Z", "original_paper_groups": {"primary_portfolio": 0, "buy_journals": 0, "closed_archives": 0, "financial_learning_sources": 0},
+    "paper_sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed", "paper_sql_rows": [],
+    "empty_scope_qualification": "Empty scoped original PAPER records do not prove zero wallet exposure, zero investment risk, prospective opportunity coverage or profitability.",
+    "repeat": "Same-turn post-publication/browser Git and OFF verification are recorded separately after this audit's containing commit exists."
+  },
+  "checked_profile_both_roots": {"dry_run": true, "exact_paper_size_enabled": true, "exact_size_sol": 0.1, "price_trailing_paper_enabled": true, "activation_peak_pct": 300.0, "max_peak_price_drawdown_pct": 20.0, "max_holding_hours": 24.0, "upside": "No fixed return ceiling introduced. Existing liquidity, route, impact, confirmation, loss and exit guards unchanged."},
+  "publication": {"state_at_audit_freeze": "Ready for normal scoped commit/push; actual HEAD/origin/remote equality is recorded separately after publication, never fabricated as a commit self-hash", "scope": "Source, tests and documentation only. Exclude secrets,.env,.venv,data,models,logs,work. No destructive synchronization."},
+  "remaining": ["Production-size model payload latency, actual feed/backlog/decision opportunity coverage, provider freshness and financial execution are not established by this synthetic queue workload.", "Original provider/confirmation ownership, actual executed input/code generation, rare-tail uncertainty and whole-strategy capital/cost/prospective financial acceptance remain incomplete.", "Future profit, maximum opportunity capture and zero runtime errors cannot be guaranteed. All operational services must remain OFF."]
+}

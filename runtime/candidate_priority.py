@@ -90,7 +90,8 @@ def research_rank_priority_fit(token: dict[str, Any]) -> bool:
     return True
 
 
-def candidate_priority_score(token: dict[str, Any], *, source: str | None = None, now: dt.datetime | None = None) -> float:
+def candidate_priority_score(token: dict[str, Any], *, source: str | None = None, now: dt.datetime | None = None,
+                             learned_priority: dict[str, Any] | None = None) -> float:
     src = source or token.get("source") or token.get("discovered_via")
     age_min = _age_minutes(token, now)
     price5m = _to_float(token.get("price_pct_5m"), 0.0)
@@ -113,7 +114,9 @@ def candidate_priority_score(token: dict[str, Any], *, source: str | None = None
     score += min(liq / 500.0, 15.0)
     if research_rank_priority_fit(token):
         score += _to_float(getattr(CFG, "RESEARCH_RANK_CANARY_PRIORITY_BONUS", 25.0), 25.0)
-    learned = learned_runner_priority(token)
+    # Queue-owned reuse is only for the same checked generation and unchanged
+    # snapshot. Public admission never trusts a token-supplied cached bonus.
+    learned = learned_runner_priority(token) if learned_priority is None else learned_priority
     token["learned_runner_priority"] = learned
     score += _to_float(learned.get("bonus"))
     return round(max(0.0, score), 3)

@@ -173,6 +173,15 @@ decisiones diagnosticas anteriores siguen siendo legibles. Esto identifica
 fuentes declaradas, no acredita el Python realmente ejecutado ni demuestra
 rentabilidad. Vease `docs/audits/entry_gate_code_integrity_20261009.json`.
 
+La HotQueue actualiza tambien los pendientes al cambiar la generacion comprobada
+de modelos de ranking, incluso sin un nuevo evento del feed. Conserva la edad y
+el turno original, retira bonos de modelos invalidados y admite cambios de los
+inputs de aprendizaje sin esperar todo el TTL, respetando el cooldown. El ranking
+agrupado sigue siendo orientativo: no concede permiso de compra ni cambia los
+controles de importe/riesgo/salida. Las mediciones locales con modelos sinteticos
+no prueban cobertura del feed, latencia con artefactos reales ni rentabilidad.
+Vease `docs/audits/hot_queue_model_refresh_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

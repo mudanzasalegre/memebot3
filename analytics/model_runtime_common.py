@@ -433,6 +433,79 @@ def predict_ranking_score(family: str, target: str, vec: Any) -> float | None:
     return value
 
 
+def predict_ranking_scores(family: str, target: str, vectors: list[Any]) -> list[float | None]:
+    """Bounded vectorized advisory ranks from the same checked family snapshot.
+
+    Bad row receipts stay unknown independently. No new acceptance rule,
+    probability interpretation or buy permission is introduced by batching.
+    """
+    if not isinstance(vectors, list) or len(vectors) > 1000:
+        raise ValueError("Ranking batch must be a list of at most 1000 vectors")
+    if not vectors:
+        return []
+    _, model, features, metadata = _load_family(family, target, require_temporal_validation=True)
+    values = [None] * len(vectors)
+    if (model is not None and metadata.get("ranking_validation_ready")
+            and (not financial_target(family, target) or supported_financial_training(metadata))):
+        try:
+            reference = np.asarray(metadata.get("rank_reference_quantiles") or [], dtype=float)
+            if len(reference) < 2 or not np.isfinite(reference).all() or np.any(np.diff(reference) < 0):
+                raise ValueError("Invalid rank reference")
+            from features.auxiliary_semantics import PROOF_COLUMN
+            positions, records = [], []
+            for index, vector in enumerate(vectors):
+                try:
+                    if isinstance(vector, pd.Series):
+                        row = vector.to_dict()
+                        proof = vector.attrs.get(PROOF_COLUMN)
+                        if proof is not None:
+                            row[PROOF_COLUMN] = proof
+                    elif isinstance(vector, dict):
+                        row = dict(vector)
+                    else:
+                        frame = input_frame(vector)
+                        if len(frame) != 1:
+                            continue
+                        row = frame.iloc[0].to_dict()
+                    records.append(row)
+                    positions.append(index)
+                except (ValueError, TypeError, KeyError, RuntimeError, OverflowError):
+                    continue
+            if records:
+                original = pd.DataFrame.from_records(records)
+                try:
+                    checked = checked_model_frame(original, features)
+                except (ValueError, TypeError, KeyError, RuntimeError, OverflowError):
+                    # A failed semantic receipt must not quarantine valid peers.
+                    frames, valid_positions = [], []
+                    for position, row in zip(positions, records):
+                        try:
+                            frames.append(checked_model_frame(pd.DataFrame([row]), features))
+                            valid_positions.append(position)
+                        except (ValueError, TypeError, KeyError, RuntimeError, OverflowError):
+                            continue
+                    positions = valid_positions
+                    checked = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+                if not positions:
+                    raise ValueError("No checked ranking inputs")
+                matrix = coerce_feature_frame(checked, features)
+                raw = np.asarray(scoped_prediction(("ranking_batch", id(model), metadata.get("model_sha256")),
+                    matrix, lambda: model.rank_score(matrix)), dtype=float)
+                if raw.shape != (len(positions),):
+                    raise ValueError("Ranking batch output shape mismatch")
+                for index, value in zip(positions, raw):
+                    if np.isfinite(value):
+                        low = np.searchsorted(reference, value, side="left")
+                        high = np.searchsorted(reference, value, side="right")
+                        values[index] = float(min(100., max(0., (low + high) / 2 / len(reference) * 100)))
+        except Exception:
+            values = [None] * len(vectors)
+    for vector, value in zip(vectors, values):
+        record_model_query(vector, family=family, target=target, operation="ranking_percentile", value=value,
+            model=model, features=features, metadata=metadata)
+    return values
+
+
 def _ranking_snapshot(path, model, features, metadata, vec, *, family, target):
     if model is None or not metadata.get("ranking_validation_ready"):
         return None
@@ -454,5 +527,5 @@ def _ranking_snapshot(path, model, features, metadata, vec, *, family, target):
         return None
 
 
-__all__ = ["predict_model", "predict_artifact", "predict_regression_estimate", "predict_ranking_score",
+__all__ = ["predict_model", "predict_artifact", "predict_regression_estimate", "predict_ranking_score", "predict_ranking_scores",
            "invalidate_model_cache", "family_model_selection", "predict_diagnostic_exit_label"]

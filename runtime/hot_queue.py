@@ -4,11 +4,16 @@ import datetime as dt
 import heapq
 import itertools
 import math
+import json
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from typing import Any
 
 from config.config import CFG
 from runtime.candidate_priority import candidate_priority_score
+from runtime.runner_priority import runner_priority_generation, learned_runner_priorities
+from analytics.inference_scope import inference_scope
+from analytics.token_time import compute_age_minutes
 from utils.runtime_telemetry import record_runtime_event
 
 
@@ -42,6 +47,10 @@ class HotQueue:
         self._signals: dict[str, tuple[Any, ...]] = {}
         self._evaluated_at: dict[str, float] = {}
         self._evaluated_signals: dict[str, tuple[Any, ...]] = {}
+        self._evaluated_generations: dict[str, str] = {}
+        self._priority_generation: str | None = None
+        self._priority_refreshes = 0
+        self._last_priority_refresh_at: float | None = None
         self._last_prune_at = 0.0
         self._events: list[HotQueueEvent] = []
         self._drop_counts: dict[str, int] = {}
@@ -141,13 +150,81 @@ class HotQueue:
                 self._signals.pop(address, None)
                 self._evaluated_at.pop(address, None)
                 self._evaluated_signals.pop(address, None)
+                self._evaluated_generations.pop(address, None)
         self._last_prune_at = now
 
     def add(self, token: dict[str, Any], *, source: str = "pumpfun", reason: str = "hot_candidate") -> bool:
-        address = str(token.get("address") or token.get("mint") or "").strip()
-        if not address:
+        if not str(token.get("address") or token.get("mint") or "").strip():
             return False
-        now = self._now()
+        # This is scheduling, not the already pinned generation of an entry.
+        # All waiting candidates and the newcomer see one detached family.
+        with inference_scope(record_observations=False):
+            now = self._now()
+            generation = runner_priority_generation()
+            self._refresh_priorities(now, generation, force=False)
+            return self._add(token, source=source, reason=reason, now=now, generation=generation)
+
+    def _score(self, token: dict[str, Any], *, source: str, now: dt.datetime,
+               generation: str, reuse: bool) -> float:
+        view = self._priority_view(token, now)
+        cached = token.get("learned_runner_priority") if reuse and token.get("_hot_queue_priority_generation") == generation else None
+        score = candidate_priority_score(view, source=source, now=now,
+            learned_priority=cached if isinstance(cached, dict) else None)
+        if isinstance(view.get("learned_runner_priority"), dict):
+            token["learned_runner_priority"] = view["learned_runner_priority"]
+        token["_hot_queue_priority_generation"] = generation
+        return float(score) if not isinstance(score, bool) and math.isfinite(float(score)) else 0.
+
+    def _priority_view(self, token: dict[str, Any], now: dt.datetime) -> dict[str, Any]:
+        view = dict(token)
+        # A measured age advances from its original observation. Queue waiting
+        # must not turn missing birth age into a measured/fabricated age.
+        birth_view = {k: v for k, v in view.items() if k not in ("age_minutes", "age_min", "token_age_min")}
+        if compute_age_minutes(birth_view, now=now) is None:
+            measured = compute_age_minutes(view, now=now)
+            if measured is not None:
+                observed = float(token.get("_hot_queue_observed_at", now.timestamp()))
+                view["age_minutes"] = measured + max(0., now.timestamp() - observed) / 60
+        return view
+
+    def _refresh_priorities(self, timestamp: float, generation: str, *, force: bool = True) -> None:
+        """One bounded heap rebuild, no reenqueue, evaluation or dedup reset.
+
+        Checked model bytes are captured once per queue operation. Predictions
+        are reused only for the same generation/unchanged feed snapshot; age and
+        deterministic priority are refreshed at every actual pop and at most
+        one second apart during admission bursts (never delay a new generation).
+        A generation change recomputes the advisory snapshot rankings together.
+        """
+        changed = generation != self._priority_generation
+        if (not force and not changed and self._last_priority_refresh_at is not None
+                and 0 <= timestamp - self._last_priority_refresh_at < 1.):
+            return
+        self._compact_heap()
+        now = dt.datetime.fromtimestamp(timestamp, dt.timezone.utc)
+        if changed:
+            # Fixed chunks bound the batch even if an operator configures a
+            # larger queue. One family scope covers every chunk and target.
+            for start in range(0, len(self._heap), 1000):
+                tokens = [entry[2] for entry in self._heap[start:start+1000]]
+                rankings = learned_runner_priorities([self._priority_view(token, now) for token in tokens], now=now)
+                for token, ranking in zip(tokens, rankings):
+                    token["learned_runner_priority"] = ranking
+                    token["_hot_queue_priority_generation"] = generation
+        self._heap = [(-self._score(token, source=str(token.get("source") or token.get("discovered_via") or "hot"),
+            now=now, generation=generation, reuse=True), sequence, token)
+            for _, sequence, token in self._heap]
+        heapq.heapify(self._heap)
+        self._priority_generation = generation
+        self._last_priority_refresh_at = timestamp
+        self._priority_refreshes += 1
+        if changed and self._heap:
+            self._event("hot_queue_reprice", {"address": ""}, "hot", 0., f"checked_generation_changed:{len(self._heap)}")
+
+    def _add(self, token: dict[str, Any], *, source: str, reason: str, now: float, generation: str) -> bool:
+        address = str(token.get("address") or token.get("mint") or "").strip()
+        # Internal clocks and learned cache identities are queue-owned.
+        token = deepcopy({k: v for k, v in token.items() if not k.startswith("_hot_queue_") and k != "learned_runner_priority"})
         self._prune_history(now)
         last_seen = self._seen.get(address)
         pending_version = self._pending.get(address)
@@ -155,8 +232,15 @@ class HotQueue:
         self._prune_expired(dt.datetime.fromtimestamp(now, dt.timezone.utc), except_address=address)
         incoming_has_age = any(_valid_age(token.get(key)) for key in ("age_minutes", "age_min"))
         token = {**(previous or {}), **token}
+        token["address"] = address
+        token.setdefault("source", source)
+        token.setdefault("discovered_via", source)
         signal = _market_signal(token)
         changed = signal != self._signals.get(address)
+        if previous is not None:
+            changed |= _snapshot_signal(token) != _snapshot_signal(previous)
+        else:
+            changed |= generation != self._evaluated_generations.get(address)
         interval = max(1.0, float(getattr(CFG, "HOT_QUEUE_RECHECK_INTERVAL_S", 15.0)))
         if last_seen is not None and now - last_seen < self.dedup_ttl_s and (
             not changed or (pending_version is None and now - self._evaluated_at.get(address, last_seen) < interval)
@@ -170,7 +254,8 @@ class HotQueue:
         token.setdefault("discovered_via", source)
         token["_hot_queue_enqueued_at"] = first_enqueued
         token["_hot_queue_observed_at"] = now if incoming_has_age or not previous else previous.get("_hot_queue_observed_at", now)
-        score = candidate_priority_score(token, source=source, now=dt.datetime.fromtimestamp(now, dt.timezone.utc))
+        score = self._score(token, source=source, now=dt.datetime.fromtimestamp(now, dt.timezone.utc),
+            generation=generation, reuse=False)
         if self._expired(token, score, dt.datetime.fromtimestamp(now, dt.timezone.utc)):
             self._pending.pop(address, None)
             self._restore_evaluated_history(address)
@@ -180,7 +265,11 @@ class HotQueue:
             return False
         self._seen[address] = now
         self._signals[address] = _market_signal(token)
-        sequence = next(self._counter)
+        # Stable waiting order is separate from a changed market snapshot.
+        sequence = pending_version if previous is not None else next(self._counter)
+        if previous is not None:
+            self._heap = [item for item in self._heap if item[1] != sequence]
+            heapq.heapify(self._heap)
         self._pending[address] = sequence
         heapq.heappush(self._heap, (-score, sequence, token))
         self._event("hot_queue_update" if previous else "hot_queue_add", token, source, score, reason)
@@ -191,6 +280,14 @@ class HotQueue:
         return self._pending.get(address) == sequence
 
     def pop_batch(self, limit: int | None = None, *, expand: bool = True) -> list[dict[str, Any]]:
+        if not self._pending:
+            return []
+        with inference_scope(record_observations=False):
+            generation = runner_priority_generation()
+            self._refresh_priorities(self._now(), generation)
+            return self._pop_batch(limit, expand=expand, generation=generation)
+
+    def _pop_batch(self, limit: int | None, *, expand: bool, generation: str) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         max_items = max(1, int(limit or getattr(CFG, "HOT_QUEUE_BATCH_SIZE", 12) or 12))
         if expand and bool(getattr(CFG, "HOT_QUEUE_DYNAMIC_BATCH_ENABLED", True)) and len(self._pending) > max_items * 2:
@@ -212,6 +309,7 @@ class HotQueue:
             self._event("hot_queue_eval", token, source, score, "green_candidate")
             self._evaluated_at[address] = now.timestamp()
             self._evaluated_signals[address] = _market_signal(token)
+            self._evaluated_generations[address] = generation
             self._seen[address] = now.timestamp()
             out.append(token)
         return out
@@ -223,6 +321,8 @@ class HotQueue:
             "max_size": self.max_size,
             "max_age_min": self.max_age_min,
             "drop_counts": dict(self._drop_counts),
+            "priority_generation": self._priority_generation,
+            "priority_refreshes": self._priority_refreshes,
             "recent_events": [asdict(event) for event in self._events[-50:]],
         }
 
@@ -280,7 +380,25 @@ def _market_signal(token: dict[str, Any]) -> tuple[Any, ...]:
             numeric("liquidity_usd", logarithmic=True), numeric("market_cap_usd", logarithmic=True),
             _normalize_score(rank, -1.0),
             str(token.get("has_jupiter_route", "unknown")).lower(),
-            str(token.get("dex_id") or token.get("dexId") or "").lower())
+            str(token.get("dex_id") or token.get("dexId") or "").lower(), _learning_signal(token))
+
+
+def _learning_signal(token: dict[str, Any]) -> str:
+    # Keep market movement buckets, but do not suppress a changed learned input
+    # (holders, volume, social/risk observation, context) for thirty minutes.
+    from features.builder import ALLOWED_FEATURES
+    fields = ALLOWED_FEATURES - {"age_minutes", "queue_age_minutes", "queue_attempts",
+        "price_pct_5m", "txns_last_5m", "liquidity_usd", "market_cap_usd", "dex_id"}
+    fields |= {"social_signal", "auxiliary_observations", "sniper_gate_profile", "liquidity_usd_is_proxy"}
+    return json.dumps({k: token[k] for k in sorted(fields) if k in token}, sort_keys=True,
+        separators=(",", ":"), default=str)
+
+
+def _snapshot_signal(token: dict[str, Any]) -> str:
+    """Exact pending snapshot updates, not only coarse reevaluation buckets."""
+    view = {k: v for k, v in token.items() if not k.startswith("_hot_queue_")
+            and k not in {"learned_runner_priority", "source", "discovered_via"}}
+    return json.dumps(view, sort_keys=True, separators=(",", ":"), default=str)
 
 
 GLOBAL_HOT_QUEUE = HotQueue(
