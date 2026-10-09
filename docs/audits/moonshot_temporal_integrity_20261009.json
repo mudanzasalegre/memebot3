@@ -1,0 +1,206 @@
+{
+  "stage": "moonshot_shadow_and_historical_original_clock_contracts",
+  "status": "SOFTWARE_VERIFIED_PUBLICATION_READY_RUNTIME_OFF",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Separate original token birth, queue residence and shadow-observation residence in moonshot and follow-up decisions; transport original clocks through all four entry research components and moonshot/shadow event replay. Freeze read-only historical age views for reports, policy replay and ML opportunity labels. Preserve extreme fresh-queue opportunities, distinct special-probe policies, risk thresholds, exact0.1 SOL PAPER and uncapped residual exits. Leave bot runtime OFF.",
+  "findings": [
+    {
+      "id": "moonshot_queue_uses_birth_or_invalid_elapsed",
+      "severity": "high",
+      "confidence": "high_software_reproduction",
+      "evidence": "Five native unchanged-API cases accept a missing, boolean or negative queue measurement by borrowing token birth or coercing it into a plausible residence.",
+      "repair": "Use the common nullable original-first-seen queue contract in generic moonshot, relaxed ultralow, extreme-hot and opt-in extreme-cluster paths. Require a genuine observation for those existing queue caps; preserve0, the10-minute boundary and older tokens with freshly observed extreme activity. Do not introduce a generic token-birth veto."
+    },
+    {
+      "id": "special_probe_birth_borrows_queue",
+      "severity": "high",
+      "confidence": "high_source_and_synthetic_verification",
+      "evidence": "Birth-velocity, late-proxy and cluster-tail probes fall back from token birth to queue age, while their names and separate age caps constrain token birth.",
+      "repair": "Use original creation at the decision clock, otherwise valid measured token age. Queue freshness does not prove token youth. Preserve the separate confirmed special-probe policy rather than adding the generic queue cap to it."
+    },
+    {
+      "id": "shadow_observation_uses_purchase_or_invalid_age",
+      "severity": "high",
+      "confidence": "high_software_reproduction",
+      "evidence": "Four native unchanged-API cases accept boolean/negative shadow residence. A fifth uses opened_at as first observation and grants the3-minute trigger. The original parser also clamps future first-seen to0.",
+      "repair": "Use nullable original first-seen or strict measured shadow residence; never borrow queue-only measurements, token birth, purchase/open time or clamp future observations. When original creation and first-seen are both known, compute birth age at that first observation, not the current age or a conflicting measurement. Retain genuine measured age_at_seen when historical event time is missing."
+    },
+    {
+      "id": "remaining_research_and_historical_clocks",
+      "severity": "high",
+      "confidence": "high_source_and_actual_consumer_verification",
+      "evidence": "Research transports now through rank and sniper gates but not moonshot/late-momentum. Event replay similarly omits original time for moonshot/shadow. Historical labels and reports can recompute first-seen or creation using today's clock.",
+      "repair": "Forward each original case decision_at through the actual remaining components and ordered event.ts into both replay lanes. Build immutable read-only historical age snapshots from decision_at/ts_utc/timestamp. If event time is absent, original timestamp-derived ages stay unknown; measured ages remain usable. Birth/open/update/close clocks cannot stand in for event time. Keep original records and labels on disk unchanged."
+    }
+  ],
+  "clock_contract": {
+    "generic_moonshot": "Queue residence at the decision instant, not token birth. Original declared first_seen_epoch_s/first_seen_at dominates stale measured queue age. No generic maximum token-birth age is added.",
+    "special_probe": "Token birth age at the decision instant with its own existing thresholds; not queue freshness. Its separate confirmed admission policy is preserved.",
+    "shadow_elapsed": "Elapsed original observation, otherwise valid minutes_since_first_seen/shadow_age_min/age_since_seen_min. A queue-only measurement is not a shadow observation.",
+    "age_at_seen": "Original declared creation to original declared first-seen when both exist; otherwise a strict measured age_at_seen or valid current token-age upper bound. These fields do not authenticate provider clock ownership.",
+    "historical_view": "A detached temporal view, never a rewrite of original rows. Recorded decision_at/ts_utc/timestamp controls the view. Missing event clock does not silently recompute timestamp-derived ages today.",
+    "outcome_limit": "Temporal consistency does not establish original availability of outcome/confirmation fields, a historical policy revision, executable liquidity, actual fills or prospective profitability. Current-config historical eligibility remains diagnostic."
+  },
+  "implemented_paths": [
+    "analytics/token_time.py",
+    "analytics/moonshot_micro_lottery.py",
+    "analytics/shadow_followup_micro.py",
+    "analytics/late_momentum_watch.py",
+    "research_loop/entry_gate_policy.py",
+    "backtest/event_replay.py",
+    "backtest/policy_replay.py",
+    "ml/labels.py",
+    "tests/test_moonshot_temporal_integrity.py"
+  ],
+  "verification": {
+    "initial_new_clock_suite": "43 failed,1 passed in1.92s before implementation; most identify new explicit-clock APIs or a missing historical view, not43 native semantic faults or real trades.",
+    "native_before_repair": "10 failed,44 deselected in1.62s against unchanged native component APIs.",
+    "initial_related_subset": "17 failed,135 passed in47.02s. Existing non-age fixtures lacked a distinct queue observation. The new full replay fixture also lacked an executable route under the unchanged replay route guard.",
+    "fixture_repairs": "Declare measured queue residence only in non-age fixtures intended to test other policies; negative/missing/future queue cases remain independently tested. The new replay fixture declares an observed route to isolate its event clock; production route/risk thresholds are unchanged. Both rows of the report fixture now declare separate queue residence; without it the second row used a special-probe branch only under private working config but correctly showed queue_age_missing under public publishing defaults.",
+    "new_cases": "68 passed in9.67s. Includes original moonshot event replay, both remaining actual component clocks, historical labels/report, retained older fresh-queue extremes, special-probe separation, epoch units and a complete synthetic50-case costed moonshot cohort revalidated across all three arms at each original T0.",
+    "intermediate_related_subset": "213 passed in75.48s before additional boundary/cohort cases;274 passed in80.48s after all new cases.",
+    "initial_full_attempts": "Both frozen full attempts showed the same2 callback compatibility failures around the entry-forward tests and were intentionally stopped at04:19:55Z. They are failed/interrupted diagnostics, not complete regression proof. Only the four freshly identity-checked owned pytest processes were stopped; bot/runtime services were not changed.",
+    "native_routing_callbacks": "2 failed,1 passed,52 deselected in1.81s reproduced the full-attempt issue. Test callbacks now accept optional now while retaining their synthetic T0. The same targeted subset then has3 passed,52 deselected in1.81s.",
+    "pre_final_related_subset": "329 passed in293.02s, exit0, on source97a2e4fc05e296e08d18a93863864b2a9a7c18852afc35dcec09f94139089069 before the final report fixture's independent queue observation. Includes all55 existing entry-forward integration cases and all68 new temporal cases.",
+    "pre_final_full_suites": "Working4488 passed in881.10s. Publishing1 failed,4487 passed in867.55s: test_moonshot_report_outputs_core_metrics expected cluster_bad alone, but its second synthetic row lacked queue residence and correctly had an additional missing-queue blocker under public defaults. The same publishing failure reproduced alone in1.41s. No production gate was relaxed to fix the fixture.",
+    "final_new_cases_and_report_fixture": "69 passed in9.32s in working and9.19s in publishing, exit0, on the final76896e84 source fingerprint. Includes all68 new temporal cases and the repaired cross-config report fixture.",
+    "exact_size_and_extreme_exits": "107 passed in3.54s, exit0, on the final76896e84 frozen source; software regression only, not market capture or real financial returns. A prior identical-size/exit subset passed107 in3.47s before the report fixture's final queue observation.",
+    "full_working": {
+      "passed": 4488,
+      "seconds": 1146.58,
+      "exit_code": 0,
+      "finished_observed_at_utc": "2026-10-09T04:59:14Z"
+    },
+    "full_publishing": {
+      "passed": 4488,
+      "seconds": 1131.73,
+      "exit_code": 0,
+      "environment": "Existing working-checkout Python, without publishing personal .env or local .venv"
+    },
+    "preflight_working": {
+      "generated_at_utc": "2026-10-09T04:59:18.1320170Z",
+      "ok": true,
+      "config_import_returncode": 0,
+      "compile_errors": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true,
+      "external_pytest_returncode": 0,
+      "exit_code": 0
+    },
+    "preflight_publishing": {
+      "generated_at_utc": "2026-10-09T04:59:17.1230350Z",
+      "ok": true,
+      "config_import_returncode": 0,
+      "compile_errors": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true,
+      "external_pytest_returncode": 0,
+      "exit_code": 0
+    },
+    "qualification": "Synthetic local clocks/quotes/receipts and temporary source artifacts only. No operational bot/API/UI/training/AutoResearch, provider or wallet order, active model/policy promotion, profit or future-zero-error certification."
+  },
+  "source_fingerprint": {
+    "files": 757,
+    "normalized_sha256": "76896e84e57aac0398836ffe66bb644029419c38906b35a89a04f0447b6096d3",
+    "scope": "Allowed executable/test sources, excluding docs/README and operator state. Identical in both checkouts before and after the final complete regressions, both preflights and requested working-only stop."
+  },
+  "current_public_config": {
+    "DRY_RUN": true,
+    "PAPER_EXACT_TRADE_SIZE_ENABLED": true,
+    "PAPER_EXACT_TRADE_SIZE_SOL": 0.1,
+    "RUNNER_PRICE_TRAILING_PAPER_ENABLED": true,
+    "RUNNER_PRICE_TRAILING_MIN_PEAK_PCT": 300,
+    "RUNNER_PRICE_TRAILING_DRAWDOWN_PCT": 20,
+    "RUNNER_PRICE_TRAILING_MAX_HOLD_H": 24
+  },
+  "extreme_move_scope": "The new admission tests use observed5-minute price changes of+500,+1000,+5000,+10000,+100000 percent. Existing exit tests separately exercise post-entry peak/price trajectories and retained residual positions. Neither is realised net financial performance.",
+  "original_population": {
+    "observed_at": "2026-10-09T04:59:35.045637+00:00",
+    "groups": {
+      "primary_portfolio": {
+        "rows": 0,
+        "original_entry_fx_declared": 0,
+        "exit_events": 0,
+        "original_exit_fx_declared": 0
+      },
+      "buy_journals": {
+        "grain": "One paper original buy intent, active or resolved",
+        "rows": 0,
+        "original_entry_fx_declared": 0
+      },
+      "closed_archives": {
+        "grain": "One archived paper trade",
+        "rows": 0,
+        "original_entry_fx_declared": 0
+      },
+      "learning_sources": {
+        "grain": "One original financial learning source",
+        "rows": 0,
+        "original_entry_fx_declared": 0
+      }
+    },
+    "sql_source": "data/memebotdatabase.db",
+    "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+    "sql_rows": [],
+    "interpretation": "Declaration coverage, not proof validation or profitability. Existing unproved records are not rewritten. Empty scope is not zero investment risk or future market coverage."
+  },
+  "runtime_handoff": {
+    "stop": {
+      "started_at_utc": "2026-10-09T04:59:30.7239026+00:00",
+      "finished_at_utc": "2026-10-09T04:59:32.9437195+00:00",
+      "checkout": "working_only",
+      "exit_code": 0,
+      "killed": 0,
+      "remaining": 0
+    },
+    "inventory": {
+      "observed_at_utc": "2026-10-09T04:59:34.5231645+00:00",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "locks_both_checkouts": 0,
+      "protected_files_working": 3763,
+      "protected_files_publishing": 27,
+      "changed_by_mtime_both": 0,
+      "since_utc": "2026-10-08T16:09:40Z",
+      "green_live_risk_file_exists_both": false
+    },
+    "read_only_sql": {
+      "observed_at": "2026-10-09T04:59:35.075389+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-09 04:59:32.690554"
+        }
+      ]
+    },
+    "qualification": "Protected-file preservation is a read-only mtime census, not cryptographic historical proof. Intended stop SQL/log and preflight empty-data metrics are excluded. The scoped green LIVE aggregate is not proof of all LIVE exposure. Repeat post-publication and browser inventory in same-turn delivery evidence."
+  },
+  "publication": {
+    "state": "SOURCE_AND_DOCS_READY_BEFORE_COMMIT",
+    "baseline_commit": "316328afbb577710f41278b06ea38981f69d3cfe",
+    "branch": "main",
+    "scope": "Reviewed source, tests, README and two audits only; no .env, data, models, logs or work.",
+    "commit_and_remote_proof": "The actual resulting commit/remote and final OFF inventory are recorded after this document is committed, in current-turn delivery evidence; this file does not assert its own future commit hash."
+  },
+  "remaining_required_work": [
+    "Bind original registered gate-code identity independently of the exit hash/configured threshold hash through enrollment, cohort revalidation, cached selection and per-entry composition. Current plans/cache signatures do not independently bind the gate modules/common temporal helper; existing full replay is not a substitute for original prospective code-generation identity.",
+    "Complete other standalone/history clock and source-ownership contracts, original confirmation availability, provider timestamps/authenticity, observed feed/decision coverage and automatic queue repricing after artifact replacement.",
+    "Complete the existing architecture goal's remaining financial/strategy boundaries and proportionate no-send first-launch/failure-path acceptance. Component temporal consistency and empirical opportunity labels do not certify a complete profitable strategy.",
+    "Obtain separately authorized fresh prospective complete-strategy closed evidence with real executable depth, all costs, capital/sampling/admission controls and independent source provenance before any profitability claim. Do not turn the operational bot on merely to complete this software stage."
+  ],
+  "completion_rule": "This is a bounded software repair stage within an active incomplete goal. Preserve the no-guarantee distinction, required OFF runtime and independent future operational authorization."
+}

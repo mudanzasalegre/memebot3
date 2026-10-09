@@ -74,6 +74,7 @@ ENTRY_VISIBLE_FIELDS = {
     "action",
     "address",
     "age_at_seen",
+    "age_since_seen_min",
     "age_min",
     "age_minutes",
     "buy_liquidity_is_proxy",
@@ -85,6 +86,12 @@ ENTRY_VISIBLE_FIELDS = {
     "candidate_partial_pnl_pct",
     "cluster_bad",
     "created_at",
+    "createdAt",
+    "created",
+    "createdAtUtc",
+    "pairCreatedAt",
+    "pair_created_at",
+    "pairCreatedAtMs",
     "decision_action",
     "discovered_via",
     "entry_lane",
@@ -93,6 +100,7 @@ ENTRY_VISIBLE_FIELDS = {
     "entry_subtype",
     "event_type",
     "first_seen_at",
+    "first_seen_epoch_s",
     "gate_profile",
     "green_sniper_reason",
     "has_jupiter_route",
@@ -397,12 +405,13 @@ def _entry_decision(
                 dry_run=True,
                 live=False,
                 cfg=cfg,
+                now=now,
             )
             if not shadow.allowed:
                 return False, shadow.reason, 0.0, shadow.lane, bool(shadow.route_proxy)
             return True, shadow.reason, float(shadow.amount_sol), shadow.lane, bool(shadow.route_proxy)
         if "moonshot_micro_lottery" in explicit_lane:
-            moonshot = evaluate_moonshot_micro_lottery(row, dry_run=True, live=False, cfg=cfg)
+            moonshot = evaluate_moonshot_micro_lottery(row, dry_run=True, live=False, cfg=cfg, now=now)
             if not moonshot.allowed:
                 return False, moonshot.reason, 0.0, moonshot.lane, bool(moonshot.route_proxy)
             return True, moonshot.reason, float(moonshot.amount_sol), moonshot.lane, bool(moonshot.route_proxy)
@@ -439,11 +448,11 @@ def _entry_decision(
         amount = _cfg_float(cfg, "PAPER_MAX_TRADE_AMOUNT_SOL", 0.01)
         return True, "explicit_buy_event", max(amount, 0.0), str(first_nonempty(row, "entry_lane", "gate_profile") or "explicit_buy"), not boolish(_route_value(row), False)
 
-    shadow = evaluate_shadow_followup_micro(row, open_count=open_count, daily_buys=daily_buys, dry_run=True, live=False, cfg=cfg)
+    shadow = evaluate_shadow_followup_micro(row, open_count=open_count, daily_buys=daily_buys, dry_run=True, live=False, cfg=cfg, now=now)
     if shadow.allowed:
         return True, shadow.reason, float(shadow.amount_sol), shadow.lane, bool(shadow.route_proxy)
 
-    moonshot = evaluate_moonshot_micro_lottery(row, dry_run=True, live=False, cfg=cfg)
+    moonshot = evaluate_moonshot_micro_lottery(row, dry_run=True, live=False, cfg=cfg, now=now)
     if moonshot.allowed:
         return True, moonshot.reason, float(moonshot.amount_sol), moonshot.lane, bool(moonshot.route_proxy)
 

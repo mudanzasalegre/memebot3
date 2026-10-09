@@ -151,6 +151,18 @@ importe y salidas no cambian. Esto no recertifica datos/modelos previos ni
 todas las rutas standalone. Vease
 `docs/audits/research_temporal_integrity_20261009.json`.
 
+Moonshot y seguimiento separan tambien nacimiento, cola y primera observacion;
+la compra no sustituye el comienzo del seguimiento. Los tokens antiguos con
+cola recien observada pueden conservar sus oportunidades extremas, sin un
+veto general por nacimiento ni un techo fijo de beneficio. Las sondas
+especiales mantienen su politica independiente. Investigacion y replay usan
+el instante original; informes y etiquetas historicas conservan desconocida
+una edad derivada de timestamps cuando falta ese instante, sin reescribir
+datos ni modelos. Esto no prueba disponibilidad original de confirmaciones,
+profundidad ejecutable o rentabilidad. Importe de 0.1 SOL PAPER y controles de
+riesgo/salida permanecen. Vease
+`docs/audits/moonshot_temporal_integrity_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

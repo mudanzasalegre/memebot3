@@ -6,6 +6,10 @@ from numbers import Real
 from typing import Any
 
 
+_BIRTH_CLOCKS = ("created_at", "createdAt", "created", "createdAtUtc", "pairCreatedAt", "pair_created_at", "pairCreatedAtMs")
+_SEEN_CLOCKS = ("first_seen_epoch_s", "first_seen_at")
+
+
 def _to_datetime(value: Any) -> dt.datetime | None:
     if isinstance(value, bool):
         return None
@@ -62,7 +66,7 @@ def compute_age_minutes(token: dict[str, Any], now: dt.datetime | None = None) -
     now = now.astimezone(dt.timezone.utc)
 
     created = None
-    for key in ("created_at", "createdAt", "created", "createdAtUtc", "pairCreatedAt", "pair_created_at", "pairCreatedAtMs"):
+    for key in _BIRTH_CLOCKS:
         created = _to_datetime(token.get(key))
         if created is not None:
             break
@@ -82,7 +86,7 @@ def compute_queue_age_minutes(token: dict[str, Any], now: dt.datetime | None = N
     if now.tzinfo is None:
         now = now.replace(tzinfo=dt.timezone.utc)
     now = now.astimezone(dt.timezone.utc)
-    for key in ("first_seen_epoch_s", "first_seen_at"):
+    for key in _SEEN_CLOCKS:
         first_seen = _to_datetime(token.get(key))
         if first_seen is not None:
             return (now - first_seen).total_seconds() / 60.0 if first_seen <= now else None
@@ -93,10 +97,65 @@ def compute_queue_age_minutes(token: dict[str, Any], now: dt.datetime | None = N
     return None
 
 
+def compute_shadow_age_minutes(token: dict[str, Any], now: dt.datetime | None = None) -> float | None:
+    """Elapsed original observation time, never purchase time or token birth."""
+    # A queue measurement and a shadow measurement are distinct observations.
+    measured = {key: token.get(key) for key in _SEEN_CLOCKS}
+    for key in ("minutes_since_first_seen", "shadow_age_min", "age_since_seen_min"):
+        value = _to_float(token.get(key))
+        if value is not None:
+            measured["queue_age_minutes"] = value
+            break
+    return compute_queue_age_minutes(measured, now=now)
+
+
+def compute_age_at_seen_minutes(token: dict[str, Any], now: dt.datetime | None = None) -> float | None:
+    """Birth age at original observation, or a valid measured upper bound."""
+    stamp = _to_datetime(now) if now is not None else dt.datetime.now(dt.timezone.utc)
+    for key in _SEEN_CLOCKS:
+        seen = _to_datetime(token.get(key))
+        if seen is not None:
+            if stamp is None or seen > stamp:
+                return None
+            # A measured current age is not a measurement at first-seen.
+            if any(_to_datetime(token.get(k)) is not None for k in _BIRTH_CLOCKS):
+                return compute_age_minutes(token, now=seen)
+            break
+    measured = _to_float(token.get("age_at_seen"))
+    if measured is not None:
+        return measured
+    return compute_age_minutes(token, now=stamp)
+
+
+def historical_age_snapshot(token: dict[str, Any]) -> dict[str, Any]:
+    """Read-only view for labels/reports, evaluated at the recorded event clock.
+
+    Birth, discovery, purchase, update and close clocks cannot stand in for the
+    event clock. If the latter is missing, timestamp-derived ages stay unknown;
+    genuine measured ages are still usable. Originals are never rewritten.
+    This freezes temporal features, not outcome availability or execution proof.
+    """
+    stamp = next((parsed for key in ("decision_at", "ts_utc", "timestamp")
+                  if (parsed := _to_datetime(token.get(key))) is not None), None)
+    birth_known = any(_to_datetime(token.get(k)) is not None for k in _BIRTH_CLOCKS)
+    seen_known = any(_to_datetime(token.get(k)) is not None for k in _SEEN_CLOCKS)
+    view = {k: v for k, v in token.items() if k not in (*_BIRTH_CLOCKS, *_SEEN_CLOCKS)}
+    age = None if stamp is None and birth_known else compute_age_minutes(view if stamp is None else token, now=stamp)
+    queue_age = None if stamp is None and seen_known else compute_queue_age_minutes(view if stamp is None else token, now=stamp)
+    shadow_age = None if stamp is None and seen_known else compute_shadow_age_minutes(view if stamp is None else token, now=stamp)
+    age_at_seen = (_to_float(token.get("age_at_seen")) if stamp is None and (birth_known or seen_known)
+                   else compute_age_at_seen_minutes(view if stamp is None else token, now=stamp))
+    for key in ("age_min", "token_age_min", "minutes_since_first_seen", "shadow_age_min", "age_since_seen_min"):
+        view.pop(key, None)
+    view.update(age_minutes=age, queue_age_minutes=queue_age, shadow_age_min=shadow_age, age_at_seen=age_at_seen)
+    return view
+
+
 def token_with_age(token: dict[str, Any], now: dt.datetime | None = None) -> dict[str, Any]:
     out = dict(token)
     out["age_minutes"] = compute_age_minutes(out, now=now)
     return out
 
 
-__all__ = ["compute_age_minutes", "compute_queue_age_minutes", "token_with_age"]
+__all__ = ["compute_age_minutes", "compute_queue_age_minutes", "compute_shadow_age_minutes",
+           "compute_age_at_seen_minutes", "historical_age_snapshot", "token_with_age"]

@@ -119,8 +119,9 @@ def _row_blocker(row: Mapping[str, Any]) -> str | None:
 def moonshot_execution_label(row: Mapping[str, Any], *, cfg: Any = CFG) -> dict[str, Any]:
     item = dict(row)
     from analytics.moonshot_micro_lottery import evaluate_moonshot_micro_lottery
+    from analytics.token_time import historical_age_snapshot
 
-    decision = evaluate_moonshot_micro_lottery(item, dry_run=True, live=False, cfg=cfg)
+    decision = evaluate_moonshot_micro_lottery(historical_age_snapshot(item), dry_run=True, live=False, cfg=cfg)
     theoretical = _theoretical_moonshot(item, cfg=cfg)
     route_value = first_nonempty(item, "has_jupiter_route", "route_ok", "route_available")
     route_known = route_value is not None

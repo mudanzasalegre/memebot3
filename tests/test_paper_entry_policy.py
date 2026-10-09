@@ -226,7 +226,7 @@ def test_sniper_and_moonshot_scopes_reach_their_actual_filters():
         assert evaluate_sniper_research_subprofile(token, cfg=cfg).allowed
         assert not evaluate_sniper_research_subprofile({**token, "cluster_bad": True}, cfg=cfg).allowed
     moon = {"source": "pumpfun", "price_pct_5m": 350, "txns_last_5m": 320,
-            "market_cap_usd": 80000, "age_minutes": 2, "has_jupiter_route": False}
+            "market_cap_usd": 80000, "age_minutes": 2, "queue_age_minutes": 2, "has_jupiter_route": False}
     assert evaluate_moonshot_micro_lottery(moon, cfg=cfg, dry_run=True, live=False).allowed
     with policy.parameter_scope(cfg, {"MOONSHOT_MICRO_LOTTERY_MIN_PRICE5M": 400}, revision="synthetic"):
         assert not evaluate_moonshot_micro_lottery(moon, cfg=cfg, dry_run=True, live=False).allowed
@@ -413,7 +413,7 @@ def _install_rank_and_moonshot(root):
                  PAPER_ENTRY_GATE_AUTO_APPLY=True)
     directory, rank, _ = install(root, cfg)
     _, moon, now = install(root, cfg, gate="moonshot", parameters={"MOONSHOT_MICRO_LOTTERY_MIN_PRICE5M": 300},
-        features_func=lambda i: {"source": "pumpfun", "age_minutes": 2,
+        features_func=lambda i: {"source": "pumpfun", "age_minutes": 2, "queue_age_minutes": 2,
             "price_pct_5m": 350 if i < 30 else 450, "txns_last_5m": 320})
     return cfg, directory, rank, moon, now
 

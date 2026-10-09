@@ -10,6 +10,7 @@ def _row(**overrides):
         "address": "Moon111111111111111111111111111111111111pump",
         "source": "pumpfun",
         "age_minutes": 2,
+        "queue_age_minutes": 2,
         "txns_last_5m": 320,
         "market_cap_usd": 80_000,
         "price_pct_5m": 650,

@@ -19,6 +19,7 @@ from analytics.pumpswap_prime_strict import evaluate_pumpswap_prime_strict, is_p
 from analytics.pumpswap_rebound_prime import evaluate_pumpswap_rebound_prime
 from analytics.report_utils import fnum, is_severe_exit, load_candidate_outcomes, load_paper_positions, load_sqlite_positions, metrics_dir, write_json, write_markdown
 from analytics.shadow_followup_micro import evaluate_shadow_followup_micro
+from analytics.token_time import historical_age_snapshot
 from config.config import PROJECT_ROOT
 from analytics.report_utils import is_closed_trade, load_deduped_positions
 
@@ -170,11 +171,11 @@ def _is_shadow_followup_replay_row(row: dict[str, Any], cfg: Any) -> bool:
     reason_text = _shadow_reason_text(row)
     if "shadow" in reason_text or "shadow_followup" in reason_text:
         return True
-    return evaluate_shadow_followup_micro(row, cfg=cfg).reason != "shadow_followup_blocked:no_followup_trigger"
+    return evaluate_shadow_followup_micro(historical_age_snapshot(row), cfg=cfg).reason != "shadow_followup_blocked:no_followup_trigger"
 
 
 def _shadow_followup_candidate_summary(rows: list[dict[str, Any]], cfg: Any) -> dict[str, Any]:
-    decisions = [evaluate_shadow_followup_micro(row, cfg=cfg) for row in rows]
+    decisions = [evaluate_shadow_followup_micro(historical_age_snapshot(row), cfg=cfg) for row in rows]
     allowed_items = [(row, decision) for row, decision in zip(rows, decisions) if decision.allowed]
     blocked_items = [(row, decision) for row, decision in zip(rows, decisions) if not decision.allowed]
     pnls = [_base_pnl(row) for row, _decision in allowed_items]

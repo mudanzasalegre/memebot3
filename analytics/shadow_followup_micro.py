@@ -19,6 +19,9 @@ from analytics.report_utils import (
     write_json,
 )
 from config.config import CFG, PROJECT_ROOT
+from analytics.token_time import (
+    compute_age_minutes, compute_age_at_seen_minutes, compute_shadow_age_minutes, historical_age_snapshot,
+)
 
 
 @dataclass(frozen=True)
@@ -67,7 +70,7 @@ def _cap_reached(count: int, cap: int) -> bool:
     return cap > 0 and count >= cap
 
 
-def _real_liquidity_breakout_trigger(row: dict[str, Any], *, cfg: Any = CFG) -> str | None:
+def _real_liquidity_breakout_trigger(row: dict[str, Any], *, cfg: Any = CFG, now: dt.datetime | None = None) -> str | None:
     if not _cfg_bool(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_BREAKOUT_ENABLED", True):
         return None
     route_ok = boolish(_first(row, "has_jupiter_route", "route_ok", "route_available"), False)
@@ -80,7 +83,7 @@ def _real_liquidity_breakout_trigger(row: dict[str, Any], *, cfg: Any = CFG) -> 
     txns = fnum(_first(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m"), 0.0)
     volume = fnum(_first(row, "volume_24h_usd", "volume_usd_24h", "buy_volume_24h_usd"), 0.0)
     mcap = fnum(_first(row, "market_cap_usd", "buy_market_cap_usd", "mcap"), 0.0)
-    age = fnum(_first(row, "age_minutes", "age_min", "token_age_min", "queue_age_minutes"), 999.0)
+    age = compute_age_minutes(row, now=now)
     impact = fnum(_first(row, "price_impact_pct", "buy_price_impact_pct", "jupiter_price_impact_pct"), 0.0)
     price5m = fnum(_first(row, "price_pct_5m", "buy_price_pct_5m", "price5m"), 0.0)
     rank = fnum(_first(row, "rank_score", "research_rank_score", "research_rank_canary_rank_score"), 0.0)
@@ -100,7 +103,7 @@ def _real_liquidity_breakout_trigger(row: dict[str, Any], *, cfg: Any = CFG) -> 
         return None
     if mcap > _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MAX_MCAP_USD", 120_000.0):
         return None
-    if age > _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MAX_AGE_MIN", 45.0):
+    if age is None or age > _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MAX_AGE_MIN", 45.0):
         return None
     if impact > _cfg_float(cfg, "SHADOW_FOLLOWUP_REAL_LIQUIDITY_MAX_PRICE_IMPACT_PCT", 12.0):
         return None
@@ -111,50 +114,27 @@ def _real_liquidity_breakout_trigger(row: dict[str, Any], *, cfg: Any = CFG) -> 
     return "real_liquidity_breakout"
 
 
-def _parse_time(value: Any) -> dt.datetime | None:
-    if isinstance(value, dt.datetime):
-        out = value
-    else:
-        raw = str(value or "").replace("Z", "+00:00").strip()
-        if not raw:
-            return None
-        try:
-            out = dt.datetime.fromisoformat(raw)
-        except Exception:
-            return None
-    if out.tzinfo is None:
-        out = out.replace(tzinfo=dt.timezone.utc)
-    return out.astimezone(dt.timezone.utc)
+def _age_since_seen_min(row: dict[str, Any], *, now: dt.datetime | None = None) -> float | None:
+    return compute_shadow_age_minutes(row, now=now)
 
 
-def _age_since_seen_min(row: dict[str, Any]) -> float:
-    explicit = _first(row, "minutes_since_first_seen", "shadow_age_min", "age_since_seen_min")
-    if explicit is not None:
-        return fnum(explicit, 999.0)
-    first = _parse_time(_first(row, "first_seen_at", "opened_at"))
-    now = _parse_time(_first(row, "ts_utc", "timestamp", "updated_at_utc")) or dt.datetime.now(dt.timezone.utc)
-    if first is None:
-        return 999.0
-    return max(0.0, (now - first).total_seconds() / 60.0)
-
-
-def _trigger(row: dict[str, Any], *, cfg: Any = CFG) -> str | None:
+def _trigger(row: dict[str, Any], *, cfg: Any = CFG, now: dt.datetime | None = None) -> str | None:
     shadow_pnl = fnum(_first(row, "shadow_pnl_pct", "pnl_pct", "target_total_pnl_pct"), 0.0)
-    age_min = _age_since_seen_min(row)
+    age_min = _age_since_seen_min(row, now=now)
     partial = fnum(_first(row, "candidate_partial_pnl_pct", "partial_pnl_pct"), 0.0)
     peak = fnum(_first(row, "observed_peak_after_seen", "max_pnl_pct_seen", "shadow_max_pnl_pct_seen", "peak_pnl_pct"), 0.0)
-    age_at_seen = fnum(_first(row, "age_at_seen", "age_minutes", "age_min", "token_age_min"), 999.0)
+    age_at_seen = compute_age_at_seen_minutes(row, now=now)
     trigger_3m = _cfg_float(cfg, "SHADOW_FOLLOWUP_TRIGGER_PNL_3M", 25.0)
     trigger_6m = _cfg_float(cfg, "SHADOW_FOLLOWUP_TRIGGER_PNL_6M", 50.0)
-    if shadow_pnl >= trigger_3m and age_min <= 3.0:
+    if shadow_pnl >= trigger_3m and age_min is not None and age_min <= 3.0:
         return f"shadow_pnl_{trigger_3m:g}_within_3m"
-    if shadow_pnl >= trigger_6m and age_min <= 6.0:
+    if shadow_pnl >= trigger_6m and age_min is not None and age_min <= 6.0:
         return f"shadow_pnl_{trigger_6m:g}_within_6m"
     if partial >= 50.0:
         return "candidate_partial_50"
-    if peak >= 50.0 and age_at_seen <= 10.0:
+    if peak >= 50.0 and age_at_seen is not None and age_at_seen <= 10.0:
         return "observed_peak_after_seen_50"
-    breakout = _real_liquidity_breakout_trigger(row, cfg=cfg)
+    breakout = _real_liquidity_breakout_trigger(row, cfg=cfg, now=now)
     if breakout is not None:
         return breakout
     return None
@@ -168,7 +148,9 @@ def evaluate_shadow_followup_micro(
     dry_run: bool = True,
     live: bool = False,
     cfg: Any = CFG,
+    now: dt.datetime | None = None,
 ) -> ShadowFollowupMicroDecision:
+    now = now or dt.datetime.now(dt.timezone.utc)
     amount = max(0.0, _cfg_float(cfg, "SHADOW_FOLLOWUP_MICRO_AMOUNT_SOL", 0.003))
 
     def out(allowed: bool, reason: str, failures: list[str] | tuple[str, ...], *, route_proxy: bool = False) -> ShadowFollowupMicroDecision:
@@ -187,7 +169,7 @@ def evaluate_shadow_followup_micro(
         return out(False, "shadow_followup_daily_cap", ["daily_cap"])
 
     failures: list[str] = []
-    trigger = _trigger(row, cfg=cfg)
+    trigger = _trigger(row, cfg=cfg, now=now)
     if trigger is None:
         failures.append("no_followup_trigger")
     reason_text = " ".join(str(_first(row, key) or "") for key in ("reason", "green_sniper_reason", "reject_reason")).lower()
@@ -259,7 +241,7 @@ def apply_shadow_followup_micro_context(row: dict[str, Any], decision: ShadowFol
 
 def build_shadow_followup_micro_report(root: Path | None = None) -> dict[str, Any]:
     root = root or PROJECT_ROOT
-    rows = load_runtime_events(root) + load_candidate_outcomes(root)
+    rows = [historical_age_snapshot(row) for row in load_runtime_events(root) + load_candidate_outcomes(root)]
     shadow_rows = [
         row
         for row in rows
@@ -272,6 +254,8 @@ def build_shadow_followup_micro_report(root: Path | None = None) -> dict[str, An
     blocked = collections.Counter(decision.reason for decision in decisions if not decision.allowed)
     return {
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "eligibility_clock_contract": "recorded_event_time_or_valid_measured_age_v1",
+        "eligibility_is_prospective_execution_proof": False,
         "config": {
             "enabled": bool(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_ENABLED", True)),
             "paper_enabled": bool(getattr(CFG, "SHADOW_FOLLOWUP_MICRO_PAPER_ENABLED", True)),

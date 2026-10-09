@@ -19,6 +19,7 @@ from analytics.report_utils import (
     write_json,
 )
 from config.config import CFG, PROJECT_ROOT
+from analytics.token_time import compute_age_minutes, compute_queue_age_minutes, historical_age_snapshot
 from runtime.paper_entry_policy import entry_config
 from ml.lane_taxonomy import LANE_MOONSHOT_MICRO_LOTTERY
 from ml.labels import moonshot_execution_label
@@ -119,14 +120,15 @@ def _mcap_known(row: dict[str, Any]) -> bool:
     return _field_float(row, "market_cap_usd", "buy_market_cap_usd", "mcap", default=0.0) > 0.0
 
 
-def _relaxed_ultralow_moonshot(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
+def _relaxed_ultralow_moonshot(row: dict[str, Any], *, cfg: Any = CFG, now: dt.datetime | None = None) -> bool:
     min_price5m = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MIN_PRICE5M", 300.0) or 300.0)
     min_txns = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MIN_TXNS_5M", 80) or 80)
     max_age = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MAX_AGE_MIN", 10.0) or 10.0)
+    queue_age = compute_queue_age_minutes(row, now=now)
     return (
         _field_float(row, "price_pct_5m", "buy_price_pct_5m", "price5m") > min_price5m
         and _field_float(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m") >= min_txns
-        and _field_float(row, "queue_age_minutes", "age_minutes", "age_min", "token_age_min", default=999.0) <= max_age
+        and queue_age is not None and queue_age <= max_age
         and _mcap_known(row)
         and not _toxic(row)
     )
@@ -143,16 +145,17 @@ def _liquidity_proxy_row(row: dict[str, Any]) -> bool:
     return boolish(_first(row, "liquidity_is_proxy", "liquidity_usd_is_proxy", "buy_liquidity_is_proxy"), False)
 
 
-def _extreme_hot_queue(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
+def _extreme_hot_queue(row: dict[str, Any], *, cfg: Any = CFG, now: dt.datetime | None = None) -> bool:
+    queue_age = compute_queue_age_minutes(row, now=now)
     return (
         _field_float(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m")
         >= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_EXTREME_MIN_TXNS_5M", 300) or 300)
-        and _field_float(row, "queue_age_minutes", "age_minutes", "age_min", default=999.0)
-        <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MAX_AGE_MIN", 10.0) or 10.0)
+        and queue_age is not None
+        and queue_age <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MAX_AGE_MIN", 10.0) or 10.0)
     )
 
 
-def _extreme_cluster_bad_override(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
+def _extreme_cluster_bad_override(row: dict[str, Any], *, cfg: Any = CFG, now: dt.datetime | None = None) -> bool:
     if not bool(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_BUY_ENABLED", False)):
         return False
     if not _cluster_bad(row) or _toxic(row) or not _mcap_known(row):
@@ -180,24 +183,24 @@ def _extreme_cluster_bad_override(row: dict[str, Any], *, cfg: Any = CFG) -> boo
         )
         or 10.0
     )
+    queue_age = compute_queue_age_minutes(row, now=now)
     return (
         _field_float(row, "price_pct_5m", "buy_price_pct_5m", "price5m")
         >= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_MIN_PRICE5M", 500.0) or 500.0)
         and _field_float(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m")
         >= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_EXTREME_CLUSTER_MIN_TXNS_5M", 80) or 80)
-        and _field_float(row, "queue_age_minutes", "age_minutes", "age_min", "token_age_min", default=999.0)
-        <= max_age
+        and queue_age is not None and queue_age <= max_age
     )
 
 
-def _birth_velocity_probe(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
+def _birth_velocity_probe(row: dict[str, Any], *, cfg: Any = CFG, now: dt.datetime | None = None) -> bool:
     if not bool(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_BIRTH_VELOCITY_ENABLED", True)):
         return False
     reason = _norm(_first(row, "reason", "green_sniper_reason", "sniper_gate_failures"))
     price5m = _field_float(row, "price_pct_5m", "buy_price_pct_5m", "price5m")
     txns = _field_float(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m")
     mcap = _field_float(row, "market_cap_usd", "buy_market_cap_usd", "mcap", default=999_999_999.0)
-    age = _field_float(row, "age_minutes", "age_min", "token_age_min", "queue_age_minutes", default=999.0)
+    age = compute_age_minutes(row, now=now)
     volume = _field_float(row, "volume_24h_usd", "volume_usd_24h", "buy_volume_24h_usd", default=0.0)
     return (
         "paper_birth_probe" in reason
@@ -209,20 +212,20 @@ def _birth_velocity_probe(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
         <= txns
         <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_BIRTH_VELOCITY_MAX_TXNS_5M", 50) or 50)
         and mcap <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_BIRTH_VELOCITY_MAX_MCAP_USD", 10_000.0) or 10_000.0)
-        and age <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_BIRTH_VELOCITY_MAX_AGE_MIN", 2.0) or 2.0)
+        and age is not None and age <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_BIRTH_VELOCITY_MAX_AGE_MIN", 2.0) or 2.0)
         and float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_BIRTH_VELOCITY_MIN_VOLUME_24H", 800.0) or 800.0)
         <= volume
         <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_BIRTH_VELOCITY_MAX_VOLUME_24H", 1500.0) or 1500.0)
     )
 
 
-def _late_proxy_momentum_probe(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
+def _late_proxy_momentum_probe(row: dict[str, Any], *, cfg: Any = CFG, now: dt.datetime | None = None) -> bool:
     if not bool(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_LATE_PROXY_ENABLED", True)):
         return False
     price5m = _field_float(row, "price_pct_5m", "buy_price_pct_5m", "price5m")
     txns = _field_float(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m")
     mcap = _field_float(row, "market_cap_usd", "buy_market_cap_usd", "mcap", default=0.0)
-    age = _field_float(row, "age_minutes", "age_min", "token_age_min", "queue_age_minutes", default=999.0)
+    age = compute_age_minutes(row, now=now)
     reason = _norm(_first(row, "reason", "green_sniper_reason", "sniper_gate_failures"))
     return (
         "weak_buy_sell_ratio" not in reason
@@ -235,23 +238,23 @@ def _late_proxy_momentum_probe(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
         and float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_LATE_PROXY_MIN_MCAP_USD", 15_000.0) or 15_000.0)
         <= mcap
         <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_LATE_PROXY_MAX_MCAP_USD", 25_000.0) or 25_000.0)
-        and age <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_LATE_PROXY_MAX_AGE_MIN", 12.0) or 12.0)
+        and age is not None and age <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_LATE_PROXY_MAX_AGE_MIN", 12.0) or 12.0)
     )
 
 
-def _cluster_tail_probe(row: dict[str, Any], *, cfg: Any = CFG) -> bool:
+def _cluster_tail_probe(row: dict[str, Any], *, cfg: Any = CFG, now: dt.datetime | None = None) -> bool:
     if not bool(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_ENABLED", True)):
         return False
     if not _cluster_bad(row):
         return False
     if _toxic(row):
         return False
-    age = _field_float(row, "age_minutes", "age_min", "token_age_min", "queue_age_minutes", default=999.0)
+    age = compute_age_minutes(row, now=now)
     liq = _field_float(row, "liquidity_usd", "buy_liquidity_usd", default=0.0)
     mcap = _field_float(row, "market_cap_usd", "buy_market_cap_usd", "mcap", default=0.0)
     volume = _field_float(row, "volume_24h_usd", "volume_usd_24h", "buy_volume_24h_usd", default=0.0)
     return (
-        age <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_MAX_AGE_MIN", 5.0) or 5.0)
+        age is not None and age <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_MAX_AGE_MIN", 5.0) or 5.0)
         and liq >= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_MIN_LIQUIDITY_USD", 10_000.0) or 10_000.0)
         and float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_CLUSTER_TAIL_MIN_MCAP_USD", 20_000.0) or 20_000.0)
         <= mcap
@@ -272,13 +275,13 @@ def _candidate_partial_move(row: dict[str, Any]) -> float:
     return _field_float(row, "candidate_partial_pnl_pct", "partial_pnl_pct", "shadow_partial_pnl_pct")
 
 
-def _confirmation_reason(row: dict[str, Any], *, cfg: Any = CFG) -> str | None:
+def _confirmation_reason(row: dict[str, Any], *, cfg: Any = CFG, now: dt.datetime | None = None) -> str | None:
     confirmation_pnl = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_CONFIRMATION_PNL", 75.0) or 75.0)
     if _observed_shadow_move(row) >= confirmation_pnl:
         return f"observed_shadow_move_{confirmation_pnl:g}"
     if _candidate_partial_move(row) >= confirmation_pnl:
         return f"candidate_partial_{confirmation_pnl:g}"
-    if _relaxed_ultralow_moonshot(row, cfg=cfg):
+    if _relaxed_ultralow_moonshot(row, cfg=cfg, now=now):
         return "relaxed_ultralow_moonshot"
     price5m = _field_float(row, "price_pct_5m", "buy_price_pct_5m", "price5m")
     txns = _field_float(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m")
@@ -296,10 +299,12 @@ def evaluate_moonshot_micro_lottery(
     dry_run: bool,
     live: bool,
     cfg: Any = CFG,
+    now: dt.datetime | None = None,
 ) -> MoonshotMicroLotteryDecision:
+    now = now or dt.datetime.now(dt.timezone.utc)
     if dry_run and not live:
         from research_loop.entry_gate_forward import capture_gate
-        capture_gate("moonshot", row, cfg)
+        capture_gate("moonshot", row, cfg, now=now)
     cfg = entry_config(cfg, dry_run=dry_run, live=live)
     raw_amount = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_AMOUNT_SOL", 0.001) or 0.001)
     amount = max(raw_amount, 0.0)
@@ -334,26 +339,28 @@ def evaluate_moonshot_micro_lottery(
         return decision(False, "moonshot_paper_disabled", ["paper_disabled"])
 
     failures: list[str] = []
-    age = _field_float(row, "queue_age_minutes", "age_minutes", "age_min", "token_age_min", default=999.0)
+    age = compute_queue_age_minutes(row, now=now)
     price5m = _field_float(row, "price_pct_5m", "buy_price_pct_5m", "price5m")
     txns = _field_float(row, "txns_last_5m", "buy_txns_last_5m", "txns_5m")
     mcap_raw = _first(row, "market_cap_usd", "buy_market_cap_usd", "mcap")
     mcap = _field_float(row, "market_cap_usd", "buy_market_cap_usd", "mcap", default=0.0)
     has_route = boolish(_first(row, "has_jupiter_route", "route_ok", "route_available"), False)
     route_proxy = not has_route
-    birth_velocity = _birth_velocity_probe(row, cfg=cfg)
-    late_proxy_momentum = _late_proxy_momentum_probe(row, cfg=cfg)
-    cluster_tail = _cluster_tail_probe(row, cfg=cfg)
+    birth_velocity = _birth_velocity_probe(row, cfg=cfg, now=now)
+    late_proxy_momentum = _late_proxy_momentum_probe(row, cfg=cfg, now=now)
+    cluster_tail = _cluster_tail_probe(row, cfg=cfg, now=now)
     special_probe = birth_velocity or late_proxy_momentum or cluster_tail
-    confirmation = _confirmation_reason(row, cfg=cfg)
-    extreme_cluster_allowed = _extreme_cluster_bad_override(row, cfg=cfg)
+    confirmation = _confirmation_reason(row, cfg=cfg, now=now)
+    extreme_cluster_allowed = _extreme_cluster_bad_override(row, cfg=cfg, now=now)
     if extreme_cluster_allowed and confirmation is None:
         confirmation = "extreme_cluster_bad_override"
 
     if not _source_ok(row):
         failures.append("source_not_allowed")
     max_age = float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MAX_AGE_MIN", 10.0) or 10.0)
-    if not special_probe and age > max_age:
+    if not special_probe and age is None:
+        failures.append("queue_age_missing")
+    elif not special_probe and age > max_age:
         failures.append(f"age_gt_{max_age:g}m")
     if not special_probe and txns < float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MIN_TXNS_5M", 80) or 80):
         failures.append("txns5m<80")
@@ -364,7 +371,7 @@ def evaluate_moonshot_micro_lottery(
     if (
         not special_probe
         and price5m <= float(getattr(cfg, "MOONSHOT_MICRO_LOTTERY_MIN_PRICE5M", 300.0) or 300.0)
-        and not _extreme_hot_queue(row, cfg=cfg)
+        and not _extreme_hot_queue(row, cfg=cfg, now=now)
     ):
         failures.append("not_extreme_momentum")
     if _toxic(row):
@@ -529,7 +536,7 @@ def build_moonshot_micro_lottery_report(root: Path | None = None) -> dict[str, A
     runtime_rows = load_runtime_events(root)
     outcome_rows = load_candidate_outcomes(root)
     position_rows = load_deduped_positions(root)
-    rows = runtime_rows + outcome_rows + position_rows
+    rows = [historical_age_snapshot(row) for row in runtime_rows + outcome_rows + position_rows]
     candidates = [
         row
         for row in rows
@@ -613,6 +620,8 @@ def build_moonshot_micro_lottery_report(root: Path | None = None) -> dict[str, A
     route_proxy_buys = [row for row in confirmed_buy if _route_proxy_row(row)]
     return {
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "eligibility_clock_contract": "recorded_event_time_or_valid_measured_age_v1",
+        "eligibility_is_prospective_execution_proof": False,
         "config": {
             "enabled": bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_ENABLED", True)),
             "paper_enabled": bool(getattr(CFG, "MOONSHOT_MICRO_LOTTERY_PAPER_ENABLED", True)),

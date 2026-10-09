@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
 from typing import Any
 
@@ -45,11 +46,11 @@ class LateMomentumDecision:
 
 
 def evaluate_late_momentum_watch(token: dict[str, Any], *, dry_run: bool, live: bool,
-                                 cfg: Any = None) -> LateMomentumDecision:
+                                 cfg: Any = None, now: dt.datetime | None = None) -> LateMomentumDecision:
     cfg = CFG if cfg is None else cfg
     if dry_run and not live:
         from research_loop.entry_gate_forward import capture_gate
-        capture_gate("late_momentum", token, cfg)
+        capture_gate("late_momentum", token, cfg, now=now)
     cfg = entry_config(cfg, dry_run=dry_run, live=live)
     if not bool(getattr(cfg, "LATE_MOMENTUM_WATCH_ENABLED", True)):
         return LateMomentumDecision("reject", LANE_PUMP_EARLY_LATE_MOMENTUM_WATCH, "disabled", 0.0, ("disabled",))

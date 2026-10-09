@@ -109,11 +109,11 @@ def _gate_decision(gate: str, features: dict[str, Any], cfg: Any,
         return decision.allowed
     if gate == "late_momentum":
         from analytics.late_momentum_watch import evaluate_late_momentum_watch
-        decision = evaluate_late_momentum_watch(features, dry_run=True, live=False, cfg=cfg)
+        decision = evaluate_late_momentum_watch(features, dry_run=True, live=False, cfg=cfg, now=now)
         return decision.action == "buy"
     if gate == "moonshot":
         from analytics.moonshot_micro_lottery import evaluate_moonshot_micro_lottery
-        return evaluate_moonshot_micro_lottery(features, dry_run=True, live=False, cfg=cfg).allowed
+        return evaluate_moonshot_micro_lottery(features, dry_run=True, live=False, cfg=cfg, now=now).allowed
     raise ValueError("unsupported entry gate")
 
 

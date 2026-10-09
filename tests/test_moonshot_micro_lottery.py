@@ -13,6 +13,7 @@ def _token(**overrides):
     token = {
         "source": "pumpfun",
         "age_minutes": 2,
+        "queue_age_minutes": 2,
         "txns_last_5m": 120,
         "market_cap_usd": 80_000,
         "price_pct_5m": 650,
@@ -344,11 +345,11 @@ def test_moonshot_report_outputs_core_metrics(tmp_path) -> None:
         (
             '{"address":"A","entry_lane":"pump_early_moonshot_micro_lottery",'
             '"reason":"confirmed_moonshot_buy","route_proxy":1,"highest_pnl_pct":700,"total_pnl_pct":40,'
-            '"source":"pumpfun","age_minutes":2,"txns_last_5m":320,"market_cap_usd":80000,'
+            '"source":"pumpfun","age_minutes":2,"queue_age_minutes":2,"txns_last_5m":320,"market_cap_usd":80000,'
             '"price_pct_5m":650,"has_jupiter_route":false}\n'
             '{"address":"B","source":"pumpfun","action":"shadow","reason":"moonshot_micro_lottery_shadow:cluster_bad",'
             '"price_pct_5m":350,"txns_last_5m":90,"market_cap_usd":50000,'
-            '"age_minutes":4,"cluster_bad":true,"time_to_peak_sec":600,"max_pnl_pct":350}\n'
+            '"age_minutes":4,"queue_age_minutes":4,"cluster_bad":true,"time_to_peak_sec":600,"max_pnl_pct":350}\n'
         ),
         encoding="utf-8",
     )
