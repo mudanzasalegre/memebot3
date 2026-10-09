@@ -23,8 +23,10 @@ import asyncio
 import datetime as dt
 import json
 import logging
+import math
 import os
 from collections import deque
+from copy import deepcopy
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -125,6 +127,8 @@ _CIRCUIT_BREAK_S = int(os.getenv("PUMPFUN_WS_CIRCUIT_BREAK_S", "3600"))
 
 # ─────────────────────────── Estado global ─────────────────────
 _buffer: deque[Dict[str, Any]] = deque()
+# Pending receipt ownership is separate from actual API delivery history.
+_pending: set[str] = set()
 _seen: Dict[str, dt.datetime] = {}
 _ws_task: Optional[asyncio.Task] = None
 _ws_lock = asyncio.Lock()     # garantiza una sola conexión viva
@@ -133,47 +137,52 @@ _disabled_logged = False
 
 
 # ────────────────────────── Helpers internos ───────────────────
-def _to_dt(ts: Any) -> dt.datetime:
+def _to_dt(ts: Any) -> dt.datetime | None:
     """
     Convierte distintos formatos de timestamp a UTC.
     Admite:
-      - int/float en segundos o milisegundos
+      - int/float en segundos, milisegundos, microsegundos o nanosegundos
       - ISO8601 str → parse_iso_utc
-      - si no hay timestamp, usa utc_now()
+      - un reloj ausente o invalido permanece desconocido
     """
-    if ts is None:
-        return utc_now()
+    if ts is None or isinstance(ts, bool):
+        return None
     try:
+        if isinstance(ts, dt.datetime):
+            return ts.replace(tzinfo=dt.timezone.utc) if ts.tzinfo is None else ts.astimezone(dt.timezone.utc)
         if isinstance(ts, (int, float)):
-            # Heurística: milisegundos si es muy grande
-            if ts > 1e12:
-                return dt.datetime.fromtimestamp(ts / 1000, tz=dt.timezone.utc)
-            if ts > 1e10:  # ns → a s (por si acaso)
-                return dt.datetime.fromtimestamp(ts / 1e9, tz=dt.timezone.utc)
+            if not math.isfinite(ts) or ts <= 0:
+                return None
+            # Normalize magnitude without manufacturing a missing clock.
+            if ts >= 1e17:
+                ts /= 1e9
+            elif ts >= 1e14:
+                ts /= 1e6
+            elif ts >= 1e11:
+                ts /= 1e3
             return dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc)
         if isinstance(ts, str):
-            dtobj = parse_iso_utc(ts)
-            return dtobj or utc_now()
+            return parse_iso_utc(ts)
     except Exception:
         pass
-    return utc_now()
+    return None
 
 
-def _within_window(d: Dict[str, Any]) -> bool:
-    """True si el token sigue dentro de la ventana de frescura."""
-    try:
-        ts = d.get("created_at")
-        if isinstance(ts, str):
-            ts_parsed = parse_iso_utc(ts)
-            ts = ts_parsed or utc_now()
-        if isinstance(ts, dt.datetime):
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=dt.timezone.utc)
-            age_min = (utc_now() - ts).total_seconds() / 60.0
-            return age_min <= _WINDOW_MIN
-    except Exception:
-        return True
-    return True
+def _within_window(d: Dict[str, Any], *, now: dt.datetime | None = None) -> bool:
+    """Bound original receipt residence; known birth must also be recent.
+
+    Receipt time is not token creation time. Unknown births stay eligible for
+    fresh downstream discovery, but cannot remain in this buffer forever.
+    """
+    now = now or utc_now()
+    clocks = []
+    for key in ("discovered_at", "created_at"):
+        if d.get(key) is not None:
+            stamp = _to_dt(d[key])
+            if stamp is None:
+                return False
+            clocks.append(stamp)
+    return bool(clocks) and all(0 <= (now - stamp).total_seconds() / 60 <= _WINDOW_MIN for stamp in clocks)
 
 
 def _prune_queue_state() -> tuple[int, int]:
@@ -185,13 +194,16 @@ def _prune_queue_state() -> tuple[int, int]:
         _seen.pop(address, None)
 
     if not _buffer:
+        _pending.clear()
         return 0, len(expired_seen)
 
-    fresh = [token for token in _buffer if _within_window(token)]
+    fresh = [token for token in _buffer if _within_window(token, now=now)]
     expired_events = len(_buffer) - len(fresh)
     if expired_events:
         _buffer.clear()
         _buffer.extend(fresh)
+    _pending.clear()
+    _pending.update(str(token.get("address") or "") for token in fresh)
     return expired_events, len(expired_seen)
 
 
@@ -199,19 +211,26 @@ def _enqueue_event(token: Dict[str, Any]) -> bool:
     """Añade un evento al final de la cola respetando deduplicación y capacidad."""
     _prune_queue_state()
     address = str(token.get("address") or "").strip()
-    if not address or address in _seen:
+    if not address or address in _seen or address in _pending:
         return False
 
-    _seen[address] = utc_now()
+    token = deepcopy(token)
+    token["address"] = address
+    if token.get("discovered_at") is None:
+        token["discovered_at"] = utc_now()
+    if not _within_window(token):
+        return False
     capacity = max(_BUFFER_MAX, 1)
     if len(_buffer) >= capacity:
         dropped = _buffer.popleft()
+        _pending.discard(str(dropped.get("address") or ""))
         log.warning(
             "[PumpFun] cola llena (capacidad=%d); descartado el evento FIFO más antiguo: %s",
             capacity,
             dropped.get("address"),
         )
     _buffer.append(token)
+    _pending.add(address)
     return True
 
 
@@ -222,7 +241,11 @@ def _drain_events(limit: int) -> List[Dict[str, Any]]:
     for _ in range(max(int(limit), 0)):
         if not _buffer:
             break
-        out.append(_buffer.popleft())
+        token = _buffer.popleft()
+        address = str(token.get("address") or "")
+        _pending.discard(address)
+        _seen[address] = utc_now()
+        out.append(token)
     return out
 
 
@@ -236,6 +259,16 @@ def _extract_first(d: Dict[str, Any], *keys: str) -> Any:
         for k in keys:
             if k in payload and payload[k] not in (None, "", 0):
                 return payload[k]
+    return None
+
+
+def _extract_clock(d: Dict[str, Any], *keys: str) -> Any:
+    """Preserve an explicitly supplied invalid/zero clock, not a later alias."""
+    for payload in (d, d.get("data")):
+        if isinstance(payload, dict):
+            for key in keys:
+                if key in payload:
+                    return payload[key]
     return None
 
 
@@ -273,19 +306,27 @@ def _parse_event(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         name   = (_extract_first(msg, "name", "tokenName") or "").strip()
         symbol = (_extract_first(msg, "symbol", "tokenSymbol") or "").strip()
 
-        ts_in  = _extract_first(msg, "timestamp", "ts", "time", "createdAt", "created_at")
-        ts     = _to_dt(ts_in)
+        now = utc_now()
+        ts = _to_dt(_extract_clock(msg, "created_at", "createdAt"))
+        event_at = _to_dt(_extract_clock(msg, "timestamp", "ts", "time"))
+        if ts is not None and ts > now:
+            ts = None
+        if event_at is not None and event_at > now:
+            event_at = None
 
         creator = _extract_first(msg, "creator", "user", "owner", "signer") or ""
 
-        now = utc_now()
-        age_minutes = (now - ts).total_seconds() / 60.0
+        age_minutes = (now - ts).total_seconds() / 60.0 if ts is not None else None
 
         tok = {
             "address": mint,
             "symbol": (symbol or "NEW")[:16],
             "name": name or "",
             "created_at": ts,
+            "discovered_at": now,
+            "pumpportal_event_at": event_at,
+            "pumpportal_created_at_basis": "provider_created_at" if ts is not None else "unknown",
+            "fetched_at": now,
 
             # Métricas críticas: None (se rellenarán por DexScreener/Birdeye/GT)
             "liquidity_usd": None,
@@ -299,7 +340,11 @@ def _parse_event(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "age_min": age_minutes,   # alias útil para lectores
             "creator": creator,
         }
-        return sanitize_token_data(tok)
+        clean = sanitize_token_data(tok)
+        # Keep the age at the original client receipt, not a second sanitizer
+        # clock. Generic event timestamps and receipt time are never birth.
+        clean["age_minutes"] = clean["age_min"] = age_minutes
+        return clean
     except Exception as exc:  # pragma: no cover
         log.debug("[PumpFun] evento mal formado: %s", exc)
         return None

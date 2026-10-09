@@ -94,7 +94,7 @@ def test_no_route_paper_can_buy(monkeypatch) -> None:
     assert decision.reason == "green_sniper_policy_shadow"
 
 
-def test_queue_age_is_used_when_age_is_missing(monkeypatch) -> None:
+def test_queue_residence_does_not_replace_missing_birth_age(monkeypatch) -> None:
     monkeypatch.setattr(gate, "CFG", _cfg())
     token = _load("newborn_green_80pct.json")
     token.pop("age_minutes", None)
@@ -103,8 +103,8 @@ def test_queue_age_is_used_when_age_is_missing(monkeypatch) -> None:
 
     decision = gate.evaluate_green_sniper(token, dry_run=True, live=False)
 
-    assert decision.action == "shadow"
-    assert "too_young" not in decision.reject_reasons
+    assert decision.action == "delay"
+    assert decision.reject_reasons == ("missing_age",)
 
 
 def test_no_route_live_rejects(monkeypatch) -> None:

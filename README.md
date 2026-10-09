@@ -118,6 +118,19 @@ observacion previa; un cero medido o un booleano no se convierten en ranking
 alto. Estas correcciones no autorizan compras ni relajan sus guardas. Vease
 `docs/audits/scanner_queue_reconsideration_20261009.json`.
 
+El FIFO de PumpPortal separa tambien las senales pendientes del historial
+entregado: una expulsion previa a la entrega no crea un bloqueo ficticio y
+las copias quedan desligadas del payload mutable original. El recibo local,
+el reloj generico del evento y la creacion declarada son datos distintos.
+Una creacion ausente/invalida no se sustituye por ahora ni por tiempo en cola.
+La edad comun permanece desconocida en features y no recibe el bonus green
+de recien nacido. La via green espera su observacion antes del bootstrap,
+con el reintento acotado existente; no relaja guardas ni etiqueta una espera
+como perdida financiera. La documentacion publica no especifica la semantica
+exacta de timestamps; estas comprobaciones no autentican la creacion on-chain
+ni prueban un feed completo. Datos/modelos historicos se conservan y necesitan
+validacion fresca. Vease `docs/audits/discovery_birth_age_integrity_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

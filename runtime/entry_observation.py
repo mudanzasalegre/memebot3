@@ -22,6 +22,7 @@ from utils.auxiliary_observation import KINDS, checked_auxiliary_observation, au
 _DISCOVERY_FIELDS = (
     "address", "symbol", "name", "creator", "source", "discovered_via",
     "discovered_at", "first_seen", "first_seen_at", "created_at", "createdAt",
+    "pumpportal_event_at", "pumpportal_created_at_basis",
     "created", "createdAtUtc", "pairCreatedAt", "pair_created_at",
     "pairCreatedAtMs", "listedAt", "dex_id", "dexId", "pair_address",
     "pairAddress", "pool_address", "poolAddress", "website", "twitter",

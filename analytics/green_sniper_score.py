@@ -87,7 +87,9 @@ def score_green_sniper(token: dict[str, Any], *, has_route: bool, proxy_liquidit
     if liq >= 2500 and not proxy_liquidity:
         liquidity_quality += 6.0
     route_component = 10.0 if has_route else (0.0 if live else 3.0)
-    if age <= 1.5:
+    if age is None:
+        age_component = 0.0
+    elif age <= 1.5:
         age_component = 12.0
     elif age <= 4:
         age_component = 8.0

@@ -192,7 +192,7 @@ def _minutes_since(ts: dt.datetime | None) -> float | None:
 
 
 def _coerce_datetime(value: Any) -> dt.datetime | None:
-    if value is None:
+    if value is None or isinstance(value, (bool, np.bool_)):
         return None
     if isinstance(value, dt.datetime):
         if value.tzinfo is None:
@@ -209,8 +209,14 @@ def _coerce_datetime(value: Any) -> dt.datetime | None:
         epoch = float(value)
     except Exception:
         return None
-    if epoch > 1e11:
-        epoch /= 1000.0
+    if not math.isfinite(epoch) or epoch <= 0:
+        return None
+    if epoch >= 1e17:
+        epoch /= 1e9
+    elif epoch >= 1e14:
+        epoch /= 1e6
+    elif epoch >= 1e11:
+        epoch /= 1e3
     try:
         return dt.datetime.fromtimestamp(epoch, tz=dt.timezone.utc)
     except Exception:

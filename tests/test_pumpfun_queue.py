@@ -11,12 +11,14 @@ def _reset_queue(monkeypatch: pytest.MonkeyPatch):
         return None
 
     pumpfun._buffer.clear()
+    pumpfun._pending.clear()
     pumpfun._seen.clear()
     monkeypatch.setattr(pumpfun, "_ensure_started", _already_started)
     monkeypatch.setattr(pumpfun, "_BUFFER_MAX", 500)
     monkeypatch.setattr(pumpfun, "_SEEN_TTL_MIN", 60.0)
     yield
     pumpfun._buffer.clear()
+    pumpfun._pending.clear()
     pumpfun._seen.clear()
 
 

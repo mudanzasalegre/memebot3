@@ -4937,6 +4937,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             apply_green_sniper_context(token, green_decision)
             schedule_social_enrichment(token, lane=green_decision.lane)
         if green_decision.action == "delay":
+            if green_decision.reason == "missing_age":
+                _defer_entry_observation(token, reason="missing_age", stage="green_sniper")
+                return
             paper_bootstrap_decision = await _maybe_apply_paper_bootstrap(
                 token,
                 ses,

@@ -92,7 +92,7 @@ def _to_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
-def _age_minutes(token: dict[str, Any]) -> float:
+def _age_minutes(token: dict[str, Any]) -> float | None:
     return compute_age_minutes(token)
 
 
@@ -125,7 +125,7 @@ def _size_hint(token: dict[str, Any], score: float) -> str:
     txns = _to_int(token.get("txns_last_5m"), 0)
     age = _age_minutes(token)
     rank = float(_to_float(token.get("rank_score") or token.get("research_rank_score"), 0.0) or 0.0)
-    if score >= 78.0 and rank >= 50.0 and txns >= int(getattr(CFG, "GREEN_SNIPER_HOT_MIN_TXNS_5M", 80) or 80) and 20.0 <= price5m <= 180.0 and age <= 3.0:
+    if score >= 78.0 and rank >= 50.0 and txns >= int(getattr(CFG, "GREEN_SNIPER_HOT_MIN_TXNS_5M", 80) or 80) and 20.0 <= price5m <= 180.0 and age is not None and age <= 3.0:
         return "hot"
     if score >= 55.0:
         return "core"
@@ -200,7 +200,7 @@ def _paper_birth_probe_allowed(
     dry_run: bool,
     live: bool,
     source: str,
-    age: float,
+    age: float | None,
     liq: float,
     impact: float,
     mcap: float,
@@ -217,7 +217,7 @@ def _paper_birth_probe_allowed(
     max_age = float(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_MAX_AGE_MIN", 3.0) or 3.0)
     min_liq = float(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_MIN_LIQUIDITY_USD", 1000.0) or 1000.0)
     max_impact = float(getattr(CFG, "GREEN_SNIPER_PAPER_BIRTH_PROBE_MAX_PRICE_IMPACT_PCT", 25.0) or 25.0)
-    if age > max_age or liq < min_liq or impact > max_impact:
+    if age is None or age > max_age or liq < min_liq or impact > max_impact:
         return False
     if mcap > 0 and mcap > float(getattr(CFG, "GREEN_SNIPER_MAX_MARKET_CAP_USD", 180000.0) or 180000.0):
         return False
@@ -280,6 +280,14 @@ def evaluate_green_sniper(token: dict[str, Any], *, dry_run: bool, live: bool) -
     max_impact = float(getattr(CFG, "GREEN_SNIPER_LIVE_MAX_PRICE_IMPACT_PCT", 12.0) if live else getattr(CFG, "GREEN_SNIPER_MAX_PRICE_IMPACT_PCT", 20.0))
     min_txns = int(getattr(CFG, "GREEN_SNIPER_LIVE_MIN_TXNS_5M", 60) if live else getattr(CFG, "GREEN_SNIPER_MIN_TXNS_5M", 35))
     route_required = bool(getattr(CFG, "GREEN_SNIPER_REQUIRE_ROUTE_LIVE", True) if live else getattr(CFG, "GREEN_SNIPER_REQUIRE_ROUTE_PAPER", False))
+
+    if age is None:
+        # Missing birth cannot prove the existing green age bounds or grant a
+        # newborn bonus/probe. The actual caller owns a bounded receipt wait.
+        return GreenSniperDecision(action="delay", lane=LANE_PUMP_EARLY_GREEN_SNIPER,
+            reason="missing_age", score=_score(token, live=live, has_route=has_route, proxy_liquidity=proxy_liq),
+            size_hint="micro", runner_profile="green_sniper_runner", reject_reasons=("missing_age",),
+            route_required=route_required, proxy_liquidity_used=proxy_liq)
 
     if live and not bool(getattr(CFG, "GREEN_SNIPER_LIVE_ENABLED", False)):
         failures.append("live_disabled")

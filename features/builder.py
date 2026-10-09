@@ -398,7 +398,7 @@ def _feature_value(tok: Dict[str, Any], col: str) -> Any:
     return val
 
 
-def _coerce_age_minutes(tok: Dict[str, Any], now: dt.datetime) -> float:
+def _coerce_age_minutes(tok: Dict[str, Any], now: dt.datetime) -> float | None:
     return compute_age_minutes(tok, now=now)
 
 
