@@ -1,0 +1,258 @@
+{
+  "stage": "order_independent_runner_ranking_evidence",
+  "status": "SOFTWARE_VERIFIED_RUNTIME_OFF_PROFITABILITY_INCOMPLETE",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Fix row-order-dependent precision/recall at k across classifier training, runner challenger/incumbent evaluation and scalar/batch ranking consumption. No operational bot, provider, order, active training or model/policy promotion.",
+  "source_and_grain": {
+    "source": "ml/model_validation_warnings.py, ml/family_training.py, ml/runner_advisory_learning.py and analytics/model_runtime_common.py; isolated synthetic tests in tests/test_ranking_tie_integrity.py.",
+    "grain": "One observed binary-target decision row. Multiple decisions about the same token are not made independent by this metric.",
+    "intended_use": "Model-score ranking evidence for advisory scanner ordering, not financial returns or a trading-policy tie-break.",
+    "controlling_source": "Current actual calculation and consumption code, verified through native isolated tests; historical operator data and models are not rewritten.",
+    "supporting_reference": "https://scikit-learn.org/stable/modules/generated/sklearn.metrics.precision_recall_curve.html",
+    "reference_qualification": "The official reference defines score-threshold precision/recall over distinct scores. The local rounded-capacity expected-boundary-tie rule is explicitly defined here, not claimed to be a scikit-learn implementation."
+  },
+  "findings": [
+    {
+      "id": "row_order_precision_and_recall",
+      "severity": "high",
+      "evidence": "Before repair, an all-equal100-row ranking with50 positives gives precision0.1 or0.9 after reversing the same labels. A mixed boundary-tie test gives0.8 instead of expected0.6 for three of five permutations. Initial regression run:5failed/3passed in3.33s.",
+      "impact": "An uninformative/tied head can appear better or worse depending on dataset order, biasing internal validation and later challenger/incumbent comparison. No actual missed trade or profit is inferred.",
+      "repair": "Select all rows strictly above the cutoff and allocate only the remaining rounded-k slots equally across the whole exact-score boundary group. Precision and recall share this calculation."
+    },
+    {
+      "id": "stale_ranking_definition",
+      "severity": "high",
+      "evidence": "Previous artifacts and unchanged-dataset cache did not identify the tie-handling metric generation or the configured top-k fraction.",
+      "impact": "Old row-order metrics could be consumed or skip a fresh evaluation after the definition changes.",
+      "repair": "Record expected_boundary_ties_v1, bump advisory pipeline7to8, include the ranking version and fraction in its fingerprint, require the current generation for internal/later comparison and scalar/batch ranking, and reject incompatible rollback heads. Retain original legacy artifacts."
+    }
+  ],
+  "contract": {
+    "selection": "k=max(1,round(n*clamp(fraction,0,1))); preserve original rounded capacity for strictly ordered scores.",
+    "ties": "For cutoff c, select all score>c rows and assign (k-count(score>c))/count(score=c) to every boundary row. No label-dependent choice, row-order tie-break, score rounding or random execution is introduced.",
+    "measures": "Precision=expected true positives/k; recall=expected true positives/all observed positives, unknown when no positives. Invalid binary truth, shapes or nonfinite fraction remain unknown; nonfinite predictions are excluded diagnostically, and cannot yield complete ranking validation.",
+    "lineage": "Current trained metadata includes the method version, row grain, k/fraction, cutoff, complete boundary size/weight and expected true positives. This is a definition discriminator, not independent execution attestation.",
+    "learned_lifecycle": "A checked successor must independently pass current internal/later evidence before replacing an incompatible incumbent. Original artifacts are preserved and never filled with retrospectively manufactured approvals.",
+    "scope": "All configured runner targets through10000 percent remain eligible for advisory ranking when supported. Synthetic balanced high-threshold fixtures do not prove rare-event generalization.",
+    "trading": "No new buy veto or permission, threshold relaxation, financial acceptance, sizing or exit change. Exact0.1SOL PAPER and uncapped residual upside with risk/holding protections remain."
+  },
+  "implemented_paths": [
+    "ml/model_validation_warnings.py",
+    "ml/family_training.py",
+    "ml/runner_advisory_learning.py",
+    "analytics/model_runtime_common.py",
+    "tests/test_ranking_tie_integrity.py",
+    "tests/test_runner_advisory_lifecycle.py",
+    "tests/test_hot_queue_model_refresh.py",
+    "tests/test_multi_head_inference.py",
+    "tests/test_context_encoding.py",
+    "tests/test_numeric_encoding.py",
+    "tests/test_strategy_context.py"
+  ],
+  "verification": {
+    "initial": {
+      "failed": 5,
+      "passed": 3,
+      "seconds": 3.33,
+      "exit_code": 1
+    },
+    "interim": {
+      "first": {
+        "passed": 21,
+        "failed": 1,
+        "seconds": 14.58,
+        "reason": "One old lifecycle fixture lacked the new metric discriminator; updated its explicit synthetic current-generation metadata."
+      },
+      "second": {
+        "passed": 136,
+        "seconds": 18.04,
+        "exit_code": 0
+      },
+      "third": {
+        "passed": 203,
+        "seconds": 63.94,
+        "exit_code": 0
+      },
+      "first_complete_attempt": {
+        "state": "INTERRUPTED_AFTER_LOCALIZED_FIXTURE_FAILURE_NOT_PASSED",
+        "observed_progress_percent": 21,
+        "reason": "Current ranking-generation rollback requirements exposed old synthetic context/numeric metadata and a strategy fixture asserting pipeline7. Updated synthetic current-generation fixtures only; independent financial acceptance was not weakened.",
+        "localized_context_case": {
+          "failed": 1,
+          "seconds": 2.59,
+          "exit_code": 1
+        },
+        "termination": "Only the two verified owned pytest process trees were terminated at2026-10-09T10:23:29.0620229Z before restarting both final complete suites. No publishing stop_stack invocation.",
+        "legacy_attempt_exit_code": 1
+      }
+    },
+    "new_test_cases": 40,
+    "focused_working": {
+      "passed": 548,
+      "seconds": 164.02,
+      "exit_code": 0
+    },
+    "focused_publishing": {
+      "passed": 548,
+      "seconds": 162.43,
+      "exit_code": 0
+    },
+    "full_working": {
+      "passed": 4738,
+      "seconds": 1088.33,
+      "exit_code": 0,
+      "command": "python -m pytest -q"
+    },
+    "full_publishing": {
+      "passed": 4738,
+      "seconds": 1067.01,
+      "exit_code": 0,
+      "command": "python -m pytest -q"
+    },
+    "preflight_working": {
+      "generated_at_utc": "2026-10-09T10:43:16.8064290Z",
+      "ok": true,
+      "config_import_returncode": 0,
+      "compile_errors": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true,
+      "external_pytest_returncode": 0,
+      "exit_code": 0
+    },
+    "preflight_publishing": {
+      "generated_at_utc": "2026-10-09T10:43:15.8089940Z",
+      "ok": true,
+      "config_import_returncode": 0,
+      "compile_errors": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true,
+      "external_pytest_returncode": 0,
+      "exit_code": 0
+    },
+    "source_snapshot": {
+      "files_each": 764,
+      "normalized_sha256": "987028059d21f8efa95731fad93369aaf38f67fa748b475a59aca2d9efcfb435",
+      "scope": "Verification source files; excludes docs/README and protected operator state.",
+      "checkouts": [
+        {
+          "checkout": "working",
+          "files": 764,
+          "sha256": "987028059d21f8efa95731fad93369aaf38f67fa748b475a59aca2d9efcfb435"
+        },
+        {
+          "checkout": "publishing",
+          "files": 764,
+          "sha256": "987028059d21f8efa95731fad93369aaf38f67fa748b475a59aca2d9efcfb435"
+        }
+      ]
+    },
+    "complete_suites_observed_at_utc": "2026-10-09T10:43:01Z"
+  },
+  "runtime_off": {
+    "status": "VERIFIED_OFF",
+    "no_operational_start": true,
+    "requested_stop": {
+      "requested_by": "user",
+      "checkout": "working",
+      "invoked": "scripts/stop_stack.ps1 -RequestedBy user",
+      "started_at_utc": "2026-10-09T10:43:24Z",
+      "done_at_utc": "2026-10-09T10:43:27Z",
+      "captured_last_exit_code": 0,
+      "exit_code": 0,
+      "killed": 0,
+      "remaining": 0,
+      "finalizer_status": "ok",
+      "process_state": "stopped",
+      "publishing_stop_invoked": false
+    },
+    "inventory": {
+      "observed_at": "2026-10-09T10:43:43.3229269+00:00",
+      "since_utc": "2026-10-08T16:09:40.0000000Z",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "checkouts": [
+        {
+          "changed_by_mtime": 0,
+          "locks": 0,
+          "protected_files": 3763,
+          "checkout": "working",
+          "green_live_risk_file_exists": false
+        },
+        {
+          "changed_by_mtime": 0,
+          "locks": 0,
+          "protected_files": 27,
+          "checkout": "publishing",
+          "green_live_risk_file_exists": false
+        }
+      ],
+      "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+    },
+    "read_only_sql": [
+      {
+        "observed_at": "2026-10-09T10:43:42.220660+00:00",
+        "source": "data/memebotdatabase.db",
+        "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+        "rows": [],
+        "green_live_risk_file_exists": false,
+        "runtime_state": [
+          {
+            "bot_id": "main",
+            "process_state": "stopped",
+            "reports_refresh_state": "idle",
+            "retrain_state": "idle",
+            "updated_at": "2026-10-09 10:43:26.786348"
+          }
+        ]
+      },
+      {
+        "observed_at": "2026-10-09T10:43:42.286292+00:00",
+        "groups": {
+          "primary_portfolio": {
+            "rows": 0,
+            "original_entry_fx_declared": 0,
+            "exit_events": 0,
+            "original_exit_fx_declared": 0
+          },
+          "buy_journals": {
+            "grain": "One paper original buy intent, active or resolved",
+            "rows": 0,
+            "original_entry_fx_declared": 0
+          },
+          "closed_archives": {
+            "grain": "One archived paper trade",
+            "rows": 0,
+            "original_entry_fx_declared": 0
+          },
+          "learning_sources": {
+            "grain": "One original financial learning source",
+            "rows": 0,
+            "original_entry_fx_declared": 0
+          }
+        },
+        "sql_source": "data/memebotdatabase.db",
+        "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+        "sql_rows": [],
+        "interpretation": "Declaration coverage, not proof validation or profitability. Existing unproved records are not rewritten. Empty scope is not zero investment risk or future market coverage."
+      }
+    ],
+    "qualification": "No scoped original PAPER cash/closed population or green-lane LIVE positions is present. These bounded empty scopes do not prove a reconciled whole wallet, exhaustive historical trade coverage or financial profitability."
+  },
+  "publication": {
+    "state_at_audit_freeze": "Both matching checkouts passed final full regressions and preflights. D-only requested stop and current read-only inventory/SQL verify OFF. Normal scoped commit/push is next; the actual commit and post-publication proof will be recorded in a private delivery receipt after they exist.",
+    "scope": "Source/tests/documentation only; exclude operator data, models, logs, .env, .venv and work."
+  },
+  "remaining": [
+    "The full goal remains incomplete. This corrects a model-score diagnostic; it does not prove independent token/time uncertainty, production distribution stability, original full-strategy decision/capital/execution/finality ownership, feed/market coverage or prospective net profit.",
+    "Synthetic high-threshold examples are not rare-runner real-world validation. Actual profitable capture above100/200 percent is not established.",
+    "Future positive returns, maximum capture and an error-free first operational run cannot be guaranteed. Trading and active model/policy promotion stay disabled."
+  ],
+  "analysis_workflow": "Data Analytics source/grain checks separate observed-target ranking diagnostics from original financial performance evidence; synthetic fixtures are not operator trades or rare-runner profitability."
+}

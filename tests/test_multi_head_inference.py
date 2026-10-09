@@ -14,6 +14,7 @@ import pytest
 
 from analytics import model_runtime_common as runtime
 from analytics.inference_scope import ensure_inference_scope, inference_scope, scoped_value
+from ml.model_validation_warnings import RANKING_METRIC_VERSION
 
 
 class Ranker:
@@ -47,6 +48,7 @@ def write_head(root, target, value, *, version=None, family="runner", metadata_c
     checksum = sha256(path.read_bytes()).hexdigest()
     metadata = {"family": family, "target": target, "features": ["price_pct_5m"],
                 "model_sha256": checksum, "ranking_validation_ready": True,
+                "ranking_metric_version": RANKING_METRIC_VERSION,
                 "rank_reference_quantiles": [0, .25, .5, .75, 1],
                 "validation": {"mode": "purged_token_walk_forward", "temporal": {"out_of_sample_rows": 30}}}
     if version:

@@ -45,26 +45,14 @@ from ml.model_validation_warnings import (
     WARNING_SINGLE_CLASS,
     WARNING_UNSTABLE_BY_LANE,
     lane_stability_warning,
-    precision_at_k,
+    ranking_at_k,
+    RANKING_METRIC_VERSION,
     target_validation_payload,
 )
 
 
 def _recall_at_k(y_true: Any, scores: Any, *, k_pct: float | None = None) -> float | None:
-    truth = np.asarray(y_true, dtype=int)
-    pred = np.asarray(scores, dtype=float)
-    if truth.size == 0 or pred.size == 0 or truth.size != pred.size:
-        return None
-    finite = np.isfinite(pred)
-    truth = truth[finite]
-    pred = pred[finite]
-    positives = int((truth > 0).sum())
-    if truth.size == 0 or positives <= 0:
-        return None
-    pct = float(k_pct if k_pct is not None else getattr(CFG, "PRECISION_AT_K_PCT", 0.10))
-    k = max(1, int(round(truth.size * max(min(pct, 1.0), 0.0))))
-    order = np.argsort(pred)[::-1][:k]
-    return float((truth[order] > 0).sum() / positives)
+    return ranking_at_k(y_true, scores, k_pct=k_pct)["recall"]
 
 
 def _json_safe(value: Any) -> Any:
@@ -292,8 +280,8 @@ def train_classifier_family(
         )
         truth, pred, positions, temporal = _forward_predictions(target_df, target_X, y, model, min_rows=min_rows, classifier=True)
         model, calibration = fit_calibrated_ranker(model, target_X, y, target_df, min_rows=min_rows)
-        p_at_k = precision_at_k(truth, pred)
-        r_at_k = _recall_at_k(truth, pred)
+        ranking = ranking_at_k(truth, pred)
+        p_at_k, r_at_k = ranking["precision"], ranking["recall"]
         target_warnings = [WARNING_NOT_READY_FOR_ENFORCEMENT]
         if not len(pred):
             target_warnings.append(WARNING_IN_SAMPLE_ONLY)
@@ -312,7 +300,8 @@ def train_classifier_family(
                                  and skill is not None and skill > 0)
         lift = p_at_k / float(np.mean(truth)) if p_at_k is not None and len(truth) and np.mean(truth) > 0 else None
         positive_tokens = temporal_eligibility(target_df)[3].iloc[positions][truth == 1].nunique() if len(truth) else 0
-        ranking_ready = bool(temporal["out_of_sample_unique_tokens"] >= 30 and positive_tokens >= 5
+        ranking_ready = bool(ranking["rows"] == len(truth)
+                             and temporal["out_of_sample_unique_tokens"] >= 30 and positive_tokens >= 5
                              and lift is not None and lift >= 1.25)
         report["targets"][target] = {
             "status": "trained",
@@ -332,12 +321,14 @@ def train_classifier_family(
             "prediction_kind": "calibrated_binary_probability",
             "probability_validation_ready": probability_ready,
             "ranking_validation_ready": ranking_ready,
+            "ranking_metric_version": RANKING_METRIC_VERSION,
+            "ranking_metrics": ranking,
             "calibration": calibration,
             "rank_reference_quantiles": np.quantile(model.rank_score(target_X), np.linspace(0, 1, 101)).tolist(),
             "probability_caveat": "Ranking scores are separate from held-out calibrated event probabilities. Neither proves executable or costed profit, and prospective validation is required before sizing or exits change.",
             "precision_at_k": p_at_k,
             "recall_at_k": r_at_k,
-            "precision_at_k_pct": float(getattr(CFG, "PRECISION_AT_K_PCT", 0.10) or 0.10),
+            "precision_at_k_pct": ranking["k_pct"],
             "features": features,
             "auxiliary_semantics_training": population_proof(target_df),
             "strategy_context_training": strategy_population_proof(target_df),

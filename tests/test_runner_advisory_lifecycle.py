@@ -146,9 +146,10 @@ def test_old_model_only_approval_stays_unknown_until_checked_successor(trained, 
 
 
 def test_decision_requires_same_cohort_and_later_positives():
-    candidate = {"ranking_validation_ready": True}
+    candidate = {"ranking_validation_ready": True, "ranking_metric_version": learning.RANKING_METRIC_VERSION}
     new = {"rows": 100, "positives": 10, "unique_tokens": 100, "positive_tokens": 10,
-           "precision_lift_at_k": 3.0, "cohort_sha256": "a"}
+           "precision_lift_at_k": 3.0, "cohort_sha256": "a",
+           "ranking_metric_version": learning.RANKING_METRIC_VERSION}
     old = {**new, "precision_lift_at_k": 2.0, "cohort_sha256": "b"}
     assert learning._candidate_decision(candidate, new, old, min_lift_delta=0.05)[1] == "incomparable_cohorts"
     assert not learning._candidate_decision(candidate, {**new, "positives": 4}, None, min_lift_delta=0.05)[0]

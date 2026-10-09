@@ -205,6 +205,16 @@ y remanentes sin techo fijo de beneficio. Esta comprobacion no autentica
 todo el proceso, sus inputs o el caller realmente ejecutado, ni acredita
 rentabilidad. Vease `docs/audits/loaded_entry_gate_integrity_20261009.json`.
 
+La evaluacion del ranking ya no elige ganadores entre puntuaciones iguales
+por el orden de las filas. Precision y recall comparten los puestos del corte
+proporcionalmente entre todos los empates exactos, sin ampliar la capacidad.
+La generacion de la metrica y la fraccion top-k quedan declaradas; evidencia
+antigua no puede aprobar ranking nuevo ni saltarse la reevaluacion por cache.
+Los artefactos originales se conservan y los filtros de compra no cambian.
+Los targets extremos siguen siendo elegibles cuando existe evidencia; esta
+correccion no demuestra rentabilidad ni generalizacion de eventos raros.
+Vease `docs/audits/ranking_tie_integrity_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

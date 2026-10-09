@@ -281,6 +281,7 @@ def test_advisory_comparison_requires_same_accepted_encoding():
 def test_advisory_rollback_cannot_activate_a_different_context_schema(tmp_path):
     from hashlib import sha256
     from ml.runner_advisory_learning import rollback_runner_advisory
+    from ml.model_validation_warnings import RANKING_METRIC_VERSION
     directory = tmp_path / "ml" / "models" / "runner"
     path = directory / "versions" / "one" / "runner_10000.pkl"
     path.parent.mkdir(parents=True)
@@ -289,7 +290,8 @@ def test_advisory_rollback_cannot_activate_a_different_context_schema(tmp_path):
     features = ["t0ctx_entry_lane__pump_early_green_candle_sniper"]
     metadata = {"activation_role": "scanner_ranking_only", "model_sha256": checksum,
         "family": "runner", "target": "runner_10000",
-        "features": features, "context_encoding": context_encoding_schema(features)}
+        "features": features, "context_encoding": context_encoding_schema(features),
+        "ranking_metric_version": RANKING_METRIC_VERSION}
     metadata["context_encoding"]["schema_sha256"] = "invalid"
     path.with_suffix(".meta.json").write_text(json.dumps(metadata))
     manifest = directory / "advisory_manifest.json"
