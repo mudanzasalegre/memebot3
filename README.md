@@ -99,6 +99,15 @@ de ganancia eliminando comisiones de forma coherente, pero no autentica
 recibos contra un proveedor ni demuestra beneficios LIVE. Vease
 `docs/audits/original_paper_cost_basis_20261009.json`.
 
+La evidencia financiera tampoco puede degradarse a compatibilidad antigua
+eliminando los recibos FX originales y recalculando el hash. Aprendizaje y
+evidencia prospectiva exigen la caja cotizada completa; los metadatos de
+modelos financieros declaran esa base. Los historicos con cifras coherentes
+pero sin prueba completa pueden conservarse como diagnostico, nunca como
+certificacion financiera. El ranking de oportunidades sigue separado y los
+retornos extremos no se recortan por este control. Vease
+`docs/audits/financial_provenance_downgrade_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

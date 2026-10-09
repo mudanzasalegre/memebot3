@@ -18,12 +18,13 @@ from utils.market_observation import stamp_market_observation
 
 
 def current_vector(monkeypatch, i=0, *, subprofile=None, address=None):
+    from net_financial_fixtures import mint_for
     stamp = pd.Timestamp("2026-09-01T00:00:00Z") + pd.Timedelta(minutes=10 * i)
     clock = stamp.timestamp()
     with monkeypatch.context() as scope:
         scope.setattr(aux.time, "time", lambda: clock)
         scope.setattr(aux, "observation_clock", lambda: clock)
-        token = stamp_market_observation({"address": address or f"M{i:031d}", "price_usd": 1.,
+        token = stamp_market_observation({"address": address or mint_for(f"M{i:031d}"), "price_usd": 1.,
             "price_pct_5m": 80.12345 if i % 2 else -5.12345,
             "txns_last_5m_buys": 10, "txns_last_5m_sells": 2, "txns_last_5m": 12,
             "liquidity_usd": 20000.12345, "liquidity_is_proxy": 0, "liquidity_usd_is_proxy": 0,

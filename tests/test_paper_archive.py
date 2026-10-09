@@ -24,19 +24,15 @@ IDENTITY = "a" * 32
 
 def closed_row(identity=IDENTITY, *, token=MINT):
     opened = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=26)
-    return {"entry_intent_id": identity, "buy_signature": "SIM-" + identity,
-        "token_address": token, "run_id": "trial", "config_profile": "challenger", "config_hash": "hash",
-        "dry_run": True, "closed": True, "opened_at": opened.isoformat(),
-        "closed_at": (opened + dt.timedelta(hours=1)).isoformat(), "qty_lamports": 0,
-        "entry_qty": 1980198, "entry_notional_usd": 10., "amount_sol": .1,
-        "execution_cost_model": {"version": "estimated-v1", "slippage_bps": 100,
-            "fee_sol_per_fill": .000025, "observed_execution": False},
-        "net_total_pnl_usd": 1., "net_total_pnl_pct": 10., "total_pnl_usd": 1.005,
-        "estimated_fees_usd": .005, "estimated_fees_sol": .00005, "execution_fill_count": 2,
-        "net_total_pnl_sol": .01, "total_proceeds_sol": .11005,
-        "entry_route_quote": {"in_amount": 100000000, "out_amount": 2000000,
-            "impact_bps": 1, "max_impact_pct": 3}, "quantity_basis": "quoted_raw_spl_units",
-        "price_source_close": "jupiter_reverse_quote", "highest_pnl_pct": 10000.}
+    import pandas as pd
+    from net_financial_fixtures import net_frame
+    # Original synthetic zero-fee receipts, not a legacy scalar-only shortcut.
+    row = net_frame(pd.DataFrame([dict(address=token, timestamp=opened,
+        ts=opened+dt.timedelta(hours=1), target_total_pnl_pct=10.)]), fee_sol_per_fill=0.).iloc[0]
+    trade = json.loads(row.outcome_execution_proof)["trade"]
+    trade.update(entry_intent_id=identity, buy_signature="SIM-"+identity,
+                 run_id="trial", config_profile="challenger", config_hash="hash", highest_pnl_pct=10000.)
+    return trade
 
 
 def evidence(root):
@@ -101,7 +97,7 @@ def test_archive_is_immutable_idempotent_and_keeps_legacy_bytes(tmp_path):
     assert path.read_bytes() == before and path.stat().st_mtime_ns == modified
     assert legacy.read_bytes() == b'{"historic":true}\n'
     with pytest.raises(archive.PaperArchiveError, match="cannot be overwritten"):
-        archive.archive_closed_trade(tmp_path, {**row, "net_total_pnl_usd": 999}, token=MINT)
+        archive.archive_closed_trade(tmp_path, {**row, "highest_pnl_pct": 999}, token=MINT)
     assert path.read_bytes() == before
 
 
@@ -110,8 +106,7 @@ def test_snapshot_filters_private_payload_and_does_not_alias_input(tmp_path):
     row["private_key"] = "not-a-real-secret"
     row["entry_route_quote"]["authorization"] = "not-a-real-secret"
     row["execution_cost_model"]["credential"] = "not-a-real-secret"
-    row["exit_fill_events"] = [{"intent_id": "b" * 32, "qty_before": 1000,
-        "response": {"qty_sold": 1000, "provider_private_payload": "not-a-real-secret"}}]
+    row["exit_fill_events"][0]["response"]["provider_private_payload"] = "not-a-real-secret"
     archive.archive_closed_trade(tmp_path, row, token=MINT)
     row["net_total_pnl_usd"] = -999
     contents = (tmp_path / "paper_closed_trades" / (IDENTITY + ".json")).read_text()

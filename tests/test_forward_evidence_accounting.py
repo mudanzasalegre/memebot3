@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from hashlib import sha256
 
 import pytest
 
@@ -11,23 +12,15 @@ from analytics.forward_evidence import collect_forward_evidence, forward_accepta
 def _row(*, address="CaseSensitiveMint", opened=None, pct=10):
     now = dt.datetime.now(dt.timezone.utc)
     opened = opened or now - dt.timedelta(hours=26)
-    net = pct / 10
-    return {
-        "token_address": address, "run_id": "trial", "config_profile": "challenger", "config_hash": "hash",
-        "dry_run": True, "closed": True, "opened_at": opened.isoformat(),
-        "closed_at": (opened + dt.timedelta(hours=1)).isoformat(),
-        "execution_cost_model": {"version": "estimated-v1", "slippage_bps": 100,
-                                 "fee_sol_per_fill": .000025, "observed_execution": False},
-        "net_total_pnl_usd": net, "net_total_pnl_pct": pct, "total_pnl_usd": net + .005,
-        "entry_notional_usd": 10, "amount_sol": .1, "entry_qty": int(2000000 / 1.01),
-        "qty_lamports": 0, "estimated_fees_usd": .005, "estimated_fees_sol": .00005,
-        "execution_fill_count": 2, "net_total_pnl_sol": net / 100,
-        "total_proceeds_sol": .1 + .00005 + net / 100,
-        "entry_route_quote": {"in_amount": 100000000, "out_amount": 2000000,
-                              "impact_bps": 1, "max_impact_pct": 3},
-        "quantity_basis": "quoted_raw_spl_units", "price_source_close": "jupiter_reverse_quote",
-        "highest_pnl_pct": 5000,
-    }
+    import pandas as pd
+    from net_financial_fixtures import net_frame
+    frame = net_frame(pd.DataFrame([dict(address=address, timestamp=opened,
+        ts=opened + dt.timedelta(hours=1), target_total_pnl_pct=pct)]))
+    trade = json.loads(frame.iloc[0].outcome_execution_proof)["trade"]
+    identity = sha256((trade["token_address"] + opened.isoformat()).encode()).hexdigest()[:32]
+    trade.update(entry_intent_id=identity, buy_signature="SIM-"+identity,
+                 run_id="trial", config_profile="challenger", config_hash="hash", highest_pnl_pct=5000)
+    return trade
 
 
 def _collect(tmp_path, rows, *, started=None):
@@ -60,13 +53,13 @@ def test_terminal_close_supersedes_stale_partial_and_duplicate_snapshots(tmp_pat
     evidence = _collect(tmp_path, [stale, row, row, stale])
     assert evidence["closed_trades"] == 1 and evidence["open_positions"] == 0
     assert evidence["quote_backed_closed_trades"] == 1
-    assert evidence["total_pnl_usd"] == 1
+    assert evidence["total_pnl_usd"] == pytest.approx(1)
     assert evidence["runner_capture_ratio"] == pytest.approx(.002)  # 10% net, NOT a +5,000% gain
 
 
 def test_conflicting_costed_copies_are_not_arbitrarily_selected(tmp_path):
     first = _row(pct=10)
-    second = {**_row(pct=20), "opened_at": first["opened_at"], "closed_at": first["closed_at"]}
+    second = _row(pct=20, opened=dt.datetime.fromisoformat(first["opened_at"]))
     evidence = _collect(tmp_path, [first, second])
     assert evidence["closed_trades"] == 0
     assert "conflicting_costed_trade_records" in evidence["evidence_rejections"]
@@ -91,6 +84,11 @@ def test_live_test_or_other_cohort_rows_are_excluded(tmp_path, changes):
 
 def test_synthetic_prices_are_separate_from_exact_quote_evidence(tmp_path):
     row = _row()
+    from execution.paper_execution_cost import ENTRY_FIELDS as COST_FIELDS
+    from execution.paper_execution_fx import ENTRY_FIELDS as FX_FIELDS, EXIT_FIELDS
+    for name in (*COST_FIELDS, *FX_FIELDS): row.pop(name)
+    for event in row["exit_fill_events"]:
+        for name in EXIT_FIELDS[:2]: event["response"].pop(name)
     row.update(entry_route_quote=None, quantity_basis="synthetic_paper_units", price_source_close="price_api")
     evidence = _collect(tmp_path, [row])
     assert evidence["closed_trades"] == 1 and evidence["quote_backed_closed_trades"] == 0

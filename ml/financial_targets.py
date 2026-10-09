@@ -10,6 +10,7 @@ import pandas as pd
 
 from runtime.trade_learning import VERSION, validate_source
 from execution.paper_execution_cost import VERSION as COST_VERSION
+from execution.paper_closed_cash import VERSION as CASH_VERSION
 from features.builder import COLUMNS
 from features.auxiliary_semantics import PROOF_COLUMN
 from ml.data_contract import normalize_sample_type
@@ -70,6 +71,7 @@ def checked_financial_frame(frame):
     report = {
         "version": TRAINING_VERSION, "return_basis": VERSION, "scope": TRAINING_SCOPE,
         "cost_basis_version": COST_VERSION,
+        "cash_basis_version": CASH_VERSION,
         "source_rows": len(frame), "rows": len(out), "unique_trades": len(out),
         "unchecked_rows": unchecked, "duplicates_removed": duplicates,
         "conflicting_trade_ids": conflicts, "positive_pnl_ratios": sorted(thresholds),
@@ -88,6 +90,7 @@ def supported_financial_training(metadata, *, entry=False):
         thresholds = proof["positive_pnl_ratios"]
         return (proof.get("ready") is True and proof.get("version") == TRAINING_VERSION
                 and proof.get("cost_basis_version") == COST_VERSION
+                and proof.get("cash_basis_version") == CASH_VERSION
                 and proof.get("return_basis") == VERSION and proof.get("scope") == TRAINING_SCOPE
                 and type(rows) is int and rows > 0 and type(proof.get("unique_trades")) is int
                 and proof.get("unique_trades") == rows

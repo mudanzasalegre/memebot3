@@ -1,0 +1,82 @@
+{
+  "stage": "financial_provenance_downgrade_prevention",
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Prevent original financial PAPER proof from being downgraded into legacy/scalar compatibility by deleting receipts and rehashing. Preserve 0.1 SOL PAPER, uncapped extreme opportunity targets, diagnostic history and all runtime OFF.",
+  "finding": {
+    "id": "missing_original_fx_can_still_certify_rehashed_financial_evidence",
+    "severity": "high",
+    "reproduction": "Three isolated tests failed before the repair: an actual temporary PAPER buy/close source remained accepted for trade learning, standalone forward financial evidence and checked net model training after all original entry/exit FX receipts were removed and the checksum recomputed. The standalone result was approximately -3 percent and its executable flag was true. This was synthetic receipt validation, not an operator trade or a profitable market run.",
+    "repair": "Require the original entry FX and strict original buy quote for learning. Forward financial acceptance is true only after complete original quoted closed-cash reconstruction; legacy/scalar totals retain diagnostic value but cannot certify an executable estimated-net close. Require the original closed-cash basis version in financial model population metadata."
+  },
+  "financial_contract": {
+    "legacy": "Archive and diagnostic readers retain unchanged historical input. Removing every original proof field cannot elevate legacy accounting into financial acceptance. No historical provider receipts, prices or learned artifacts are backfilled.",
+    "training": "Declared broken financial proof produces missing net targets/labels instead of falling back to mutable gross or peak columns. Unsupported financial population metadata fails closed. Peak opportunity ranking remains a separate non-financial task.",
+    "uncapped_returns": "Complete original synthetic cash receipts preserve signed losses and targets of 500, 1000, 5000 and 50000 percent. Existing ladder/trailing/reused-cash scenarios retain a residual runner without a fixed profit-percentage ceiling, including test trajectories up to 100000 percent. Existing drawdown, liquidity and holding-time protections remain; none promises capture of the peak.",
+    "fixtures": "Financial integration fixtures now carry valid synthetic base58 mints, original quote observations, typed entry/exit FX, detached cost assumptions and complete exit receipts. Synthetic net losses below minus100 percent use explicitly higher estimated fill fees, not negative quote proceeds; this is numerical fee accounting, not observed affordable market execution. Frozen auxiliary/strategy fixtures capture the valid synthetic mint before creating original feature proof; no frozen proof is retrospectively rewritten.",
+    "limitation": "Receipt conservation does not authenticate an independent provider or prevent coherent rewriting of all original sources. Estimated PAPER cash is neither an observed LIVE fill nor proof of full-strategy profitability or exhaustive opportunity coverage."
+  },
+  "frozen_verification_source": {
+    "files": 751,
+    "normalized_sha256": "9286966094f168700b456d110c3f97048489d79f4f3713b6be6e2eed45780805",
+    "checkouts_equal": true,
+    "scope": "Allowed executable/test/source assets excluding docs/README and operator state. Identical before and after both full regressions, both first-launch preflights and the D-only requested stop."
+  },
+  "verification": {
+    "new_isolated_cases": 28,
+    "focused_financial_integration": "310 passed in80.98s; exit0. Covers new downgrade tests, original costs, financial model acceptance, frozen strategy/auxiliary features, archive, forward accounting and execution integrity.",
+    "uncapped_runner_integration": "105 passed in7.49s; exit0. Reused original cash, trailing and partial ladder include extreme peaks, signed losses and residual quantity without repeated partial sales.",
+    "intermediate_repairs": "First reproduction failed all three new financial consumers as expected. The expanded integration exposed legacy synthetic fixtures without complete original receipt provenance. A frozen invalid mint was corrected at fixture capture, not in production. An archive test now exercises a valid differing snapshot for immutability while invalid cash is checked by the financial validator. A scalar-only forward fixture was replaced by complete original synthetic receipts; zero-fee diagnostic mutations and exact float assertions were adjusted to their actual recorded basis. Production validators were not weakened to preserve legacy financial acceptance.",
+    "working_full_suite": "4160 passed in801.10s; exit0",
+    "publishing_full_suite": "4160 passed in779.64s; exit0; existing working-checkout Python runtime",
+    "preflight_working": {"generated_at_utc": "2026-10-09T01:16:04.519597+00:00", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders_passed": 7, "pytest_external_returncode": 0},
+    "preflight_publishing": {"generated_at_utc": "2026-10-09T01:16:07.102475+00:00", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders_passed": 7, "pytest_external_returncode": 0},
+    "git_diff_check": "PASS before full regression; ordinary LF/CRLF notices only"
+  },
+  "configuration_observation": {
+    "method": "Read-only config import with a safe explicit field whitelist. No launcher, provider or trading call.",
+    "DRY_RUN": true,
+    "PAPER_EXACT_TRADE_SIZE_ENABLED": true,
+    "PAPER_EXACT_TRADE_SIZE_SOL": 0.1,
+    "RUNNER_PRICE_TRAILING_PAPER_ENABLED": true,
+    "RUNNER_PRICE_TRAILING_MIN_PEAK_PCT": 300.0,
+    "RUNNER_PRICE_TRAILING_DRAWDOWN_PCT": 20.0,
+    "RUNNER_PRICE_TRAILING_MAX_HOLD_H": 24.0,
+    "qualification": "Current working config, not a launched or financially accepted strategy. No fixed profit-percent ceiling or unbounded holding promise."
+  },
+  "population_observation": {
+    "observed_at_utc": "2026-10-09T01:16:16.427446+00:00",
+    "primary_portfolio_rows": 0,
+    "paper_original_buy_journals": 0,
+    "paper_closed_archives": 0,
+    "paper_net_learning_sources": 0,
+    "source": "data/memebotdatabase.db",
+    "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+    "sql_rows": [],
+    "qualification": "Read-only original-source census and SQLite mode=ro. This empty population is not a financial validation rate or evidence of profitable trades, and does not enumerate every legacy log or diagnostic."
+  },
+  "runtime_handoff": {
+    "status": "VERIFIED_OFF",
+    "observed_at_utc": "2026-10-09T01:16:17.6140155+00:00",
+    "requested_stop": "D-only scripts/stop_stack.ps1 -RequestedBy user; requested01:16:13Z, completed01:16:16Z, exit0, killed0, remaining0. No publishing-checkout stop or daemon launch.",
+    "sql_main_state": "stopped/idle/idle; updated2026-10-09 01:16:15.337668",
+    "runtime_processes": 0,
+    "task_owned_previews": 0,
+    "matching_tasks": 0,
+    "matching_services": 0,
+    "locks_both_checkouts": 0,
+    "green_live_risk_files_both_checkouts": 0,
+    "previous_inventory_this_stage": "2026-10-09T01:04:35.8682896+00:00: runtime0, owned previews0, tasks0, services0 and all four lock paths in both checkouts absent.",
+    "protected_operator_state": "3763 working and27 publishing files unchanged by mtime since2026-10-08T16:09:40Z. This census is not cryptographic historical proof. Intended stop SQL/log and preflight metrics are excluded.",
+    "authority": "No bot/API/UI/training/AutoResearch, provider, wallet or order activation. No original data, .env, model/policy or operator artifact edits. Synthetic verification uses temporary isolated stores; requested shutdown finalizer only runs in D."
+  },
+  "publication": {
+    "status": "SOURCE_SYNC_VERIFIED_READY_FOR_COMMIT_PUSH",
+    "branch": "main",
+    "remote_main_before_stage": "447d9d3955a213c46d87b29b6d9a62f9692b295c",
+    "scope": "Nine reviewed source/test paths plus README and two audit documents. No secrets, operator data, work files, runtime state or learned artifacts.",
+    "record_chronology": "This audit is finalized before its scoped commit/push. Actual remote revision, clean publication checkout and final source equality are checked afterwards in same-turn delivery evidence."
+  },
+  "remaining": "Original LIVE FX/finality, full-strategy decision/risk/capital/provider/depth and opportunity-coverage acceptance, independently observed prospective net profitability and other goal boundaries remain incomplete. Source verification does not establish guaranteed or maximum profits. All runtime remains OFF."
+}

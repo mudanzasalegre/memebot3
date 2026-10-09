@@ -167,7 +167,7 @@ def validate_source(source):
     if (not isinstance(fill, dict) or type(fill.get("qty_lamports")) is not int
             or not 0 < trade["entry_qty"] <= 2**63 - 1 or not isinstance(quote, dict)
             or not valid_summary(quote, input_mint=SOL_MINT, output_mint=trade["token_address"],
-                amount=100000000, not_after=_time(trade["opened_at"]), allow_legacy=True)
+                amount=100000000, not_after=_time(trade["opened_at"]))
             or _time(trade["closed_at"]) > dt.datetime.now(dt.timezone.utc)):
         raise TradeLearningError("Unconfirmed raw quote quantity or future close")
     for name, target in (("qty_lamports", "entry_qty"), ("buy_price_usd", "buy_price_usd"),
@@ -177,7 +177,8 @@ def validate_source(source):
     if any(fill.get(name) != trade.get(name) for name in ENTRY_FIELDS):
         raise TradeLearningError("Buy and close original FX lineage conflicts")
     try:
-        validate_entry(fill, amount_sol=buy["amount_sol"], not_after=trade["opened_at"])
+        if not validate_entry(fill, amount_sol=buy["amount_sol"], not_after=trade["opened_at"]):
+            raise ValueError("Missing original entry FX receipt")
     except (ValueError, TypeError, KeyError) as exc:
         raise TradeLearningError("Buy source lost its original PAPER FX") from exc
     validate_entry_features(source["entry_features"], address=trade["token_address"])

@@ -33,9 +33,11 @@ def _costed_close(row: dict[str, Any]) -> tuple[float, float, float, float, bool
     from execution.paper_execution_fx import validate_entry, validate_exit
     try:
         from execution.paper_execution_cost import validate_entry as validate_cost
-        validate_cost(row)
+        original_cost = validate_cost(row)
         original_entry_fx = validate_entry(row, amount_sol=row.get("amount_sol", row.get("buy_amount_sol")),
                                           not_after=row.get("opened_at"))
+        if original_cost and not original_entry_fx:
+            return None  # Declared original costs cannot downgrade to scalar FX.
         if original_entry_fx and (row.get("entry_route_quote") is not None
                 or row.get("quantity_basis") == "quoted_raw_spl_units"):
             validate_cost(row, required=True)
@@ -83,35 +85,8 @@ def _costed_close(row: dict[str, Any]) -> tuple[float, float, float, float, bool
         if proceeds_sol is None or not math.isclose(net_sol, proceeds_sol - amount - fees_sol,
                                                    rel_tol=1e-7, abs_tol=1e-10):
             return None
-    quote = row.get("entry_route_quote")
-    executable = False
-    if isinstance(quote, dict):
-        incoming, outgoing = _finite(quote.get("in_amount")), _finite(quote.get("out_amount"))
-        impact, limit = _finite(quote.get("impact_bps")), _finite(quote.get("max_impact_pct"))
-        from execution.quote_observation import impact_within_limit
-        from execution.quote_receipt import valid_summary
-        from utils.raw_units import sol_to_lamports
-        receipt_valid = ("observation_receipt" not in quote and quote.get("protocol", "metis_v1") == "metis_v1"
-            or valid_summary(quote, output_mint=row.get("token_address"), amount=sol_to_lamports(amount)))
-        executable = (receipt_valid and incoming == sol_to_lamports(amount) and outgoing is not None and outgoing > 0
-                      and impact is not None and limit is not None and impact_within_limit(impact, limit, protocol=quote.get("protocol", "metis_v1"))
-                      and qty == int(outgoing / (1 + slippage / 10000))
-                      and row.get("quantity_basis") == "quoted_raw_spl_units"
-                      and row.get("price_source_close") == "jupiter_reverse_quote")
-        if executable and "observation_receipt" in quote:
-            from fetcher.jupiter_router import SOL_MINT
-            events = row.get("exit_fill_events")
-            executable = isinstance(events, list) and len(events) == int(fills) - 1
-            for event in events if executable else []:
-                response = event.get("response", {}) if isinstance(event, dict) else {}
-                exit_quote, sold = response.get("exit_route_quote"), response.get("qty_sold")
-                fill_at = parse_time(response.get("filled_at"))
-                executable = (type(sold) is int and sold > 0 and fill_at is not None
-                    and valid_summary(exit_quote, input_mint=row.get("token_address"), output_mint=SOL_MINT,
-                        amount=sold, not_after=fill_at))
-                if not executable:
-                    break
-    return pnl, pct, net_sol, amount, bool(executable)
+    # Legacy/scalar accounting is diagnostic, never executable financial proof.
+    return pnl, pct, net_sol, amount, False
 
 
 def collect_forward_evidence(root: Path, *, run_id: str | None, started_at: Any,

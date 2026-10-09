@@ -13,7 +13,7 @@ from sklearn.dummy import DummyClassifier
 
 from ml.family_training import train_classifier_family, train_regressor_family
 from ml.financial_targets import checked_financial_frame, supported_financial_training
-from net_financial_fixtures import net_frame
+from net_financial_fixtures import net_frame, mint_for
 
 
 def frame(n=160):
@@ -240,7 +240,7 @@ def test_primary_forward_holdout_purges_unclosed_training_labels(monkeypatch):
     monkeypatch.setattr(trainer, "HOLDOUT_DAYS", None)
     monkeypatch.setattr(trainer, "HOLDOUT_PCT", .25)
     train, test, metadata = trainer._forward_holdout_split(data.assign(mint=data.address))
-    assert metadata["label_availability_purged"] and "Mint0" not in train.address.tolist()
+    assert metadata["label_availability_purged"] and mint_for("Mint0") not in train.address.tolist()
     assert train.outcome_closed_at.max() < test.timestamp.min() - pd.Timedelta(seconds=60)
     assert not set(train.address) & set(test.address)
 
