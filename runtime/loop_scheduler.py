@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+from itertools import islice
 from collections.abc import Callable, Coroutine, Iterable
 from typing import Any
 
@@ -55,6 +56,24 @@ async def evaluate_hot_queue(queue: Any, evaluate: Callable, *, max_items: int,
         return batch[0] if batch else None
     return await evaluate_ready_queue(next_item, evaluate, max_items=max_items,
         budget_s=budget_s, clock=clock, identity=None)
+
+
+async def admit_hot_candidates(queue: Any, tokens: Iterable, *, source: str = "pumpfun",
+                               sleep: Callable = asyncio.sleep) -> int:
+    """Bound synchronous discovery work and yield between128-row chunks.
+
+    Do not bulk-pop the evaluation tail or launch parallel queue mutations.
+    Position supervision can run between chunks. No provider latency SLA is
+    implied: checked artifacts and payloads still need production profiling.
+    """
+    incoming, admitted = iter(tokens), 0
+    chunk = list(islice(incoming, 128))
+    while chunk:
+        admitted += sum(queue.add_many(chunk, source=source))
+        chunk = list(islice(incoming, 128))
+        if chunk:
+            await sleep(0)
+    return admitted
 
 
 async def evaluate_ready_queue(next_item: Callable, evaluate: Callable, *, max_items: int,

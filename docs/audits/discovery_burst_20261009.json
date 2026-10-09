@@ -1,0 +1,64 @@
+{
+  "stage": "bounded_actual_discovery_burst_admission",
+  "status": "SOFTWARE_VERIFIED_PUBLICATION_READY_RUNTIME_OFF",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Connect bounded vectorized advisory ranking to actual PumpFun/PumpPortal discovery ingestion, preserve sequential admission semantics and release the event loop between chunks. No operational bot, provider, wallet, order, training or active model/policy promotion.",
+  "source_and_grain": {
+    "source": "Actual fetcher/pumpfun.py buffer and run_bot.py discovery conditional; native HotQueue and runtime scheduler exercised with isolated synthetic snapshots and checked temporary rankers.",
+    "grain": "One incoming candidate snapshot in arrival order; repeat addresses can be legitimate partial updates, not duplicate financial trades.",
+    "default_delivery_limit": 75,
+    "default_buffer_capacity": 1500,
+    "batch_api_bound": 1000,
+    "actual_scheduler_chunk_bound": 128,
+    "scope_qualification": "Configured delivery/buffer limits are defaults, not measured production coverage. Birth-only notifications remain incomplete for learned market ranking. Original operator records are not rewritten."
+  },
+  "findings": [
+    {"id": "serial_discovery_rank_work", "severity": "high", "evidence": "Actual main admitted every stream snapshot with a separate HotQueue.add call. In the paired final synthetic nine-head workload, 75 measured snapshots require675 predictions and1.714757s; 1000 require9000 predictions and25.175951s.", "repair": "Actual main calls admit_hot_candidates, which submits at most128 snapshots to add_many and yields between chunks. One checked family owns each API burst and each head scores distinct snapshots vectorially. The corresponding workloads require9 predictions/0.091824s and72 predictions/2.561323s respectively. These are local processing measurements, not evidence of missed real trades or profitability."},
+    {"id": "scalar_batch_feature_epoch_difference", "severity": "medium", "evidence": "A native isolated feature-clock test observes None for the scalar builder clock versus the queue-owned timestamp for bulk admission; it fails before repair.", "repair": "Fresh scalar fallback uses the same checked one-row batch prediction and explicit queue observation epoch. Unknown birth stays unknown; original enqueue/observed clocks and deterministic expiry remain distinct."}
+  ],
+  "admission_contract": {
+    "order_capacity_and_history": "Sequential commit order, lowest-score/newest-tie capacity eviction, original waiting turn, seen/evaluation clocks, expiry, unchanged TTL and15-second reevaluation cooldown remain intact. The returned bool describes acceptance at that admission instant, not permanent retention or buy execution.",
+    "partial_updates": "Repeated identities partition prediction groups so later partial updates see earlier admissions/evictions. Prepared ranking is reused only when every final merged input, including source, matches. Earlier expiry/eviction invalidates a prepared merge and invokes checked scalar fallback.",
+    "data_quality": "Non-dict records, non-string root keys and missing identities are rejected without discarding valid peers. Incomplete, unproved or invalid market rows receive neutral learned priority. Head output shapes and nonfinite row behavior retain existing checked batch semantics.",
+    "ownership": "Incoming internal clocks, cached bonuses and generation fields are ignored; nested incoming snapshots are copied. A standalone fresh scheduling scope does not borrow an ambient entry generation or disable its provenance. Each128-row chunk captures a new coherent checked family; a change during a chunk is consumed by the next queue operation.",
+    "scheduling": "Work is local and synchronous within each chunk, with cooperative yield only between chunks. Queue mutation and existing position ownership are not made concurrent. Existing just-in-time evaluation tail, item limits, entry guards and financial/provider timeouts remain unchanged.",
+    "financial_boundary": "All nine ranking targets through+10000 percent remain advisory, not calibrated event probabilities or buy permission. PAPER retains exact0.1 SOL; LIVE size is separately approved. Residual upside has no newly introduced fixed profit ceiling, while original exit/risk/liquidity/time controls remain."
+  },
+  "implemented_paths": ["run_bot.py", "runtime/hot_queue.py", "runtime/loop_scheduler.py", "tests/test_discovery_burst_admission.py"],
+  "verification": {
+    "initial_api_cases": {"failed": 11, "deselected": 21, "seconds": 2.34, "exit_code": 1, "meaning": "New bulk/scheduler contracts are absent before implementation, not a measured real-market loss."},
+    "native_clock_reproduction": {"failed": 1, "deselected": 45, "seconds": 2.05, "exit_code": 1},
+    "command_incident": "One focused command named nonexistent test_runner_extreme_capture.py/test_paper_exact_size.py and collected no tests. Actual paths were discovered and included in final focused/full checks; zero collection is not validation.",
+    "new_cases": 46,
+    "focused_working": {"passed": 306, "seconds": 10.53, "exit_code": 0},
+    "focused_publishing": {"passed": 206, "seconds": 9.44, "exit_code": 0},
+    "full_working": {"passed": 4642, "seconds": 1080.02, "exit_code": 0},
+    "full_publishing": {"passed": 4642, "seconds": 1058.83, "exit_code": 0},
+    "preflight_working": {"generated_at_utc": "2026-10-09T07:45:04.0820330Z", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders": 7, "report_builders_ok": true, "external_pytest_returncode": 0, "exit_code": 0},
+    "preflight_publishing": {"generated_at_utc": "2026-10-09T07:45:03.0528220Z", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders": 7, "report_builders_ok": true, "external_pytest_returncode": 0, "exit_code": 0},
+    "source_snapshot": {"files": 761, "normalized_sha256": "81ea8e07f05ecb5dcc5efb8b7e47901897fe6b9eaf3a2bb37035be8aeca0b3fb", "identical_both_roots": true, "qualification": "Approved source/configuration/tests; documentation and protected operator artifacts are excluded."},
+    "synthetic_admission": {"observed_at_utc": "2026-10-09T07:26:22.179129Z", "samples": [
+      {"candidates": 75, "shape": "birth_only", "heads": 9, "sequential_seconds": 0.464822, "bounded_discovery_seconds": 0.021877, "sequential_predictions": 0, "bounded_predictions": 0},
+      {"candidates": 75, "shape": "measured_snapshot", "heads": 9, "sequential_seconds": 1.714757, "bounded_discovery_seconds": 0.091824, "sequential_predictions": 675, "bounded_predictions": 9},
+      {"candidates": 128, "shape": "measured_snapshot", "heads": 9, "sequential_seconds": 2.935313, "bounded_discovery_seconds": 0.151289, "sequential_predictions": 1152, "bounded_predictions": 9},
+      {"candidates": 1000, "shape": "measured_snapshot", "heads": 9, "sequential_seconds": 25.175951, "bounded_discovery_seconds": 2.561323, "sequential_predictions": 9000, "bounded_predictions": 72}
+    ], "qualification": "One observation per paired local workload with the same tiny temporary checked artifacts, queue capacity equal to sample count, no providers/actual trades. Every synthetic candidate is accepted and retained in both modes. This does not establish production-size artifact throughput, real coverage, SLA or profitability."}
+  },
+  "checked_profile_both_roots": {"dry_run": true, "exact_paper_size_enabled": true, "exact_size_sol": 0.1, "price_trailing_paper_enabled": true, "activation_peak_pct": 300.0, "max_peak_price_drawdown_pct": 20.0, "max_holding_hours": 24.0, "qualification": "Protections and holding bounds, not guaranteed profit or unlimited holding. Extreme price test cases are synthetic."},
+  "runtime_off": {
+    "stop": {"checkout": "working_only", "requested_by": "user", "completed_at_utc": "2026-10-09T07:45:07Z", "captured_last_exit_code": 0, "killed": 0, "remaining": 0, "proof": "LASTEXITCODE captured immediately after invocation; actual stop log reports killed0/remaining0 and runtime_finalizer status ok, independently followed by read-only inventory and SQL."},
+    "inventory_at_utc": "2026-10-09T07:45:25.7591589Z", "operational_processes": 0, "owned_previews": 0, "tasks": 0, "services": 0, "locks_both_roots": 0,
+    "runtime_state": {"main": "stopped", "reports": "idle", "retrain": "idle", "updated_at_utc": "2026-10-09T07:45:06.868692Z"},
+    "protected_files": {"working": 3763, "publishing": 27, "newer_mtimes": 0, "baseline_utc": "2026-10-08T16:09:40Z", "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."},
+    "paper_population_at_utc": "2026-10-09T07:45:25.843304Z", "original_paper_groups": {"primary_portfolio": 0, "buy_journals": 0, "closed_archives": 0, "financial_learning_sources": 0},
+    "paper_sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed", "paper_sql_rows": [],
+    "qualification": "Empty scoped PAPER records do not establish zero wallet exposure, zero investment risk, opportunity coverage or profitability. Same-turn post-publication/browser OFF checks are recorded separately."
+  },
+  "publication": {"state_at_audit_freeze": "Pending final verification and normal scoped commit/push; actual commit and remote equality are recorded separately after publication", "scope": "Source/tests/documentation only, excluding .env,.venv,data,models,logs,work. No destructive synchronization."},
+  "remaining": [
+    "Production-size artifacts, provider freshness/access/depth and actual feed/decision/capture coverage remain unverified by these synthetic workloads.",
+    "Full-strategy original execution/input/capital/cost/finality and prospective financial acceptance remain incomplete. Rare higher-target real models are not approved by synthetic rank fixtures.",
+    "Future profit, maximum opportunity capture and zero execution errors cannot be guaranteed. All operational services remain OFF."
+  ]
+}

@@ -182,6 +182,16 @@ controles de importe/riesgo/salida. Las mediciones locales con modelos sintetico
 no prueban cobertura del feed, latencia con artefactos reales ni rentabilidad.
 Vease `docs/audits/hot_queue_model_refresh_20261009.json`.
 
+La ruta real de discovery incorpora ahora snapshots en lotes acotados, con
+una generacion comprobada por lote y cesion del loop entre bloques de 128.
+Conserva fuentes, orden de admision, capacidad, caducidad, cooldown y updates
+parciales; una fila invalida no descarta sus vecinos. El ranking preparado
+solo se reutiliza si coincide todo el input final. El fallback escalar usa
+el mismo reloj de features. No convierte avisos de nacimiento en mediciones
+de mercado ni permite compras. Mantiene 0.1 SOL PAPER y remanentes sin techo
+fijo de subida, sujetos a riesgo y salidas. Las pruebas sinteticas no prueban
+cobertura ni beneficios. Vease `docs/audits/discovery_burst_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

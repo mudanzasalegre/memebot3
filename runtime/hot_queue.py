@@ -154,7 +154,7 @@ class HotQueue:
         self._last_prune_at = now
 
     def add(self, token: dict[str, Any], *, source: str = "pumpfun", reason: str = "hot_candidate") -> bool:
-        if not str(token.get("address") or token.get("mint") or "").strip():
+        if not _valid_candidate(token):
             return False
         # This is scheduling, not the already pinned generation of an entry.
         # All waiting candidates and the newcomer see one detached family.
@@ -164,10 +164,71 @@ class HotQueue:
             self._refresh_priorities(now, generation, force=False)
             return self._add(token, source=source, reason=reason, now=now, generation=generation)
 
+    def add_many(self, tokens: list[dict[str, Any]], *, source: str = "pumpfun",
+                 reason: str = "hot_candidate") -> list[bool]:
+        """Admit at most1000 snapshots, retaining sequential queue semantics.
+
+        One detached checked family owns the burst. Distinct identities can
+        share a vectorized prediction; repeated identities start a new group
+        so partial updates see earlier admissions/evictions. A prepared rank
+        is reused only if its complete merged input still matches at admission.
+        This schedules candidates, never evaluates or grants buy permission.
+        """
+        if not isinstance(tokens, list) or len(tokens) > 1000:
+            raise ValueError("Admission batch must contain at most 1000 snapshots")
+        if not tokens:
+            return []
+        results: list[bool] = []
+        with inference_scope(record_observations=False):
+            now = self._now()
+            generation = runner_priority_generation()
+            self._refresh_priorities(now, generation, force=False)
+            clock = dt.datetime.fromtimestamp(now, dt.timezone.utc)
+            start = 0
+            while start < len(tokens):
+                end, identities = start, set()
+                while end < len(tokens):
+                    token = tokens[end]
+                    address = str(token.get("address") or token.get("mint") or "").strip() if _valid_candidate(token) else None
+                    if address is not None and address in identities:
+                        break
+                    if address is not None:
+                        identities.add(address)
+                    end += 1
+                prepared = []
+                for incoming in tokens[start:end]:
+                    if not _valid_candidate(incoming):
+                        prepared.append(None)
+                        continue
+                    address = str(incoming.get("address") or incoming.get("mint")).strip()
+                    row_source = str(incoming.get("source") or incoming.get("discovered_via") or source)
+                    version = self._pending.get(address)
+                    previous = next((item[2] for item in self._heap if item[1] == version), None) if version is not None else None
+                    snapshot = self._admission_token(incoming, previous, source=row_source, now=now)
+                    view = self._priority_view(snapshot, clock)
+                    prepared.append((row_source, view, _ranking_input_identity(view)))
+                valid = [row for row in prepared if row is not None]
+                rankings = iter(learned_runner_priorities([row[1] for row in valid], now=clock))
+                for incoming, row in zip(tokens[start:end], prepared):
+                    if row is None:
+                        results.append(False)
+                        continue
+                    row_source, _, identity = row
+                    results.append(self._add(incoming, source=row_source, reason=reason, now=now,
+                        generation=generation, prepared_ranking=(identity, next(rankings))))
+                start = end
+        return results
+
     def _score(self, token: dict[str, Any], *, source: str, now: dt.datetime,
-               generation: str, reuse: bool) -> float:
+               generation: str, reuse: bool, prepared_ranking=None) -> float:
         view = self._priority_view(token, now)
         cached = token.get("learned_runner_priority") if reuse and token.get("_hot_queue_priority_generation") == generation else None
+        if prepared_ranking is not None and prepared_ranking[0] == _ranking_input_identity(view):
+            cached = prepared_ranking[1]
+        if cached is None:
+            # Scalar fallback and burst predictions own the same queue epoch;
+            # do not recompute birth age against a different wall-clock sample.
+            cached = learned_runner_priorities([view], now=now)[0]
         score = candidate_priority_score(view, source=source, now=now,
             learned_priority=cached if isinstance(cached, dict) else None)
         if isinstance(view.get("learned_runner_priority"), dict):
@@ -221,20 +282,29 @@ class HotQueue:
         if changed and self._heap:
             self._event("hot_queue_reprice", {"address": ""}, "hot", 0., f"checked_generation_changed:{len(self._heap)}")
 
-    def _add(self, token: dict[str, Any], *, source: str, reason: str, now: float, generation: str) -> bool:
+    def _admission_token(self, token: dict[str, Any], previous: dict[str, Any] | None, *,
+                         source: str, now: float) -> dict[str, Any]:
         address = str(token.get("address") or token.get("mint") or "").strip()
         # Internal clocks and learned cache identities are queue-owned.
         token = deepcopy({k: v for k, v in token.items() if not k.startswith("_hot_queue_") and k != "learned_runner_priority"})
-        self._prune_history(now)
-        last_seen = self._seen.get(address)
-        pending_version = self._pending.get(address)
-        previous = next((item[2] for item in self._heap if item[1] == pending_version), None) if pending_version is not None else None
-        self._prune_expired(dt.datetime.fromtimestamp(now, dt.timezone.utc), except_address=address)
         incoming_has_age = any(_valid_age(token.get(key)) for key in ("age_minutes", "age_min"))
         token = {**(previous or {}), **token}
         token["address"] = address
         token.setdefault("source", source)
         token.setdefault("discovered_via", source)
+        token["_hot_queue_enqueued_at"] = previous.get("_hot_queue_enqueued_at", now) if previous else now
+        token["_hot_queue_observed_at"] = now if incoming_has_age or not previous else previous.get("_hot_queue_observed_at", now)
+        return token
+
+    def _add(self, token: dict[str, Any], *, source: str, reason: str, now: float,
+             generation: str, prepared_ranking=None) -> bool:
+        address = str(token.get("address") or token.get("mint") or "").strip()
+        self._prune_history(now)
+        last_seen = self._seen.get(address)
+        pending_version = self._pending.get(address)
+        previous = next((item[2] for item in self._heap if item[1] == pending_version), None) if pending_version is not None else None
+        self._prune_expired(dt.datetime.fromtimestamp(now, dt.timezone.utc), except_address=address)
+        token = self._admission_token(token, previous, source=source, now=now)
         signal = _market_signal(token)
         changed = signal != self._signals.get(address)
         if previous is not None:
@@ -247,15 +317,8 @@ class HotQueue:
         ):
             self._event("hot_queue_drop", token, source, 0.0, "dedup")
             return False
-        first_enqueued = previous.get("_hot_queue_enqueued_at", now) if previous else now
-        token = dict(token)
-        token["address"] = address
-        token.setdefault("source", source)
-        token.setdefault("discovered_via", source)
-        token["_hot_queue_enqueued_at"] = first_enqueued
-        token["_hot_queue_observed_at"] = now if incoming_has_age or not previous else previous.get("_hot_queue_observed_at", now)
         score = self._score(token, source=source, now=dt.datetime.fromtimestamp(now, dt.timezone.utc),
-            generation=generation, reuse=False)
+            generation=generation, reuse=False, prepared_ranking=prepared_ranking)
         if self._expired(token, score, dt.datetime.fromtimestamp(now, dt.timezone.utc)):
             self._pending.pop(address, None)
             self._restore_evaluated_history(address)
@@ -328,6 +391,18 @@ class HotQueue:
 
     def events(self) -> list[dict[str, Any]]:
         return [asdict(event) for event in self._events]
+
+
+def _valid_candidate(token: Any) -> bool:
+    return (isinstance(token, dict) and all(isinstance(key, str) for key in token)
+            and bool(str(token.get("address") or token.get("mint") or "").strip()))
+
+
+def _ranking_input_identity(view: dict[str, Any]) -> str:
+    # Include source and every merged feature, not the coarser reevaluation
+    # buckets. Never accept a receipt carried by an external token.
+    return json.dumps({k: v for k, v in view.items() if not k.startswith("_hot_queue_")
+        and k != "learned_runner_priority"}, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _valid_age(value: Any) -> bool:

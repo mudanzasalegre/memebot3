@@ -9945,10 +9945,12 @@ async def main_loop(*, positions_ready: asyncio.Event | None = None) -> None:
         # 2) Stream Pump Fun
         if not _runtime_discovery_paused:
             try:
-                for tok in await pumpfun.get_latest_pumpfun():
-                    if bool(getattr(CFG, "HOT_QUEUE_ENABLED", True)):
-                        GLOBAL_HOT_QUEUE.add(tok, source=str(tok.get("source") or tok.get("discovered_via") or "pumpfun"))
-                    else:
+                discovered = await pumpfun.get_latest_pumpfun()
+                if bool(getattr(CFG, "HOT_QUEUE_ENABLED", True)):
+                    from runtime.loop_scheduler import admit_hot_candidates
+                    await admit_hot_candidates(GLOBAL_HOT_QUEUE, discovered)
+                else:
+                    for tok in discovered:
                         await _evaluate_and_buy_guarded(tok, None, source="pumpfun")
             except Exception as exc:
                 _note_runtime_error("pumpfun_stream", exc)
