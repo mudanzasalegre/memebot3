@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from config.config import CFG, PROJECT_ROOT
-from runtime import paper_entry_policy as policy
+from runtime import paper_entry_policy as policy, entry_gate_code as gate_code
 from research_loop import entry_gate_policy as evaluator, forward_budget as storage
 from execution import paper_cash_mark as cash
 
@@ -223,6 +223,7 @@ def _plan(root: Path, cfg: Any, ctx: dict[str, Any], gate: str, stamp: dt.dateti
         if (plan["run_id"] != ctx["run_id"] or stamp >= storage.time(plan["cohort_ends_at"])
                 or plan["configured_hash"] != policy.configured_hash(cfg, plan["gate"])
                 or plan.get("financial_policy_version") != cash.VERSION
+                or not gate_code.matches_current(plan.get("gate_code_identity"), gate=plan["gate"])
                 or plan.get("exit_configuration_id") != exit_rule_id()):
             return None
         return (pointer["plan_id"], plan) if plan["gate"] == gate else None
@@ -289,6 +290,7 @@ def _plan(root: Path, cfg: Any, ctx: dict[str, Any], gate: str, stamp: dt.dateti
         "incumbent": {"parameters": incumbent, "manifest": copy.deepcopy(active) if selected else None},
         "active_manifest_sha256_at_plan": policy.digest(active) if active else None,
         "gate": gate, "parameters": parameters, "configured_hash": policy.configured_hash(cfg, gate),
+        "gate_code_identity": gate_code.snapshot(gate),
         "run_id": ctx["run_id"], "run_started_at": ctx["run_started_at"], "planned_at": stamp.isoformat(),
         "cohort_started_at": stamp.isoformat(), "cohort_ends_at": (stamp + dt.timedelta(hours=24)).isoformat(),
         "exit_configuration_id": exit_configuration, "runner_exit_policy": frozen_runner,
@@ -361,6 +363,8 @@ def capture_gate(gate: str, row: dict[str, Any], cfg: Any, *, now: dt.datetime |
         if chosen is None:
             return None
         plan_id, plan = chosen
+        if not gate_code.matches_current(plan.get("gate_code_identity"), gate=gate):
+            return None
         base = directory(root)
         journal_path = base / "journals" / f"{plan_id}.json"
         journal = storage.read(journal_path)
@@ -377,17 +381,20 @@ def capture_gate(gate: str, row: dict[str, Any], cfg: Any, *, now: dt.datetime |
             baseline = evaluator.profile_decision(gate, features, cfg, {}, now=stamp)
             challenger = evaluator.profile_decision(gate, features, cfg, plan["parameters"], now=stamp)
             incumbent_buy = evaluator.profile_decision(gate, features, cfg, incumbent_parameters, now=stamp)
-        if baseline is None or challenger is None or incumbent_buy is None:
+        if (baseline is None or challenger is None or incumbent_buy is None
+                or not gate_code.matches_current(plan["gate_code_identity"], gate=gate)):
             return None
         case_id = policy.digest([plan_id, mint, stamp.isoformat(), features])
         if not storage.claim(root, "entry_gate", other_pending=runner_forward.has_quote_demand(root), now=stamp, request_id=case_id):
             return None
         event = {"sequence": len(events), "case_id": case_id, "token": mint, "captured_at": stamp.isoformat(),
+                 "gate_code_identity": copy.deepcopy(plan["gate_code_identity"]),
                  "features_sha256": policy.digest(features), "previous_sha256": events[-1]["sha256"] if events else plan_id}
         event["sha256"] = policy.digest(event)
         events.append(event)
         storage.write(base / "journals" / f"{plan_id}.json", journal)  # Registration before case/quote.
         case = {"collector_version": COLLECTOR, "plan_id": plan_id, "case_id": case_id, "token": mint,
+            "gate_code_identity": copy.deepcopy(plan["gate_code_identity"]),
             "decision_at": stamp.isoformat(), "features": features, "baseline_buy": baseline, "challenger_buy": challenger,
             "incumbent_buy": incumbent_buy,
             "exit_rule_id": plan["exit_rule_id"], "cash_rule": "one_common_frozen_entry_and_exit_for_all_gate_arms",
@@ -436,6 +443,8 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
     original_plan = storage.read(base / "plans" / f"{case['plan_id']}.json")
     if (not original_plan or _plan_id(original_plan) != case["plan_id"]
             or original_plan.get("financial_policy_version") != cash.VERSION
+            or not gate_code.matches_current(original_plan.get("gate_code_identity"), gate=original_plan["gate"])
+            or case.get("gate_code_identity") != original_plan.get("gate_code_identity")
             or original_plan.get("exit_configuration_id") != exit_rule_id()
             or policy.digest([case["plan_id"], case["token"], case["decision_at"], case["features"]]) != case_id):
         case["invalid_reason"] = "unknown_original_entry_financial_contract"
@@ -501,14 +510,15 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
         if not latest or latest.get("cash") is not None:
             return False
         immutable = ("case_id", "token", "plan_id", "decision_at", "features", "baseline_buy",
-                     "challenger_buy", "incumbent_buy", "exit_rule_id", "cash_rule")
+                     "challenger_buy", "incumbent_buy", "exit_rule_id", "cash_rule", "gate_code_identity")
         if any(latest.get(key) != case.get(key) for key in immutable):
             raise ValueError("original entry decision changed during quote await")
         if (filled - storage.time(case["decision_at"])).total_seconds() > 30:
             raise ValueError("entry quote too late")
         plan = storage.read(base / "plans" / f"{case['plan_id']}.json")
-        if not plan or plan != original_plan or plan["exit_configuration_id"] != exit_rule_id():
-            raise ValueError("exit rule changed")
+        if (not plan or plan != original_plan or plan["exit_configuration_id"] != exit_rule_id()
+                or not gate_code.matches_current(plan.get("gate_code_identity"), gate=plan["gate"])):
+            raise ValueError("original entry or exit source changed")
         quantity = int(output / (1 + model["slippage_bps"] / 10000))
         if quantity <= 0:
             raise ValueError("empty raw SPL entry")
@@ -516,6 +526,7 @@ async def fill_entry(case_id: str, *, root: Path | str, cfg: Any = None, now: dt
                  "late_momentum": "pump_early_late_momentum_watch", "moonshot": "pump_early_moonshot_micro_lottery"}
         from execution.paper_execution_fx import VERSION as original_fx_version
         prefix = {"dry_run": True, "closed": False, "token_address": case["token"],
+            "gate_code_identity": copy.deepcopy(plan["gate_code_identity"]),
             "run_id": plan["run_id"], "run_started_at": plan["run_started_at"],
             "opened_at": filled.isoformat(), "amount_sol": .1, "entry_sol_usd": sol_usd, "entry_notional_usd": .1 * sol_usd,
             "paper_execution_fx_version": original_fx_version, "entry_valued_at": filled.isoformat(),
@@ -685,6 +696,8 @@ def evaluate_plan(root: Path | str, cfg: Any, plan_id: str, *, now: dt.datetime)
         return {"status": "retained_corrupt_manifest", "accepted": False}
     if getattr(cfg, "PAPER_ENTRY_GATE_AUTO_APPLY", False) is not True:
         return {"status": "evaluated_auto_apply_disabled", "accepted": report["accepted"], "evaluation": name}
+    if not gate_code.matches_current(plan.get("gate_code_identity"), gate=plan["gate"]):
+        return {"status": "retained_changed_entry_source", "accepted": False, "evaluation": name}
     if plan.get("comparison_version"):
         current_identity = policy.digest(previous) if previous else None
         if current_identity != plan["active_manifest_sha256_at_plan"]:
@@ -694,6 +707,7 @@ def evaluate_plan(root: Path | str, cfg: Any, plan_id: str, *, now: dt.datetime)
             return {"status": "retained_incumbent_requires_direct_comparison"}
         revision = policy.digest([plan_id, now.isoformat()])[:20]
         manifest = {"version": evaluator.VERSION, "role": evaluator.ROLE, "revision": revision,
+            "gate_code_identity": copy.deepcopy(plan["gate_code_identity"]),
             "selected_at": now.isoformat(), "expires_at": (now + dt.timedelta(days=7)).isoformat(),
             "evidence_name": name, "evidence_sha256": policy.digest(bundle), "parameters": report["parameters"],
             "action": report["selection_action"], "previous_manifest_sha256": policy.digest(previous) if previous else None}
@@ -825,7 +839,8 @@ async def tick(*, root: Path | str, cfg: Any = None, now: dt.datetime | None = N
                             continue
                         current = latest["cash"]["terminal"]
                         immutable = ("case_id", "token", "plan_id", "decision_at", "features", "baseline_buy",
-                                     "challenger_buy", "incumbent_buy", "exit_rule_id", "cash_rule", "financial_policy_version")
+                                     "challenger_buy", "incumbent_buy", "exit_rule_id", "cash_rule", "financial_policy_version",
+                                     "gate_code_identity")
                         if (current.get("intent")
                                 or any(latest.get(key) != original.get(key) for key in immutable)
                                 or latest["cash"]["prefix"] != original["cash"]["prefix"]

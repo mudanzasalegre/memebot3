@@ -1,0 +1,64 @@
+{
+  "stage": "original_entry_gate_source_generation_and_content_cache_integrity",
+  "status": "SOFTWARE_VERIFIED_PUBLICATION_READY_RUNTIME_OFF",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Independently register bounded original declared source generations for four PAPER entry components, transport them through original enrollment/cash/evaluation/manifest and per-entry provenance, and close the same-size/same-mtime case-cache gap. Preserve valid independent peers, already funded virtual exits, exact0.1 SOL PAPER and uncapped residual upside. No operational runtime, provider, wallet, order, training or artifact/policy activation.",
+  "findings": [
+    {
+      "id": "missing_independent_original_gate_sources",
+      "severity": "high",
+      "evidence": "Original plans bind threshold configuration and exits, but not independently the gate leaf and common temporal/adaptation code. Native synthetic cases reproduce missing original registration and accepted cohort/cache/fill despite a virtual source-file generation change.",
+      "repair": "Capture a fixed known-source inventory before the original gate decisions. Require consistent original identities across plan, case, hash-chained journal, owned cash prefix, complete cohort, manifest and selection. Recheck current declared source content before and after registration, pending quote awaits, cohort replay and new binding. Source drift blocks new entry/adaptation, not an independently owned funded exit."
+    },
+    {
+      "id": "case_cache_uses_only_file_metadata",
+      "severity": "high",
+      "evidence": "A warmed five-second selection cache returns its original accepted policy after an original case changes content while retaining exact byte size and mtime.",
+      "repair": "Read and canonical-hash every original case on every selection call. Reuse only the expensive cohort calculation, replay detached captured cases, and recheck original sources/content after calculation or before a cache return. Original-case alterations cannot borrow the old accepted cache result."
+    }
+  ],
+  "source_contract": {
+    "version": "original_entry_gate_sources_v1",
+    "common_sources": ["runtime/entry_gate_code.py", "runtime/paper_entry_policy.py", "research_loop/entry_gate_policy.py", "research_loop/entry_gate_forward.py", "analytics/token_time.py", "analytics/report_utils.py", "config/config.py", "ml/lane_taxonomy.py", "analytics/lane_policy_categories.py"],
+    "component_sources": {"rank_canary": ["analytics/research_rank_canary.py"], "sniper_subprofile": ["analytics/sniper_research_subprofiles.py"], "late_momentum": ["analytics/late_momentum_watch.py", "analytics/liquidity_risk.py"], "moonshot": ["analytics/moonshot_micro_lottery.py"]},
+    "normalization": "Normalized LF source SHA256 and canonical detached original receipt digest. Current source bytes are read afresh; timestamps cannot certify source identity. Exact known relative inventory/order is required; escaped, extra, duplicate, malformed or missing identities fail closed.",
+    "case_content": "Canonical parsed original-case SHA256, not literal whitespace equality and not metadata-only equality. Missing, oversized by the existing reader guard, malformed, nonfinite or changed declared original evidence stays unapproved.",
+    "legacy": "No original operator plan/case/manifest is rewritten or backfilled. Legacy v1 entry diagnostic bindings remain readable without fabricated source proof. New production bindings use source-bearing thresholds_v2/composition_v2; source-free binding primitives are simulations, not approvals. Proved and simulation-only components cannot be mixed.",
+    "historical_receipts": "Validate v2 historical source receipt structure without requiring today's code, so old original decisions remain inspectable. A new binding and new policy approval separately require current source matching.",
+    "exit_separation": "Entry-source drift alone cannot orphan an already funded owned virtual case. Existing frozen financial exit, quote/FX, quantity and conservation controls remain independent. Cash-valuation awaits additionally keep original source metadata immutable.",
+    "limitation": "This declares source-file generations; it does not attest actual loaded/executed Python, authenticate a hostile whole-root rewrite, validate every transitive/third-party dependency or prove original provider input/confirmation availability. Those boundaries remain independent."
+  },
+  "implemented_paths": ["runtime/entry_gate_code.py", "runtime/paper_entry_policy.py", "runtime/entry_decision.py", "research_loop/entry_gate_forward.py", "research_loop/entry_gate_policy.py", "tests/test_entry_gate_code_integrity.py", "tests/test_paper_entry_policy.py"],
+  "verification": {
+    "native_before_repair": "6 failed,2 passed in13.47s, exit1, using unchanged native APIs. Virtual source-file changes and isolated synthetic cohorts only, not actual code edits or financial returns.",
+    "initial_expanded_integrity": "2 failed,47 passed in32.46s. Two new tests misused the existing five-value fixture return as a config. Only those test unpacking errors were fixed; no production gate or risk threshold was relaxed.",
+    "expanded_integrity_after_fixture_repair": "49 passed in35.48s, exit0 before the final post-replay checks and5 additional cases.",
+    "unfrozen_intermediate_subset": "1 failed,112 passed in322.99s, exit1 while source was still being edited. Not frozen regression proof. The manifest/configuration/expiry test failed at its first policy load; isolated rerun then passed1 in5.47s after edits ended. Preserve that failure without asserting an unproven unique cause.",
+    "final_focused": "251 passed in71.69s, exit0. Includes all54 new original-source/cache tests, actual own-cash entry research, original entry-decision codecs, exact PAPER size and moonshot original clocks. Pure/temporary synthetic evidence only.",
+    "exact_size_extreme_exits": {"working": "72 passed in3.38s, exit0", "publishing": "72 passed in3.21s, exit0", "scope": "test_exact_paper_trade_size.py and test_runner_price_policy.py. Includes price peaks500/1000/5000/10000/100000 percent across three lanes, drawdown rather than profit-point subtraction, actual exit-policy consumption and liquidity/time safeguards. No real fill or achieved return."},
+    "full_working": {"passed": 4542, "seconds": 989.01, "exit_code": 0},
+    "full_publishing": {"passed": 4542, "seconds": 971.06, "exit_code": 0, "environment": "Existing working-checkout Python; personal .env and .venv are not published."},
+    "preflight_working": {"generated_at_utc": "2026-10-09T05:48:48.1824390Z", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders": 7, "report_builders_ok": true, "external_pytest_returncode": 0, "exit_code": 0},
+    "preflight_publishing": {"generated_at_utc": "2026-10-09T05:48:47.1326860Z", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders": 7, "report_builders_ok": true, "external_pytest_returncode": 0, "exit_code": 0},
+    "synthetic_cache_latency": {"observed_at_utc": "2026-10-09T05:35:26.316565Z", "cases": 50, "components": 1, "cold_seconds": 1.188872, "warm_samples": 8, "warm_median_seconds": 0.199969, "warm_max_seconds": 0.243346, "qualification": "One local measurement during two concurrent full regressions, with providers prohibited. Not a latency SLA, four-component production-load acceptance or a market-capture guarantee."},
+    "verification_source_snapshot": {"files": 759, "normalized_sha256": "e3148db096a246f56b34fa94c14071445a574f3a05f952216619ce4307c94e6c", "identical_both_roots": true, "scope": "Approved executable/configuration/test source excludes docs,README and protected operator artifacts. Verified unchanged before and after both full suites."}
+  },
+  "runtime_off": {
+    "stop": {"checkout": "working_only", "requested_by": "user", "completed_at_utc": "2026-10-09T05:48:51Z", "exit_code": 0, "killed": 0, "remaining": 0},
+    "inventory_at_utc": "2026-10-09T05:48:53.1417651Z",
+    "runtime_processes": 0, "owned_previews": 0, "running_tasks": 0, "running_services": 0, "both_root_locks": 0,
+    "sql_at_utc": "2026-10-09T05:48:51.952770Z",
+    "main_state": {"process_state": "stopped", "reports_refresh_state": "idle", "retrain_state": "idle", "updated_at": "2026-10-09 05:48:50.775757"},
+    "protected_operator_files": {"working": 3763, "publishing": 27, "newer_mtimes": 0, "baseline_utc": "2026-10-08T16:09:40Z", "qualification": "Read-only mtime census, not cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics excluded."},
+    "paper_population_at_utc": "2026-10-09T05:48:51.886264Z",
+    "original_paper_groups": {"primary_portfolio": 0, "buy_journals": 0, "closed_archives": 0, "financial_learning_sources": 0},
+    "paper_sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+    "paper_sql_rows": [],
+    "empty_scope_qualification": "An empty scoped original PAPER population does not prove zero wallet exposure, zero investment risk, future opportunity coverage or prospective profitability.",
+    "repeat": "Same-turn actual publication and post-browser OFF verification are recorded separately after this audit's containing commit exists."
+  },
+  "checked_profile_both_roots": {"dry_run": true, "exact_paper_size_enabled": true, "exact_size_sol": 0.1, "price_trailing_paper_enabled": true, "activation_peak_pct": 300.0, "max_peak_price_drawdown_pct": 20.0, "max_holding_hours": 24.0, "upside": "No fixed return ceiling is introduced. Existing liquidity, route, impact, confirmation, loss and exit controls are not relaxed."},
+  "publication": {"scope": "Source, tests and documentation only. Exclude secrets, .env, .venv, data, models, logs and work. No destructive cleanup or operator-state synchronization.", "state_at_audit_freeze": "Ready for normal scoped commit/push; no commit self-hash or remote success is fabricated in the containing source audit. See same-turn delivery evidence for actual HEAD/origin/remote equality and clean checkout."},
+  "remaining": ["Actual loaded/executed source-generation attestation and other applicable original input-generation/availability contracts remain independent of declared source hashing.", "Original provider/confirmation ownership, feed opportunity and throughput coverage, rare-runner uncertainty, full-strategy sampling/capital/execution and prospective financial acceptance remain incomplete.", "Current source-backed component acceptance is not a full-bot profitability certificate. Future profit, maximal capture and zero errors cannot be guaranteed. Operational runtime remains OFF."]
+}

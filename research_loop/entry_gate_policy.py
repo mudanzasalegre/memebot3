@@ -19,7 +19,7 @@ import statistics
 from pathlib import Path
 from typing import Any
 
-from runtime import paper_entry_policy as policy
+from runtime import paper_entry_policy as policy, entry_gate_code as gate_code
 
 VERSION = "paired_paper_entry_gate_v1"
 ROLE = "paper_entry_gate_only"
@@ -80,6 +80,7 @@ def incumbent_profile(plan: dict[str, Any], cfg: Any) -> dict[str, float]:
     planned, selected, expires = _time(plan["planned_at"]), _time(manifest["selected_at"]), _time(manifest["expires_at"])
     if (not checked or manifest.get("parameters") != checked or policy.digest(manifest) != expected
             or manifest.get("version") != VERSION or manifest.get("role") != ROLE
+            or manifest.get("gate_code_identity") != plan.get("gate_code_identity")
             or re.fullmatch(r"[0-9a-f]{20}", str(manifest.get("revision"))) is None
             or not selected <= planned < expires or expires - selected > dt.timedelta(days=7)
             or re.fullmatch(r"[0-9a-f]{64}\.json", str(manifest.get("evidence_name"))) is None
@@ -136,6 +137,7 @@ def _entry_cash(case: dict[str, Any], plan: dict[str, Any], now: dt.datetime) ->
     received = _time(route["observation_receipt"]["other"]["received_at_utc"])
     parameters = parse_policy(plan["runner_exit_policy"])
     if (prefix.get("dry_run") is not True or prefix.get("test_event")
+            or prefix.get("gate_code_identity") != plan.get("gate_code_identity")
             or plan.get("financial_policy_version") != cash.VERSION or case.get("financial_policy_version") != cash.VERSION
             or prefix.get("closed") is not False or prefix.get("token_address") != case["token"]
             or original_fx is None or original_fx != entry_sol_usd
@@ -196,6 +198,9 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
         if plan.get("financial_policy_version") != CASH_VERSION:
             raise ValueError("unknown original financial policy contract")
         gate = plan["gate"]
+        original_code = plan.get("gate_code_identity")
+        if not gate_code.matches_current(original_code, gate=gate):
+            raise ValueError("missing or changed original entry sources")
         incumbent_parameters = incumbent_profile(plan, cfg)
         candidate = (policy.validate_transition(cfg, incumbent_parameters, plan["parameters"], gate=gate)
             if plan.get("comparison_version") else policy.validate_parameters(cfg, plan["parameters"], gate=gate))
@@ -224,6 +229,7 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
                         or event["case_id"] != case["case_id"] or event["token"] != case["token"]
                         or event["captured_at"] != case["decision_at"]
                         or event["features_sha256"] != policy.digest(case["features"])
+                        or event.get("gate_code_identity") != original_code
                         or event["sha256"] != policy.digest({k: v for k, v in event.items() if k != "sha256"})):
                     raise ValueError("altered enrollment journal")
                 previous = event["sha256"]
@@ -248,6 +254,7 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
             token, decision_at = case["token"], _time(case["decision_at"])
             if (not isinstance(token, str) or not is_valid_base58_32(token) or token in tokens
                     or case.get("plan_id") != plan_id or case.get("test_event")
+                    or case.get("gate_code_identity") != original_code
                     or not start <= decision_at < end or case.get("outcomes_complete") is not True
                     or case["features"].get("address", token) != token):
                 raise ValueError("duplicate, incomplete or out-of-plan case")
@@ -311,7 +318,10 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
                     and baseline_sol > 0 and baseline_usd > 0)
         if not plan.get("comparison_version"):
             rollback = upper_sol < 0 and upper_usd < 0 and baseline_sol > 0 and baseline_usd > 0
+        if not gate_code.matches_current(original_code, gate=gate):
+            raise ValueError("entry sources changed during comparison")
         result.update(accepted=accepted, reasons=[] if accepted else ["no_positive_costed_paired_improvement"],
+            gate_code_identity=copy.deepcopy(original_code),
             plan_id=plan_id, gate=gate, parameters=candidate, unique_tokens=len(tokens), changed_decisions=changed,
             net_pnl_sol=sum(selected_sol), net_pnl_usd=sum(selected_usd),
             paired_lower_mean_sol=lower_sol, paired_lower_mean_usd=lower_usd,
@@ -366,7 +376,9 @@ def _evidence_sources(directory: Path, manifest: dict[str, Any]):
         raise ValueError("changed evidence bundle")
     plan = bundle["plan"]
     from research_loop.entry_gate_forward import COLLECTOR, exit_rule_id
-    if plan.get("collector_version") != COLLECTOR or plan.get("exit_configuration_id") != exit_rule_id():
+    if (plan.get("collector_version") != COLLECTOR or plan.get("exit_configuration_id") != exit_rule_id()
+            or not gate_code.matches_current(plan.get("gate_code_identity"), gate=plan["gate"])
+            or manifest.get("gate_code_identity") != plan.get("gate_code_identity")):
         raise ValueError("incompatible collector or exits")
     identity = plan_identity(plan)
     original = _read(directory / "plans" / f"{identity}.json", inside=directory)
@@ -385,18 +397,25 @@ def _evidence_sources(directory: Path, manifest: dict[str, Any]):
         path = directory / "closed" / f"{case_id}.json"
         if not path.resolve().is_relative_to(directory):
             raise ValueError("case path escapes research directory")
-        metadata = path.stat()
-        paths.append((path, metadata.st_mtime_ns, metadata.st_size))
+        case = _read(path, inside=directory)
+        paths.append((path, policy.digest(case), case))
     return bundle, paths
 
 
 def _replay_manifest(cfg: Any, directory: Path, manifest: dict[str, Any], bundle: dict[str, Any], paths):
-    cases = [_read(path, inside=directory) for path, _, _ in paths]
+    cases = [copy.deepcopy(case) for _, _, case in paths]
     verified = compare_cohort(bundle["plan"], cases, cfg, now=_time(manifest["selected_at"]))
     if (not verified["accepted"] or verified != bundle["evaluation"]
             or manifest.get("parameters") != verified["parameters"]):
         raise ValueError("manifest has no matching complete accepted cohort")
     return verified
+
+
+def _same_evidence(directory: Path, manifest: dict[str, Any], bundle: dict[str, Any], paths) -> bool:
+    """No calculation can certify sources changed during that calculation."""
+    latest, latest_paths = _evidence_sources(directory, manifest)
+    return latest == bundle and [(str(path), digest) for path, digest, _ in latest_paths] == [
+        (str(path), digest) for path, digest, _ in paths]
 
 
 def selection_path(root: Path | str, gate: str, *, for_write: bool = False) -> Path:
@@ -463,11 +482,16 @@ def load_selection(cfg: Any, *, root: Path | str, now: dt.datetime | None = None
                 return None
             anchor_bundle, anchor_paths = _evidence_sources(directory, anchor)
         signature = policy.digest([manifest, bundle, policy.configured_hash(cfg, plan["gate"]),
-            anchor, anchor_bundle, [(str(path), mtime, size) for path, mtime, size in paths + anchor_paths]])
+            anchor, anchor_bundle, [(str(path), content_hash) for path, content_hash, _ in paths + anchor_paths]])
         cache_key = str(path)
         cached = _VERIFIED_CACHE.get(cache_key)
-        # Even unchanged metadata gets a full source recheck within five seconds.
+        # Fresh code and case content are checked on every call; only the
+        # expensive complete-cohort calculation can be reused for five seconds.
         if cached and cached[0] == signature and 0 <= (stamp - _time(cached[1]["verified_at"])).total_seconds() < 5:
+            if (_read(path, inside=directory) != manifest or not _same_evidence(directory, manifest, bundle, paths)
+                    or anchor is not None and (not _same_evidence(directory, anchor, anchor_bundle, anchor_paths)
+                        or _read(directory / "history" / f"{anchor['revision']}.json", inside=directory) != anchor)):
+                return None
             return copy.deepcopy({k: v for k, v in cached[1].items() if k != "verified_at"})
         if anchor is not None:
             _replay_manifest(cfg, directory, anchor, anchor_bundle, anchor_paths)
@@ -476,7 +500,12 @@ def load_selection(cfg: Any, *, root: Path | str, now: dt.datetime | None = None
         # Replaying arbitrarily many historic ancestors is not needed to prove
         # that comparison and would create an unbounded entry-time workload.
         verified = _replay_manifest(cfg, directory, manifest, bundle, paths)
+        if (_read(path, inside=directory) != manifest or not _same_evidence(directory, manifest, bundle, paths)
+                or anchor is not None and (not _same_evidence(directory, anchor, anchor_bundle, anchor_paths)
+                    or _read(directory / "history" / f"{anchor['revision']}.json", inside=directory) != anchor)):
+            return None
         selection = {"parameters": verified["parameters"], "revision": manifest["revision"],
+                     "gate_code_identity": copy.deepcopy(verified["gate_code_identity"]),
                      "evidence_sha256": manifest["evidence_sha256"]}
         if len(_VERIFIED_CACHE) >= 16:
             _VERIFIED_CACHE.pop(next(iter(_VERIFIED_CACHE)))
@@ -496,14 +525,19 @@ def load_selections(cfg: Any, *, root: Path | str,
 
 @contextlib.contextmanager
 def selected_scope(cfg: Any, *, root: Path | str):
-    selections = load_selections(cfg, root=root)
-    if not selections:
-        with policy.baseline_scope():
-            yield
-    elif len(selections) == 1:
-        # Preserve the old single-component telemetry schema.
-        with policy.parameter_scope(cfg, **next(iter(selections.values()))):
-            yield
-    else:
-        with policy.composition_scope(cfg, selections):
-            yield
+    selections = {gate: selection for gate, selection in load_selections(cfg, root=root).items()
+        if gate_code.matches_current(selection.get("gate_code_identity"), gate=gate)}
+    scope = (policy.baseline_scope() if not selections else
+        policy.parameter_scope(cfg, **next(iter(selections.values()))) if len(selections) == 1 else
+        policy.composition_scope(cfg, selections))
+    # Fail back only while entering the binding. Never swallow an exception
+    # raised by the primary decision inside the caller's with block.
+    try:
+        scope.__enter__()
+    except (OSError, ValueError, KeyError, TypeError):
+        scope = policy.baseline_scope()
+        scope.__enter__()
+    try:
+        yield
+    finally:
+        scope.__exit__(None, None, None)

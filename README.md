@@ -163,6 +163,16 @@ profundidad ejecutable o rentabilidad. Importe de 0.1 SOL PAPER y controles de
 riesgo/salida permanecen. Vease
 `docs/audits/moonshot_temporal_integrity_20261009.json`.
 
+La investigacion de entradas registra ahora una huella original de fuentes
+para cada componente y la conserva en plan, caso, journal, caja, evaluacion,
+manifest y procedencia de la decision. Cambiar las fuentes invalida nuevas
+entradas virtuales y aprobaciones incompatibles, sin abandonar salidas de
+casos ya financiados. La cache revisa contenido original, no solo fecha y
+tamano. Los artefactos historicos no se rellenan ni se recertifican; las
+decisiones diagnosticas anteriores siguen siendo legibles. Esto identifica
+fuentes declaradas, no acredita el Python realmente ejecutado ni demuestra
+rentabilidad. Vease `docs/audits/entry_gate_code_integrity_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

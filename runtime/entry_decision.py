@@ -70,14 +70,18 @@ def _validate_binding(binding, *, paper):
     if not paper or not isinstance(binding, dict) or binding.get("full_strategy_profitability_established") is not False:
         raise ValueError("Invalid original paper binding")
     version = binding.get("version")
-    if version == "paper_entry_composition_v1":
+    source_bound = version in {"paper_entry_composition_v2", "paper_entry_thresholds_v2"}
+    component_keys = {"revision", "configured_hash", "parameters", "evidence_sha256"}
+    if source_bound:
+        component_keys.add("gate_code_identity")
+    if version in {"paper_entry_composition_v1", "paper_entry_composition_v2"}:
         if set(binding) != {"version", "role", "components", "parameters", "full_strategy_profitability_established"} or binding["role"] != "paper_entry_components_only":
             raise ValueError("Invalid original paper composition")
         components = binding["components"]
-    elif version == "paper_entry_thresholds_v1":
-        if set(binding) != {"version", "role", "gate", "revision", "configured_hash", "parameters", "evidence_sha256", "full_strategy_profitability_established"} or binding["role"] != "paper_entry_gate_only":
+    elif version in {"paper_entry_thresholds_v1", "paper_entry_thresholds_v2"}:
+        if set(binding) != component_keys | {"version", "role", "gate", "full_strategy_profitability_established"} or binding["role"] != "paper_entry_gate_only":
             raise ValueError("Invalid original paper component")
-        components = {binding["gate"]: {k: binding[k] for k in ("revision", "configured_hash", "parameters", "evidence_sha256")}}
+        components = {binding["gate"]: {k: binding[k] for k in component_keys}}
     else:
         raise ValueError("Unsupported original paper binding")
     if not isinstance(components, dict) or not 1 <= len(components) <= len(PREFIXES):
@@ -85,10 +89,14 @@ def _validate_binding(binding, *, paper):
     combined = {}
     for gate, component in components.items():
         if (gate not in PREFIXES or not isinstance(component, dict)
-                or set(component) != {"revision", "configured_hash", "parameters", "evidence_sha256"}
+                or set(component) != component_keys
                 or not _text(component["revision"], maximum=128) or not _hash(component["configured_hash"])
                 or component["evidence_sha256"] != "" and not _hash(component["evidence_sha256"])):
             raise ValueError("Invalid original paper component identity")
+        if source_bound:
+            from runtime.entry_gate_code import valid_identity
+            if not valid_identity(component["gate_code_identity"], gate=gate):
+                raise ValueError("Invalid original paper source receipt")
         parameters = component["parameters"]
         if not isinstance(parameters, dict) or not 1 <= len(parameters) <= 2:
             raise ValueError("Invalid original paper parameters")

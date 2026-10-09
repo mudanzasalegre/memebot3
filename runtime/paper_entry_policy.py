@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Iterator, Mapping
 
+from runtime import entry_gate_code as gate_code
+
 
 @dataclass(frozen=True)
 class Threshold:
@@ -202,6 +204,8 @@ def snapshot() -> dict[str, Any] | None:
     def detached(value: Any) -> Any:
         if isinstance(value, Mapping):
             return {key: detached(item) for key, item in value.items()}
+        if isinstance(value, (tuple, list)):
+            return [detached(item) for item in value]
         return value
     return detached(binding.provenance)
 
@@ -217,19 +221,29 @@ def composition_scope(cfg: Any, selections: Mapping[str, Mapping[str, Any]]) -> 
     if getattr(cfg, "DRY_RUN", False) is not True or not selections:
         raise ValueError("nonempty paper-only admission composition required")
     parameters, components = {}, {}
+    with_code = [selection.get("gate_code_identity") is not None for selection in selections.values()]
+    if any(with_code) and not all(with_code):
+        raise ValueError("proved and simulation-only components cannot be mixed")
     for gate, selection in selections.items():
         if gate not in PREFIXES:
             raise ValueError("unsupported admission component")
         checked = validate_parameters(cfg, selection["parameters"], gate=gate)
         parameters.update(checked)
-        components[gate] = MappingProxyType({
+        component = {
             "revision": str(selection["revision"]),
             "evidence_sha256": selection["evidence_sha256"],
             "configured_hash": configured_hash(cfg, gate),
             "parameters": MappingProxyType(checked),
-        })
+        }
+        if all(with_code):
+            identity = selection["gate_code_identity"]
+            if not gate_code.matches_current(identity, gate=gate):
+                raise ValueError("changed original admission source")
+            component["gate_code_identity"] = gate_code.freeze(identity)
+        components[gate] = MappingProxyType(component)
     provenance = MappingProxyType({
-        "version": "paper_entry_composition_v1", "role": "paper_entry_components_only",
+        "version": "paper_entry_composition_v2" if all(with_code) else "paper_entry_composition_v1",
+        "role": "paper_entry_components_only",
         "components": MappingProxyType(components), "parameters": MappingProxyType(parameters),
         "full_strategy_profitability_established": False,
     })
@@ -242,18 +256,24 @@ def composition_scope(cfg: Any, selections: Mapping[str, Mapping[str, Any]]) -> 
 
 @contextlib.contextmanager
 def parameter_scope(cfg: Any, parameters: Mapping[str, Any], *, revision: str,
-                    evidence_sha256: str = "") -> Iterator[None]:
+                    evidence_sha256: str = "", gate_code_identity: Mapping[str, Any] | None = None) -> Iterator[None]:
     """Isolated gate simulation. Production callers must verify evidence first."""
     if getattr(cfg, "DRY_RUN", False) is not True:
         raise ValueError("entry adaptation is paper-only")
     checked = validate_parameters(cfg, parameters)
     gate = THRESHOLDS[next(iter(checked))].gate
-    provenance = MappingProxyType({
-        "version": "paper_entry_thresholds_v1", "role": "paper_entry_gate_only",
+    if gate_code_identity is not None and not gate_code.matches_current(gate_code_identity, gate=gate):
+        raise ValueError("changed original admission source")
+    provenance = {
+        "version": "paper_entry_thresholds_v2" if gate_code_identity is not None else "paper_entry_thresholds_v1",
+        "role": "paper_entry_gate_only",
         "gate": gate, "revision": str(revision), "configured_hash": configured_hash(cfg, gate),
         "parameters": MappingProxyType(checked), "evidence_sha256": evidence_sha256,
         "full_strategy_profitability_established": False,
-    })
+    }
+    if gate_code_identity is not None:
+        provenance["gate_code_identity"] = gate_code.freeze(gate_code_identity)
+    provenance = MappingProxyType(provenance)
     token = _CURRENT.set(_Binding(cfg, _EntryConfig(cfg, checked), provenance))
     try:
         yield

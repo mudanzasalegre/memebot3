@@ -19,7 +19,7 @@ from research_loop import entry_gate_forward as collector
 from research_loop import runner_forward
 from quote_fixtures import v1_quote, SOL
 from execution.quote_receipt import capture_summary
-from runtime import paper_entry_policy as policy
+from runtime import paper_entry_policy as policy, entry_gate_code
 from runtime.buy_recovery import BuyRecoveryStore
 from execution import paper_cash_mark
 from analytics import runner_price_policy
@@ -50,6 +50,7 @@ def cohort(cfg, *, start=None, gate="rank_canary", parameters=None, features_fun
     start = start or dt.datetime.now(dt.timezone.utc).replace(microsecond=0) - dt.timedelta(hours=27)
     parameters = PARAMETERS if parameters is None else parameters
     plan = {"version": transport.VERSION, "role": transport.ROLE, "gate": gate,
+        "gate_code_identity": entry_gate_code.snapshot(gate),
         "financial_policy_version": paper_cash_mark.VERSION,
         "runner_exit_policy": runner_price_policy.freeze_policy(cfg, dry_run=True),
         "collector_version": collector.COLLECTOR, "exit_configuration_id": collector.exit_rule_id(),
@@ -72,6 +73,7 @@ def cohort(cfg, *, start=None, gate="rank_canary", parameters=None, features_fun
         if features_func is not None:
             features.update(features_func(i))
         prefix = {"dry_run": True, "closed": False, "token_address": mint,
+            "gate_code_identity": copy.deepcopy(plan["gate_code_identity"]),
             "run_id": plan["run_id"], "run_started_at": plan["run_started_at"],
             "opened_at": decision.isoformat(), "amount_sol": .1, "entry_notional_usd": 10., "entry_sol_usd": 100.,
             "entry_fx_observation": fx(decision).to_dict(), "entry_quote_started_at": decision.isoformat(),
@@ -100,6 +102,7 @@ def cohort(cfg, *, start=None, gate="rank_canary", parameters=None, features_fun
             v1_quote(mint, SOL, 1000, 200000000, now=close), 100., close,
             quote_started_at=close - dt.timedelta(seconds=5), fx_observation=fx(close))
         case = {"plan_id": plan_id, "token": mint, "decision_at": decision.isoformat(), "features": features,
+            "gate_code_identity": copy.deepcopy(plan["gate_code_identity"]),
             "financial_policy_version": paper_cash_mark.VERSION,
             "baseline_buy": transport.profile_decision(gate, features, cfg, {}),
             "challenger_buy": transport.profile_decision(gate, features, cfg, parameters), "outcomes_complete": True,
@@ -111,6 +114,7 @@ def cohort(cfg, *, start=None, gate="rank_canary", parameters=None, features_fun
     events, previous = [], plan_id
     for i, case in enumerate(cases):
         event = {"sequence": i, "case_id": case["case_id"], "token": case["token"], "captured_at": case["decision_at"],
+                 "gate_code_identity": copy.deepcopy(plan["gate_code_identity"]),
                  "features_sha256": policy.digest(case["features"]), "previous_sha256": previous}
         event["sha256"] = policy.digest(event)
         previous = event["sha256"]
@@ -141,6 +145,7 @@ def install(root, cfg, *, gate=None, parameters=None, features_func=None):
         (directory / "closed" / f"{case['case_id']}.json").write_text(json.dumps(case))
     (directory / "evaluations" / name).write_text(json.dumps(bundle))
     manifest = {"version": transport.VERSION, "role": transport.ROLE, "revision": policy.digest([plan["gate"], identity])[:20],
+        "gate_code_identity": copy.deepcopy(plan["gate_code_identity"]),
         "selected_at": now.isoformat(), "expires_at": (now + dt.timedelta(days=7)).isoformat(),
         "evidence_name": name, "evidence_sha256": policy.digest(bundle), "parameters": plan["parameters"]}
     target = transport.selection_path(root, gate, for_write=True) if gate else directory / "active_policy.json"
