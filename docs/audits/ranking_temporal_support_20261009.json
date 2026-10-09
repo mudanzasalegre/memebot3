@@ -1,0 +1,348 @@
+{
+  "stage": "original_oos_temporal_burst_support",
+  "status": "SOFTWARE_VERIFIED_RUNTIME_OFF_PROFITABILITY_INCOMPLETE",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Original OOS decision-time support for family ranking and automatic scanner advisory selection, paired replacement and runtime readiness. No operational run or active model/policy promotion.",
+  "grain": "One case-sensitive mint mean captured-positive utility, anchored at its earliest original OOS decision; whole fixed UTC hour buckets are resampled together.",
+  "findings": [
+    {
+      "id": "single_burst_token_pseudoreplication",
+      "severity": "high",
+      "evidence": "The native later-cohort selector approved 200 synthetic tokens in 50 minutes, with 20 positive labels, perfect scores and capture lift10, as bootstrap_validated_scanner_ranker. Initial native assertion failed in2.74s. This is a software support defect, not an observed trade or financial return.",
+      "repair": "Retain original OOS decision timestamps through family forward predictions, holdout evaluation and same-cohort challenger/incumbent comparison. Current approval requires token support and two fixed-origin one-hour bucket checks."
+    }
+  ],
+  "method": {
+    "ranking_token_skill_version": "fit_cohort_token_time_capture_v3",
+    "advisory_pipeline_version": 11,
+    "temporal_version": "paired_token_hour_blocks_v1",
+    "selection": "Original model-fit top-k capacities and exact ties are unchanged. Temporal resampling holds observed cuts fixed.",
+    "anchor": "Each mint mean is anchored at the earliest original OOS decision timestamp, not close time, sample order or scoring-fold label.",
+    "resampling": "1000 deterministic draws of whole UTC hour buckets at offsets0 and1800seconds. Each draw aggregates bucket delta sums / token counts, retaining token-weighted utility. The conservative lower bound is the minimum of the two fifth-percentile bounds.",
+    "support": "At least30unique tokens,5positive tokens,5buckets and3positive-containing buckets at each origin. Lower bounds and mean gain must be positive. Missing/partial/non-time clocks remain unknown.",
+    "declaration": "Current typed schemes, unique sorted bucket IDs, token/positive-count conservation and utility consistency are required; current combined token/time declarations must belong to the same original utility.",
+    "limits": [
+      "One-hour length and two fixed origins are a prespecified burst-sensitivity diagnostic, not an empirically calibrated dependence horizon or proof of stationary independent epochs.",
+      "Each repeated token remains one mean with its earliest anchor. This does not test dependence from later decisions of that mint, between creators, or across longer market regimes.",
+      "The bootstrap holds observed selection cuts fixed; it is not fresh full-strategy execution, costed financial acceptance or future coverage."
+    ]
+  },
+  "source_profile": {
+    "source": "data/features/features_202607.csv",
+    "inspection": "Header only; no original rows rewritten or performance inferred.",
+    "columns": 81,
+    "original_time_columns": [
+      "timestamp",
+      "ts"
+    ],
+    "creator_identity_columns": [],
+    "creator_dependence_status": "UNESTABLISHED_NO_ORIGINAL_CREATOR_COLUMN"
+  },
+  "implementation": [
+    "ml/prediction_validation.py",
+    "ml/model_validation_warnings.py",
+    "ml/family_training.py",
+    "ml/runner_advisory_learning.py",
+    "tests/ranking_skill_fixtures.py",
+    "tests/test_ranking_temporal_support.py",
+    "tests/test_ranking_fold_integrity.py",
+    "tests/test_ranking_token_skill.py",
+    "tests/test_strategy_context.py"
+  ],
+  "verification": {
+    "initial_native": {
+      "failed": 1,
+      "seconds": 2.74,
+      "exit_code": 1
+    },
+    "interim_core": {
+      "passed": 169,
+      "seconds": 26.46,
+      "exit_code": 0,
+      "scope": "Before four additional native/minimum-support regressions."
+    },
+    "command_setup_incident": {
+      "exit_code": 1,
+      "tests_run": 0,
+      "reason": "A nonexistent hot-queue test filename was requested. Correct paths were discovered; zero tests are not counted as validation."
+    },
+    "focused_final": "PASSED_BOTH_CHECKOUTS",
+    "full_final": "PASSED_BOTH_CHECKOUTS",
+    "preflights": "PASSED_BOTH_CHECKOUTS",
+    "interim_broader": {
+      "passed": 452,
+      "seconds": 141.15,
+      "exit_code": 0,
+      "scope": "Expanded implementation/lifecycle cases before final same-snapshot paired QA."
+    },
+    "new_test_cases": 52,
+    "focused_working": {
+      "passed": 668,
+      "seconds": 166.14,
+      "exit_code": 0
+    },
+    "focused_publishing": {
+      "passed": 668,
+      "seconds": 162.88,
+      "exit_code": 0
+    },
+    "synthetic_diagnostic_benchmark": {
+      "observed_at": "2026-10-09T12:59:10.613871+00:00",
+      "results": [
+        {
+          "synthetic_rows": 50000,
+          "positive_rate": 0.05,
+          "diagnostic_seconds": 0.8260662000393495,
+          "readiness_mean_ms_100_checks": 8.51059099950362,
+          "serialized_validation_bytes": 452862,
+          "time_buckets_by_origin": [
+            2928,
+            2929
+          ]
+        },
+        {
+          "synthetic_rows": 200000,
+          "positive_rate": 0.05,
+          "diagnostic_seconds": 2.511118299968075,
+          "readiness_mean_ms_100_checks": 8.729015000280924,
+          "serialized_validation_bytes": 452883,
+          "time_buckets_by_origin": [
+            2928,
+            2929
+          ]
+        }
+      ],
+      "scope": "Pure synthetic diagnostics on this host. Not complete model training, artifact inference throughput, production latency or financial acceptance."
+    },
+    "source_snapshot": [
+      {
+        "checkout": "working",
+        "files": 768,
+        "sha256": "707b234188baf97ff9a8a59da1ebff5be42e1e9e2fc359d872651a2d3aadd048"
+      },
+      {
+        "checkout": "publishing",
+        "files": 768,
+        "sha256": "707b234188baf97ff9a8a59da1ebff5be42e1e9e2fc359d872651a2d3aadd048"
+      }
+    ],
+    "publishing_import_probe": {
+      "imports_scoped_to_checkout": true,
+      "modules_checked": [
+        "config.config",
+        "ml.family_training",
+        "ml.runner_advisory_learning",
+        "ml.model_validation_warnings",
+        "ml.prediction_validation"
+      ],
+      "pipeline_version": 11,
+      "ranking_token_skill_version": "fit_cohort_token_time_capture_v3",
+      "time_block_version": "paired_token_hour_blocks_v1",
+      "DRY_RUN": true,
+      "PAPER_EXACT_TRADE_SIZE_ENABLED": true,
+      "PAPER_EXACT_TRADE_SIZE_SOL": 0.1,
+      "RUNNER_PRICE_TRAILING_PAPER_ENABLED": true,
+      "RUNNER_PRICE_TRAILING_MIN_PEAK_PCT": 300,
+      "RUNNER_PRICE_TRAILING_DRAWDOWN_PCT": 20,
+      "RUNNER_PRICE_TRAILING_MAX_HOLD_H": 24,
+      "RUNNER_THRESHOLDS": [
+        50,
+        100,
+        200,
+        300,
+        500,
+        1000,
+        2000,
+        5000,
+        10000
+      ]
+    },
+    "full_working": {
+      "passed": 4871,
+      "seconds": 1221.04,
+      "exit_code": 0
+    },
+    "full_publishing": {
+      "passed": 4871,
+      "seconds": 1205.68,
+      "exit_code": 0
+    },
+    "preflight_working": {
+      "generated_at_utc": "2026-10-09T13:19:30.731872+00:00",
+      "ok": true,
+      "config_import_returncode": 0,
+      "compile_errors": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true,
+      "external_pytest_returncode": 0,
+      "exit_code": 0
+    },
+    "preflight_publishing": {
+      "generated_at_utc": "2026-10-09T13:19:29.628366+00:00",
+      "ok": true,
+      "config_import_returncode": 0,
+      "compile_errors": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true,
+      "external_pytest_returncode": 0,
+      "exit_code": 0
+    },
+    "new_cases_execution_scope": "52 collected new cases executed inside both final668-case focused suites, not a separate invented52-case run.",
+    "bookkeeping_incident": "A combined fingerprint/diff-check output included Git CRLF warnings and could not be parsed as one JSON value. Both read-only commands were reissued separately and passed; the warning was not a bot failure or passing test."
+  },
+  "trading_contract": {
+    "exact_paper_sol": 0.1,
+    "entry_or_risk_relaxation": false,
+    "position_size_change": false,
+    "exit_change": false,
+    "uncapped_eligible_runner_residual": true,
+    "labels_through_pct": 10000,
+    "buy_permission": false,
+    "checked_configuration_working": {
+      "DRY_RUN": true,
+      "PAPER_EXACT_TRADE_SIZE_ENABLED": true,
+      "PAPER_EXACT_TRADE_SIZE_SOL": 0.1,
+      "RUNNER_PRICE_TRAILING_PAPER_ENABLED": true,
+      "RUNNER_PRICE_TRAILING_MIN_PEAK_PCT": 300,
+      "RUNNER_PRICE_TRAILING_DRAWDOWN_PCT": 20,
+      "RUNNER_PRICE_TRAILING_MAX_HOLD_H": 24,
+      "RUNNER_THRESHOLDS": [
+        50,
+        100,
+        200,
+        300,
+        500,
+        1000,
+        2000,
+        5000,
+        10000
+      ],
+      "PIPELINE_VERSION": 11
+    }
+  },
+  "operator_state": "No operational bot/API/UI/training/AutoResearch/provider/wallet/order started. Only isolated synthetic temp test fits are permitted and used. Original models, data and operator secrets are not backfilled.",
+  "publication": {
+    "status": "SCOPED_SOURCE_SYNCHRONIZATION_VERIFIED",
+    "scope": "Source/tests/documentation only; excludes operator secrets/data/models/logs/.venv/work.",
+    "initial_sync": {
+      "files": 11,
+      "deleted": 0,
+      "plan_sha256": "d02b881d6e15a7899dcfc2e9b5387a27071433f5cd3274d02437bca1e83265cf"
+    },
+    "expected_owned_files": 12,
+    "source_snapshots": [
+      {
+        "checkout": "working",
+        "files": 768,
+        "sha256": "707b234188baf97ff9a8a59da1ebff5be42e1e9e2fc359d872651a2d3aadd048"
+      },
+      {
+        "checkout": "publishing",
+        "files": 768,
+        "sha256": "707b234188baf97ff9a8a59da1ebff5be42e1e9e2fc359d872651a2d3aadd048"
+      }
+    ],
+    "delivery": "Actual commit/remote equality and post-publication OFF proof will be recorded in the private same-turn delivery receipt after they exist.",
+    "delivery_receipt": "work/ranking-temporal-support-delivery-receipt.json"
+  },
+  "analysis_workflow": "Scoped Data Analytics grain/time-support checks exposed token pseudoreplication within a burst. Native pytest reproductions and integration checks retain inspectable engineering evidence; no standalone business report or invented market series is used.",
+  "remaining": [
+    "Complete creator and longer-regime/dependence-horizon checks from original authoritative evidence; hourly sensitivity is not those validations.",
+    "Complete independent full-strategy ingestion/source/decision/capital/execution/finality/provider boundaries and prospective net financial acceptance.",
+    "Keep all runtime OFF; do not activate model/policy/trading from synthetic tests."
+  ],
+  "runtime_off": {
+    "status": "VERIFIED_OFF",
+    "no_operational_start": true,
+    "requested_stop": {
+      "checkout": "working_only",
+      "requested_by": "user",
+      "exit_code": 0,
+      "immediately_captured_last_exit_code": true,
+      "started_at_utc": "2026-10-09T13:19:32Z",
+      "completed_at_utc": "2026-10-09T13:19:34Z",
+      "killed": 0,
+      "remaining": 0,
+      "runtime_finalizer_status": "ok",
+      "rows_updated": 1,
+      "source": "logs/stop_stack.log"
+    },
+    "inventory": {
+      "observed_at": "2026-10-09T13:20:52.1516389+00:00",
+      "since_utc": "2026-10-08T16:09:40.0000000Z",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "checkouts": [
+        {
+          "checkout": "working",
+          "protected_files": 3763,
+          "changed_by_mtime": 0,
+          "locks": 0,
+          "green_live_risk_file_exists": false
+        },
+        {
+          "checkout": "publishing",
+          "protected_files": 27,
+          "changed_by_mtime": 0,
+          "locks": 0,
+          "green_live_risk_file_exists": false
+        }
+      ],
+      "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+    },
+    "read_only_runtime_sql": {
+      "observed_at": "2026-10-09T13:20:50.792663+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-09 13:19:34.531441"
+        }
+      ]
+    },
+    "read_only_paper_population": {
+      "observed_at": "2026-10-09T13:20:50.775971+00:00",
+      "groups": {
+        "primary_portfolio": {
+          "rows": 0,
+          "original_entry_fx_declared": 0,
+          "exit_events": 0,
+          "original_exit_fx_declared": 0
+        },
+        "buy_journals": {
+          "grain": "One paper original buy intent, active or resolved",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        },
+        "closed_archives": {
+          "grain": "One archived paper trade",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        },
+        "learning_sources": {
+          "grain": "One original financial learning source",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        }
+      },
+      "sql_source": "data/memebotdatabase.db",
+      "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+      "sql_rows": [],
+      "interpretation": "Declaration coverage, not proof validation or profitability. Existing unproved records are not rewritten. Empty scope is not zero investment risk or future market coverage."
+    }
+  },
+  "verified_at_utc": "2026-10-09T13:20:52.1516389+00:00"
+}

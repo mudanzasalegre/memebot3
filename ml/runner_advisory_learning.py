@@ -33,7 +33,7 @@ from features.auxiliary_semantics import (checked_semantics_schema, checked_mode
     prepare_training_frame, SCHEMA_SHA256 as AUXILIARY_SCHEMA_SHA256)
 
 ROLE = "scanner_ranking_only"
-PIPELINE_VERSION = 10  # Original fit-cohort top-k evidence cannot reuse pooled-score approvals.
+PIPELINE_VERSION = 11  # Original-time burst support cannot reuse token-only ranking approvals.
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -88,8 +88,9 @@ def _evaluate(model: Any, features: list[str], cohort: pd.DataFrame, target: str
     ranking = ranking_at_k(y, scores)
     precision = ranking["precision"]
     rate = float(np.mean(y)) if len(y) else None
-    identities = temporal_eligibility(cohort)[3].loc[mask]
-    token_skill = ranking_token_skill(y, scores, identities)
+    _, decision_times, _, original_ids = temporal_eligibility(cohort)
+    identities = original_ids.loc[mask]
+    token_skill = ranking_token_skill(y, scores, identities, decision_times=decision_times.loc[mask])
     if score_sink is not None:
         score_sink.extend(scores.tolist())
     return {
@@ -300,7 +301,8 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
                 observed = pd.to_numeric(holdout[target], errors="coerce")
                 mask = observed.isin([0, 1])
                 paired_comparison = ranking_token_skill(observed[mask].to_numpy(), challenger_scores,
-                    temporal_eligibility(holdout)[3].loc[mask], baseline_scores=incumbent_scores)
+                    temporal_eligibility(holdout)[3].loc[mask], baseline_scores=incumbent_scores,
+                    decision_times=temporal_eligibility(holdout)[1].loc[mask])
                 paired_comparison["cohort_sha256"] = _cohort_digest(holdout.loc[mask])
                 decision["paired_token_comparison"] = paired_comparison
             selected, reason = _candidate_decision(candidate, evaluation, incumbent_evaluation,

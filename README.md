@@ -238,6 +238,19 @@ Esto no es un bootstrap temporal ni prueba independencia entre creadores,
 beneficios futuros o permiso de compra. Vease
 `docs/audits/ranking_fit_cohort_20261009.json`.
 
+La generacion v11 anade soporte temporal original al ranking: cada media por
+mint se ancla a su primera decision OOS y se remuestrean bloques UTC de una
+hora completos con dos origenes fijos, sin convertir una rafaga de tokens en
+muchas unidades independientes. Se conserva la capacidad original de cada
+ajuste y se exige soporte positivo repartido entre bloques; relojes ausentes
+o parciales no se inventan. La comparacion con el incumbente reutiliza los
+mismos tiempos y predicciones. La v3 de captura neutraliza aprobaciones solo
+por token, sin reescribir modelos ni desactivar probabilidades independientes.
+Es una sensibilidad historica a rafagas: no demuestra independencia entre
+creadores, entre regimenes mas largos, cobertura futura ni beneficio neto.
+No cambia filtros de compra, 0.1 SOL PAPER ni salidas. Vease
+`docs/audits/ranking_temporal_support_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

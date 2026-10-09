@@ -97,7 +97,7 @@ def _forward_predictions(df, X, y, model, *, min_rows: int, classifier: bool):
     evaluated_folds = []
     probability_truth, probability_predictions, baseline_predictions = [], [], []
     probability_tokens, regression_baselines = [], []
-    _, _, _, identities = temporal_eligibility(df)
+    _, decision_times, _, identities = temporal_eligibility(df)
     for fold_id, (train, test) in enumerate(windows, start=1):
         if classifier and y.iloc[train].nunique() < 2:
             continue
@@ -127,7 +127,7 @@ def _forward_predictions(df, X, y, model, *, min_rows: int, classifier: bool):
         details["ranking_evaluation"] = {
             "metrics": ranking_across_score_cohorts(truths, predictions, score_cohorts),
             "token_skill": ranking_token_skill(truths, predictions, identities.iloc[positions],
-                                                score_cohorts=score_cohorts),
+                score_cohorts=score_cohorts, decision_times=decision_times.iloc[positions]),
         }
         brier = float(brier_score_loss(probability_truth, probability_predictions)) if probability_truth else None
         baseline_brier = float(brier_score_loss(probability_truth, baseline_predictions)) if probability_truth else None

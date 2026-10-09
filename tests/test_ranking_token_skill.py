@@ -55,16 +55,18 @@ def test_token_capture_is_permutation_invariant_and_deterministic(seed):
     truth = np.tile([0, 1], 80)
     scores = truth.astype(float)
     tokens = np.array([f"mint{i}" for i in range(len(truth))])
-    original = ranking_token_skill(truth, scores, tokens)
+    times = pd.date_range("2026-09-01", periods=len(tokens), freq="2h", tz="UTC")
+    original = ranking_token_skill(truth, scores, tokens, decision_times=times)
     order = np.random.default_rng(seed).permutation(len(truth))
-    assert ranking_token_skill(truth[order], scores[order], tokens[order]) == original
+    assert ranking_token_skill(truth[order], scores[order], tokens[order], decision_times=times[order]) == original
     assert ranking_token_skill_ready(original)
 
 
 def test_repeated_rows_are_one_token_mean_not_independent_bootstrap_samples():
     truth, tokens = [0, 1] * 30, [f"mint{i}" for i in range(60)]
-    original = ranking_token_skill(truth, truth, tokens)
-    repeated = ranking_token_skill(truth * 3, truth * 3, tokens * 3)
+    times = pd.date_range("2026-09-01", periods=len(tokens), freq="2h", tz="UTC")
+    original = ranking_token_skill(truth, truth, tokens, decision_times=times)
+    repeated = ranking_token_skill(truth * 3, truth * 3, tokens * 3, decision_times=list(times) * 3)
     assert repeated["rows"] == 180 and repeated["unique_tokens"] == 60
     for key in ("capture_lift", "mean_capture_per_token", "lower_loss_improvement"):
         assert repeated[key] == pytest.approx(original[key])
@@ -73,7 +75,9 @@ def test_repeated_rows_are_one_token_mean_not_independent_bootstrap_samples():
 def test_mint_identity_is_trimmed_but_case_sensitive():
     tokens = [f"Mint{i}" for i in range(15)] + [f"mint{i}" for i in range(15)]
     truth = [0] * 15 + [1] * 15
-    result = ranking_token_skill(truth * 2, truth * 2, tokens + [f" {t} " for t in tokens])
+    times = pd.date_range("2026-09-01", periods=len(tokens), freq="2h", tz="UTC")
+    result = ranking_token_skill(truth * 2, truth * 2, tokens + [f" {t} " for t in tokens],
+                                decision_times=list(times) * 2)
     assert result["unique_tokens"] == 30 and result["positive_tokens"] == 15
     assert ranking_token_skill_ready(result)
 
@@ -123,7 +127,9 @@ def _evaluation(truth, scores, tokens):
     return {"rows": len(truth), "positives": int(np.sum(truth)), "unique_tokens": len(set(tokens)),
             "positive_tokens": len({t for t, y in zip(tokens, truth) if y == 1}),
             "ranking_metric_version": learning.RANKING_METRIC_VERSION,
-            "ranking_token_skill": ranking_token_skill(truth, scores, tokens), "cohort_sha256": "same"}
+            "ranking_token_skill": ranking_token_skill(truth, scores, tokens,
+                decision_times=pd.date_range("2026-09-01", periods=len(tokens), freq="2h", tz="UTC")),
+            "cohort_sha256": "same"}
 
 
 def _candidate():
@@ -142,7 +148,8 @@ def test_one_lucky_improvement_cannot_replace_a_valid_incumbent():
     assert ranking_token_skill_ready(new["ranking_token_skill"])
     assert ranking_token_skill_ready(old["ranking_token_skill"])
     assert new["ranking_token_skill"]["capture_lift"] > old["ranking_token_skill"]["capture_lift"] + .05
-    paired = ranking_token_skill(truth, new_scores, tokens, baseline_scores=old_scores)
+    paired = ranking_token_skill(truth, new_scores, tokens, baseline_scores=old_scores,
+        decision_times=pd.date_range("2026-09-01", periods=len(tokens), freq="2h", tz="UTC"))
     assert paired["mean_loss_improvement"] > 0 and paired["lower_loss_improvement"] == 0
     selected, reason = learning._candidate_decision(_candidate(), new, old, min_lift_delta=.05,
                                                    paired_comparison=paired)
@@ -153,7 +160,8 @@ def test_broader_token_capture_can_replace_row_perfect_concentrated_ranker():
     frame = _concentrated_frame()
     truth, scores, tokens = frame.runner_5000.to_numpy(), frame.price_pct_5m.to_numpy(), frame.address.tolist()
     new, old = _evaluation(truth, truth, tokens), _evaluation(truth, scores, tokens)
-    paired = ranking_token_skill(truth, truth, tokens, baseline_scores=scores)
+    paired = ranking_token_skill(truth, truth, tokens, baseline_scores=scores,
+        decision_times=pd.date_range("2026-09-01", periods=len(tokens), freq="2h", tz="UTC"))
     paired["cohort_sha256"] = "same"
     assert ranking_token_skill_ready(paired, comparison="incumbent_topk")
     assert learning._candidate_decision(_candidate(), new, old, min_lift_delta=.05,
@@ -165,7 +173,8 @@ def test_paired_capture_improvement_must_belong_to_the_original_comparison(cohor
     frame = _concentrated_frame()
     truth, scores, tokens = frame.runner_5000.to_numpy(), frame.price_pct_5m.to_numpy(), frame.address.tolist()
     new, old = _evaluation(truth, truth, tokens), _evaluation(truth, scores, tokens)
-    paired = ranking_token_skill(truth, truth, tokens, baseline_scores=scores)
+    paired = ranking_token_skill(truth, truth, tokens, baseline_scores=scores,
+        decision_times=pd.date_range("2026-09-01", periods=len(tokens), freq="2h", tz="UTC"))
     paired["cohort_sha256"] = cohort
     assert learning._candidate_decision(_candidate(), new, old, min_lift_delta=.05,
         paired_comparison=paired)[1] == "incomparable_paired_token_cohort"

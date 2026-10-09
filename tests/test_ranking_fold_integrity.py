@@ -60,10 +60,11 @@ def test_between_cohort_prevalence_is_not_within_cohort_ranking_skill():
 def test_cohort_capture_is_permutation_invariant(seed):
     truth, _, tokens, cohorts = _cohorts()
     scores = truth * .6 + cohorts * .1
-    original = ranking_token_skill(truth, scores, tokens, score_cohorts=cohorts)
+    times = pd.date_range("2026-09-01", periods=len(tokens), freq="2h", tz="UTC")
+    original = ranking_token_skill(truth, scores, tokens, score_cohorts=cohorts, decision_times=times)
     order = np.random.default_rng(seed).permutation(len(truth))
     shuffled = ranking_token_skill(truth[order], scores[order], np.asarray(tokens)[order],
-                                    score_cohorts=cohorts[order])
+                                    score_cohorts=cohorts[order], decision_times=times[order])
     assert shuffled == original and ranking_token_skill_ready(original)
 
 
@@ -75,8 +76,9 @@ def test_independent_increasing_score_transforms_keep_selections_and_paired_gain
         positions = np.flatnonzero(cohorts == group)
         baseline[positions[:5]] = 0
         baseline[positions[-5:]] = 2
+    times = pd.date_range("2026-09-01", periods=len(tokens), freq="2h", tz="UTC")
     original = ranking_token_skill(truth, scores, tokens, score_cohorts=cohorts,
-                                  baseline_scores=baseline)
+                                  baseline_scores=baseline, decision_times=times)
     transformed = scores.copy()
     transformed_baseline = baseline.copy()
     for group, scale, offset in ((1, .01, 10), (2, 100, -20), (3, 7, 1000)):
@@ -84,7 +86,7 @@ def test_independent_increasing_score_transforms_keep_selections_and_paired_gain
         transformed[mask] = scores[mask] * scale + offset
         transformed_baseline[mask] = baseline[mask] * (scale * 3) - offset
     changed = ranking_token_skill(truth, transformed, tokens, score_cohorts=cohorts,
-                                  baseline_scores=transformed_baseline)
+                                  baseline_scores=transformed_baseline, decision_times=times)
     assert changed == original
     assert ranking_token_skill_ready(original, comparison="incumbent_topk")
 
@@ -93,7 +95,8 @@ def test_rounded_capacity_and_baseline_are_local_to_each_original_cohort():
     sizes = (7, 11, 82)
     cohorts = np.repeat([1, 2, 3], sizes)
     truth = np.tile([0, 1], 50)
-    skill = ranking_token_skill(truth, truth, [f"mint{i}" for i in range(100)], score_cohorts=cohorts)
+    skill = ranking_token_skill(truth, truth, [f"mint{i}" for i in range(100)], score_cohorts=cohorts,
+                               decision_times=pd.date_range("2026-09-01", periods=100, freq="2h", tz="UTC"))
     metrics = ranking_across_score_cohorts(truth, truth, cohorts)
     assert [record["k"] for record in metrics["score_cohorts"]] == [1, 1, 8]
     baseline = sum(truth[cohorts == group].sum() * k / size

@@ -16,7 +16,7 @@ WARNING_LOW_PRECISION_AT_K = "low_precision_at_k"
 WARNING_UNSTABLE_BY_LANE = "unstable_by_lane"
 WARNING_NOT_READY_FOR_ENFORCEMENT = "not_ready_for_enforcement"
 RANKING_METRIC_VERSION = "expected_boundary_ties_v1"
-RANKING_TOKEN_SKILL_VERSION = "fit_cohort_topk_paired_token_capture_v2"
+RANKING_TOKEN_SKILL_VERSION = "fit_cohort_token_time_capture_v3"
 RANKING_SELECTION_SCOPE = "original_score_fit_cohort_topk"
 
 CRITICAL_MODEL_WARNINGS = {
@@ -123,7 +123,7 @@ def ranking_across_score_cohorts(y_true: Any, scores: Any, score_cohorts: Any, *
 
 def ranking_token_skill(y_true: Any, scores: Any, tokens: Any, *,
                         baseline_scores: Any = None, k_pct: float | None = None,
-                        score_cohorts: Any = None) -> dict[str, Any]:
+                        score_cohorts: Any = None, decision_times: Any = None) -> dict[str, Any]:
     """Historical paired capture utility, with one mean per case-sensitive mint.
 
     At the observed label-independent top-k cutoff, capture utility is y*w,
@@ -131,10 +131,11 @@ def ranking_token_skill(y_true: Any, scores: Any, tokens: Any, *,
     baseline is y*k/n within each original score fit cohort; a supplied
     incumbent uses its own same-capacity cutoff in those same cohorts.
     Omitted cohorts mean one fitted scorer, not a pooled walk-forward run.
-    Cluster resampling holds these observed cutoffs fixed. This is neither an
-    independent-time test nor a future interval, financial return or buy gate.
+    Token and fixed one-hour bucket sensitivity checks hold observed cuts
+    fixed. Missing original decision times never create temporal support.
+    This is not full dependence validation, future coverage or a buy gate.
     """
-    from ml.prediction_validation import paired_token_loss_check
+    from ml.prediction_validation import (paired_token_loss_check, paired_token_time_block_check)
 
     comparison = "uniform_capacity" if baseline_scores is None else "incumbent_topk"
     result = {**paired_token_loss_check([], [], []),
@@ -146,6 +147,8 @@ def ranking_token_skill(y_true: Any, scores: Any, tokens: Any, *,
               "positive_tokens": 0, "capacity_fraction": None,
               "mean_capture_per_token": None, "mean_baseline_capture_per_token": None,
               "capture_lift": None, "reason": "invalid_or_incomplete_ranking_evidence"}
+    result.update(token_cluster_validation_ready=False,
+                  temporal_support=paired_token_time_block_check([], None, [], [], []))
     try:
         y, selected, capacity_by_row, ranking = _score_cohort_selection(
             y_true, scores, score_cohorts, k_pct=k_pct)
@@ -162,17 +165,20 @@ def ranking_token_skill(y_true: Any, scores: Any, tokens: Any, *,
                 return result
             baseline_capture = y * old_selected
         check = paired_token_loss_check(ids, 1. - capture, 1. - baseline_capture)
+        temporal = paired_token_time_block_check(ids, decision_times, 1. - capture, 1. - baseline_capture, y)
         grouped = pd.DataFrame({"token": ids, "truth": y, "capture": capture,
                                 "baseline": baseline_capture}).groupby("token", sort=True).mean()
         mean_capture, mean_baseline = float(grouped.capture.mean()), float(grouped.baseline.mean())
         lift = mean_capture / mean_baseline if mean_baseline > 0 else None
         positive_tokens = int(grouped.truth.gt(0).sum())
-        ready = bool(check["validation_ready"] and positive_tokens >= 5
+        ready = bool(check["validation_ready"] and temporal["validation_ready"] and positive_tokens >= 5
                      and (comparison != "uniform_capacity" or lift is not None and lift >= 1.25))
         reason = check["reason"]
         if check["validation_ready"] and not ready:
-            reason = "insufficient_positive_token_support" if positive_tokens < 5 else "insufficient_token_capture_lift"
+            reason = "insufficient_positive_token_support" if positive_tokens < 5 else (
+                temporal["reason"] if not temporal["validation_ready"] else "insufficient_token_capture_lift")
         result.update(check, positive_tokens=positive_tokens, capacity_fraction=capacity,
+                      token_cluster_validation_ready=check["validation_ready"], temporal_support=temporal,
                       score_cohort_count=len(ranking["score_cohorts"]),
                       score_cohort_capacity=[{key: record[key] for key in ("cohort_id", "rows", "k")}
                                              for record in ranking["score_cohorts"]],
@@ -185,6 +191,7 @@ def ranking_token_skill(y_true: Any, scores: Any, tokens: Any, *,
 
 def ranking_token_skill_ready(payload: Any, *, comparison: str = "uniform_capacity") -> bool:
     """Reject legacy or incomplete declarations without inventing approvals."""
+    from ml.prediction_validation import token_time_block_skill_ready
     if (not isinstance(payload, dict) or payload.get("version") != RANKING_TOKEN_SKILL_VERSION
             or payload.get("ranking_metric_version") != RANKING_METRIC_VERSION
             or payload.get("method") != "paired_token_cluster_bootstrap"
@@ -193,7 +200,9 @@ def ranking_token_skill_ready(payload: Any, *, comparison: str = "uniform_capaci
             or payload.get("comparison") != comparison or payload.get("validation_ready") is not True
             or type(payload.get("unique_tokens")) is not int or payload["unique_tokens"] < 30
             or type(payload.get("positive_tokens")) is not int or payload["positive_tokens"] < 5
-            or payload.get("bootstrap_samples") != 1000 or payload.get("lower_quantile") != .05):
+            or payload.get("bootstrap_samples") != 1000 or payload.get("lower_quantile") != .05
+            or payload.get("token_cluster_validation_ready") is not True
+            or not token_time_block_skill_ready(payload.get("temporal_support"))):
         return False
     lower, lift = payload.get("lower_loss_improvement"), payload.get("capture_lift")
     captured, baseline = payload.get("mean_capture_per_token"), payload.get("mean_baseline_capture_per_token")
@@ -202,6 +211,10 @@ def ranking_token_skill_ready(payload: Any, *, comparison: str = "uniform_capaci
             for value in (lower, captured, baseline, gain, capacity))
             or not 0 <= captured <= 1 or not 0 <= baseline <= 1 or not 0 < capacity <= 1
             or lower <= 0 or gain <= 0 or not np.isclose(gain, captured - baseline, rtol=1e-9, atol=1e-12)):
+        return False
+    temporal = payload["temporal_support"]
+    if (any(temporal[key] != payload[key] for key in ("rows", "unique_tokens", "positive_tokens"))
+            or not np.isclose(temporal["mean_loss_improvement"], gain, rtol=1e-9, atol=1e-12)):
         return False
     cohorts = payload.get("score_cohort_capacity")
     if (type(payload.get("score_cohort_count")) is not int or not isinstance(cohorts, list)
