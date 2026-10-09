@@ -16,7 +16,8 @@ WARNING_LOW_PRECISION_AT_K = "low_precision_at_k"
 WARNING_UNSTABLE_BY_LANE = "unstable_by_lane"
 WARNING_NOT_READY_FOR_ENFORCEMENT = "not_ready_for_enforcement"
 RANKING_METRIC_VERSION = "expected_boundary_ties_v1"
-RANKING_TOKEN_SKILL_VERSION = "fixed_topk_paired_token_capture_v1"
+RANKING_TOKEN_SKILL_VERSION = "fit_cohort_topk_paired_token_capture_v2"
+RANKING_SELECTION_SCOPE = "original_score_fit_cohort_topk"
 
 CRITICAL_MODEL_WARNINGS = {
     WARNING_IN_SAMPLE_ONLY,
@@ -75,13 +76,61 @@ def precision_at_k(y_true: Any, scores: Any, *, k_pct: float | None = None) -> f
     return ranking_at_k(y_true, scores, k_pct=k_pct)["precision"]
 
 
+def _score_cohort_selection(y_true, scores, score_cohorts, *, k_pct):
+    """Scores from different fitted models never compete for one top-k budget."""
+    y, pred = np.asarray(y_true, dtype=float), np.asarray(scores, dtype=float)
+    if (y.ndim != 1 or pred.shape != y.shape or not len(y)
+            or not np.isin(y, [0, 1]).all() or not np.isfinite(pred).all()):
+        raise ValueError("Incomplete cohort ranking values")
+    cohorts = pd.Series(["0"] * len(y) if score_cohorts is None else score_cohorts,
+                        dtype="string").reset_index(drop=True).str.strip()
+    if len(cohorts) != len(y) or cohorts.isna().any() or cohorts.eq("").any():
+        raise ValueError("Incomplete score fit cohorts")
+    weights, capacity = np.zeros(len(y)), np.zeros(len(y))
+    records = []
+    for identity in sorted(cohorts.unique()):
+        mask = cohorts.eq(identity).to_numpy(dtype=bool)
+        ranking = ranking_at_k(y[mask], pred[mask], k_pct=k_pct)
+        if ranking["rows"] != int(mask.sum()) or ranking["precision"] is None:
+            raise ValueError("Invalid cohort ranking")
+        weights[mask] = np.where(pred[mask] > ranking["cutoff_score"], 1.,
+            np.where(pred[mask] == ranking["cutoff_score"], ranking["boundary_selected_weight"], 0.))
+        capacity[mask] = ranking["k"] / ranking["rows"]
+        records.append({"cohort_id": str(identity), **ranking})
+    k = sum(record["k"] for record in records)
+    # Integer positive counts and exact tie weights are already deterministic
+    # per cohort. Summing those summaries avoids row-order floating drift.
+    true_positives = float(sum(record["expected_true_positives"] for record in records))
+    metrics = {"version": RANKING_METRIC_VERSION, "grain": "observed_target_row",
+               "selection_scope": RANKING_SELECTION_SCOPE, "rows": len(y),
+               "positives": int(y.sum()), "k": k, "k_pct": records[0]["k_pct"],
+               "precision": true_positives / k, "recall": true_positives / float(y.sum()) if y.sum() else None,
+               "expected_true_positives": true_positives, "score_cohorts": records}
+    return y, weights, capacity, metrics
+
+
+def ranking_across_score_cohorts(y_true: Any, scores: Any, score_cohorts: Any, *,
+                                k_pct: float | None = None) -> dict[str, Any]:
+    """Aggregate actual per-model-fit top-k selections, not pooled raw scores."""
+    try:
+        return _score_cohort_selection(y_true, scores, score_cohorts, k_pct=k_pct)[3]
+    except (TypeError, ValueError, OverflowError):
+        return {"version": RANKING_METRIC_VERSION, "grain": "observed_target_row",
+                "selection_scope": RANKING_SELECTION_SCOPE, "rows": 0, "positives": 0,
+                "k": 0, "k_pct": None, "precision": None, "recall": None,
+                "expected_true_positives": None, "score_cohorts": []}
+
+
 def ranking_token_skill(y_true: Any, scores: Any, tokens: Any, *,
-                        baseline_scores: Any = None, k_pct: float | None = None) -> dict[str, Any]:
+                        baseline_scores: Any = None, k_pct: float | None = None,
+                        score_cohorts: Any = None) -> dict[str, Any]:
     """Historical paired capture utility, with one mean per case-sensitive mint.
 
     At the observed label-independent top-k cutoff, capture utility is y*w,
     where w is the exact-boundary selection weight. The uniform-capacity
-    baseline is y*k/n; a supplied incumbent uses its own same-capacity cutoff.
+    baseline is y*k/n within each original score fit cohort; a supplied
+    incumbent uses its own same-capacity cutoff in those same cohorts.
+    Omitted cohorts mean one fitted scorer, not a pooled walk-forward run.
     Cluster resampling holds these observed cutoffs fixed. This is neither an
     independent-time test nor a future interval, financial return or buy gate.
     """
@@ -91,33 +140,27 @@ def ranking_token_skill(y_true: Any, scores: Any, tokens: Any, *,
     result = {**paired_token_loss_check([], [], []),
               "version": RANKING_TOKEN_SKILL_VERSION,
               "ranking_metric_version": RANKING_METRIC_VERSION,
+              "selection_scope": RANKING_SELECTION_SCOPE,
+              "score_cohort_count": 0, "score_cohort_capacity": [],
               "comparison": comparison, "grain": "case_sensitive_token_mean_capture",
               "positive_tokens": 0, "capacity_fraction": None,
               "mean_capture_per_token": None, "mean_baseline_capture_per_token": None,
               "capture_lift": None, "reason": "invalid_or_incomplete_ranking_evidence"}
     try:
-        y, pred = np.asarray(y_true, dtype=float), np.asarray(scores, dtype=float)
+        y, selected, capacity_by_row, ranking = _score_cohort_selection(
+            y_true, scores, score_cohorts, k_pct=k_pct)
         ids = pd.Series(tokens, dtype="string").reset_index(drop=True).str.strip()
-        ranking = ranking_at_k(y, pred, k_pct=k_pct)
-        if (y.ndim != 1 or pred.shape != y.shape or len(ids) != len(y) or not len(y)
-                or ranking["rows"] != len(y) or not np.isfinite(pred).all()
-                or ranking["precision"] is None or ids.isna().any() or ids.eq("").any()):
+        if len(ids) != len(y) or ids.isna().any() or ids.eq("").any():
             return result
-
-        def weights(values, details):
-            return np.where(values > details["cutoff_score"], 1.,
-                            np.where(values == details["cutoff_score"], details["boundary_selected_weight"], 0.))
-
-        capture = y * weights(pred, ranking)
+        capture = y * selected
         capacity = ranking["k"] / len(y)
-        baseline_capture = y * capacity
+        baseline_capture = y * capacity_by_row
         if baseline_scores is not None:
-            reference = np.asarray(baseline_scores, dtype=float)
-            old_ranking = ranking_at_k(y, reference, k_pct=k_pct)
-            if (reference.shape != y.shape or not np.isfinite(reference).all()
-                    or old_ranking["rows"] != len(y) or old_ranking["k"] != ranking["k"]):
+            _, old_selected, old_capacity, _ = _score_cohort_selection(
+                y, baseline_scores, score_cohorts, k_pct=k_pct)
+            if not np.array_equal(old_capacity, capacity_by_row):
                 return result
-            baseline_capture = y * weights(reference, old_ranking)
+            baseline_capture = y * old_selected
         check = paired_token_loss_check(ids, 1. - capture, 1. - baseline_capture)
         grouped = pd.DataFrame({"token": ids, "truth": y, "capture": capture,
                                 "baseline": baseline_capture}).groupby("token", sort=True).mean()
@@ -130,6 +173,9 @@ def ranking_token_skill(y_true: Any, scores: Any, tokens: Any, *,
         if check["validation_ready"] and not ready:
             reason = "insufficient_positive_token_support" if positive_tokens < 5 else "insufficient_token_capture_lift"
         result.update(check, positive_tokens=positive_tokens, capacity_fraction=capacity,
+                      score_cohort_count=len(ranking["score_cohorts"]),
+                      score_cohort_capacity=[{key: record[key] for key in ("cohort_id", "rows", "k")}
+                                             for record in ranking["score_cohorts"]],
                       mean_capture_per_token=mean_capture, mean_baseline_capture_per_token=mean_baseline,
                       capture_lift=lift, validation_ready=ready, reason=reason)
     except (TypeError, ValueError, OverflowError):
@@ -143,6 +189,7 @@ def ranking_token_skill_ready(payload: Any, *, comparison: str = "uniform_capaci
             or payload.get("ranking_metric_version") != RANKING_METRIC_VERSION
             or payload.get("method") != "paired_token_cluster_bootstrap"
             or payload.get("grain") != "case_sensitive_token_mean_capture"
+            or payload.get("selection_scope") != RANKING_SELECTION_SCOPE
             or payload.get("comparison") != comparison or payload.get("validation_ready") is not True
             or type(payload.get("unique_tokens")) is not int or payload["unique_tokens"] < 30
             or type(payload.get("positive_tokens")) is not int or payload["positive_tokens"] < 5
@@ -155,6 +202,22 @@ def ranking_token_skill_ready(payload: Any, *, comparison: str = "uniform_capaci
             for value in (lower, captured, baseline, gain, capacity))
             or not 0 <= captured <= 1 or not 0 <= baseline <= 1 or not 0 < capacity <= 1
             or lower <= 0 or gain <= 0 or not np.isclose(gain, captured - baseline, rtol=1e-9, atol=1e-12)):
+        return False
+    cohorts = payload.get("score_cohort_capacity")
+    if (type(payload.get("score_cohort_count")) is not int or not isinstance(cohorts, list)
+            or not cohorts or len(cohorts) != payload["score_cohort_count"]
+            or type(payload.get("rows")) is not int or payload["rows"] < payload["unique_tokens"]):
+        return False
+    identities = []
+    for cohort in cohorts:
+        if (not isinstance(cohort, dict) or type(cohort.get("cohort_id")) is not str
+                or not cohort["cohort_id"].strip() or cohort["cohort_id"] != cohort["cohort_id"].strip()
+                or type(cohort.get("rows")) is not int or type(cohort.get("k")) is not int
+                or not 1 <= cohort["k"] <= cohort["rows"]):
+            return False
+        identities.append(cohort["cohort_id"])
+    if (len(set(identities)) != len(identities) or sum(c["rows"] for c in cohorts) != payload["rows"]
+            or not np.isclose(sum(c["k"] for c in cohorts) / payload["rows"], capacity, rtol=1e-9, atol=1e-12)):
         return False
     if baseline == 0:
         return comparison == "incumbent_topk" and lift is None
@@ -248,5 +311,6 @@ __all__ = [
     "RANKING_TOKEN_SKILL_VERSION",
     "ranking_token_skill",
     "ranking_token_skill_ready",
+    "ranking_across_score_cohorts",
     "target_validation_payload",
 ]

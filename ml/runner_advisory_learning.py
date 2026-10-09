@@ -33,7 +33,7 @@ from features.auxiliary_semantics import (checked_semantics_schema, checked_mode
     prepare_training_frame, SCHEMA_SHA256 as AUXILIARY_SCHEMA_SHA256)
 
 ROLE = "scanner_ranking_only"
-PIPELINE_VERSION = 9  # Token-balanced capture evidence cannot reuse row-only approvals.
+PIPELINE_VERSION = 10  # Original fit-cohort top-k evidence cannot reuse pooled-score approvals.
 
 
 def _read_json(path: Path) -> dict[str, Any]:

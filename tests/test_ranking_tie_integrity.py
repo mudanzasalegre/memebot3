@@ -189,7 +189,7 @@ def test_informative_extreme_runner_heads_remain_rankable_not_buy_permission(tmp
         item = report["targets"][target]
         assert item["ranking_validation_ready"] is True
         assert item["ranking_metric_version"] == RANKING_METRIC_VERSION
-        assert item["ranking_metrics"]["boundary_tied_rows"] > 1
+        assert all(cohort["boundary_tied_rows"] > 1 for cohort in item["ranking_metrics"]["score_cohorts"])
         assert item["precision_lift_at_k"] == pytest.approx(2.)
         assert runtime.predict_ranking_score("runner", target, {"price_pct_5m": 80.}) is not None
     priority = learned_runner_priority({"price_pct_5m": 80., "txns_last_5m": 200,

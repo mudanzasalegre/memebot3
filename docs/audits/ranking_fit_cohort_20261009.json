@@ -1,0 +1,274 @@
+{
+  "stage": "original_model_fit_cohort_ranking_integrity",
+  "status": "SOFTWARE_VERIFIED_RUNTIME_OFF_PROFITABILITY_INCOMPLETE",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Walk-forward family classifier ranking, original fit-cohort top-k budgets, token capture evidence and automatic runner advisory generation/consumption. No operational run or active model/policy training/promotion.",
+  "sources": [
+    "ml/family_training.py",
+    "ml/model_validation_warnings.py",
+    "ml/calibrated_ranker.py",
+    "ml/temporal_validation.py",
+    "ml/runner_advisory_learning.py",
+    "analytics/model_runtime_common.py"
+  ],
+  "grain": "One OOS decision scored by one original fitted model; its original test-fold identifier is retained for selection. All decisions of the same case-sensitive mint still form one token bootstrap mean.",
+  "findings": [
+    {
+      "id": "pooled_scores_from_different_model_fits",
+      "severity": "high",
+      "evidence": "Native family classifier approval accepted a controlled scorer constant inside each of three100-row OOS windows. Their positive prevalences90/50/10 percent and scores0.9/0.5/0.1 produced pooled precision0.9 and token capture lift1.8, lower historical gain0.02965, although no token was distinguishable within any window. Initial native family assertion failed in2.76s.",
+      "risk": "Pooling raw rank scores from different fitted models creates a competition that never existed at one decision epoch. Between-window prevalence or score scale can masquerade as scanner token-selection skill. This is a synthetic software approval defect, not an observed financial loss.",
+      "repair": "Retain original evaluated fold IDs. Calculate exact-tie top-k selection and same-budget baseline within each original scoring cohort, then aggregate selected positives and one mean per mint."
+    },
+    {
+      "id": "row_order_floating_aggregation",
+      "severity": "medium",
+      "evidence": "First expanded draft had215passes/2failures in107.76s. Weighted-vector summation produced14.999999999999998 rather than15.0 after one row ordering.",
+      "risk": "Tiny numerical drift made otherwise equivalent evidence differ across row permutations.",
+      "repair": "Sum deterministic per-cohort integer-count/exact-tie summaries in sorted cohort order; unchanged tests then pass."
+    }
+  ],
+  "method": {
+    "metric_generation": "expected_boundary_ties_v1",
+    "token_skill_generation": "fit_cohort_topk_paired_token_capture_v2",
+    "advisory_pipeline_version": 10,
+    "selection_scope": "original_score_fit_cohort_topk",
+    "capacity": "For each original fit cohort c, k_c=max(1,round(n_c*pct)); exact boundary ties share the remaining capacity. Precision/recall aggregate actual selected-positive expectations. A supplied incumbent is evaluated at the same cohort capacities.",
+    "token_utility": "Captured-positive y*w and uniform y*k_c/n_c are averaged per case-sensitive trimmed mint before the existing paired1000-sample token-cluster bootstrap. Total capacity_fraction is sum(k_c)/sum(n_c), not a substitute for each row's own baseline.",
+    "boundary": "The actual forward producer assigns the original window enumeration even when a one-class training window is skipped. These are model-fit score units, not an independently attested full executing process.",
+    "metadata": "Current version/selection scope, typed unique nonempty cohort IDs, rows/k conservation and total capacity consistency are required. Missing/partial/incompatible declarations remain unknown.",
+    "limits": "Observed cohort cuts remain fixed in the bootstrap. This is not a time-block or creator-dependence test, does not prove future coverage and does not measure financial returns."
+  },
+  "implementation": [
+    "ml/model_validation_warnings.py",
+    "ml/family_training.py",
+    "ml/runner_advisory_learning.py",
+    "tests/test_ranking_fold_integrity.py",
+    "tests/test_ranking_tie_integrity.py",
+    "tests/test_strategy_context.py"
+  ],
+  "verification": {
+    "initial": {
+      "failed": 1,
+      "passed": 0,
+      "seconds": 2.76,
+      "exit_code": 1
+    },
+    "interim": [
+      {
+        "passed": 80,
+        "seconds": 22.08,
+        "exit_code": 0,
+        "scope": "Initial repair before expanded new cases."
+      },
+      {
+        "passed": 215,
+        "failed": 2,
+        "seconds": 107.76,
+        "exit_code": 1,
+        "scope": "Two deterministic aggregation checks exposed row-order floating drift; not final verification."
+      },
+      {
+        "passed": 31,
+        "seconds": 2.92,
+        "exit_code": 0,
+        "scope": "New module before the additional actual legacy-version runtime case."
+      }
+    ],
+    "new_test_cases": 32,
+    "new_test_suite": {
+      "passed": 32,
+      "seconds": 3.16,
+      "exit_code": 0
+    },
+    "focused_working": {
+      "passed": 575,
+      "seconds": 150.57,
+      "exit_code": 0
+    },
+    "focused_publishing": {
+      "passed": 575,
+      "seconds": 148.5,
+      "exit_code": 0
+    },
+    "full_working": {
+      "passed": 4819,
+      "seconds": 1227.19,
+      "exit_code": 0
+    },
+    "full_publishing": {
+      "passed": 4819,
+      "seconds": 1199.86,
+      "exit_code": 0
+    },
+    "preflight_working": {
+      "generated_at_utc": "2026-10-09T12:26:32.0599350Z",
+      "ok": true,
+      "config_import_returncode": 0,
+      "compile_errors": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true,
+      "external_pytest_returncode": 0,
+      "exit_code": 0
+    },
+    "preflight_publishing": {
+      "generated_at_utc": "2026-10-09T12:26:30.9893060Z",
+      "ok": true,
+      "config_import_returncode": 0,
+      "compile_errors": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true,
+      "external_pytest_returncode": 0,
+      "exit_code": 0
+    },
+    "source_snapshot": {
+      "files_each": 767,
+      "normalized_sha256": "00fb5d37688d4ac832bb978098577ae98bccf17e94069f660d21b2788eb742e2",
+      "scope": "Verification source files; excludes README/docs and protected operator state."
+    },
+    "publishing_import_probe": {
+      "imports_scoped_to_checkout": true,
+      "modules_checked": [
+        "config.config",
+        "ml.family_training",
+        "ml.runner_advisory_learning",
+        "ml.model_validation_warnings"
+      ],
+      "advisory_pipeline_version": 10,
+      "token_skill_generation": "fit_cohort_topk_paired_token_capture_v2",
+      "scope": "Separate current-root fresh import probe, not full-process attestation."
+    }
+  },
+  "trading_contract": {
+    "exact_paper_sol": 0.1,
+    "new_buy_permission": false,
+    "financial_acceptance": false,
+    "entry_or_risk_threshold_relaxation": false,
+    "exit_change": false,
+    "uncapped_applicable_runner_residual": true,
+    "extreme_targets_through_pct": 10000
+  },
+  "runtime_off": {
+    "status": "VERIFIED_OFF",
+    "no_operational_start": true,
+    "requested_stop": {
+      "checkout": "working_only",
+      "requested_by": "user",
+      "exit_code": 0,
+      "immediately_captured_last_exit_code": true,
+      "started_at_utc": "2026-10-09T12:26:42Z",
+      "completed_at_utc": "2026-10-09T12:26:44Z",
+      "killed": 0,
+      "remaining": 0,
+      "runtime_finalizer_status": "ok",
+      "source": "logs/stop_stack.log"
+    },
+    "inventory": {
+      "observed_at": "2026-10-09T12:26:46.7845091+00:00",
+      "since_utc": "2026-10-08T16:09:40.0000000Z",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "checkouts": [
+        {
+          "changed_by_mtime": 0,
+          "green_live_risk_file_exists": false,
+          "checkout": "working",
+          "protected_files": 3763,
+          "locks": 0
+        },
+        {
+          "changed_by_mtime": 0,
+          "green_live_risk_file_exists": false,
+          "checkout": "publishing",
+          "protected_files": 27,
+          "locks": 0
+        }
+      ],
+      "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+    },
+    "read_only_runtime_sql": {
+      "observed_at": "2026-10-09T12:26:45.640779+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-09 12:26:44.695930"
+        }
+      ]
+    },
+    "read_only_paper_population": {
+      "observed_at": "2026-10-09T12:26:45.610647+00:00",
+      "groups": {
+        "primary_portfolio": {
+          "rows": 0,
+          "original_entry_fx_declared": 0,
+          "exit_events": 0,
+          "original_exit_fx_declared": 0
+        },
+        "buy_journals": {
+          "grain": "One paper original buy intent, active or resolved",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        },
+        "closed_archives": {
+          "grain": "One archived paper trade",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        },
+        "learning_sources": {
+          "grain": "One original financial learning source",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        }
+      },
+      "sql_source": "data/memebotdatabase.db",
+      "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+      "sql_rows": [],
+      "interpretation": "Declaration coverage, not proof validation or profitability. Existing unproved records are not rewritten. Empty scope is not zero investment risk or future market coverage."
+    }
+  },
+  "publication": {
+    "status": "SCOPED_SOURCE_SYNCHRONIZATION_VERIFIED",
+    "scope": "Source/tests/documentation only. Protected operator data/models/logs/.env/.venv/work are excluded.",
+    "delivery": "Actual commit/remote equality and post-publication OFF proof will be recorded in a private same-turn delivery receipt after they exist.",
+    "initial_sync": {
+      "files": 8,
+      "deleted": 0,
+      "plan_sha256": "c082e86f2fa7f8c92450411d2d48b95dfe98e776d8e102127d62cf859136962b"
+    },
+    "expected_owned_files": 9,
+    "final_source_snapshots": [
+      {
+        "checkout": "working",
+        "files": 767,
+        "sha256": "00fb5d37688d4ac832bb978098577ae98bccf17e94069f660d21b2788eb742e2"
+      },
+      {
+        "checkout": "publishing",
+        "files": 767,
+        "sha256": "00fb5d37688d4ac832bb978098577ae98bccf17e94069f660d21b2788eb742e2"
+      }
+    ],
+    "delivery_receipt": "work/ranking-fit-cohort-delivery-receipt.json"
+  },
+  "remaining": [
+    "Complete independent time/creator-dependence and rare-event distribution/coverage checks on fresh evidence; fit-cohort boundaries are not those independent validations.",
+    "Complete the other documented ingestion/source/decision/capital/execution/finality/provider/full-strategy boundaries. No historical or software test certifies profitability.",
+    "Human stop remains effective. No active runtime, provider/wallet/order or model/policy promotion is authorized by these synthetic tests; prospective costed full-strategy financial acceptance is unestablished."
+  ],
+  "analysis_workflow": "Data Analytics source/grain checks identified pooled-model-fit ranking bias; native isolated unit tests preserve the inspectable reproductions and integration evidence without changing original operator datasets.",
+  "verified_at_utc": "2026-10-09T12:26:46.7845091+00:00"
+}

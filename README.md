@@ -226,6 +226,18 @@ un sucesor debe validarse por separado. No cambia compras, importes ni salidas,
 y el bootstrap historico no acredita independencia temporal ni rentabilidad.
 Vease `docs/audits/ranking_token_skill_20261009.json`.
 
+La validacion walk-forward conserva ahora el cohort de cada ajuste del modelo:
+las puntuaciones brutas de modelos distintos no compiten por un unico top-k.
+Cada ventana reparte su propio presupuesto con empates exactos; precision,
+recall y captura por token agregan esas selecciones originales. La referencia
+uniforme y la comparacion emparejada usan la misma capacidad de cada ventana,
+incluido el redondeo. La generacion v10 requiere esta evidencia y mantiene
+neutrales las aprobaciones de captura agrupada de la generacion anterior,
+sin reescribir modelos ni invalidar probabilidades calibradas independientes.
+Esto no es un bootstrap temporal ni prueba independencia entre creadores,
+beneficios futuros o permiso de compra. Vease
+`docs/audits/ranking_fit_cohort_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

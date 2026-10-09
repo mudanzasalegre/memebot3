@@ -49,6 +49,7 @@ from ml.model_validation_warnings import (
     RANKING_METRIC_VERSION,
     ranking_token_skill,
     ranking_token_skill_ready,
+    ranking_across_score_cohorts,
     target_validation_payload,
 )
 
@@ -92,12 +93,12 @@ def _settled_training_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 def _forward_predictions(df, X, y, model, *, min_rows: int, classifier: bool):
     windows, details = purged_temporal_windows(df, min_train_rows=min_rows)
-    truths, predictions, positions = [], [], []
+    truths, predictions, positions, score_cohorts = [], [], [], []
     evaluated_folds = []
     probability_truth, probability_predictions, baseline_predictions = [], [], []
     probability_tokens, regression_baselines = [], []
     _, _, _, identities = temporal_eligibility(df)
-    for train, test in windows:
+    for fold_id, (train, test) in enumerate(windows, start=1):
         if classifier and y.iloc[train].nunique() < 2:
             continue
         calibration = None
@@ -117,11 +118,17 @@ def _forward_predictions(df, X, y, model, *, min_rows: int, classifier: bool):
         truths.extend(y.iloc[test].tolist())
         predictions.extend(pred.tolist())
         positions.extend(test.tolist())
-        evaluated_folds.append({"train_rows": len(train), "test_rows": len(test), "calibration": calibration})
+        score_cohorts.extend([fold_id] * len(test))
+        evaluated_folds.append({"fold_id": fold_id, "train_rows": len(train), "test_rows": len(test), "calibration": calibration})
     details["evaluated_folds"] = evaluated_folds
     details["out_of_sample_rows"] = len(truths)
     details["out_of_sample_unique_tokens"] = int(identities.iloc[positions].nunique())
     if classifier:
+        details["ranking_evaluation"] = {
+            "metrics": ranking_across_score_cohorts(truths, predictions, score_cohorts),
+            "token_skill": ranking_token_skill(truths, predictions, identities.iloc[positions],
+                                                score_cohorts=score_cohorts),
+        }
         brier = float(brier_score_loss(probability_truth, probability_predictions)) if probability_truth else None
         baseline_brier = float(brier_score_loss(probability_truth, baseline_predictions)) if probability_truth else None
         details["probability_evaluation"] = {
@@ -282,8 +289,8 @@ def train_classifier_family(
         )
         truth, pred, positions, temporal = _forward_predictions(target_df, target_X, y, model, min_rows=min_rows, classifier=True)
         model, calibration = fit_calibrated_ranker(model, target_X, y, target_df, min_rows=min_rows)
-        ranking = ranking_at_k(truth, pred)
-        ranking_skill = ranking_token_skill(truth, pred, temporal_eligibility(target_df)[3].iloc[positions])
+        ranking = temporal["ranking_evaluation"]["metrics"]
+        ranking_skill = temporal["ranking_evaluation"]["token_skill"]
         p_at_k, r_at_k = ranking["precision"], ranking["recall"]
         target_warnings = [WARNING_NOT_READY_FOR_ENFORCEMENT]
         if not len(pred):
