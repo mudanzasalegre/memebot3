@@ -1,0 +1,74 @@
+{
+  "stage": "separate_birth_and_queue_age_with_original_research_decision_clock",
+  "status": "SOFTWARE_VERIFIED_PUBLICATION_READY_RUNTIME_OFF",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Repair bootstrap birth/queue evidence, momentum queue confirmation and rank-canary temporal consumers; freeze registration and original cohort revalidation to each case decision_at. Use the historical event clock for bootstrap replay. Preserve original data/models, risk and admission thresholds, exact0.1 SOL PAPER and uncapped residual upside. Keep operational runtime stopped.",
+  "findings": [
+    {"id": "birth_substitutes_queue_confirmation", "severity": "high", "confidence": "high_software_reproduction", "evidence": "Six original native momentum cases treat birth aliases, boolean queue values or negative queue residence as strong_queue_age. The native before-repair subset has10 failures and1 pass in1.53s,48 deselected; these are synthetic actual-component calls, not trading executions.", "repair": "Use a distinct nullable queue contract. Original first-seen controls residence when present; otherwise valid measured queue residence is used. Token birth never substitutes for queue evidence. Unknown, invalid, boolean or future values cannot grant strong_queue_age. Genuine strong rank/activity/liquidity/volume or observed second-tick confirmation remains valid."},
+    {"id": "bootstrap_temporal_evidence_disagrees", "severity": "high", "confidence": "high_software_reproduction", "evidence": "Original bootstrap accepts true as birth age and true/false as queue residence, but treats a valid measured birth age0 as missing. Its independent timestamp parser cannot correctly resolve microsecond/nanosecond epochs and may fall back from a future creation to a plausible measured age.", "repair": "Delegate to common nullable birth/queue helpers. Preserve observed0, reject bool/containers/nonfinite/negative evidence, support original epoch units, and keep valid original clocks ahead of stale measurements. Enabled age caps still require observations; disabled caps do not add a new veto."},
+    {"id": "replay_uses_wall_clock_for_historical_age", "severity": "high", "confidence": "high_source_and_synthetic_consumer_verification", "evidence": "Bootstrap replay calls the age-dependent component without its event.ts. Research registration and cohort revalidation do not transport each registered decision_at into temporal gates. Recomputing a first-seen clock later changes an otherwise frozen momentum decision.", "repair": "Pass one explicit original clock through profile_decision/gate_decision into rank-canary and sniper-subprofile components. Registration freezes all three arms to its stamp; compare_cohort reevaluates all three at each original decision_at. Event replay sends event.ts into bootstrap. No retrospective clock is written into original source records."},
+    {"id": "rank_age_defaults_hide_missingness", "severity": "medium", "confidence": "high_source_verification", "evidence": "Rank-canary independently converts absent birth and queue evidence to0 and does not respect original clocks. Its explicit priority and PAPER-normal branches precede the later stale guard by existing policy and tests.", "repair": "Use separate nullable temporal values and compare stale limits only when both relevant observations exist. Preserve the existing branch order, thresholds and PAPER-normal behavior rather than silently introducing a new age veto."}
+  ],
+  "grain_and_clock_contract": {
+    "birth_age": "Original declared creation clock at the decision instant, otherwise a valid measured age_minutes/age_min/token_age_min. These fields do not independently authenticate on-chain birth.",
+    "queue_age": "Original declared first_seen_epoch_s/first_seen_at at the decision instant, otherwise valid measured queue_age_minutes/minutes_since_first_seen. Birth and purchase/open clocks are not substitutes. Source clock ownership still requires independent provider/queue provenance.",
+    "forward_case": "One pre-registered token/component case. Baseline, challenger and incumbent share the same decision_at; later validation uses that original instant, not evaluation wall time or a later fill/open time.",
+    "historical_event": "Bootstrap age is rechecked at the ordered candidate event.ts. This remains retrospective replay, not prospective acceptance or actual financial profit.",
+    "unknown": "Missing, invalid, boolean, negative, nonfinite or future temporal evidence remains unknown. Unknown residence cannot supply a momentum confirmation; bootstrap requires it only when its corresponding cap is enabled. The common actual entry-prefix birth wait remains unchanged."
+  },
+  "implemented_paths": [
+    "analytics/token_time.py",
+    "analytics/paper_bootstrap.py",
+    "analytics/sniper_research_subprofiles.py",
+    "analytics/research_rank_canary.py",
+    "research_loop/entry_gate_policy.py",
+    "research_loop/entry_gate_forward.py",
+    "backtest/event_replay.py",
+    "tests/test_research_temporal_integrity.py"
+  ],
+  "verification": {
+    "initial_clock_contract_suite": "48 failed in1.91s before implementation. Most failures identify missing explicit-clock APIs/helper contract; not48 native semantic faults or actual trading executions.",
+    "native_before_repair": "10 failed,1 passed,48 deselected in1.53s against the unchanged native component APIs.",
+    "intermediate_subset": "1 failed/179 passed in197.61s; source/test edits occurred before completion, so this is not a frozen validation receipt. The remaining bootstrap replay fixture originally had25 transactions and correctly hit the unchanged low-activity risk guard.",
+    "fixture_repair": "The replay fixture now declares600 synthetic transactions to isolate clock behavior. Production risk/admission thresholds were not lowered. An intermediate quick run had1 failed/59 passed/1 deselected in1.78s before that fixture correction.",
+    "new_cases": "61 passed in9.41s, exit0. Includes original registration transport, actual temporal component decisions, event-replay consumer and a synthetic50-case complete costed cohort revalidated at each original T0.",
+    "focused_integration": "247 passed in14.44s, exit0",
+    "focused_size_and_extreme_exit": "107 passed in3.34s, exit0",
+    "full_working": "4420 passed in822.30s, exit0",
+    "full_publishing": "4420 passed in802.14s, exit0; existing D Python without publishing personal.env/local.venv",
+    "preflight_working": {"generated_at_utc": "2026-10-09T03:50:34.789024Z", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders": 7, "report_builders_ok": true, "external_pytest_returncode": 0},
+    "preflight_publishing": {"generated_at_utc": "2026-10-09T03:50:18.832834Z", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders": 7, "report_builders_ok": true, "external_pytest_returncode": 0},
+    "qualifications": "Synthetic local fixtures and temporary artifacts only. No operational bot/API/UI/training/AutoResearch activation, provider/wallet order or active model/policy promotion. Tests establish these software contracts, not source authentication, full-strategy coverage, actual fills, prospective profit or future zero errors."
+  },
+  "source_fingerprint": {"files": 756, "normalized_sha256": "0ebc6f3603113493bb9c57acb827f99b46cfb6a7364cd61dc5d983da9e0a6f94", "scope": "Allowed executable/test sources, excluding docs/README and operator state; identical in both checkouts before and after both full suites, preflights and requested D-only stop."},
+  "current_public_config": {"DRY_RUN": true, "PAPER_EXACT_TRADE_SIZE_ENABLED": true, "PAPER_EXACT_TRADE_SIZE_SOL": 0.1, "RUNNER_PRICE_TRAILING_PAPER_ENABLED": true, "RUNNER_PRICE_TRAILING_MIN_PEAK_PCT": 300.0, "RUNNER_PRICE_TRAILING_DRAWDOWN_PCT": 20.0, "RUNNER_PRICE_TRAILING_MAX_HOLD_H": 24.0},
+  "original_population": {"observed_at": "2026-10-09T03:50:37.988997+00:00", "primary_portfolio_rows": 0, "paper_buy_journals": 0, "closed_archives": 0, "net_learning_sources": 0, "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed", "sql_rows": [], "qualification": "Read-only original scoped population, not every historical diagnostic/shadow log or proof of zero investment risk."},
+  "runtime_handoff": {"stop_checkout": "working_only", "requested_by": "user", "stop_started_at": "2026-10-09T03:50:35.3697930+00:00", "stop_completed_at": "2026-10-09T03:50:37.4833194+00:00", "exit_code": 0, "killed": 0, "remaining": 0, "sql_observed_at": "2026-10-09T03:50:38.053856+00:00", "sql_main": "stopped/idle/idle", "sql_main_updated_at_utc": "2026-10-09 03:50:37.246601", "inventory_observed_at": "2026-10-09T03:50:39.2972188+00:00", "runtime_processes": 0, "task_owned_previews": 0, "matching_tasks": 0, "matching_services": 0, "working_locks": 0, "publishing_locks": 0, "green_live_risk_files": 0, "protected_mtime_working_files": 3763, "protected_mtime_publishing_files": 27, "protected_changed_by_mtime": 0, "protected_since_utc": "2026-10-08T16:09:40Z", "qualification": "Mtime census, not cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded; repeat after scoped publication and Sources-browser checks."},
+  "preserved": [
+    "Exact0.1 SOL PAPER final amount and existing capital/execution protections",
+    "Residual runners without a fixed profit ceiling; drawdown, liquidity and hold protections remain",
+    "Genuine strong momentum observations and observed second-tick confirmation",
+    "Existing rank-canary priority/PAPER-normal ordering and disabled bootstrap-cap semantics",
+    "Original historical data/model/policy bytes; no retrospective source rewrite or operational activation"
+  ],
+  "open_requirements": [
+    "Other standalone age-sensitive probes still mix birth and queue aliases; moonshot paths are the next concrete source audit",
+    "Provider-authenticated birth and original queue-clock ownership",
+    "Historical report consumers that lack an explicit original decision clock",
+    "Complete independently checked component-code and input-generation provenance; original-clock replay alone does not bind every helper/module byte in a whole-strategy approval",
+    "Complete independent opportunity coverage and joint scanner/entry/exit/capital strategy acceptance",
+    "Fresh rare-tail model calibration, prospective fully costed net performance and independent actual fill/chain/wallet reconciliation",
+    "External first-launch/provider/desktop acceptance and production latency cannot be inferred from unit tests"
+  ],
+  "requirement_matrix": [
+    {"requirement": "Explosive tokens beyond100/200 percent", "state": "UNCAPPED_RESIDUAL_SOURCE_PRESERVED_SYNTHETIC_QA", "remaining": "No guarantee of identifying or selling every large price spike; fresh executable financial validation remains required."},
+    {"requirement": "Minimal-intervention learning", "state": "ORIGINAL_CLOCK_COMPONENT_REVALIDATION_REPAIRED", "remaining": "This is bounded PAPER component evidence, not joint whole-strategy profitable autonomous operation."},
+    {"requirement": "0.1 SOL purchases", "state": "CURRENT_PUBLIC_CONFIG_AND_SOURCE_VERIFIED", "remaining": "Exact PAPER amount is enabled at0.1 SOL; no LIVE activation or unapproved LIVE sizing."},
+    {"requirement": "Error-free first launch", "state": "CURRENT_SOFTWARE_VERIFIED_EXTERNAL_ACCEPTANCE_INCOMPLETE", "remaining": "Both4420 full suites and both preflights pass; provider/desktop/production acceptance and future zero errors remain unestablished."},
+    {"requirement": "Publish separate checkout", "state": "SCOPED_SOURCE_SYNC_AND_FULL_QA_VERIFIED_PUBLICATION_READY", "remaining": "Final docs, reviewed commit/push and actual remote/clean verification follow this immutable pre-publication evidence."},
+    {"requirement": "All runtime OFF", "state": "VERIFIED_OFF_POST_DELIVERY_REPEAT_REQUIRED", "remaining": "Requested D-only stop exits0/killed0/remaining0 at03:50:37Z. Inventory and read-only SQL verify OFF; repeat after publication and isolated Sources-browser checks."},
+    {"requirement": "Winning strategy and maximum benefit", "state": "NOT_ESTABLISHED_NO_LIVE_GO", "remaining": "Independent prospective fully costed financial acceptance; no guarantee or universal maximum claimed."}
+  ],
+  "publication": {"prior_commit": "1e4f6ec88d6bfae496a1230c25565e490f64c667", "state": "SCOPED_SOURCE_SYNC_AND_FULL_QA_VERIFIED_PUBLICATION_READY", "qualification": "Own commit and remote are verified after final pre-publication evidence in the same-turn delivery/Sources receipt, not predicted."}
+}

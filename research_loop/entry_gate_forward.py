@@ -374,9 +374,9 @@ def capture_gate(gate: str, row: dict[str, Any], cfg: Any, *, now: dt.datetime |
             return None  # Predeclared sample/capacity selection, not outcome censoring.
         with suppress_capture(), policy.baseline_scope():
             incumbent_parameters = evaluator.incumbent_profile(plan, cfg)
-            baseline = evaluator.profile_decision(gate, features, cfg, {})
-            challenger = evaluator.profile_decision(gate, features, cfg, plan["parameters"])
-            incumbent_buy = evaluator.profile_decision(gate, features, cfg, incumbent_parameters)
+            baseline = evaluator.profile_decision(gate, features, cfg, {}, now=stamp)
+            challenger = evaluator.profile_decision(gate, features, cfg, plan["parameters"], now=stamp)
+            incumbent_buy = evaluator.profile_decision(gate, features, cfg, incumbent_parameters, now=stamp)
         if baseline is None or challenger is None or incumbent_buy is None:
             return None
         case_id = policy.digest([plan_id, mint, stamp.isoformat(), features])

@@ -141,6 +141,16 @@ medida antigua. Las vias de investigacion standalone y los historicos no se
 recertifican por este cambio. Vease
 `docs/audits/entry_age_admission_integrity_20261009.json`.
 
+Bootstrap, confirmacion de momentum y rank-canary separan ahora nacimiento
+y permanencia en cola. La edad del token no sustituye una cola observada;
+cero medido es valido y valores booleanos/futuros permanecen desconocidos.
+La investigacion congela los tres perfiles al instante original de cada
+caso y los revalida en ese mismo instante, no con el reloj actual. El replay
+de bootstrap usa tambien su evento historico. Umbrales, controles de riesgo,
+importe y salidas no cambian. Esto no recertifica datos/modelos previos ni
+todas las rutas standalone. Vease
+`docs/audits/research_temporal_integrity_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

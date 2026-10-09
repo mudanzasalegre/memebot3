@@ -11,6 +11,7 @@ from typing import Any
 
 from config.config import CFG, PROJECT_ROOT
 from runtime.paper_entry_policy import entry_config
+from analytics.token_time import compute_age_minutes, compute_queue_age_minutes
 from analytics.current_run import current_run_identity, filter_current_run_rows
 from analytics.lane_policy_categories import POLICY_RESEARCH_RANK_CANARY
 from analytics.report_utils import (
@@ -312,14 +313,16 @@ def evaluate_research_rank_canary(
     live: bool,
     cfg: Any = None,
     record_audit: bool = True,
+    now: datetime | None = None,
 ) -> ResearchRankCanaryDecision:
     cfg = CFG if cfg is None else cfg
+    now = now or datetime.now(timezone.utc)
     if dry_run and not live:
         from research_loop.entry_gate_forward import capture_gate
         observed = dict(token)
         observed["rank_score"] = ((rank_info or {}).get("rank_score")
             or (rank_info or {}).get("research_rank_score") or token.get("rank_score") or token.get("research_rank_score"))
-        capture_gate("rank_canary", observed, cfg)
+        capture_gate("rank_canary", observed, cfg, now=now)
     cfg = entry_config(cfg, dry_run=dry_run, live=live)
     min_score_raw, min_score, min_score_scale = normalize_score(
         getattr(cfg, "RESEARCH_RANK_CANARY_MIN_SCORE", 64.81),
@@ -403,8 +406,8 @@ def evaluate_research_rank_canary(
     liq = _field_float(token, "liquidity_usd", "buy_liquidity_usd", default=0.0)
     mcap = _field_float(token, "market_cap_usd", "buy_market_cap_usd", default=0.0)
     txns = _field_float(token, "txns_last_5m", "buy_txns_last_5m", default=0.0)
-    age_minutes = _field_float(token, "age_minutes", "age_min", "token_age_min", default=0.0)
-    queue_age_minutes = _field_float(token, "queue_age_minutes", default=0.0)
+    age_minutes = compute_age_minutes(token, now=now)
+    queue_age_minutes = compute_queue_age_minutes(token, now=now)
     volume_24h = _field_float(token, "volume_24h_usd", "buy_volume_24h_usd", "volume_usd_24h", default=0.0)
     proxy = _bool(token.get("liquidity_is_proxy") or token.get("liquidity_usd_is_proxy") or token.get("buy_liquidity_is_proxy"))
     has_route = _bool(token.get("has_jupiter_route"))
@@ -444,6 +447,8 @@ def evaluate_research_rank_canary(
         priority_min_txns = _float(getattr(cfg, "RESEARCH_RANK_CANARY_PRIORITY_MIN_TXNS_5M", 1000), 1000.0)
         stale_high_momentum = (
             price5m >= stale_min_price
+            and age_minutes is not None
+            and queue_age_minutes is not None
             and age_minutes > stale_max_age
             and queue_age_minutes > stale_max_queue_age
             and txns < priority_min_txns

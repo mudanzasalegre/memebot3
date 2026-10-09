@@ -382,6 +382,7 @@ def _entry_decision(
     bootstrap_hourly_buys: int = 0,
     bootstrap_seconds_since_last_buy: float = float("inf"),
     closed_trades: int = 0,
+    now: dt.datetime | None = None,
 ) -> tuple[bool, str, float, str, bool]:
     # Normalized decisions always carry ``event_type=candidate_decision``.
     # Prefer the actual decision so explicit buys are not silently ignored.
@@ -421,6 +422,7 @@ def _entry_decision(
                 trigger_reason="explicit_buy_event",
                 require_observed_route=True,
                 cfg=cfg,
+                now=now,
             )
             if not bootstrap.allowed:
                 failures = ",".join(bootstrap.hard_failures)
@@ -876,6 +878,7 @@ def build_event_replay(
                 bootstrap_hourly_buys=bootstrap_hourly_buys,
                 bootstrap_seconds_since_last_buy=bootstrap_seconds_since_last_buy,
                 closed_trades=len(trades),
+                now=event.ts,
             )
             if not allowed:
                 if "risk" in reason or "cluster_bad" in reason:

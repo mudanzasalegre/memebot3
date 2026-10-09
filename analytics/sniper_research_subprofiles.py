@@ -21,6 +21,7 @@ from analytics.report_utils import (
 )
 from config.config import CFG, PROJECT_ROOT
 from runtime.paper_entry_policy import entry_config
+from analytics.token_time import compute_queue_age_minutes
 from ml.lane_taxonomy import LANE_RESEARCH_SNIPER, LANE_SNIPER_RESEARCH_MICRO_FALLBACK
 
 
@@ -144,17 +145,18 @@ def _rank_score(row: dict[str, Any]) -> float:
     return score
 
 
-def _queue_age_minutes(row: dict[str, Any]) -> float:
-    return _field_float(row, "queue_age_minutes", "age_minutes", "age_min", "token_age_min", default=999.0)
+def _queue_age_minutes(row: dict[str, Any], *, now: dt.datetime | None = None) -> float | None:
+    return compute_queue_age_minutes(row, now=now)
 
 
-def momentum_trend_missing_strong_reasons(row: dict[str, Any], *, cfg: Any = CFG) -> tuple[str, ...]:
+def momentum_trend_missing_strong_reasons(row: dict[str, Any], *, cfg: Any = CFG,
+                                        now: dt.datetime | None = None) -> tuple[str, ...]:
     reasons: list[str] = []
     txns = _field_float(row, "buy_txns_last_5m", "txns_last_5m", "txns_5m")
     rank = _rank_score(row)
     liq = _field_float(row, "buy_liquidity_usd", "liquidity_usd")
     volume_24h = _field_float(row, "buy_volume_24h_usd", "volume_usd_24h", "volume_24h", "volume24h")
-    queue_age = _queue_age_minutes(row)
+    queue_age = _queue_age_minutes(row, now=now)
     if txns >= float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_STRONG_MIN_TXNS_5M", 1200) or 1200):
         reasons.append("strong_txns5m")
     if rank >= float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_STRONG_MIN_RANK", 70.0) or 70.0):
@@ -163,12 +165,13 @@ def momentum_trend_missing_strong_reasons(row: dict[str, Any], *, cfg: Any = CFG
         reasons.append("strong_liquidity")
     if volume_24h >= float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_STRONG_MIN_VOLUME_24H", 100_000.0) or 100_000.0):
         reasons.append("strong_volume_24h")
-    if queue_age <= float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_STRONG_MAX_QUEUE_AGE_MIN", 5.0) or 5.0):
+    if queue_age is not None and queue_age <= float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_STRONG_MAX_QUEUE_AGE_MIN", 5.0) or 5.0):
         reasons.append("strong_queue_age")
     return tuple(reasons)
 
 
-def _momentum_ignition_failures(row: dict[str, Any], *, cfg: Any = CFG) -> list[str]:
+def _momentum_ignition_failures(row: dict[str, Any], *, cfg: Any = CFG,
+                              now: dt.datetime | None = None) -> list[str]:
     failures: list[str] = []
     price5m = _field_float(row, "buy_price_pct_5m", "price_pct_5m", "price5m")
     min_price = float(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_MIN_PRICE5M", 100) or 100)
@@ -199,7 +202,7 @@ def _momentum_ignition_failures(row: dict[str, Any], *, cfg: Any = CFG) -> list[
     trend_missing = not _has_trend_data(row) and not _second_tick_confirmed(row)
     if trend_missing:
         allow_missing = bool(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_ALLOW_TREND_MISSING_IF_STRONG", True))
-        if not (allow_missing and momentum_trend_missing_strong_reasons(row, cfg=cfg)):
+        if not (allow_missing and momentum_trend_missing_strong_reasons(row, cfg=cfg, now=now)):
             failures.append("momentum:trend_missing_without_second_tick")
     if _toxic_initial_sell_pressure(row):
         failures.append("momentum:toxic_initial_sell_pressure")
@@ -263,9 +266,11 @@ def evaluate_sniper_research_subprofile(
     row: dict[str, Any],
     *,
     cfg: Any = CFG,
+    now: dt.datetime | None = None,
 ) -> SniperResearchSubprofileDecision:
     from research_loop.entry_gate_forward import capture_gate
-    capture_gate("sniper_subprofile", row, cfg)
+    now = now or dt.datetime.now(dt.timezone.utc)
+    capture_gate("sniper_subprofile", row, cfg, now=now)
     cfg = entry_config(cfg)
     if not bool(getattr(cfg, "SNIPER_RESEARCH_SUBPROFILES_ENABLED", True)):
         return SniperResearchSubprofileDecision(True, None, "subprofiles_disabled", ())
@@ -283,7 +288,7 @@ def evaluate_sniper_research_subprofile(
 
     failures: list[str] = []
     if bool(getattr(cfg, "SNIPER_RESEARCH_MOMENTUM_IGNITION_ENABLED", True)):
-        momentum_failures = _momentum_ignition_failures(row, cfg=cfg)
+        momentum_failures = _momentum_ignition_failures(row, cfg=cfg, now=now)
         if not momentum_failures:
             return SniperResearchSubprofileDecision(True, SUBPROFILE_MOMENTUM_IGNITION, SUBPROFILE_MOMENTUM_IGNITION, ())
         price5m = _field_float(row, "buy_price_pct_5m", "price_pct_5m", "price5m")

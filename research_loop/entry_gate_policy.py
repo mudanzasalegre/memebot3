@@ -42,18 +42,20 @@ def plan_identity(plan: dict[str, Any]) -> str:
     return policy.digest({k: v for k, v in plan.items() if k not in mutable})
 
 
-def gate_decision(gate: str, features: dict[str, Any], cfg: Any) -> bool | None:
+def gate_decision(gate: str, features: dict[str, Any], cfg: Any,
+                  *, now: dt.datetime | None = None) -> bool | None:
     from research_loop.entry_gate_forward import suppress_capture
     with suppress_capture():
-        return _gate_decision(gate, features, cfg)
+        return _gate_decision(gate, features, cfg, now=now)
 
 
-def profile_decision(gate: str, features: dict[str, Any], cfg: Any, parameters: dict[str, Any]) -> bool | None:
+def profile_decision(gate: str, features: dict[str, Any], cfg: Any, parameters: dict[str, Any],
+                     *, now: dt.datetime | None = None) -> bool | None:
     with policy.baseline_scope():
         if not parameters:
-            return gate_decision(gate, features, cfg)
+            return gate_decision(gate, features, cfg, now=now)
         with policy.parameter_scope(cfg, parameters, revision="frozen_counterfactual"):
-            return gate_decision(gate, features, cfg)
+            return gate_decision(gate, features, cfg, now=now)
 
 
 def incumbent_profile(plan: dict[str, Any], cfg: Any) -> dict[str, float]:
@@ -86,7 +88,8 @@ def incumbent_profile(plan: dict[str, Any], cfg: Any) -> dict[str, float]:
     return checked
 
 
-def _gate_decision(gate: str, features: dict[str, Any], cfg: Any) -> bool | None:
+def _gate_decision(gate: str, features: dict[str, Any], cfg: Any,
+                   *, now: dt.datetime | None = None) -> bool | None:
     """The real component, without audit writes or provider requests."""
     for key in ("rank_score", "price_pct_5m", "txns_last_5m", "liquidity_usd",
                 "market_cap_usd", "price_impact_pct", "age_minutes"):
@@ -96,11 +99,11 @@ def _gate_decision(gate: str, features: dict[str, Any], cfg: Any) -> bool | None
         from analytics.research_rank_canary import evaluate_research_rank_canary
         decision = evaluate_research_rank_canary(
             features, {"rank_score": features.get("rank_score")}, dry_run=True, live=False,
-            cfg=cfg, record_audit=False)
+            cfg=cfg, record_audit=False, now=now)
         return None if decision.reason == "not_research_sniper" else decision.allowed
     if gate == "sniper_subprofile":
         from analytics.sniper_research_subprofiles import evaluate_sniper_research_subprofile
-        decision = evaluate_sniper_research_subprofile(features, cfg=cfg)
+        decision = evaluate_sniper_research_subprofile(features, cfg=cfg, now=now)
         if decision.reason in {"not_sniper_research", "subprofiles_disabled"}:
             return None
         return decision.allowed
@@ -253,9 +256,9 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
                 raise ValueError("altered predecision features")
             ids.append(expected_id)
             tokens.add(token)
-            baseline = profile_decision(gate, case["features"], cfg, {})
-            challenger = profile_decision(gate, case["features"], cfg, candidate)
-            incumbent = profile_decision(gate, case["features"], cfg, incumbent_parameters)
+            baseline = profile_decision(gate, case["features"], cfg, {}, now=decision_at)
+            challenger = profile_decision(gate, case["features"], cfg, candidate, now=decision_at)
+            incumbent = profile_decision(gate, case["features"], cfg, incumbent_parameters, now=decision_at)
             if (baseline is None or challenger is None or incumbent is None or case.get("baseline_buy") is not baseline
                     or case.get("challenger_buy") is not challenger
                     or (plan.get("comparison_version") and case.get("incumbent_buy") is not incumbent)):

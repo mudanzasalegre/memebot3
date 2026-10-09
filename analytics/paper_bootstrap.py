@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from analytics.risk_guards import evaluate_pre_entry_risk
+from analytics.token_time import compute_age_minutes, compute_queue_age_minutes
 from analytics.report_utils import (
     address_of,
     boolish,
@@ -190,72 +191,12 @@ def _field_present(row: dict[str, Any], *keys: str) -> bool:
         return False
 
 
-def _timestamp_minutes_ago(value: Any) -> float | None:
-    parsed: dt.datetime | None = None
-    if isinstance(value, dt.datetime):
-        parsed = value
-    elif isinstance(value, (int, float)):
-        raw = float(value)
-        if raw <= 0:
-            return None
-        if raw > 10_000_000_000:
-            raw /= 1000.0
-        try:
-            parsed = dt.datetime.fromtimestamp(raw, tz=dt.timezone.utc)
-        except (OverflowError, OSError, ValueError):
-            return None
-    elif isinstance(value, str) and value.strip():
-        raw = value.strip()
-        try:
-            if raw.replace(".", "", 1).isdigit():
-                return _timestamp_minutes_ago(float(raw))
-            parsed = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    if parsed is None:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt.timezone.utc)
-    now = dt.datetime.now(dt.timezone.utc)
-    age = (now - parsed.astimezone(dt.timezone.utc)).total_seconds() / 60.0
-    return age if age >= 0 else None
+def _candidate_age_minutes(row: dict[str, Any], *, now: dt.datetime | None = None) -> float | None:
+    return compute_age_minutes(row, now=now)
 
 
-def _candidate_age_minutes(row: dict[str, Any]) -> float | None:
-    timestamp_age = _timestamp_minutes_ago(
-        _first(
-            row,
-            "created_at",
-            "createdAt",
-            "created",
-            "createdAtUtc",
-            "pairCreatedAt",
-            "pair_created_at",
-            "pairCreatedAtMs",
-        )
-    )
-    if timestamp_age is not None:
-        return timestamp_age
-    explicit = _first(row, "age_minutes", "age_min", "token_age_min")
-    if explicit is not None:
-        try:
-            value = float(explicit)
-            return value if math.isfinite(value) and value > 0.0 else None
-        except (TypeError, ValueError):
-            return None
-    return None
-
-
-def _queue_age_minutes(row: dict[str, Any]) -> float | None:
-    explicit = _first(row, "queue_age_minutes", "minutes_since_first_seen")
-    if explicit is not None:
-        try:
-            value = float(explicit)
-            return value if math.isfinite(value) and value >= 0.0 else None
-        except (TypeError, ValueError):
-            return None
-    first_seen = _first(row, "first_seen_epoch_s", "first_seen_at")
-    return _timestamp_minutes_ago(first_seen) if first_seen is not None else None
+def _queue_age_minutes(row: dict[str, Any], *, now: dt.datetime | None = None) -> float | None:
+    return compute_queue_age_minutes(row, now=now)
 
 
 def _quality_failures(
@@ -263,6 +204,7 @@ def _quality_failures(
     *,
     cfg: Any,
     require_observed_route: bool = False,
+    now: dt.datetime | None = None,
 ) -> tuple[str, ...]:
     if not _bool_cfg(cfg, "PAPER_BOOTSTRAP_QUALITY_GATES_ENABLED", True):
         return ()
@@ -331,7 +273,7 @@ def _quality_failures(
 
     max_age = _float_cfg(cfg, "PAPER_BOOTSTRAP_MAX_AGE_MIN", 0.0)
     if max_age > 0:
-        age = _candidate_age_minutes(row)
+        age = _candidate_age_minutes(row, now=now)
         if age is None:
             failures.append("age_missing")
         elif age > max_age:
@@ -339,7 +281,7 @@ def _quality_failures(
 
     max_queue_age = _float_cfg(cfg, "PAPER_BOOTSTRAP_MAX_QUEUE_AGE_MIN", 0.0)
     if max_queue_age > 0:
-        queue_age = _queue_age_minutes(row)
+        queue_age = _queue_age_minutes(row, now=now)
         if queue_age is None:
             failures.append("queue_age_missing")
         elif queue_age > max_queue_age:
@@ -378,6 +320,7 @@ def should_allow_paper_bootstrap(
     trigger_reason: str,
     require_observed_route: bool = False,
     cfg: Any = CFG,
+    now: dt.datetime | None = None,
 ) -> PaperBootstrapDecision:
     amount = min(
         max(0.0, _float_cfg(cfg, "PAPER_BOOTSTRAP_AMOUNT_SOL", 0.1)),
@@ -418,6 +361,7 @@ def should_allow_paper_bootstrap(
         row,
         cfg=cfg,
         require_observed_route=require_observed_route,
+        now=now or dt.datetime.now(dt.timezone.utc),
     )
     if failures:
         return decision(False, "paper_bootstrap_hard_risk", hard_failures=failures)

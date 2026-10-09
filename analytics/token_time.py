@@ -69,7 +69,24 @@ def compute_age_minutes(token: dict[str, Any], now: dt.datetime | None = None) -
     if created is not None:
         return (now - created).total_seconds() / 60.0 if created <= now else None
 
-    for key in ("age_minutes", "age_min"):
+    for key in ("age_minutes", "age_min", "token_age_min"):
+        value = _to_float(token.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def compute_queue_age_minutes(token: dict[str, Any], now: dt.datetime | None = None) -> float | None:
+    """Original queue first-seen or measured residence, never token birth age."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=dt.timezone.utc)
+    now = now.astimezone(dt.timezone.utc)
+    for key in ("first_seen_epoch_s", "first_seen_at"):
+        first_seen = _to_datetime(token.get(key))
+        if first_seen is not None:
+            return (now - first_seen).total_seconds() / 60.0 if first_seen <= now else None
+    for key in ("queue_age_minutes", "minutes_since_first_seen"):
         value = _to_float(token.get(key))
         if value is not None:
             return value
@@ -82,4 +99,4 @@ def token_with_age(token: dict[str, Any], now: dt.datetime | None = None) -> dic
     return out
 
 
-__all__ = ["compute_age_minutes", "token_with_age"]
+__all__ = ["compute_age_minutes", "compute_queue_age_minutes", "token_with_age"]
