@@ -18,7 +18,7 @@ from analytics.report_utils import dedupe_position_rows, load_deduped_positions
 from runtime import paper_archive as archive
 from utils.atomic_json import read_json_strict, write_json_atomic
 
-MINT = "A" * 32
+MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 IDENTITY = "a" * 32
 
 

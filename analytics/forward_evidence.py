@@ -34,6 +34,12 @@ def _costed_close(row: dict[str, Any]) -> tuple[float, float, float, float, bool
     try:
         original_entry_fx = validate_entry(row, amount_sol=row.get("amount_sol", row.get("buy_amount_sol")),
                                           not_after=row.get("opened_at"))
+        if original_entry_fx and (row.get("entry_route_quote") is not None
+                or row.get("quantity_basis") == "quoted_raw_spl_units"):
+            from execution.paper_closed_cash import reconstruct
+            values = reconstruct(row)
+            return (values["net_total_pnl_usd"], values["net_total_pnl_pct"],
+                    values["net_total_pnl_sol"], row["amount_sol"], True)
         events = row.get("exit_fill_events", [])
         if original_entry_fx and (not isinstance(events, list) or not events
                 or type(row.get("execution_fill_count")) is not int
@@ -43,7 +49,7 @@ def _costed_close(row: dict[str, Any]) -> tuple[float, float, float, float, bool
             original_exit_fx = validate_exit(event["response"])
             if original_entry_fx and not original_exit_fx:
                 return None
-    except (ValueError, TypeError, KeyError):
+    except (ValueError, TypeError, KeyError, OverflowError, PaperArchiveError):
         return None
     model = row.get("execution_cost_model")
     if (not isinstance(model, dict) or model.get("version") != "estimated-v1"

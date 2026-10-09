@@ -90,8 +90,12 @@ def _validate_trade(trade):
         for event in events:
             if not validate_exit(event["response"]) and original_entry:
                 raise ValueError("Original entry lost its original exit FX")
-    except (ValueError, TypeError, KeyError) as exc:
-        raise PaperArchiveError("Paper archive lost its original execution FX") from exc
+        if original_entry and (trade.get("entry_route_quote") is not None
+                or trade.get("quantity_basis") == "quoted_raw_spl_units"):
+            from execution.paper_closed_cash import reconstruct
+            reconstruct(trade)
+    except (ValueError, TypeError, KeyError, OverflowError) as exc:
+        raise PaperArchiveError("Paper archive lost its original execution cash/FX") from exc
     for field in ("address", "token_mint"):
         if trade.get(field) and trade[field] != trade["token_address"]:
             raise PaperArchiveError("Paper trade address lineage conflicts")

@@ -79,6 +79,15 @@ totales financieros alterados. Las fuentes antiguas sin prueba completa se
 conservan, pero no certifican ni financian esta investigacion. Vease
 `docs/audits/paper_first_partial_cash_20261009.json`.
 
+El cierre PAPER cotizado reconstruye ahora cada venta desde su cotizacion
+original, cantidad, reloj y FX. Suma los cobros SOL/USD y las comisiones de
+cada fill, y contrasta el beneficio neto guardado antes de archivarlo, usarlo
+como evidencia prospectiva o convertirlo en etiqueta de aprendizaje. Los
+parciales se conservan separados de la venta final; ni un hash recalculado
+ni cifras coherentes entre si sustituyen esa prueba de caja. No se consultan
+precios actuales ni se reparan historicos. Vease
+`docs/audits/paper_closed_cash_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

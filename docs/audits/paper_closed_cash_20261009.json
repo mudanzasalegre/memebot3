@@ -1,0 +1,71 @@
+{
+  "stage": "original_closed_paper_cash_reconstruction",
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Independently reconstruct original primary closed PAPER cash before archival, forward evidence and model-label consumption. Preserve 0.1 SOL PAPER, uncapped runners and all runtime OFF; no operator model/policy, provider, wallet or order activation.",
+  "finding": {
+    "id": "self_consistent_but_unreconstructed_closed_cash",
+    "severity": "high",
+    "reproduction": "Five isolated expected-rejection tests failed on the original source: direct forward evidence accepted coherent changed gross USD, USD fees and SOL proceeds; original model source validation also accepted rehashed changed USD fees and SOL proceeds. All inputs were temporary synthetic actual PAPER buy/sell receipts, not operator trades.",
+    "repair": "Reconstruct raw output cash less frozen slippage for every original sell, value each cash/fee with its own original FX, conserve exact ordered quantities and validate original normalized prices. Recheck primary partial-prefix fields independently from the final sale. Both archive and direct forward consumers enforce this contract; learning uses the archive contract and wraps invalid financial sources consistently."
+  },
+  "financial_contract": {
+    "version": "paper_original_closed_cash_v1",
+    "entry": "Original checked PAPER buy identity/signature, mint, typed raw quantity and amount, complete entry quote at original event age, frozen cost model and typed original entry FX exactly at its original opening clock.",
+    "exit": "Complete unique ordered successful PAPER partial-to-final receipt population. Exact quantity before/sold/left, original intent/signature, normalized quoted price, mint/limit/age, original fill FX and terminal clock are conserved.",
+    "cash": "Sum original quoted SOL proceeds less frozen slippage and separately converted USD proceeds; value buy fee at entry FX and each sell fee at its own FX. Independently derive signed gross/net USD, net SOL, total proceeds, fees and net return. No fixed profit ceiling.",
+    "primary_shape": "realized_qty and realized_proceeds describe only prior partials; the final sale is counted in total cash, not silently added to that prefix. The existing closed-primary net_realized convention deducts all trade fees and is preserved.",
+    "legacy": "Historical sources are not changed or backfilled. Declared original-FX quoted trades enter this stricter contract. Unquoted synthetic records retain diagnostic compatibility, never executable quote proof; missing or broken declared quoted receipts fail closed.",
+    "limitation": "Recorded estimated PAPER quotes are not actual live fills, independently authenticated market depth, exhaustive opportunity capture or prospective full-strategy profitability."
+  },
+  "population_observation": {
+    "observed_at_utc": "2026-10-09T00:15:32.830730+00:00",
+    "primary_portfolio_rows": 0,
+    "paper_original_buy_journals": 0,
+    "paper_closed_archives": 0,
+    "paper_net_learning_sources": 0,
+    "source": "data/memebotdatabase.db",
+    "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+    "sql_rows": [],
+    "method": "Read-only original-source census and SQLite mode=ro. Zero rows do not establish a financial validation rate or any winning trade."
+  },
+  "frozen_verification_source": {
+    "files": 748,
+    "normalized_sha256": "85a416ba8e2ad3e823a45260815722c9b94e0003c495594f01483621ccbf7913",
+    "checkouts_equal": true,
+    "scope": "Allowed executable/test/source assets, excluding docs/README and operator state. Identical before/after both final complete suites, both preflights and the D-only requested stop."
+  },
+  "verification": {
+    "new_isolated_cases": 36,
+    "final_focused_result": "324 passed in27.87s on the frozen final executable source; actual archive, model-label/frame, allfour router receipt, FX, partial-prefix and diagnostic compatibility consumers covered",
+    "uncapped_tail_result": "17 passed in3.29s; synthetic entry/runner extreme cash, residual-tail policy and ladder checks",
+    "intermediate_repairs": "The first reproduction command missed an imported paper fixture (3 reproduced failures plus2 setup errors); after fixing the fixture, all5 financial gaps reproduced. The first strict implementation mismatched the existing primary net_realized fee convention and correctly caught an invalid synthetic mint; both were corrected without runtime bypasses. A subsequent first full run exposed nonquoted diagnostic compatibility; both owned full-test processes were stopped after verified process-tree inventory, the diagnostic-only distinction was repaired, and94 related cases passed. Those interrupted runs are not final acceptance.",
+    "working_full_suite": "4059 passed in770.24s; exit0",
+    "publishing_full_suite": "4059 passed in747.59s; exit0; existing working-checkout Python runtime",
+    "preflight_working": {"observed_at_utc": "2026-10-09T00:15:28.8651064+00:00", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders_passed": 7, "pytest_external_returncode": 0},
+    "preflight_publishing": {"observed_at_utc": "2026-10-09T00:15:13.6376825+00:00", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders_passed": 7, "pytest_external_returncode": 0},
+    "git_diff_check": "PASS before publication; normal LF/CRLF warnings only"
+  },
+  "runtime_handoff": {
+    "status": "VERIFIED_OFF",
+    "observed_at_utc": "2026-10-09T00:15:34.2957138+00:00",
+    "requested_stop": "D-only scripts/stop_stack.ps1 -RequestedBy user; requested00:15:29Z, completed00:15:32Z, exit0, killed0, remaining0. No publishing-checkout stop or daemon launch.",
+    "sql_main_state": "stopped/idle/idle; updated2026-10-09 00:15:31.549458",
+    "runtime_processes": 0,
+    "task_owned_previews": 0,
+    "matching_tasks": 0,
+    "matching_services": 0,
+    "locks_both_checkouts": 0,
+    "protected_mtime_census": "3763 working and27 publishing files; changed0 since2026-10-08T16:09:40Z. This is an mtime census, not cryptographic historical proof. Intended stop SQL/log and preflight metrics are excluded.",
+    "operator_state": "No operator data, .env, active model/policy/provider/wallet/order edits. Synthetic tests use isolated temporary stores."
+  },
+  "publication": {
+    "status": "SOURCE_SYNC_VERIFIED_READY_FOR_COMMIT_PUSH",
+    "branch": "main",
+    "remote_main_before_stage": "3c05f55afd590c8e8726b341929247a80f8cde92",
+    "scope": "Nine reviewed source/docs/test paths only; no secrets, runtime data, work files or learned artifacts.",
+    "record_chronology": "This audit is finalized before its scoped commit/push. The actual Git revision, remote match and clean publishing checkout are verified afterwards and reported in the same-turn native Sources receipt. The frozen executable fingerprint excludes docs to avoid self-referential commit metadata."
+  },
+  "remaining": "Fresh full-strategy financial provenance, other applicable LIVE original FX/finality/current-wallet and risk boundaries, provider/depth/opportunity-coverage acceptance and independently observed prospective net profitability remain incomplete. All runtime must remain OFF at handoff."
+}

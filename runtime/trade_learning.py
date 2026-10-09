@@ -16,7 +16,7 @@ from pathlib import Path
 from collections.abc import Mapping
 
 from features.builder import COLUMNS
-from runtime.paper_archive import entry_identity, read_closed_trade, paper_snapshot, _validate_trade
+from runtime.paper_archive import PaperArchiveError, entry_identity, read_closed_trade, paper_snapshot, _validate_trade
 from utils.atomic_json import read_json_strict, write_json_atomic
 
 VERSION = "paper_costed_trade_learning_v1"
@@ -139,7 +139,10 @@ def validate_source(source):
             or source["payload_sha256"] != _hash({k: v for k, v in source.items() if k != "payload_sha256"})):
         raise TradeLearningError("Corrupt costed close source")
     trade, buy = source["trade"], source["buy_proof"]
-    identity = _validate_trade(trade)
+    try:
+        identity = _validate_trade(trade)
+    except (PaperArchiveError, ValueError, TypeError, KeyError, OverflowError) as exc:
+        raise TradeLearningError("Original financial close is not conserved") from exc
     if (identity != source["trade_id"] or entry_identity(trade) != identity or trade.get("dry_run") is not True
             or trade.get("buy_signature") != "SIM-" + identity
             or not isinstance(buy, dict) or set(buy) != {"intent_id", "address", "run_id", "amount_sol", "fill"}
