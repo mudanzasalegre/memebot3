@@ -15,6 +15,8 @@ def learned_runner_priority(token: dict[str, Any]) -> dict[str, Any]:
     # Bare birth notifications cannot be treated as fully measured snapshots.
     for key in ("price_pct_5m", "txns_last_5m", "liquidity_usd", "market_cap_usd"):
         try:
+            if isinstance(token[key], bool):
+                raise ValueError(key)
             value = float(token[key])
             if not math.isfinite(value) or (key != "price_pct_5m" and value <= 0):
                 raise ValueError(key)

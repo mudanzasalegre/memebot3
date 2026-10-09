@@ -108,6 +108,16 @@ certificacion financiera. El ranking de oportunidades sigue separado y los
 retornos extremos no se recortan por este control. Vease
 `docs/audits/financial_provenance_downgrade_20261009.json`.
 
+La cola del scanner distingue ahora una senal entregada para evaluacion de
+una candidatura expulsada sin evaluar. Una expulsion por capacidad no impone
+un TTL de evaluacion ficticio; se conserva solo el ultimo historial realmente
+entregado. Los empates mantienen a quienes ya esperaban, los cambios de
+ranking pueden actualizar la cola y las candidaturas caducadas liberan sitio
+antes de expulsar a otras frescas. Edades invalidas no rejuvenecen una
+observacion previa; un cero medido o un booleano no se convierten en ranking
+alto. Estas correcciones no autorizan compras ni relajan sus guardas. Vease
+`docs/audits/scanner_queue_reconsideration_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

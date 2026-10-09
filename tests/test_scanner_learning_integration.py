@@ -112,12 +112,15 @@ def test_changed_opportunity_can_reenter_before_thirty_minute_ttl(monkeypatch):
 
 
 def test_partial_update_does_not_reset_age_clock(monkeypatch):
+    import runtime.hot_queue as queue_module
+    monkeypatch.setattr(queue_module, "CFG", SimpleNamespace(HOT_QUEUE_HIGH_PRIORITY_MAX_AGE_MIN=20,
+        HOT_QUEUE_LOW_PRIORITY_MAX_AGE_MIN=20, HOT_QUEUE_DYNAMIC_BATCH_ENABLED=False))
     queue = HotQueue(max_age_min=20)
     now = [dt.datetime.now(dt.timezone.utc).timestamp()]
     monkeypatch.setattr(queue, "_now", lambda: now[0])
     assert queue.add({"address": "A", "age_minutes": 19, "price_pct_5m": 10})
     now[0] += 120
-    assert queue.add({"address": "A", "price_pct_5m": 100})
+    assert queue.add({"address": "A", "price_pct_5m": 100}) is False
     assert queue.pop_batch(1) == []
 
 

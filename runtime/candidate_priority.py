@@ -16,7 +16,7 @@ from ml.lane_taxonomy import (
 
 def _to_float(value: Any, default: float = 0.0) -> float:
     try:
-        if value is None:
+        if value is None or isinstance(value, bool):
             return float(default)
         out = float(value)
         if not math.isfinite(out):
@@ -74,7 +74,7 @@ def _normalize_score(value: Any, default: float = 0.0) -> float:
 
 def research_rank_priority_fit(token: dict[str, Any]) -> bool:
     lane = normalize_entry_lane(token.get("entry_lane") or token.get("profit_lane_tier"))
-    rank = _normalize_score(token.get("rank_score") or token.get("research_rank_score"), -1.0)
+    rank = _normalize_score(token.get("rank_score") if token.get("rank_score") is not None else token.get("research_rank_score"), -1.0)
     price5m = _to_float(token.get("price_pct_5m") or token.get("buy_price_pct_5m"), 0.0)
     txns5m = _to_float(token.get("txns_last_5m") or token.get("buy_txns_last_5m"), 0.0)
     mcap = _to_float(token.get("market_cap_usd") or token.get("buy_market_cap_usd"), 0.0)
@@ -111,7 +111,7 @@ def candidate_priority_score(token: dict[str, Any], *, source: str | None = None
     price5m = _to_float(token.get("price_pct_5m"), 0.0)
     txns5m = _to_float(token.get("txns_last_5m"), 0.0)
     liq = _to_float(token.get("liquidity_usd"), 0.0)
-    rank = _normalize_score(token.get("rank_score") or token.get("research_rank_score"), -1.0)
+    rank = _normalize_score(token.get("rank_score") if token.get("rank_score") is not None else token.get("research_rank_score"), -1.0)
     score = _source_score(str(src))
     score += max(0.0, 20.0 - age_min) * 1.5
     if rank >= 75:

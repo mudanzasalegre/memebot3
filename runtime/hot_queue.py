@@ -41,6 +41,7 @@ class HotQueue:
         self._pending: dict[str, int] = {}
         self._signals: dict[str, tuple[Any, ...]] = {}
         self._evaluated_at: dict[str, float] = {}
+        self._evaluated_signals: dict[str, tuple[Any, ...]] = {}
         self._last_prune_at = 0.0
         self._events: list[HotQueueEvent] = []
         self._drop_counts: dict[str, int] = {}
@@ -85,13 +86,46 @@ class HotQueue:
             return
         # Heap entries store negative scores so the default heappop returns the
         # highest-priority candidate. Overflow eviction must remove the lowest.
-        lowest_idx = max(range(len(self._heap)), key=lambda idx: self._heap[idx][0])
+        # Do not let equal-priority newcomers repeatedly displace candidates
+        # already waiting for evaluation.
+        lowest_idx = max(range(len(self._heap)), key=lambda idx: self._heap[idx][:2])
         neg_score, _, dropped = self._heap.pop(lowest_idx)
         self._pending.pop(str(dropped.get("address") or dropped.get("mint") or ""), None)
+        self._restore_evaluated_history(str(dropped.get("address") or dropped.get("mint") or ""))
         heapq.heapify(self._heap)
         score = -float(neg_score)
         self._count_drop("max_size", score)
         self._event("hot_queue_drop", dropped, str(dropped.get("source") or source), score, "max_size")
+
+    def _restore_evaluated_history(self, address: str) -> None:
+        """An admission/eviction is not an evaluation of its market signal."""
+        stamp, signal = self._evaluated_at.get(address), self._evaluated_signals.get(address)
+        if stamp is None or signal is None:
+            self._seen.pop(address, None)
+            self._signals.pop(address, None)
+        else:
+            self._seen[address], self._signals[address] = stamp, signal
+
+    def _expired(self, token: dict[str, Any], score: float, now: dt.datetime) -> bool:
+        priority_age = (
+            float(getattr(CFG, "HOT_QUEUE_HIGH_PRIORITY_MAX_AGE_MIN", self.max_age_min) or self.max_age_min)
+            if score >= float(getattr(CFG, "HOT_QUEUE_HIGH_PRIORITY_MIN_SCORE", 75.0) or 75.0)
+            else float(getattr(CFG, "HOT_QUEUE_LOW_PRIORITY_MAX_AGE_MIN", self.max_age_min) or self.max_age_min)
+        )
+        max_age = min(self.max_age_min, priority_age) if self.max_age_min > 0 and priority_age > 0 else max(self.max_age_min, priority_age)
+        return max_age > 0 and _age_minutes(token, now) > max_age
+
+    def _prune_expired(self, now: dt.datetime, *, except_address: str) -> None:
+        self._compact_heap()
+        for neg_score, sequence, token in self._heap:
+            address = str(token.get("address") or token.get("mint") or "")
+            if address == except_address or not self._expired(token, -float(neg_score), now):
+                continue
+            self._pending.pop(address, None)
+            self._restore_evaluated_history(address)
+            self._count_drop("max_age", -float(neg_score))
+            self._event("hot_queue_drop", token, str(token.get("source") or "hot"), -float(neg_score), "max_age")
+        self._compact_heap()
 
     def _compact_heap(self) -> None:
         self._heap = [item for item in self._heap
@@ -106,6 +140,7 @@ class HotQueue:
                 self._seen.pop(address, None)
                 self._signals.pop(address, None)
                 self._evaluated_at.pop(address, None)
+                self._evaluated_signals.pop(address, None)
         self._last_prune_at = now
 
     def add(self, token: dict[str, Any], *, source: str = "pumpfun", reason: str = "hot_candidate") -> bool:
@@ -117,7 +152,8 @@ class HotQueue:
         last_seen = self._seen.get(address)
         pending_version = self._pending.get(address)
         previous = next((item[2] for item in self._heap if item[1] == pending_version), None) if pending_version is not None else None
-        incoming_has_age = any(key in token for key in ("age_minutes", "age_min"))
+        self._prune_expired(dt.datetime.fromtimestamp(now, dt.timezone.utc), except_address=address)
+        incoming_has_age = any(_valid_age(token.get(key)) for key in ("age_minutes", "age_min"))
         token = {**(previous or {}), **token}
         signal = _market_signal(token)
         changed = signal != self._signals.get(address)
@@ -135,6 +171,13 @@ class HotQueue:
         token["_hot_queue_enqueued_at"] = first_enqueued
         token["_hot_queue_observed_at"] = now if incoming_has_age or not previous else previous.get("_hot_queue_observed_at", now)
         score = candidate_priority_score(token, source=source, now=dt.datetime.fromtimestamp(now, dt.timezone.utc))
+        if self._expired(token, score, dt.datetime.fromtimestamp(now, dt.timezone.utc)):
+            self._pending.pop(address, None)
+            self._restore_evaluated_history(address)
+            self._compact_heap()
+            self._count_drop("max_age", score)
+            self._event("hot_queue_drop", token, source, score, "max_age")
+            return False
         self._seen[address] = now
         self._signals[address] = _market_signal(token)
         sequence = next(self._counter)
@@ -145,7 +188,7 @@ class HotQueue:
             self._drop_lowest_priority(source)
         if len(self._heap) > self.max_size * 2:
             self._compact_heap()
-        return True
+        return self._pending.get(address) == sequence
 
     def pop_batch(self, limit: int | None = None, *, expand: bool = True) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -159,21 +202,17 @@ class HotQueue:
             if self._pending.get(address) != sequence:
                 continue
             self._pending.pop(address, None)
-            age_min = _age_minutes(token, now)
             source = str(token.get("source") or token.get("discovered_via") or "hot")
             score = -float(neg_score)
-            priority_age = (
-                float(getattr(CFG, "HOT_QUEUE_HIGH_PRIORITY_MAX_AGE_MIN", self.max_age_min) or self.max_age_min)
-                if score >= float(getattr(CFG, "HOT_QUEUE_HIGH_PRIORITY_MIN_SCORE", 75.0) or 75.0)
-                else float(getattr(CFG, "HOT_QUEUE_LOW_PRIORITY_MAX_AGE_MIN", self.max_age_min) or self.max_age_min)
-            )
-            max_age = min(self.max_age_min, priority_age) if self.max_age_min > 0 and priority_age > 0 else max(self.max_age_min, priority_age)
-            if max_age > 0 and age_min > max_age:
+            if self._expired(token, score, now):
+                self._restore_evaluated_history(address)
                 self._count_drop("max_age", score)
                 self._event("hot_queue_drop", token, source, score, "max_age")
                 continue
             self._event("hot_queue_eval", token, source, score, "green_candidate")
             self._evaluated_at[address] = now.timestamp()
+            self._evaluated_signals[address] = _market_signal(token)
+            self._seen[address] = now.timestamp()
             out.append(token)
         return out
 
@@ -189,6 +228,13 @@ class HotQueue:
 
     def events(self) -> list[dict[str, Any]]:
         return [asdict(event) for event in self._events]
+
+
+def _valid_age(value: Any) -> bool:
+    try:
+        return not isinstance(value, bool) and value is not None and math.isfinite(float(value)) and float(value) >= 0
+    except (TypeError, ValueError, OverflowError):
+        return False
 
 
 def _age_minutes(token: dict[str, Any], now: dt.datetime) -> float:
@@ -208,7 +254,7 @@ def _age_minutes(token: dict[str, Any], now: dt.datetime) -> float:
             if token.get(key) is not None:
                 age = float(token[key])
                 observed = float(token.get("_hot_queue_observed_at", now.timestamp()))
-                if math.isfinite(age) and age >= 0:
+                if _valid_age(token[key]):
                     return max(waited, age + max(0.0, now.timestamp() - observed) / 60)
         except Exception:
             continue
@@ -218,6 +264,8 @@ def _age_minutes(token: dict[str, Any], now: dt.datetime) -> float:
 def _market_signal(token: dict[str, Any]) -> tuple[Any, ...]:
     def numeric(key, *, step=1.0, logarithmic=False):
         try:
+            if isinstance(token[key], bool):
+                return None
             value = float(token[key])
             if not math.isfinite(value):
                 return None
@@ -226,8 +274,11 @@ def _market_signal(token: dict[str, Any]) -> tuple[Any, ...]:
             return math.floor(value / step)
         except (KeyError, TypeError, ValueError):
             return None
+    from runtime.candidate_priority import _normalize_score
+    rank = token.get("rank_score") if token.get("rank_score") is not None else token.get("research_rank_score")
     return (numeric("price_pct_5m", step=5), numeric("price_usd", logarithmic=True), numeric("txns_last_5m", step=25),
             numeric("liquidity_usd", logarithmic=True), numeric("market_cap_usd", logarithmic=True),
+            _normalize_score(rank, -1.0),
             str(token.get("has_jupiter_route", "unknown")).lower(),
             str(token.get("dex_id") or token.get("dexId") or "").lower())
 
