@@ -205,6 +205,20 @@ proveedor, cobertura completa ni beneficios. Mantiene 0.1 SOL PAPER y los
 remanentes elegibles sin techo porcentual. Vease
 `docs/audits/discovery_loop_ownership_20261009.json`.
 
+El descubridor Dex consulta los feeds documentados de perfiles recientes y
+perfiles actualizados, y combina sus filas en orden intercalado. Una fuente
+no-Solana, vacia o fallida no oculta los candidatos validos de la otra.
+Solo admite identidades `chainId=solana` y `tokenAddress` canonicas; aplica
+`MAX_CANDIDATES` despues de validar y deduplicar. Un perfil no acredita la
+fecha de nacimiento del mint: sus campos de listado/par/edad no filtran esta
+recogida ni se convierten en edad cero. La preparacion de mercado y los
+controles finales de edad, entrada, ejecucion y riesgo siguen vigentes.
+Un fallo de ambas fuentes conserva el anterior reloj de salud del propietario;
+una coleccion valida vacia es distinta de un fallo. El diagnostico privado de
+relojes legacy usa UTC y ausencia nullable, y no decide compras. Ver
+`docs/audits/discovery_profile_inputs_20261009.json`; cobertura productiva y
+rentabilidad no quedan demostradas por esta integracion sintetica.
+
 La procedencia de las entradas aprendidas incluye ahora una comprobacion
 acotada del codigo Python cargado y sus namespaces, aliases y cierres de
 funcion frente a las fuentes originales. Una funcion sustituida, un alias

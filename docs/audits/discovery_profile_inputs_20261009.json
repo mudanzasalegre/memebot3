@@ -1,0 +1,251 @@
+{
+  "stage": "source_scoped_dex_profile_discovery",
+  "status": "SOFTWARE_VERIFIED_RUNTIME_OFF",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Actual native discovery HTTP/collection/row identity contracts and legacy diagnostic clocks only; common market/age/entry/risk controls,0.1 SOL PAPER and eligible uncapped residual tails remain unchanged. No operational runtime/provider/wallet/order or model/policy activation.",
+  "primary_contract": {
+    "url": "https://docs.dexscreener.com/api/reference",
+    "read_date_utc": "2026-10-09",
+    "profile_grain": "Latest and recently updated cross-chain profile identities, not all tokens or all Solana pairs and not mint births.",
+    "endpoints": [
+      "/token-profiles/latest/v1",
+      "/token-profiles/recent-updates/v1"
+    ],
+    "identity_fields": [
+      "chainId",
+      "tokenAddress"
+    ],
+    "clock_limit": "Documented profile schemas do not provide token birth. Nullable pairCreatedAt belongs to Pair. This profile discoverer never uses profile listing or pair creation as mint birth; separate common Pair normalization remains pending.",
+    "access_qualification": "Documentation only, no actual provider API request or successful access/response acceptance."
+  },
+  "findings": [
+    {
+      "id": "naive_aware_clock_zero_fallback",
+      "severity": "high",
+      "evidence": "Original numeric event clocks dated2026-01-01 compute0days at fixed2026-10-09UTC instead of281days. The legacy diagnostic used naive utcfromtimestamp, swallowed aware subtraction failure and fabricated0. Missing/bool/nonfinite/negative/future clocks also lacked honest unknown handling.",
+      "repair": "Legacy diagnostic retains aware UTC elapsed event-time arithmetic and returns None for missing/invalid/future data. It is no longer called by profile candidate admission and does not prove mint age."
+    },
+    {
+      "id": "invalid_pair_fallback_and_first_feed_suppression",
+      "severity": "high",
+      "evidence": "Original fallback omitted required pairId on pair lookup; first truthy response ended source collection even when foreign-chain/unknown envelope. Synthetic original native flow suppresses independent secondary identities.",
+      "repair": "Use two actual documented profile feeds, independently accepting known collection/single-profile shapes and preserving empty versus unavailable. Serial existing source owner combines feed row order round-robin; common guarded entry remains sole buying owner."
+    },
+    {
+      "id": "row_grain_and_cap_integrity",
+      "severity": "high",
+      "evidence": "Original row path can raise on non-dict rows, accepts missing chain and pair/base/address aliases in cross-chain profile input, and truncates the first source rather than distinct combined identities.",
+      "repair": "Only explicit canonical Solana profile identities become candidate mints; isolate invalid rows, retain original per-feed order, case-sensitive dedup and cap only unique valid identities. Unknown feed envelopes never become healthy empty success."
+    }
+  ],
+  "implementation": [
+    "utils/descubridor_pares.py"
+  ],
+  "tests": [
+    "tests/test_discovery_profile_inputs.py"
+  ],
+  "contracts": {
+    "payload": "Lists, single canonical profile-shaped object and retained token collection envelopes; unrecognized envelope is unavailable. No pair/base/address identity fallback in profile input.",
+    "clock": "No profile/listing/pair/age metadata is passed to entry or used to infer eligibility. Legacy elapsed event clock diagnostic is nullable and UTC, not birth proof.",
+    "coverage": "Both feeds queried once serially in the existing supervised discovery owner; fair interleaving does not rank by advertising or fabricate learned opportunity scores. No retry/catch-up or new operational daemon.",
+    "empty_or_fault": "At least one known collection, even empty, can establish a completed discovery tick. Both unavailable/unknown responses raise to actual poll owner, retaining prior success clock and recording error.",
+    "timeouts": "Existing configured positive finite timeout,20s fallback for invalid values; cancellation is propagated and owned HTTP cleanup finishes before feed owner drain.",
+    "cap": "0 retains existing unlimited candidate behavior; negative/malformed/bool cap does not accidentally become a one-item limit. Configured positive cap counts distinct validated canonical identities.",
+    "risk": "Discovery is not permission to buy. Existing source preparation, nullable age wait, sizing/exposure, capital, router execution and exit guards are unchanged."
+  },
+  "verification": {
+    "original_working_initial": {
+      "failed": 5,
+      "seconds": 1.55,
+      "exit_code": 1,
+      "scope": "Initial maxfail5 reproduction."
+    },
+    "original_working54": {
+      "failed": 39,
+      "passed": 15,
+      "seconds": 1.61,
+      "exit_code": 1
+    },
+    "original_published74": {
+      "parent_commit": "e6eef9cb54faa8e6208acd1ca9fd3bd19a5795e2",
+      "native_module_scoped_to_publishing": true,
+      "failed": 54,
+      "passed": 20,
+      "seconds": 0.53,
+      "exit_code": 1
+    },
+    "first_repaired54": {
+      "passed": 54,
+      "seconds": 1.54,
+      "exit_code": 0
+    },
+    "interim_focused_working": {
+      "passed": 478,
+      "seconds": 18.63,
+      "exit_code": 0
+    },
+    "final_focused_working": {
+      "passed": 478,
+      "seconds": 19.21,
+      "exit_code": 0
+    },
+    "final_focused_publishing": {
+      "passed": 478,
+      "seconds": 18.8,
+      "exit_code": 0
+    },
+    "full_working": {
+      "passed": 4965,
+      "seconds": 1135.13,
+      "exit_code": 0
+    },
+    "full_publishing": {
+      "passed": 4965,
+      "seconds": 1114.21,
+      "exit_code": 0
+    },
+    "preflights": {
+      "working": {
+        "ok": true,
+        "exit_code": 0,
+        "generated_at_utc": "2026-10-09T14:57:31.579913+00:00"
+      },
+      "publishing": {
+        "ok": true,
+        "exit_code": 0,
+        "generated_at_utc": "2026-10-09T14:57:30.518937+00:00"
+      },
+      "scope": "Compilation, config, profile and seven isolated report builders. External pytest attestation uses actual completed full suites; no operational startup."
+    },
+    "source_snapshot": [
+      {
+        "checkout": "working",
+        "files": 770,
+        "sha256": "0a2a23e58b52fce20f94237a94965b488be9fa5c577175d68432d3c7580dd6b0"
+      },
+      {
+        "checkout": "publishing",
+        "files": 770,
+        "sha256": "0a2a23e58b52fce20f94237a94965b488be9fa5c577175d68432d3c7580dd6b0"
+      }
+    ],
+    "full_state": "BOTH_PASSED_ON_MATCHING_FROZEN_SNAPSHOT_POST_FULL_RECHECK",
+    "current_config_probe": {
+      "DISCOVERY_INTERVAL": 60,
+      "MAX_CANDIDATES": 50,
+      "MAX_AGE_DAYS": 1,
+      "DRY_RUN": true,
+      "PAPER_EXACT_TRADE_SIZE_ENABLED": true,
+      "PAPER_EXACT_TRADE_SIZE_SOL": 0.1,
+      "scope": "Working-root read-only selected config import. Publishing defaults are recorded separately; personal.env is not synchronized. Neither probe starts a provider or bot."
+    },
+    "publishing_cold_probe": {
+      "module": "utils/descubridor_pares.py",
+      "scope": "C-root cold import, no HTTP/runtime start",
+      "DISCOVERY_INTERVAL": 45,
+      "MAX_CANDIDATES": 0,
+      "MAX_AGE_DAYS": 2,
+      "DRY_RUN": true,
+      "PAPER_EXACT_TRADE_SIZE_ENABLED": true,
+      "PAPER_EXACT_TRADE_SIZE_SOL": 0.1
+    }
+  },
+  "analysis_workflow": "Data Analytics scoped original grain, chain/mint identity, missingness, clock and source reconciliation checks; native synthetic HTTP fixtures and audit source are the reproducible engineering companion.",
+  "runtime_off": {
+    "stop": {
+      "checkout": "working",
+      "started_at": "2026-10-09T14:57:59Z",
+      "finished_at": "2026-10-09T14:58:02Z",
+      "exit_code": 0,
+      "immediate_exit_capture": true,
+      "finalizer_status": "ok",
+      "killed": 0,
+      "remaining": 0
+    },
+    "inventory": {
+      "observed_at": "2026-10-09T14:58:29.2519919+00:00",
+      "since_utc": "2026-10-08T16:09:40.0000000Z",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "checkouts": [
+        {
+          "green_live_risk_file_exists": false,
+          "checkout": "working",
+          "locks": 0,
+          "protected_files": 3763,
+          "changed_by_mtime": 0
+        },
+        {
+          "green_live_risk_file_exists": false,
+          "checkout": "publishing",
+          "locks": 0,
+          "protected_files": 27,
+          "changed_by_mtime": 0
+        }
+      ],
+      "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+    },
+    "sql": {
+      "observed_at": "2026-10-09T14:58:28.152691+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-09 14:58:01.961757"
+        }
+      ]
+    },
+    "paper_population": {
+      "observed_at": "2026-10-09T14:58:28.162785+00:00",
+      "groups": {
+        "primary_portfolio": {
+          "rows": 0,
+          "original_entry_fx_declared": 0,
+          "exit_events": 0,
+          "original_exit_fx_declared": 0
+        },
+        "buy_journals": {
+          "grain": "One paper original buy intent, active or resolved",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        },
+        "closed_archives": {
+          "grain": "One archived paper trade",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        },
+        "learning_sources": {
+          "grain": "One original financial learning source",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        }
+      },
+      "sql_source": "data/memebotdatabase.db",
+      "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+      "sql_rows": [],
+      "interpretation": "Declaration coverage, not proof validation or profitability. Existing unproved records are not rewritten. Empty scope is not zero investment risk or future market coverage."
+    }
+  },
+  "publication": {
+    "status": "SOURCE_SYNCED_COMMIT_PUSH_PROOF_IN_PRIVATE_DELIVERY_RECEIPT",
+    "parent_commit": "e6eef9cb54faa8e6208acd1ca9fd3bd19a5795e2",
+    "delivery_receipt": "work/discovery-profile-inputs-delivery-receipt.json"
+  },
+  "remaining": [
+    "Independent provider access/real response/schema freshness, full feed/decision/valuation opportunity coverage, production throughput and prospective net profitability remain unestablished.",
+    "These profile feeds are not exhaustive mint/pair discovery. Other provider/research/model/source/input-generation and financial ownership boundaries remain from the full goal.",
+    "Common selected-pair birth versus actual mint birth, authoritative multi-pair/chain identity and other history consumers still require separate audit; this stage does not certify those clocks as token creation.",
+    "No operational bot, training, AutoResearch or active model/policy start/promotion is authorized by these synthetic results."
+  ]
+}
