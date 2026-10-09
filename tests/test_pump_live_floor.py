@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from analytics.profit_pnl_guard import evaluate_profit_pnl_guard
+from analytics.token_time import compute_age_minutes
 from analytics.pumpswap_prime_strict import evaluate_pumpswap_prime_strict
 from analytics.pumpswap_rebound_prime import (
     apply_pumpswap_rebound_prime_context,
@@ -59,6 +60,7 @@ def _load_quality_namespace(**overrides: object):
         "dt": dt,
         "parse_iso_utc": lambda raw: dt.datetime.fromisoformat(raw) if raw else None,
         "utc_now": lambda: dt.datetime(2026, 4, 6, 15, 0, tzinfo=dt.timezone.utc),
+        "compute_age_minutes": compute_age_minutes,
         "research_runtime": SimpleNamespace(
             load_live_rank_gate=lambda regime: {
                 "threshold": 12.5,
@@ -1108,6 +1110,7 @@ def test_entry_quality_preserves_pretagged_paper_bootstrap_lane() -> None:
         _PAPER_AGGRESSIVE_TRADING_ENABLED=True,
     )
     token = {
+        "age_minutes": 3.0,
         "entry_lane": "pump_early_paper_bootstrap_micro",
         "gate_profile": "paper_bootstrap",
         "profit_lane_tier": "pump_early_paper_bootstrap_micro",

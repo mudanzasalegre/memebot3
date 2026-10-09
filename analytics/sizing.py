@@ -5,6 +5,7 @@ from typing import Any, Iterable
 import math
 
 from analytics.filters import effective_ai_threshold, effective_soft_score_min, effective_thresholds
+from analytics.token_time import compute_age_minutes
 from config.config import (
     AI_SIZING_ENABLED,
     BUY_SOFT_SCORE_MIN,
@@ -47,7 +48,7 @@ def _to_int(value: Any, default: int = 0) -> int:
 
 def _normalize_discovery(value: Any) -> str:
     raw = str(value or "").strip().lower()
-    if raw in {"pumpfun", "pump", "pump_fun"}:
+    if raw in {"pumpfun", "pump", "pump_fun", "pumpportal", "pump_portal"}:
         return "pumpfun"
     if raw in {"revival", "revive", "revived"}:
         return "revival"
@@ -71,16 +72,18 @@ def classify_entry_regime(token: dict[str, Any], queue_attempts: int = 0) -> str
         return "pump_early"
     discovered_via = _normalize_discovery(token.get("discovered_via"))
     dex_id = _normalize_dex_id(token.get("dex_id") or token.get("dexId"))
-    age_min = _to_float(token.get("age_minutes") or token.get("age_min"))
+    age_min = compute_age_minutes(token)
     if discovered_via == "revival":
         return "revival"
     if discovered_via == "pumpfun":
         return "pump_early"
-    if dex_id == "pumpfun" and (age_min <= 0.0 or age_min <= float(REGIME_PUMP_EARLY_MAX_AGE_MIN)):
+    # Venue/source can select a conservative exposure cap; it is not birth proof
+    # and cannot bypass the common entry observation wait.
+    if dex_id == "pumpfun" and (age_min is None or age_min <= float(REGIME_PUMP_EARLY_MAX_AGE_MIN)):
         return "pump_early"
 
     # DeX recién listado se trata como setup temprano para limitar tamaño.
-    if age_min > 0.0 and age_min <= float(REGIME_PUMP_EARLY_MAX_AGE_MIN):
+    if age_min is not None and age_min <= float(REGIME_PUMP_EARLY_MAX_AGE_MIN):
         return "pump_early"
 
     # Requeues repetidos sin discovery explícito no bastan para marcar revival.

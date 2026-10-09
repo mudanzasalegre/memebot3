@@ -177,6 +177,7 @@ except Exception:
     _JUP_ROUTER_AVAILABLE = False
 
 from analytics import filters, requeue_policy  # noqa: E402
+from analytics.token_time import compute_age_minutes  # noqa: E402
 import analytics.api_budget as api_budget  # noqa: E402
 import analytics.sizing as entry_sizing  # noqa: E402
 import analytics.exit_policy as exit_policy  # noqa: E402
@@ -2054,21 +2055,8 @@ async def _maybe_apply_paper_exploration_quota(token: dict, ses: SessionLocal, a
     return decision
 
 
-def _candidate_age_minutes(token: dict) -> float:
-    age_min = _metric_float(token, "age_min", "age_minutes")
-    if age_min > 0:
-        return age_min
-
-    created_raw = token.get("created_at") or token.get("createdAt")
-    created_dt: dt.datetime | None = None
-    if isinstance(created_raw, dt.datetime):
-        created_dt = created_raw if created_raw.tzinfo else created_raw.replace(tzinfo=dt.timezone.utc)
-    elif isinstance(created_raw, str):
-        created_dt = parse_iso_utc(created_raw)
-
-    if created_dt is None:
-        return 0.0
-    return max(0.0, (utc_now() - created_dt).total_seconds() / 60.0)
+def _candidate_age_minutes(token: dict) -> float | None:
+    return compute_age_minutes(token, now=utc_now())
 
 
 def _paper_cold_start_active(closed_trades: int | None = None) -> bool:
@@ -2102,14 +2090,22 @@ def _paper_cold_start_shadow_probe_allowed(
     return bool(reason_parts & {"loss_streak", "recovery_not_ready"})
 
 
-def _add_min_failure(failures: list[str], name: str, value: float, threshold: float) -> None:
-    if threshold != 0 and value < threshold:
-        failures.append(f"{name}<{threshold:g}")
+def _add_min_failure(failures: list[str], name: str, value: float | None, threshold: float) -> None:
+    if threshold != 0:
+        if value is None:
+            if f"{name}_missing" not in failures:
+                failures.append(f"{name}_missing")
+        elif value < threshold:
+            failures.append(f"{name}<{threshold:g}")
 
 
-def _add_max_failure(failures: list[str], name: str, value: float, threshold: float) -> None:
-    if threshold > 0 and value > threshold:
-        failures.append(f"{name}>{threshold:g}")
+def _add_max_failure(failures: list[str], name: str, value: float | None, threshold: float) -> None:
+    if threshold > 0:
+        if value is None:
+            if f"{name}_missing" not in failures:
+                failures.append(f"{name}_missing")
+        elif value > threshold:
+            failures.append(f"{name}>{threshold:g}")
 
 
 def _sniper_rank_score(rank_info: dict[str, object] | None) -> float:
@@ -2120,6 +2116,8 @@ def _sniper_rank_score(rank_info: dict[str, object] | None) -> float:
 
 
 def _evaluate_sniper_core(token: dict, rank_score: float) -> list[str]:
+    if _candidate_age_minutes(token) is None:
+        return ["age_missing"]
     failures: list[str] = []
     route_required = bool(token.get("require_jupiter_for_buy", True))
     has_route = bool(_metric_int(token, "has_jupiter_route"))
@@ -2154,6 +2152,8 @@ def _evaluate_sniper_core(token: dict, rank_score: float) -> list[str]:
 
 
 def _evaluate_sniper_micro(token: dict, rank_score: float) -> list[str]:
+    if _candidate_age_minutes(token) is None:
+        return ["age_missing"]
     failures: list[str] = []
     route_required = bool(token.get("require_jupiter_for_buy", True))
     has_route = bool(_metric_int(token, "has_jupiter_route"))
@@ -2308,6 +2308,8 @@ def _aggressive_research_guard_failures(token: dict) -> list[str]:
 
 
 def _meteor_prime_failures(token: dict) -> list[str]:
+    if _candidate_age_minutes(token) is None:
+        return ["meteor_age_missing"]
     failures: list[str] = []
     price_pct_5m = _metric_optional_float(token, "price_pct_5m")
     txns_5m = float(_metric_int(token, "txns_last_5m"))
@@ -2346,6 +2348,8 @@ def _meteor_prime_failures(token: dict) -> list[str]:
 
 
 def _breakout_probe_failures(token: dict, rank_score: float) -> list[str]:
+    if _candidate_age_minutes(token) is None:
+        return ["breakout_age_missing"]
     failures: list[str] = []
     price_pct_5m = _metric_optional_float(token, "price_pct_5m")
     txns_5m = float(_metric_int(token, "txns_last_5m"))
@@ -2531,6 +2535,10 @@ def _evaluate_pumpswap_profit_gate(
     impact = max(0.0, _metric_float(token, "price_impact_pct"))
     age_min = _candidate_age_minutes(token)
     score_total = _metric_int(token, "score_total")
+    if age_min is None:
+        # Missing observation is not a losing trade or a research lane promotion.
+        return {"allowed": False, "entry_lane": "", "gate_profile": "unknown_age",
+            "reject_reasons": ["missing_age"], "research_eligible": False, "blocked_bucket": None}
     liq_proxy = _is_liquidity_proxy(token)
     meteor_failures = _meteor_prime_failures(token) if _PUMP_EARLY_METEOR_PRIME_ENABLED else ["meteor_disabled"]
     breakout_failures = (
@@ -2753,6 +2761,8 @@ def _evaluate_pumpswap_profit_gate(
 
 
 def _tag_pump_sniper_gate(token: dict, rank_info: dict[str, object] | None = None) -> tuple[bool, str]:
+    if _candidate_age_minutes(token) is None:
+        return False, "missing_age"
     sniper_micro_fallback_lane = str(
         globals().get("_SNIPER_RESEARCH_MICRO_FALLBACK_LANE", "pump_early_sniper_research_micro_fallback")
     )
@@ -2914,6 +2924,8 @@ def _aggressive_pump_gate(
     require_route: bool,
     require_price: bool,
 ) -> tuple[bool, str]:
+    if _candidate_age_minutes(token) is None:
+        return False, "missing_age"
     failures: list[str] = []
     has_route = bool(_metric_int(token, "has_jupiter_route"))
     if require_route and not has_route:
@@ -3035,6 +3047,8 @@ def _entry_quality_gate(
     rank_info: dict[str, object] | None = None,
     paper_cold_start_active: bool | None = None,
 ) -> tuple[bool, str]:
+    if _candidate_age_minutes(token) is None:
+        return False, "missing_age"
     paper_lane_defaults = {
         "pump_early_paper_bootstrap_micro": "paper_bootstrap",
         "pump_early_paper_exploration_micro": "paper_exploration_quota",
@@ -4560,7 +4574,8 @@ async def _maybe_apply_paper_sniper_liquidity_proxy(token: dict, addr: str) -> b
         return False
     if str(token.get("entry_regime") or "").strip().lower() != "pump_early":
         return False
-    if _candidate_age_minutes(token) < _PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_MIN_AGE_MIN:
+    age_min = _candidate_age_minutes(token)
+    if age_min is None or age_min < _PUMP_EARLY_SNIPER_PAPER_ROUTE_PROXY_MIN_AGE_MIN:
         return False
     if not token.get("price_usd") or not token.get("market_cap_usd"):
         return False
@@ -4658,7 +4673,8 @@ def _green_shadow_can_continue_to_runner_canary(token: dict, decision: object) -
         return False
 
     max_age = float(getattr(CFG, "GREEN_SNIPER_RUNNER_CANARY_MAX_AGE_MIN", 8.0) or 8.0)
-    if _candidate_age_minutes(token) > max_age:
+    age_min = _candidate_age_minutes(token)
+    if age_min is None or age_min > max_age:
         return False
 
     max_impact = float(getattr(CFG, "GREEN_SNIPER_RUNNER_CANARY_MAX_PRICE_IMPACT_PCT", 20.0) or 20.0)
@@ -4799,7 +4815,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["require_jupiter_for_buy"] = int(require_jup_for_buy)
     token["strategy_version"] = str(getattr(CFG, "SNIPER_STRATEGY_VERSION", "2026-04-green-sniper-v1") or "")
     token["experiment_id"] = str(getattr(CFG, "SNIPER_EXPERIMENT_ID", "green_v1") or "")
-    if queue_attempts > 0 or _candidate_age_minutes(token) >= max(1.0, float(MIN_AGE_MIN)):
+    candidate_age = _candidate_age_minutes(token)
+    if queue_attempts > 0 or (candidate_age is not None and candidate_age >= max(1.0, float(MIN_AGE_MIN))):
         warn_if_nulls(token, context=addr[:4])
     _log_token(token, addr)
 
@@ -4843,6 +4860,14 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     token["require_jupiter_for_buy"] = int(require_jup_for_buy)
     _remember_queue_context(addr, token)
 
+    # All entry regimes wait for a valid birth/age observation before liquidity
+    # proxies, PAPER promotions, rule labels or model/financial decisions.
+    candidate_age = _candidate_age_minutes(token)
+    if candidate_age is None:
+        _defer_entry_observation(token, reason="missing_age", stage="entry_snapshot")
+        return
+    token["age_minutes"] = token["age_min"] = candidate_age
+
     # 4) — incomplete (sin liquidez) ---------------------------------
     if not token.get("liquidity_usd"):
         await _maybe_apply_green_sniper_liquidity_proxy(token, addr)
@@ -4856,8 +4881,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
     if not token.get("liquidity_usd"):
         # ⇢ solo contamos “incomplete” si el pool ya ha cumplido la edad mínima
-        age_min_val = float(token.get("age_min") or 0.0)
-        if age_min_val >= MIN_AGE_MIN:
+        if candidate_age >= MIN_AGE_MIN:
             _stats["incomplete"] += 1
 
         token["is_incomplete"] = 1

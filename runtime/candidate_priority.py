@@ -5,6 +5,7 @@ import math
 from typing import Any
 
 from config.config import CFG
+from analytics.token_time import compute_age_minutes
 from runtime.runner_priority import learned_runner_priority
 from ml.lane_taxonomy import (
     LANE_RESEARCH_RANK_CANARY,
@@ -35,24 +36,8 @@ def _source_score(source: str) -> float:
     return 0.0
 
 
-def _age_minutes(token: dict[str, Any], now: dt.datetime | None = None) -> float:
-    now = now or dt.datetime.now(dt.timezone.utc)
-    created = token.get("created_at") or token.get("createdAt")
-    if isinstance(created, str):
-        try:
-            created = dt.datetime.fromisoformat(created.replace("Z", "+00:00"))
-        except Exception:
-            created = None
-    if isinstance(created, dt.datetime):
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=dt.timezone.utc)
-        seconds = (now - created).total_seconds()
-        return seconds / 60 if seconds >= 0 else 20.0
-    for key in ("age_minutes", "age_min", "queue_age_minutes"):
-        if token.get(key) is not None:
-            age = _to_float(token.get(key), 20.0)
-            return age if age >= 0 else 20.0
-    return 20.0
+def _age_minutes(token: dict[str, Any], now: dt.datetime | None = None) -> float | None:
+    return compute_age_minutes(token, now=now)
 
 
 def _boolish(value: Any) -> bool:
@@ -113,7 +98,8 @@ def candidate_priority_score(token: dict[str, Any], *, source: str | None = None
     liq = _to_float(token.get("liquidity_usd"), 0.0)
     rank = _normalize_score(token.get("rank_score") if token.get("rank_score") is not None else token.get("research_rank_score"), -1.0)
     score = _source_score(str(src))
-    score += max(0.0, 20.0 - age_min) * 1.5
+    if age_min is not None:
+        score += max(0.0, 20.0 - age_min) * 1.5
     if rank >= 75:
         score += 35.0
     elif rank >= 61:

@@ -60,7 +60,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from typing import Any, Optional
 
 # numpy es opcional para este módulo (Pylance puede avisar si el intérprete no lo tiene)
@@ -119,9 +119,10 @@ from config.config import (
     TRADING_HOURS,
     TRADING_HOURS_EXTRA,
 )
-from utils.time import is_in_trading_window, parse_iso_utc, utc_now
+from utils.time import is_in_trading_window, utc_now
 from utils.numeric_types import binary_value
 from utils.auxiliary_observation import auxiliary_scalar
+from analytics.token_time import compute_age_minutes
 
 log = logging.getLogger("filters")
 
@@ -449,49 +450,10 @@ def _sym_for_log(token: dict[str, Any], addr: Optional[str]) -> str:
     return (addr[:4] if addr else "????")
 
 
-def _extract_created_at(token: dict[str, Any]) -> Optional[datetime]:
-    """
-    Intenta obtener created_at de distintas fuentes habituales.
-    Devuelve datetime timezone-aware (UTC) o None.
-    """
-    created = token.get("created_at") or token.get("createdAt") or token.get("created") or token.get("createdAtUtc")
-    if isinstance(created, datetime):
-        dt = created
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
-
-    if isinstance(created, str) and created.strip():
-        dt = parse_iso_utc(created.strip())
-        if dt:
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
-
-    # DexScreener típico: pairCreatedAt en ms
-    pc = token.get("pairCreatedAt") or token.get("pair_created_at") or token.get("pairCreatedAtMs")
-    pc_f = _to_float_or_none(pc)
-    if pc_f:
-        try:
-            # Si parece ms (muy grande), convertir
-            ts = pc_f / 1000.0 if pc_f > 1e11 else pc_f
-            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-            return dt
-        except Exception:
-            return None
-
-    return None
-
-
 # ─────────────────────────── FILTRO DURO ────────────────────────────
 def _token_age_seconds(token: dict[str, Any]) -> Optional[float]:
-    age_min = _to_float_or_none(token.get("age_min") or token.get("age_minutes"))
-    created = _extract_created_at(token)
-    if created is None and age_min is not None:
-        created = utc_now() - timedelta(minutes=float(age_min))
-    if created is None:
-        return None
-    return (utc_now() - created).total_seconds()
+    age_min = compute_age_minutes(token, now=utc_now())
+    return age_min * 60.0 if age_min is not None else None
 
 
 def has_toxic_initial_sell_pressure(token: dict[str, Any]) -> bool:
@@ -572,28 +534,16 @@ def basic_filters(token: dict[str, Any]) -> Optional[bool]:
 
     # 1) edad mínima ----------------------------------------------------------------
     # Priorizamos created_at si existe; age_min/age_minutes queda como fallback.
-    age_min_raw = token.get("age_min") or token.get("age_minutes")
-    age_min = _to_float_or_none(age_min_raw)
-
-    created = _extract_created_at(token)
-    if created is None and age_min is not None:
-        created = utc_now() - timedelta(minutes=float(age_min))
-    if created is None:
-        log.debug("✗ %s sin created_at ni age_min", sym)
-        return False
-
-    now = utc_now()
-    age_sec = (now - created).total_seconds()
-    if age_sec < 0:
-        log.debug("⏳ %s created_at en el futuro (age_sec=%.1f) → requeue", sym, age_sec)
+    age_min_raw = token.get("age_minutes") if token.get("age_minutes") is not None else token.get("age_min")
+    age_min_eff = compute_age_minutes(token, now=utc_now())
+    if age_min_eff is None:
+        log.debug("⏳ %s edad ausente/inválida/futura → requeue", sym)
         return None
-
+    age_sec = age_min_eff * 60.0
     age_days = age_sec / 86_400.0
     if age_days > float(MAX_AGE_DAYS):
         log.debug("✗ %s age %.2f d > %s", sym, age_days, MAX_AGE_DAYS)
         return False
-
-    age_min_eff = age_sec / 60.0
 
     # Corte "too-young": requeue si < MIN_AGE_MIN
     if age_min_eff < float(thresholds.min_age_min):

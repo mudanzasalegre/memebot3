@@ -1,7 +1,6 @@
 # memebot3/analytics/requeue_policy.py
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import math
 import os
 from typing import Tuple
@@ -14,7 +13,8 @@ from config.config import (
     MIN_VOL_USD_24H,
     MIN_AGE_MIN,
 )
-from utils.time import is_in_trading_window, seconds_until_next_window, parse_iso_utc, utc_now
+from utils.time import is_in_trading_window, seconds_until_next_window, utc_now
+from analytics.token_time import compute_age_minutes
 
 # â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€” Tabla de reglas globales â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”
 # Cada tupla: (reason, {"max_attempts": int, "delay": segundos})
@@ -63,41 +63,8 @@ def _to_float_or_none(x) -> float | None:
         return None
 
 
-def _extract_created_at(token: dict) -> datetime | None:
-    created = token.get("created_at") or token.get("createdAt") or token.get("created") or token.get("createdAtUtc")
-    if isinstance(created, datetime):
-        if created.tzinfo is None:
-            return created.replace(tzinfo=timezone.utc)
-        return created.astimezone(timezone.utc)
-
-    if isinstance(created, str) and created.strip():
-        dt = parse_iso_utc(created.strip())
-        if dt:
-            if dt.tzinfo is None:
-                return dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
-
-    pc = token.get("pairCreatedAt") or token.get("pair_created_at") or token.get("pairCreatedAtMs")
-    pc_f = _to_float_or_none(pc)
-    if pc_f:
-        try:
-            ts = pc_f / 1000.0 if pc_f > 1e11 else pc_f
-            return datetime.fromtimestamp(ts, tz=timezone.utc)
-        except Exception:
-            return None
-    return None
-
-
-def _age_minutes(token: dict) -> float:
-    created_at = _extract_created_at(token)
-    if created_at is not None:
-        return max(0.0, (utc_now() - created_at).total_seconds() / 60.0)
-
-    raw_age = token.get("age_min") or token.get("age_minutes") or 0.0
-    try:
-        return float(raw_age)
-    except Exception:
-        return 0.0
+def _age_minutes(token: dict) -> float | None:
+    return compute_age_minutes(token, now=utc_now())
 
 
 # â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€” API principal â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”
@@ -124,6 +91,10 @@ def decide(token: dict, attempts: int, first_seen: float) -> Tuple[bool, int, st
 
     # 1) Edades / mÃ©tricas bÃ¡sicas
     age_min = _age_minutes(token)
+    if age_min is None:
+        # The caller's queue still owns residence/capacity expiry. Missing birth
+        # must not exhaust a too-young budget or create a negative financial label.
+        return True, 5, "entry_observation:missing_age"
     age_days = age_min / 1440.0
 
     if age_days > MAX_AGE_DAYS:

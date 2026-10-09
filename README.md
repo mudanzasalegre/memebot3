@@ -131,6 +131,16 @@ exacta de timestamps; estas comprobaciones no autentican la creacion on-chain
 ni prueban un feed completo. Datos/modelos historicos se conservan y necesitan
 validacion fresca. Vease `docs/audits/discovery_birth_age_integrity_20261009.json`.
 
+El filtro basico, reintento, prioridad, sizing y helpers del orquestador usan
+tambien la edad nullable comun. Una edad desconocida espera la observacion
+valida tras el snapshot fresco, antes de proxies, bootstrap y decisiones
+financieras; no consume intentos de "too_young" ni fabrica una etiqueta de
+perdida. El tiempo en cola no concede prioridad de recien nacido. El cero
+medido sigue siendo valido y la creacion original prevalece sobre una edad
+medida antigua. Las vias de investigacion standalone y los historicos no se
+recertifican por este cambio. Vease
+`docs/audits/entry_age_admission_integrity_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original
