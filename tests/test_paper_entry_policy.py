@@ -6,6 +6,7 @@ import asyncio
 import copy
 import datetime as dt
 import json
+import sys
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -114,7 +115,7 @@ def cohort(cfg, *, start=None, gate="rank_canary", parameters=None, features_fun
     events, previous = [], plan_id
     for i, case in enumerate(cases):
         event = {"sequence": i, "case_id": case["case_id"], "token": case["token"], "captured_at": case["decision_at"],
-                 "gate_code_identity": copy.deepcopy(plan["gate_code_identity"]),
+                 "gate_code_reference": entry_gate_code.reference(plan["gate_code_identity"], gate=gate),
                  "features_sha256": policy.digest(case["features"]), "previous_sha256": previous}
         event["sha256"] = policy.digest(event)
         previous = event["sha256"]
@@ -240,11 +241,20 @@ def test_sniper_and_moonshot_scopes_reach_their_actual_filters():
 
 def test_counterfactual_gate_evaluation_does_not_write_actual_audit(monkeypatch):
     from analytics import research_rank_canary
-    monkeypatch.setattr(research_rank_canary, "_record_audit", lambda *args, **kw: pytest.fail("audit write"))
-    monkeypatch.setattr(research_rank_canary, "_record_event", lambda *args, **kw: pytest.fail("event write"))
+    # Observe calls without replacing any checked gate function. A regression
+    # fails at function entry, before it could write an actual audit/event.
+    forbidden = {research_rank_canary._record_audit.__code__, research_rank_canary._record_event.__code__}
+    def observe(frame, event, arg):
+        if event == "call" and frame.f_code in forbidden:
+            pytest.fail("counterfactual invoked an actual audit/event function")
     cfg = config()
-    plan, cases, now = cohort(cfg)
-    assert transport.compare_cohort(plan, cases, cfg, now=now)["accepted"]
+    previous = sys.getprofile()
+    sys.setprofile(observe)
+    try:
+        plan, cases, now = cohort(cfg)
+        assert transport.compare_cohort(plan, cases, cfg, now=now)["accepted"]
+    finally:
+        sys.setprofile(previous)
 
 
 def test_concurrent_tasks_and_cancelled_evaluations_are_isolated():
@@ -337,9 +347,11 @@ def test_manifest_rechecks_sources_configuration_expiry_and_role(tmp_path):
 def test_guarded_real_call_path_binds_snapshot_and_restores_it(tmp_path, monkeypatch):
     cfg = config()
     _, _, now = install(tmp_path, cfg)
-    original = transport.load_selection
-    monkeypatch.setattr(transport, "load_selection", lambda cfg, **kw: original(
-        cfg, root=kw["root"], now=now, gate=kw.get("gate")))
+    class FixedClock(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now if tz else now.replace(tzinfo=None)
+    monkeypatch.setattr(transport, "dt", SimpleNamespace(datetime=FixedClock, timedelta=dt.timedelta, timezone=dt.timezone))
     calls = []
     async def evaluate(token, session):
         await asyncio.sleep(0)

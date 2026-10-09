@@ -33,7 +33,7 @@ def test_original_registration_binds_plan_case_and_journal_to_gate_code(tmp_path
     original = plan.get("gate_code_identity")
     assert original and original["gate"] == "rank_canary"
     assert record.get("gate_code_identity") == original
-    assert journal["events"][0].get("gate_code_identity") == original
+    assert journal["events"][0].get("gate_code_reference") == code.reference(original, gate="rank_canary")
 
 
 def test_original_cohort_cannot_be_approved_under_changed_gate_source(monkeypatch):
@@ -180,7 +180,7 @@ def test_original_cohort_requires_the_same_source_at_every_registration_layer(pl
     cfg = selection_config()
     plan, cases, now = cohort(cfg)
     if place == "case": cases[0].pop("gate_code_identity")
-    elif place == "journal": plan["enrollment_journal"][0].pop("gate_code_identity")
+    elif place == "journal": plan["enrollment_journal"][0].pop("gate_code_reference")
     else: cases[0]["cash"]["prefix"].pop("gate_code_identity")
     assert not evaluator.compare_cohort(plan, cases, cfg, now=now)["accepted"]
 

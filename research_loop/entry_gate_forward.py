@@ -26,7 +26,7 @@ from runtime import paper_entry_policy as policy, entry_gate_code as gate_code
 from research_loop import entry_gate_policy as evaluator, forward_budget as storage
 from execution import paper_cash_mark as cash
 
-COLLECTOR = "sampled_entry_gate_collector_v1"
+COLLECTOR = "sampled_entry_gate_collector_v2"
 SCHEDULE = "entry_components_round_robin_v1"
 MAX_IDLE_GATE_WAIT_S = 300
 _CAPTURE: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("entry_gate_capture", default=None)
@@ -388,7 +388,7 @@ def capture_gate(gate: str, row: dict[str, Any], cfg: Any, *, now: dt.datetime |
         if not storage.claim(root, "entry_gate", other_pending=runner_forward.has_quote_demand(root), now=stamp, request_id=case_id):
             return None
         event = {"sequence": len(events), "case_id": case_id, "token": mint, "captured_at": stamp.isoformat(),
-                 "gate_code_identity": copy.deepcopy(plan["gate_code_identity"]),
+                 "gate_code_reference": gate_code.reference(plan["gate_code_identity"], gate=gate),
                  "features_sha256": policy.digest(features), "previous_sha256": events[-1]["sha256"] if events else plan_id}
         event["sha256"] = policy.digest(event)
         events.append(event)

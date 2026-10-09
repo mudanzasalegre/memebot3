@@ -192,6 +192,19 @@ de mercado ni permite compras. Mantiene 0.1 SOL PAPER y remanentes sin techo
 fijo de subida, sujetos a riesgo y salidas. Las pruebas sinteticas no prueban
 cobertura ni beneficios. Vease `docs/audits/discovery_burst_20261009.json`.
 
+La procedencia de las entradas aprendidas incluye ahora una comprobacion
+acotada del codigo Python cargado y sus namespaces, aliases y cierres de
+funcion frente a las fuentes originales. Una funcion sustituida, un alias
+antiguo o un comprobante incompleto no pueden prestar esa evidencia a una
+nueva seleccion. Las fuentes v1 siguen siendo diagnosticas, sin rellenar
+artefactos historicos ni aprobar nuevas politicas con ellas. El collector v2
+guarda en el journal referencias verificadas al original completo del plan;
+evita duplicaciones que excedan el limite de lectura en 128 casos. Mantiene
+las identidades completas en los casos, salidas financiadas, 0.1 SOL PAPER
+y remanentes sin techo fijo de beneficio. Esta comprobacion no autentica
+todo el proceso, sus inputs o el caller realmente ejecutado, ni acredita
+rentabilidad. Vease `docs/audits/loaded_entry_gate_integrity_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

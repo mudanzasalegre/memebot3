@@ -1,0 +1,285 @@
+{
+  "stage": "bounded_loaded_entry_gate_agreement",
+  "status": "SOFTWARE_VERIFIED_PUBLICATION_READY_RUNTIME_OFF",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Original source bytes plus bounded loaded Python function/namespace agreement for the four PAPER entry components and selected shared adaptation/collector functions. No operational bot/provider/wallet/order/training or active artifact promotion.",
+  "findings": [
+    {
+      "id": "disk_only_identity",
+      "severity": "high",
+      "evidence": "Original source-only identity accepts unchanged disk bytes after replacing a loaded public gate with a delegating functools.wraps function or the same code in foreign globals. Initial isolated cases: nine failures and one pass.",
+      "repair": "Version2 original gate identity contains checked loaded function/code/namespace bindings compiled from current normalized source without executing source bytes."
+    },
+    {
+      "id": "stale_import_or_hidden_helper",
+      "severity": "high",
+      "evidence": "A helper alias or its owner export can differ from declared original code. Ignoring functions whose current owner falls outside the allowed graph can omit a substituted helper.",
+      "repair": "Compare actual owner namespaces, canonical exports and source-declared function imports/global references. Foreign/nonfunction substitutes cannot disappear from a fresh bounded receipt."
+    },
+    {
+      "id": "repeated_loaded_receipt_exceeds_native_journal_limit",
+      "severity": "high",
+      "evidence": "A native synthetic128-event storage probe with repeated complete loaded identities writes3925040 bytes; the unchanged2097152-byte reader returnsNone.",
+      "repair": "Collector version2 journals carry a compact versioned reference to the complete original identity retained in the original plan and every case. The existing chained event hash and original plan binding retain source integrity. Native actual registration of128 cases writes79461 bytes and reads successfully, without providers or a larger reader limit."
+    }
+  ],
+  "contract": {
+    "entry_components": [
+      "rank_canary",
+      "sniper_subprofile",
+      "late_momentum",
+      "moonshot"
+    ],
+    "code": "Canonical immutable CodeType body includes nested code/constants, exception handlers, closure names and argument/bytecode structure. Filename/line tables are excluded for cross-root and LF/CRLF equivalence.",
+    "namespace": "Check actual function globals identity against its registered module; copied names, __wrapped__ or copied globals do not establish agreement. Include actual direct global function aliases and function closure cells within the declared graph.",
+    "wrappers": "Only exact source-checked stdlib contextmanager helper/closure wrapping is explicitly recognized. Local best-effort decorators are checked as real wrapper code with their actual function closures, not blindly unwrapped.",
+    "bounds": "At most256 binding rows,2MiB per declared source,128 compiled-byte cache entries and4096 strong code-identity cache entries. Source bytes are read afresh; no mtime cache or mutable-function cache.",
+    "versioning": "original_entry_gate_sources_loaded_v2 requires a structurally valid bounded loaded receipt and required public/core bindings. Legacy original_entry_gate_sources_v1 stays structurally readable as history, but cannot match/bind a new current learned selection. No operator artifacts are backfilled.",
+    "journal": "sampled_entry_gate_collector_v2 stores original_entry_gate_identity_reference_v1 in each chained event. It must equal the reference calculated from the complete checked original plan receipt, never an arbitrary caller digest. Cases, prefixes, manifests and per-entry provenance retain full original identity. Rehashed reference substitution is rejected; legacy identities are not upgraded or backfilled.",
+    "financial_boundary": "Unproved adaptation/registration stays unavailable while primary configured gates remain independent. Funded cases retain their original exit contract. Exact0.1 SOL PAPER, approved LIVE sizing and uncapped residual upside are unchanged.",
+    "not_attested": "This does not prove which outer caller/frame actually executed, a complete dynamic module/class/default/global/input graph, all exit code, Python binary/environment authenticity, a hostile whole-root rewrite, real provider coverage or profitability. Source/cache validators are not an independent security root."
+  },
+  "implemented_paths": [
+    "runtime/entry_gate_code.py",
+    "runtime/loaded_gate_code.py",
+    "research_loop/entry_gate_forward.py",
+    "research_loop/entry_gate_policy.py",
+    "tests/test_entry_gate_loaded_integrity.py",
+    "tests/test_entry_gate_code_integrity.py",
+    "tests/test_entry_gate_forward.py",
+    "tests/test_paper_entry_policy.py",
+    "tests/test_moonshot_temporal_integrity.py",
+    "tests/test_research_temporal_integrity.py"
+  ],
+  "verification": {
+    "new_cases": 56,
+    "focused_working": {
+      "passed": 115,
+      "seconds": 80.04,
+      "exit_code": 0
+    },
+    "focused_publishing": {
+      "passed": 118,
+      "seconds": 105.66,
+      "exit_code": 0
+    },
+    "temporal_working": {
+      "passed": 3,
+      "seconds": 26.8,
+      "exit_code": 0
+    },
+    "implementation_incidents": [
+      "First loaded prototype rejected authentic contextmanager globals; the next rejected an authentic lambda qualifier in a decorator default. Explicit source/closure wrapper checks and a separate qualified-code-name grammar repaired these cases, without accepting arbitrary __wrapped__.",
+      "An interim focused run stopped with142 passes/3 failures: two old clock fixtures replaced the capture function, and one fixture overlapped edits to the checked source generation. The isolated unchanged first fixture passed15.26s. Clock/provider fixtures now leave checked code original; final runs are against frozen sources.",
+      "An unchanged-source integration run completed with325 passes/2 failures in569.88s: older fixtures replaced audit callbacks and the actual selection loader. They now observe actual call entry and inject only a synthetic clock, keeping checked function bodies original. Both repaired cases are included in the final55-case checks.",
+      "One read-only lookup incorrectly assumed tests/conftest.py existed; actual file discovery found no conftest. This was a failed read, not test validation.",
+      "First frozen full runs each stopped at3777 passes/3 failures (D766.52s/C754.72s). Three temporal fixtures replaced the checked profile_decision to observe its clock, causing the intended source disagreement rejection. Read-only call-entry observation replaces those spies; both3-case temporal checks retain all three arms at T0 and pass before the final complete rerun.",
+      "The next frozen full pair was interrupted at93-percent progress after the separate native128-event reader-limit probe failed in1.86s. Interrupted checks are not final validation. Only owned QA sessions were stopped; a read-only process check verifies zero remaining exact full-pytest commands before source edits.",
+      "A first profile probe asked for nonexistent RUNNER_PRICE_TRAILING_ACTIVATE_PCT and returnednull, not a validated threshold. Source-discovered RUNNER_PRICE_TRAILING_MIN_PEAK_PCT subsequently verifies300.0 in both roots.",
+      "The opt-in intentionally failing ceiling reproduction was initially named work/test_loaded_journal_size_probe.py, so default working collection included4699 cases. Only that working QA session was interrupted; the owned probe was moved within work to probe-loaded-journal-size.py, excluded from normal collection. Both final collections have4698 cases on unchanged763 verification sources; the final working run was restarted and completed."
+    ],
+    "full_working": {
+      "passed": 4698,
+      "seconds": 1051.74,
+      "exit_code": 0
+    },
+    "full_publishing": {
+      "passed": 4698,
+      "seconds": 1075.27,
+      "exit_code": 0
+    },
+    "preflight_working": {
+      "generated_at_utc": "2026-10-09T09:51:16.8049560Z",
+      "ok": true,
+      "config_import_returncode": 0,
+      "compile_errors": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true,
+      "external_pytest_returncode": 0,
+      "exit_code": 0
+    },
+    "preflight_publishing": {
+      "generated_at_utc": "2026-10-09T09:48:23.5892620Z",
+      "ok": true,
+      "config_import_returncode": 0,
+      "compile_errors": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true,
+      "external_pytest_returncode": 0,
+      "exit_code": 0
+    },
+    "source_snapshot": {
+      "files": 763,
+      "normalized_sha256": "7f2462193a973896b531e013496d0e57535dcd1701cb1e5276eac074c37cefe6",
+      "identical_both_roots": true,
+      "qualification": "Source/configuration/tests only, excluding docs/README and protected operator artifacts."
+    },
+    "native_maximum_journal": {
+      "registered_cases": 128,
+      "journal_bytes": 79461,
+      "reader_limit_bytes": 2097152,
+      "readable": true,
+      "providers_called": 0,
+      "passed": 1,
+      "seconds": 12.84,
+      "exit_code": 0,
+      "qualification": "Native sampled registrations and original plan/case/reference storage in isolated temporary fixtures. No actual trades, shared-capital acceptance or profitability."
+    },
+    "pure_code_workload": {
+      "observed_at_utc": "2026-10-09T09:29:37.959235Z",
+      "samples": [
+        {
+          "gate": "rank_canary",
+          "sources": 11,
+          "bindings": 112,
+          "first_snapshot_seconds": 1.557028,
+          "warm_repeats": 25,
+          "warm_median_seconds": 0.009575,
+          "warm_max_seconds": 0.01241,
+          "receipt_json_bytes": 30595
+        },
+        {
+          "gate": "sniper_subprofile",
+          "sources": 11,
+          "bindings": 101,
+          "first_snapshot_seconds": 0.025392,
+          "warm_repeats": 25,
+          "warm_median_seconds": 0.009235,
+          "warm_max_seconds": 0.009754,
+          "receipt_json_bytes": 28408
+        },
+        {
+          "gate": "late_momentum",
+          "sources": 12,
+          "bindings": 51,
+          "first_snapshot_seconds": 0.015585,
+          "warm_repeats": 25,
+          "warm_median_seconds": 0.008428,
+          "warm_max_seconds": 0.009033,
+          "receipt_json_bytes": 15330
+        },
+        {
+          "gate": "moonshot",
+          "sources": 11,
+          "bindings": 112,
+          "first_snapshot_seconds": 0.02923,
+          "warm_repeats": 25,
+          "warm_median_seconds": 0.009775,
+          "warm_max_seconds": 0.010092,
+          "receipt_json_bytes": 30567
+        }
+      ],
+      "code_cache_objects": 618,
+      "compiled_source_entries": 16,
+      "qualification": "One local pure-code run with shared import/compile caches, first gate includes cold imports. Before serialization repair a separate same25-repeat workload showed warm medians10.799-14.664ms. These separate samples under other QA activity are not a controlled latency/SLA comparison, fair cold-gate comparison, feed opportunity coverage or profitability."
+    }
+  },
+  "checked_profile_both_roots": {
+    "dry_run": true,
+    "exact_paper_size_enabled": true,
+    "exact_size_sol": 0.1,
+    "price_trailing_paper_enabled": true,
+    "activation_peak_pct": 300,
+    "max_peak_price_drawdown_pct": 20,
+    "max_holding_hours": 24,
+    "qualification": "Read-only imports of current configuration in both roots; protections/holding bounds, not guaranteed profit or an unlimited holding period."
+  },
+  "runtime_off": {
+    "final_stop": {
+      "checkout": "working_only",
+      "requested_by": "user",
+      "completed_at_utc": "2026-10-09T09:51:19Z",
+      "captured_last_exit_code": 0,
+      "killed": 0,
+      "remaining": 0,
+      "finalizer_status": "ok",
+      "qualification": "LASTEXITCODE captured immediately after invocation; actual stop log and independent inventory/SQL corroborate shutdown."
+    },
+    "final_inventory": {
+      "observed_at": "2026-10-09T09:51:32.0807555+00:00",
+      "since_utc": "2026-10-08T16:09:40.0000000Z",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "checkouts": [
+        {
+          "checkout": "working",
+          "locks": 0,
+          "protected_files": 3763,
+          "changed_by_mtime": 0,
+          "green_live_risk_file_exists": false
+        },
+        {
+          "checkout": "publishing",
+          "locks": 0,
+          "protected_files": 27,
+          "changed_by_mtime": 0,
+          "green_live_risk_file_exists": false
+        }
+      ],
+      "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+    },
+    "final_sql": {
+      "observed_at": "2026-10-09T09:51:32.639404+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-09 09:51:19.239267"
+        }
+      ]
+    },
+    "final_paper_population": {
+      "observed_at": "2026-10-09T09:51:33.089364+00:00",
+      "groups": {
+        "primary_portfolio": {
+          "rows": 0,
+          "original_entry_fx_declared": 0,
+          "exit_events": 0,
+          "original_exit_fx_declared": 0
+        },
+        "buy_journals": {
+          "grain": "One paper original buy intent, active or resolved",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        },
+        "closed_archives": {
+          "grain": "One archived paper trade",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        },
+        "learning_sources": {
+          "grain": "One original financial learning source",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        }
+      },
+      "sql_source": "data/memebotdatabase.db",
+      "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+      "sql_rows": [],
+      "interpretation": "Declaration coverage, not proof validation or profitability. Existing unproved records are not rewritten. Empty scope is not zero investment risk or future market coverage."
+    },
+    "qualification": "Empty scoped PAPER records do not establish zero wallet exposure, zero investment risk, feed coverage or profitability. Repeat actual post-publication inventory and SQL proof are recorded separately."
+  },
+  "publication": {
+    "state_at_audit_freeze": "Pending final verification and normal scoped commit/push; actual commit/remote/clean proof is recorded separately after publication",
+    "scope": "Source/tests/docs only; exclude .env,.venv,data,models,logs,work. No destructive synchronization."
+  },
+  "remaining": [
+    "Original outer-caller/executed frame and other applicable class/default/global/dynamic source/input availability contracts remain independent and incomplete.",
+    "Full-strategy original decision/capital/cost/finality, real provider/depth/coverage and fresh prospective financial acceptance remain incomplete; rare higher-target real models are not approved by these code fixtures.",
+    "Future profit, maximum opportunity capture and zero execution errors cannot be guaranteed. Keep all operational services OFF."
+  ]
+}

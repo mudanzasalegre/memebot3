@@ -362,13 +362,13 @@ def test_cancelled_dispatcher_is_drained_and_not_replayed_after_restart(tmp_path
             await asyncio.Event().wait()
         async def sol(): return 100.
         async def forbidden_quote(**kwargs): pytest.fail("cancelled entry must not quote")
-        async def dispatch(identity, **kwargs):
-            return await actual_fill(identity, **kwargs, now=T0 + dt.timedelta(seconds=1),
-                prices_func=pending_prices, sol_price_func=sol, quote_func=forbidden_quote)
-        monkeypatch.setattr(bank, "fill_entry", dispatch)
-        with bank.capture_scope(cfg, root=tmp_path, run_context={"run_id": "SYNTHETIC_CANCEL_FIXTURE",
-                "started_at": T0.isoformat()}, allow_test_capture=True):
-            identity = bank.capture_gate("rank_canary", token(), cfg, now=T0)
+        identity = capture(tmp_path, cfg)
+        # Explicit synthetic dispatcher ownership, using the unchanged actual
+        # fill code with injected provider functions rather than replacing it.
+        task = asyncio.create_task(actual_fill(identity, root=tmp_path, cfg=cfg,
+            now=T0 + dt.timedelta(seconds=1), prices_func=pending_prices,
+            sol_price_func=sol, quote_func=forbidden_quote))
+        bank._TASKS[identity] = task
         await started.wait()
         await bank.stop_background_tasks()
         assert not bank._TASKS
@@ -576,9 +576,12 @@ def test_green_route_registers_bounded_late_opportunity_before_baseline_dispatch
     store.write(base / "proposal_cursor.json", {"index": 2, "component_indices": {"late_momentum": 1}})
     row = token(price_pct_5m=280, rank_score=75, market_cap_usd=20000, age_minutes=2,
                 price_impact_pct=2, price_usd=1)
-    # Use the test clock explicitly; production callbacks use current UTC.
-    original = bank.capture_gate
-    monkeypatch.setattr(bank, "capture_gate", lambda gate, row, cfg, *, now=None: original(gate, row, cfg, now=T0))
+    # Only the synthetic clock changes; loaded gate/capture bodies stay original.
+    class FixedClock(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return T0 if tz else T0.replace(tzinfo=None)
+    monkeypatch.setattr(bank, "dt", SimpleNamespace(datetime=FixedClock, timedelta=dt.timedelta, timezone=dt.timezone))
     with bank.capture_scope(cfg, root=tmp_path, run_context={"run_id": "SYNTHETIC_ROUTING_ENVELOPE",
             "started_at": T0.isoformat()}, allow_test_capture=True, submit_tasks=False):
         actual = green_sniper_gate.evaluate_green_sniper(dict(row), dry_run=True, live=False)
@@ -599,8 +602,11 @@ def test_late_router_duplicate_callback_does_not_reserve_two_cases_or_quotes(tmp
     monkeypatch.setattr(late_momentum_watch, "CFG", cfg)
     base = bank.directory(tmp_path)
     store.write(base / "proposal_cursor.json", {"index": 2})
-    original = bank.capture_gate
-    monkeypatch.setattr(bank, "capture_gate", lambda gate, row, cfg, *, now=None: original(gate, row, cfg, now=T0))
+    class FixedClock(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return T0 if tz else T0.replace(tzinfo=None)
+    monkeypatch.setattr(bank, "dt", SimpleNamespace(datetime=FixedClock, timedelta=dt.timedelta, timezone=dt.timezone))
     row = token(price_pct_5m=350, rank_score=75, market_cap_usd=20000, age_minutes=2, price_impact_pct=2)
     with bank.capture_scope(cfg, root=tmp_path, run_context={"run_id": "SYNTHETIC_ROUTING_DUPLICATE",
             "started_at": T0.isoformat()}, allow_test_capture=True, submit_tasks=False):

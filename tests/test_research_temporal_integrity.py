@@ -1,5 +1,6 @@
 """Synthetic decision clocks only; no provider, trade or profit evidence."""
 import datetime as dt
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -144,12 +145,16 @@ def test_original_bootstrap_replay_uses_event_time_not_today(tmp_path):
 def test_prospective_registration_passes_one_frozen_clock_to_all_arms(tmp_path, monkeypatch):
     from test_entry_gate_forward import capture, config
     from research_loop import entry_gate_forward as bank
-    real, seen = policy.profile_decision, []
-    def probe(*args, **kwargs):
-        seen.append(kwargs.get("now"))
-        return real(*args, **kwargs)
-    monkeypatch.setattr(policy, "profile_decision", probe)
-    identity = capture(tmp_path, config(), now=T0)
+    target, seen = policy.profile_decision.__code__, []
+    def probe(frame, event, arg):
+        if event == "call" and frame.f_code is target:
+            seen.append(frame.f_locals.get("now"))
+    previous = sys.getprofile()
+    sys.setprofile(probe)
+    try:
+        identity = capture(tmp_path, config(), now=T0)
+    finally:
+        sys.setprofile(previous)
     assert identity and seen == [T0, T0, T0]
     assert bank.directory(tmp_path).is_relative_to(tmp_path)
 
@@ -176,11 +181,15 @@ def test_original_complete_cohort_revalidates_each_case_at_its_t0(tmp_path, monk
         "price_pct_5m": 200 if i < 30 else 120, "trend": "unknown", "liquidity_usd": 16000,
         "market_cap_usd": 55000, "first_seen_at": (T0 + dt.timedelta(minutes=15*i-3)).isoformat(),
     })
-    real, seen = policy.profile_decision, []
-    def probe(*args, **kwargs):
-        seen.append(kwargs.get("now"))
-        return real(*args, **kwargs)
-    monkeypatch.setattr(policy, "profile_decision", probe)
-    result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
+    target, seen = policy.profile_decision.__code__, []
+    def probe(frame, event, arg):
+        if event == "call" and frame.f_code is target:
+            seen.append(frame.f_locals.get("now"))
+    previous = sys.getprofile()
+    sys.setprofile(probe)
+    try:
+        result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
+    finally:
+        sys.setprofile(previous)
     assert result["accepted"]  # Synthetic costed fixture, not actual profitability.
     assert seen == [T0 + dt.timedelta(minutes=15*i) for i in range(50) for _ in range(3)]

@@ -229,7 +229,7 @@ def compare_cohort(plan: dict[str, Any], cases: list[dict[str, Any]], cfg: Any,
                         or event["case_id"] != case["case_id"] or event["token"] != case["token"]
                         or event["captured_at"] != case["decision_at"]
                         or event["features_sha256"] != policy.digest(case["features"])
-                        or event.get("gate_code_identity") != original_code
+                        or event.get("gate_code_reference") != gate_code.reference(original_code, gate=gate)
                         or event["sha256"] != policy.digest({k: v for k, v in event.items() if k != "sha256"})):
                     raise ValueError("altered enrollment journal")
                 previous = event["sha256"]

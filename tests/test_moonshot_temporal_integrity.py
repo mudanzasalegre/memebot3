@@ -1,5 +1,6 @@
 """Synthetic temporal contracts, not evidence of actual trading profits."""
 import datetime as dt
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -238,11 +239,15 @@ def test_original_moonshot_costed_cohort_revalidates_all_arms_at_t0(tmp_path, mo
     identity, now = complete(tmp_path, cfg, gate="moonshot", features_func=lambda i: {
         "source": "pumpfun", "price_pct_5m": 280 if i < 30 else 350, "age_minutes": 200,
         "first_seen_at": (T0+dt.timedelta(minutes=15*i-2)).isoformat()})
-    real, seen = gates.profile_decision, []
-    def probe(*args, **kwargs):
-        seen.append(kwargs.get("now"))
-        return real(*args, **kwargs)
-    monkeypatch.setattr(gates, "profile_decision", probe)
-    result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
+    target, seen = gates.profile_decision.__code__, []
+    def probe(frame, event, arg):
+        if event == "call" and frame.f_code is target:
+            seen.append(frame.f_locals.get("now"))
+    previous = sys.getprofile()
+    sys.setprofile(probe)
+    try:
+        result = bank.evaluate_plan(tmp_path, cfg, identity, now=now)
+    finally:
+        sys.setprofile(previous)
     assert result["accepted"]  # Synthetic quoted/costed cells, not actual profitability.
     assert seen == [T0+dt.timedelta(minutes=15*i) for i in range(50) for _ in range(3)]
