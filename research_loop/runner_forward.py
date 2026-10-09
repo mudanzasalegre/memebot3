@@ -200,7 +200,8 @@ def prepare_partial_case(entry: dict[str, Any], *,
             "first_partial_at", "last_partial_at", "buy_liquidity_usd", "dry_run", "closed", "entry_route_quote",
             "quantity_basis", "runner_trailing_policy", "entry_intent_id", "buy_signature",
             "source_position_key", "paper_entry_policy", "first_partial_exit_intent_id",
-            "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at", "exit_fill_events"}
+            "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at", "exit_fill_events",
+            "paper_execution_cost_version", "entry_execution_cost_model", "entry_costed_at"}
     prefix = {key: copy.deepcopy(original[key]) for key in keys if key in original}
     variants = policy_variants(policy)
     arms = {}

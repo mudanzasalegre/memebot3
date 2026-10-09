@@ -57,6 +57,8 @@ def _digest(value) -> str:
 def basis(entry: Mapping, *, token: str, owner: str) -> dict:
     """Freeze financial identity, not mutable peaks or physical market data."""
     from utils.solana_addr import is_valid_base58_32
+    from execution.paper_execution_cost import validate_entry as validate_cost
+    validate_cost(entry)
     if (not isinstance(entry, Mapping) or entry.get("dry_run") is not True
             or entry.get("closed") is not False or not is_valid_base58_32(token)
             or re.fullmatch(r"(?:buy:[0-9a-f]{32}|case:[0-9a-f]{64})", owner or "") is None

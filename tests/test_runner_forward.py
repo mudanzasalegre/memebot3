@@ -73,6 +73,7 @@ def entry(**changes):
             amount=100000000, slippage=q.other["slippageBps"], limit=8., now=opened)
     # Complete synthetic original receipts, not reconstructed production history.
     from execution.paper_execution_fx import VERSION as fx_version
+    from execution.paper_execution_cost import capture as capture_cost
     from execution.quote_receipt import capture_summary
     from quote_fixtures import v1_quote, SOL
     opened = rf._time(row["opened_at"]) or T0
@@ -92,6 +93,9 @@ def entry(**changes):
             paper_execution_fx_version=fx_version, entry_valued_at=opened.isoformat(),
             entry_fx_observation=synthetic_fx(opened).to_dict(),
             exit_fill_events=[{"intent_id": intent, "qty_before": 1000, "response": response}]).items():
+        row.setdefault(name, value)
+    original_model = dict(version="estimated-v1", observed_execution=False, slippage_bps=0., fee_sol_per_fill=.000025)
+    for name, value in capture_cost(original_model, at=opened).items():
         row.setdefault(name, value)
     return row
 

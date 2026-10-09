@@ -17,7 +17,8 @@ from runtime.paper_archive import entry_identity
 
 VERSION = "paper_original_first_partial_cash_v1"
 CASH_FIELDS = ("realized_proceeds_sol", "realized_proceeds_usd", "estimated_fees_sol", "estimated_fees_usd")
-PROOF_FIELDS = ("first_partial_exit_intent_id", "first_partial_at", "exit_fill_events")
+from execution.paper_execution_cost import ENTRY_FIELDS as COST_FIELDS, validate_entry as validate_cost
+PROOF_FIELDS = ("first_partial_exit_intent_id", "first_partial_at", "exit_fill_events", *COST_FIELDS)
 
 
 def _same(actual, expected, *, usd=False):
@@ -40,6 +41,7 @@ def reconstruct(entry: Mapping, *, captured_at) -> dict:
     """Return independently derived prefix cash or reject; no I/O/backfill."""
     if not isinstance(entry, Mapping):
         raise ValueError("Unknown original first-partial state")
+    validate_cost(entry, required=True)
     opened, captured = cash._time(entry.get("opened_at")), cash._time(captured_at)
     if (entry.get("dry_run") is not True or entry.get("closed") is not False
             or entry.get("partial_taken") is not True

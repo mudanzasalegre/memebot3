@@ -8,6 +8,7 @@ have finished, or at startup before they are created.
 from __future__ import annotations
 
 import contextvars
+import copy
 import datetime as dt
 import logging
 import math
@@ -34,7 +35,8 @@ NO_EXECUTION_SIGNATURES = {"SIMULATION", "OUT_OF_WINDOW", "LIMIT_REACHED", "INSU
 OBSERVATION_DEFERRAL_SIGNATURES = frozenset({"NO_ROUTE", "NO_JUP_PRICE", "NO_JUP_ROUTE", "NO_JUP_ORDER"})
 FILL_FIELDS = ("qty_lamports", "signature", "buy_price_usd", "price_source", "price_confidence",
                "entry_notional_usd", "runner_trailing_policy", "venue", "execution_receipt",
-               "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at")
+               "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at",
+               "paper_execution_cost_version", "entry_execution_cost_model", "entry_costed_at")
 
 
 class BuyRecoveryError(RuntimeError):
@@ -121,15 +123,18 @@ class BuyAttempt:
                 or not _positive(response.get("entry_notional_usd"))
                 or not str(response.get("signature") or "").strip()):
             raise BuyOutcomeUncertain("Buy price, notional or signature is unconfirmed")
-        fill = {key: response.get(key) for key in FILL_FIELDS
-                if key not in {"paper_execution_fx_version", "entry_fx_observation", "entry_valued_at"} or key in response}
+        optional = {"paper_execution_fx_version", "entry_fx_observation", "entry_valued_at",
+                    "paper_execution_cost_version", "entry_execution_cost_model", "entry_costed_at"}
+        fill = {key: copy.deepcopy(response.get(key)) for key in FILL_FIELDS if key not in optional or key in response}
         if self.row["paper"]:
             from execution.paper_execution_fx import validate_entry
             try:
                 validate_entry(fill, amount_sol=self.row["amount_sol"],
                                not_before=self.row["created_at"], not_after=_now())
+                from execution.paper_execution_cost import validate_entry as validate_cost
+                validate_cost(fill, not_before=self.row["created_at"], not_after=_now())
             except (ValueError, TypeError, KeyError) as exc:
-                raise BuyOutcomeUncertain("Buy lost its original PAPER FX conversion") from exc
+                raise BuyOutcomeUncertain("Buy lost its original PAPER FX or cost basis") from exc
         if self.row["state"] == "fill_received" and self.row.get("fill") != fill:
             raise BuyOutcomeUncertain("Buy receipt conflicts with the persisted fill")
         self._save(state="fill_received", fill=fill, fill_received_at=_now())
@@ -250,6 +255,8 @@ class BuyRecoveryStore:
                 from execution.paper_execution_fx import validate_entry
                 validate_entry(fill, amount_sol=row["amount_sol"], not_before=row["created_at"],
                                not_after=row["fill_received_at"])
+                from execution.paper_execution_cost import validate_entry as validate_cost
+                validate_cost(fill, not_before=row["created_at"], not_after=row["fill_received_at"])
         if row["state"] in {"position_prepared", "persisted"}:
             if not isinstance(row.get("position"), Mapping):
                 raise ValueError("Missing buy position snapshot")
@@ -345,11 +352,14 @@ class BuyRecoveryStore:
                     continue
                 if not isinstance(entry, Mapping) or entry.get("entry_intent_id") != intent_id:
                     raise BuyOutcomeUncertain("Paper store has no matching durable buy identity")
+                from execution.paper_execution_cost import validate_entry as validate_cost
+                validate_cost(entry)
                 if row["state"] == "prepared":
                     attempt.receive({"qty_lamports": entry.get("entry_qty"),
                         "signature": entry.get("buy_signature"), "buy_price_usd": entry.get("buy_price_usd"),
                         "entry_notional_usd": entry.get("entry_notional_usd"),
                         **{key: entry.get(key) for key in ("paper_execution_fx_version", "entry_fx_observation", "entry_valued_at")},
+                        **{key: entry[key] for key in ("paper_execution_cost_version", "entry_execution_cost_model", "entry_costed_at") if key in entry},
                         "price_source": entry.get("price_source"), "price_confidence": entry.get("price_confidence"),
                         "runner_trailing_policy": entry.get("runner_trailing_policy"), "venue": "paper"})
                     row = attempt.row
@@ -361,8 +371,9 @@ class BuyRecoveryStore:
                         or entry.get("buy_signature") != fill.get("signature")):
                     raise BuyOutcomeUncertain("Paper fill conflicts with its buy recovery record")
                 if any(entry.get(key) != fill.get(key) for key in (
-                        "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at")):
-                    raise BuyOutcomeUncertain("Paper original FX conflicts with its buy recovery record")
+                        "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at",
+                        "paper_execution_cost_version", "entry_execution_cost_model", "entry_costed_at")):
+                    raise BuyOutcomeUncertain("Paper original FX or cost conflicts with its buy recovery record")
                 if row["state"] == "fill_received":
                     snapshot = {**row["base_position"], "qty": fill["qty_lamports"],
                         "entry_qty": fill["qty_lamports"], "buy_price_usd": fill["buy_price_usd"],

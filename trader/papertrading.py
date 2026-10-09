@@ -46,7 +46,7 @@ from trade_pnl import apply_partial_fill, summarize_trade
 from fetcher import jupiter_price, jupiter_router
 from execution.quote_observation import observe_quote
 from execution import paper_cash_mark
-from execution import paper_execution_fx
+from execution import paper_execution_fx, paper_execution_cost
 from utils.raw_units import sol_to_lamports
 from research_loop import runner_forward
 from runtime.paper_entry_policy import snapshot as entry_policy_snapshot
@@ -752,6 +752,7 @@ async def _buy_owned(
         "entry_valued_at": entry_valued_at.isoformat(),
         "buy_liquidity_usd": float(liquidity_usd) if _positive_finite(liquidity_usd) else None,
         "execution_cost_model": cost_model,
+        **paper_execution_cost.capture(cost_model, at=entry_valued_at),
         "spot_entry_price_usd": spot_price_usd,
         "estimated_fees_usd": cost_model["fee_sol_per_fill"] * entry_notional_usd / amount_sol,
         "estimated_fees_sol": cost_model["fee_sol_per_fill"],
@@ -823,6 +824,7 @@ async def _buy_owned(
         "price_confidence": price_confidence,
         "entry_notional_usd": float(entry_notional_usd),
         **{name: copy.deepcopy(_PORTFOLIO[mint_key][name]) for name in paper_execution_fx.ENTRY_FIELDS},
+        **{name: copy.deepcopy(_PORTFOLIO[mint_key][name]) for name in paper_execution_cost.ENTRY_FIELDS},
         "runner_trailing_policy": _PORTFOLIO[mint_key]["runner_trailing_policy"],
     }
 
@@ -1104,6 +1106,12 @@ async def _sell_owned(
     entry = _PORTFOLIO.get(key)
     if type(qty_lamports) is not int or not 0 < qty_lamports <= 2**63 - 1:
         return {"ok": False, "error": "INVALID_QUANTITY", "signature": None}
+    if entry:
+        try:
+            paper_execution_cost.validate_entry(entry)
+        except (ValueError, TypeError, KeyError, OverflowError):
+            return {"ok": False, "error": "ORIGINAL_COST_BASIS_INVALID", "signature": None,
+                    "qty_sold": 0, "qty_left": entry.get("qty_lamports")}
     if entry and exit_intent_id:
         previous = [event for event in entry.get("exit_fill_events", [])
                     if event.get("intent_id") == exit_intent_id]

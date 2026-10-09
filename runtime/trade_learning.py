@@ -32,6 +32,7 @@ entry_route_quote quantity_basis price_source_close net_total_pnl_usd net_total_
 net_total_pnl_sol total_pnl_usd estimated_fees_usd estimated_fees_sol execution_fill_count
 total_proceeds_sol exit_fill_events max_pnl_pct_seen highest_pnl_pct
 paper_execution_fx_version entry_fx_observation entry_valued_at
+paper_execution_cost_version entry_execution_cost_model entry_costed_at
 """.split())
 
 
@@ -152,6 +153,14 @@ def validate_source(source):
             or any(type(trade.get(key)) is not int for key in ("qty_lamports", "entry_qty", "execution_fill_count"))):
         raise TradeLearningError("Close source identity/quantity conflicts")
     fill = buy["fill"]
+    from execution.paper_execution_cost import ENTRY_FIELDS as COST_FIELDS, validate_entry as validate_cost
+    try:
+        validate_cost(trade, required=True)
+        validate_cost(fill, not_after=trade["opened_at"], required=True)
+        if any(fill.get(name) != trade.get(name) for name in COST_FIELDS):
+            raise ValueError("Buy and close original cost lineage conflicts")
+    except (ValueError, TypeError, KeyError, OverflowError) as exc:
+        raise TradeLearningError("Buy source lost its original PAPER cost basis") from exc
     quote = trade.get("entry_route_quote")
     from execution.quote_receipt import valid_summary
     from fetcher.jupiter_router import SOL_MINT
@@ -250,7 +259,8 @@ def _capture(identity, *, root):
         "buy_proof": {"intent_id": journal["intent_id"], "address": journal["address"],
             "run_id": journal["base_position"].get("run_id"), "amount_sol": journal["amount_sol"],
             "fill": {k: copy.deepcopy(journal["fill"][k]) for k in ("qty_lamports", "buy_price_usd", "entry_notional_usd", "signature",
-                "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at") if k in journal["fill"]}},
+                "paper_execution_fx_version", "entry_fx_observation", "entry_valued_at",
+                "paper_execution_cost_version", "entry_execution_cost_model", "entry_costed_at") if k in journal["fill"]}},
         "trade": {k: copy.deepcopy(v) for k, v in trade.items() if k in FINANCIAL_FIELDS}}
     if "entry_decision" in journal:
         source["entry_decision"] = copy.deepcopy(journal["entry_decision"])

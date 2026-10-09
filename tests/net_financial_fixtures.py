@@ -53,10 +53,13 @@ def net_frame(frame):
                 "price_used_usd": 1 + gross / 10, "qty_sold": 1000, "qty_left": 0,
                 "partial": False, "filled_at": closed.isoformat()}}],
         }
+        from execution.paper_execution_cost import capture, ENTRY_FIELDS
+        trade.update(capture(trade["execution_cost_model"], at=opened))
         source = {"version": learning.VERSION, "trade_id": identity, "entry_features": entry,
                   "buy_proof": {"intent_id": identity, "address": row["address"], "run_id": trade["run_id"],
                                 "amount_sol": .1, "fill": {"qty_lamports": 1000, "buy_price_usd": 1.,
-                                "entry_notional_usd": 10., "signature": "SIM-" + identity}}, "trade": trade}
+                                "entry_notional_usd": 10., "signature": "SIM-" + identity,
+                                **{name: deepcopy(trade[name]) for name in ENTRY_FIELDS}}}, "trade": trade}
         source["payload_sha256"] = learning._hash(source)
         assert learning.validate_source(source) == net
         row.update(sample_type="trade_close", outcome_return_basis=learning.VERSION, outcome_trade_id=identity,

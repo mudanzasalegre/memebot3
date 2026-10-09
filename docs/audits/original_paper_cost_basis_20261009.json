@@ -1,0 +1,83 @@
+{
+  "stage": "original_paper_execution_cost_lineage",
+  "status": "SOFTWARE_VERIFIED_FINANCIAL_ACCEPTANCE_PENDING",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Preserve original buy-time estimated PAPER execution assumptions through execution, recovery, archive, first-partial research and financial learning. Keep exact 0.1 SOL PAPER, uncapped runners, all operator artifacts unchanged and all bot runtime OFF.",
+  "finding": {
+    "id": "changed_fee_assumptions_can_reverse_financial_label",
+    "severity": "high",
+    "reproduction": "An isolated actual PAPER buy/close produced -3 percent net. The previous learning validator accepted +1 percent after coherently zeroing the mutable fee assumption, recomputing the cash totals and rehashing the source. The original buy journal retained FX but not its buy-time cost model. This was a synthetic temporary receipt, not an observed operator trade.",
+    "repair": "Capture a detached original cost model and explicit original entry clock in the primary buy, its response and the original journal. Compare that lineage against the current model, opening/FX clock and journal before numerical financial consumption. Recovery and direct sell reject changed declared costs before any SQL fill or quote/money write. Financial artifact population metadata requires the new original cost version."
+  },
+  "cost_contract": {
+    "version": "paper_original_execution_cost_v1",
+    "fields": ["paper_execution_cost_version", "entry_execution_cost_model", "entry_costed_at"],
+    "assumptions": "Exact estimated-v1 model shape, observed_execution=false, typed finite nonnegative fee and slippage below 10000bps. A genuinely recorded zero fee remains valid. The capture is detached from response and caller mutation; a later environment change cannot alter an already purchased position's assumptions.",
+    "chronology": "The original cost capture clock equals the original opening and entry FX valuation clocks. The original buy journal bounds it by creation and original fill receipt. No later wall clock, environment value or market price is used to reconstruct missing history.",
+    "consumers": "Primary buy response/journal/restart, primary direct sell, exact cash mark, quoted closed cash, archive, direct forward financial evidence, original first-partial intake/case/arm/terminal and checked net learning/frame/model acceptance.",
+    "legacy": "Historical files and learned artifacts remain untouched. Undeclared legacy costs may remain recoverable/archivable diagnostically; they cannot certify a new original-FX quoted financial close, a first-partial financial research prefix, checked net learning or supported financial artifact population. Broken declared proof fails closed. Peak opportunity ranking remains separate from realized financial evidence.",
+    "limitation": "This conserves recorded estimated PAPER assumptions, not observed chain fees, independent provider authentication or protection against coherently rewriting all original sources. It neither proves live execution nor full-strategy profitability or exhaustive opportunity coverage."
+  },
+  "frozen_verification_source": {
+    "files": 750,
+    "normalized_sha256": "cd37ebc5881a4d7cdb82f8cc5013a81de2cd05d24253c6e2ad199a02b361d16b",
+    "checkouts_equal": true,
+    "scope": "Allowed executable/test/source assets excluding docs/README and operator state. Identical before and after both final full regressions, both preflights and the D-only requested stop."
+  },
+  "verification": {
+    "new_isolated_cases": 70,
+    "financial_integration": "442 passed in121.40s; original cost/closed cash/FX/first-partial learning, financial models, original buy recovery, actual runner and reused research cash contracts.",
+    "targeted_original_cost_and_uncapped_tail": "93 passed in4.56s (70 new original-cost cases plus23 extreme reused-cash/trailing checks); another7 uncapped ladder/residual-tail checks passed in1.44s. Synthetic numerical signed losses and returns above200 percent retain their original costs; 500/1000/5000 percent and higher tail paths remain uncapped.",
+    "intermediate_repairs": "The first focused integration run exposed a hand-authored runner fixture lacking original cost provenance; its explicitly synthetic original receipt was completed without weakening production validation. One new diagnostic test initially expected a false executable flag rather than the consumer's None rejection and was corrected. A sync dry run missing its required destination argument performed no changes; the explicit destination plan was then reviewed and applied.",
+    "working_full_suite": "4132 passed in764.81s; exit0",
+    "publishing_full_suite": "4132 passed in742.05s; exit0; existing working-checkout Python runtime",
+    "preflight_working": {"generated_at_utc": "2026-10-09T00:46:01.149317+00:00", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders_passed": 7, "pytest_external_returncode": 0},
+    "preflight_publishing": {"generated_at_utc": "2026-10-09T00:45:35.219124+00:00", "ok": true, "config_import_returncode": 0, "compile_errors": 0, "paper_profile_ok": true, "report_builders_passed": 7, "pytest_external_returncode": 0},
+    "git_diff_check": "PASS before publication; normal LF/CRLF warnings only"
+  },
+  "configuration_observation": {
+    "method": "Read-only config import with an explicit safe-field whitelist; no launcher, provider or trading call.",
+    "DRY_RUN": true,
+    "PAPER_EXACT_TRADE_SIZE_ENABLED": true,
+    "PAPER_EXACT_TRADE_SIZE_SOL": 0.1,
+    "RUNNER_PRICE_TRAILING_PAPER_ENABLED": true,
+    "RUNNER_PRICE_TRAILING_MIN_PEAK_PCT": 300.0,
+    "RUNNER_PRICE_TRAILING_DRAWDOWN_PCT": 20.0,
+    "RUNNER_PRICE_TRAILING_MAX_HOLD_H": 24.0,
+    "qualification": "These are the current working-checkout configuration values, not a launched or financially accepted strategy. No fixed profit-percentage ceiling is added; the existing bounded holding/risk protections remain."
+  },
+  "population_observation": {
+    "observed_at_utc": "2026-10-09T00:46:04.263928+00:00",
+    "primary_portfolio_rows": 0,
+    "paper_original_buy_journals": 0,
+    "paper_closed_archives": 0,
+    "paper_net_learning_sources": 0,
+    "source": "data/memebotdatabase.db",
+    "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+    "sql_rows": [],
+    "qualification": "Read-only original-source census and SQLite mode=ro. Empty scope establishes neither a financial validation rate nor a profitable trade."
+  },
+  "runtime_handoff": {
+    "status": "VERIFIED_OFF",
+    "observed_at_utc": "2026-10-09T00:46:05.2180031+00:00",
+    "requested_stop": "D-only scripts/stop_stack.ps1 -RequestedBy user; requested00:46:01Z, completed00:46:04Z, exit0, killed0, remaining0. No publishing-checkout stop or daemon launch.",
+    "sql_main_state": "stopped/idle/idle; updated2026-10-09 00:46:03.546309",
+    "runtime_processes": 0,
+    "task_owned_previews": 0,
+    "matching_tasks": 0,
+    "matching_services": 0,
+    "locks_both_checkouts": 0,
+    "previous_inventory_this_stage": "2026-10-09T00:33:20.4440213+00:00: runtime0, owned previews0, matched tasks0, services0 and all four lock paths in both checkouts absent.",
+    "protected_operator_state": "3763 working and27 publishing files unchanged by mtime since2026-10-08T16:09:40Z. This census is not cryptographic historical proof. Intended stop SQL/log and preflight metrics are excluded.",
+    "authority": "No bot/API/UI/training/AutoResearch, provider, wallet or order activation. No original data, .env, model/policy or operator artifact edits. Synthetic verification uses isolated temporary stores; requested shutdown finalizer only runs in D."
+  },
+  "publication": {
+    "status": "SOURCE_SYNC_VERIFIED_READY_FOR_COMMIT_PUSH",
+    "branch": "main",
+    "remote_main_before_stage": "f212164d09f55e9dccded6b9a2cca84dca62338b",
+    "scope": "Fourteen reviewed source/test paths plus README and two audit documents only. No secrets, operator data, work files, runtime state or learned artifacts.",
+    "record_chronology": "This audit is finalized before its scoped commit/push. The actual revision, remote match and clean publishing checkout are checked afterwards in the same-turn delivery evidence; the code fingerprint excludes documentation."
+  },
+  "remaining": "Original LIVE FX/current-wallet/finality and full-strategy decision/risk/capital/provider/depth/opportunity-coverage acceptance, independently observed prospective net profitability and other applicable goal boundaries remain incomplete. Source verification is not evidence of guaranteed or maximum profit. All runtime stays OFF at handoff."
+}

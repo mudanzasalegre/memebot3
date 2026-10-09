@@ -37,6 +37,7 @@ peak_valuation_basis last_cash_mark cash_peak_mark cash_max_adverse_mark cash_pe
 cash_total_peak_mark
 legacy_market_peak_diagnostic
 paper_execution_fx_version entry_fx_observation entry_valued_at
+paper_execution_cost_version entry_execution_cost_model entry_costed_at
 """.split())
 
 
@@ -80,6 +81,8 @@ def _validate_trade(trade):
         raise PaperArchiveError("Paper trade close precedes its entry")
     from execution.paper_execution_fx import validate_entry, validate_exit
     try:
+        from execution.paper_execution_cost import validate_entry as validate_cost
+        validate_cost(trade)
         original_entry = validate_entry(trade, amount_sol=trade.get("amount_sol", trade.get("buy_amount_sol")),
                                         not_after=trade["opened_at"])
         events = trade.get("exit_fill_events", [])

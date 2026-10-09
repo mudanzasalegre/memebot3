@@ -37,9 +37,11 @@ def reconstruct(trade: Mapping) -> dict:
     """Derive cash independently; optional primary fields never become inputs."""
     from runtime.paper_archive import entry_identity
     from utils.solana_addr import is_valid_base58_32
+    from execution.paper_execution_cost import validate_entry as validate_cost
 
     if not isinstance(trade, Mapping):
         raise ValueError("Unknown closed PAPER state")
+    validate_cost(trade)
     opened, closed = cash._time(trade.get("opened_at")), cash._time(trade.get("closed_at"))
     identity, token = entry_identity(trade), trade.get("token_address")
     if (trade.get("dry_run") is not True or trade.get("closed") is not True

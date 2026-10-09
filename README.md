@@ -88,6 +88,17 @@ ni cifras coherentes entre si sustituyen esa prueba de caja. No se consultan
 precios actuales ni se reparan historicos. Vease
 `docs/audits/paper_closed_cash_20261009.json`.
 
+Cada compra PAPER conserva ahora una copia separada y versionada de sus
+supuestos originales de slippage/comision y de su reloj. La respuesta y el
+journal retienen esa misma base, tambien al recuperar una respuesta perdida.
+Ventas, archivos, investigacion de parciales y etiquetas financieras rechazan
+costes declarados que cambian despues de la compra. Las fuentes o modelos
+financieros antiguos sin esa procedencia no se recertifican ni se reescriben;
+siguen siendo diagnosticos. Esto evita convertir una perdida en una etiqueta
+de ganancia eliminando comisiones de forma coherente, pero no autentica
+recibos contra un proveedor ni demuestra beneficios LIVE. Vease
+`docs/audits/original_paper_cost_basis_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

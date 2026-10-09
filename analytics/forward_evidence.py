@@ -32,10 +32,13 @@ def _costed_close(row: dict[str, Any]) -> tuple[float, float, float, float, bool
     """Check estimated cash accounting, not merely the presence of a cost label."""
     from execution.paper_execution_fx import validate_entry, validate_exit
     try:
+        from execution.paper_execution_cost import validate_entry as validate_cost
+        validate_cost(row)
         original_entry_fx = validate_entry(row, amount_sol=row.get("amount_sol", row.get("buy_amount_sol")),
                                           not_after=row.get("opened_at"))
         if original_entry_fx and (row.get("entry_route_quote") is not None
                 or row.get("quantity_basis") == "quoted_raw_spl_units"):
+            validate_cost(row, required=True)
             from execution.paper_closed_cash import reconstruct
             values = reconstruct(row)
             return (values["net_total_pnl_usd"], values["net_total_pnl_pct"],
