@@ -25,7 +25,7 @@ from features.numeric_encoding import checked_numeric_schema
 from features.auxiliary_semantics import checked_semantics_schema, checked_model_frame, input_frame
 from features.builder import ALLOWED_FEATURES
 from ml.exit_diagnostics import checked_exit_metadata
-from ml.model_validation_warnings import RANKING_METRIC_VERSION
+from ml.model_validation_warnings import RANKING_METRIC_VERSION, ranking_token_skill_ready
 
 log = logging.getLogger(__name__)
 _lock = threading.RLock()
@@ -448,6 +448,7 @@ def predict_ranking_scores(family: str, target: str, vectors: list[Any]) -> list
     values = [None] * len(vectors)
     if (model is not None and metadata.get("ranking_validation_ready") is True
             and metadata.get("ranking_metric_version") == RANKING_METRIC_VERSION
+            and ranking_token_skill_ready(metadata.get("ranking_token_skill"))
             and (not financial_target(family, target) or supported_financial_training(metadata))):
         try:
             reference = np.asarray(metadata.get("rank_reference_quantiles") or [], dtype=float)
@@ -510,7 +511,8 @@ def predict_ranking_scores(family: str, target: str, vectors: list[Any]) -> list
 
 def _ranking_snapshot(path, model, features, metadata, vec, *, family, target):
     if (model is None or metadata.get("ranking_validation_ready") is not True
-            or metadata.get("ranking_metric_version") != RANKING_METRIC_VERSION):
+            or metadata.get("ranking_metric_version") != RANKING_METRIC_VERSION
+            or not ranking_token_skill_ready(metadata.get("ranking_token_skill"))):
         return None
     if financial_target(family, target) and not supported_financial_training(metadata):
         return None

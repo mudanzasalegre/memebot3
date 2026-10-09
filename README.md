@@ -215,6 +215,17 @@ Los targets extremos siguen siendo elegibles cuando existe evidencia; esta
 correccion no demuestra rentabilidad ni generalizacion de eventos raros.
 Vease `docs/audits/ranking_tie_integrity_20261009.json`.
 
+La validacion del ranking tambien distingue decisiones repetidas de tokens:
+la utilidad de capturar una etiqueta positiva en el top-k se promedia por mint
+y se compara con el mismo presupuesto uniforme mediante bootstrap de tokens.
+La precision por fila sigue siendo diagnostica, no la prueba de promocion.
+Los sucesores usan el lift de captura por token y una comparacion emparejada
+en el mismo cohort, reutilizando exactamente las predicciones evaluadas.
+La generacion v9 invalida aprobaciones anteriores sin reescribir sus modelos;
+un sucesor debe validarse por separado. No cambia compras, importes ni salidas,
+y el bootstrap historico no acredita independencia temporal ni rentabilidad.
+Vease `docs/audits/ranking_token_skill_20261009.json`.
+
 Estas correcciones no certifican rentabilidad: la alineacion de las marcas
 de runners y de la investigacion de entradas con su propia caja cotizada ya
 esta integrada. La procedencia de la estrategia completa, el cambio original

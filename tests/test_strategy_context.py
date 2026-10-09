@@ -322,7 +322,7 @@ def test_advisory_pipeline_fingerprint_and_rollback_preserve_original_context_pr
         ML_RUNNER_ADVISORY_MIN_ROWS=40, ML_RUNNER_ADVISORY_MIN_LIFT_DELTA=.05))
     data = selected_frame(monkeypatch)
     result = advisory.train_runner_advisory(root=tmp_path, frame=data)
-    assert result["updated"] and advisory.PIPELINE_VERSION == 8
+    assert result["updated"] and advisory.PIPELINE_VERSION == 9
     original_fingerprint = result["dataset_sha256"]
     manifest_path = tmp_path / "ml" / "models" / "runner" / "advisory_manifest.json"
     manifest = json.loads(manifest_path.read_text())

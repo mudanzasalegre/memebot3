@@ -282,6 +282,7 @@ def test_advisory_rollback_cannot_activate_a_different_context_schema(tmp_path):
     from hashlib import sha256
     from ml.runner_advisory_learning import rollback_runner_advisory
     from ml.model_validation_warnings import RANKING_METRIC_VERSION
+    from ranking_skill_fixtures import current_ranking_skill
     directory = tmp_path / "ml" / "models" / "runner"
     path = directory / "versions" / "one" / "runner_10000.pkl"
     path.parent.mkdir(parents=True)
@@ -291,7 +292,7 @@ def test_advisory_rollback_cannot_activate_a_different_context_schema(tmp_path):
     metadata = {"activation_role": "scanner_ranking_only", "model_sha256": checksum,
         "family": "runner", "target": "runner_10000",
         "features": features, "context_encoding": context_encoding_schema(features),
-        "ranking_metric_version": RANKING_METRIC_VERSION}
+        "ranking_metric_version": RANKING_METRIC_VERSION, "ranking_token_skill": current_ranking_skill()}
     metadata["context_encoding"]["schema_sha256"] = "invalid"
     path.with_suffix(".meta.json").write_text(json.dumps(metadata))
     manifest = directory / "advisory_manifest.json"

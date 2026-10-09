@@ -24,7 +24,8 @@ from ml.family_training import load_training_frame, train_classifier_family
 from ml.feature_matrix import coerce_feature_frame
 from ml.feature_sets import feature_set_hash
 from ml.label_builder import RUNNER_THRESHOLDS
-from ml.model_validation_warnings import ranking_at_k, RANKING_METRIC_VERSION
+from ml.model_validation_warnings import (ranking_at_k, RANKING_METRIC_VERSION,
+    ranking_token_skill, ranking_token_skill_ready, RANKING_TOKEN_SKILL_VERSION)
 from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
 from features.context_encoding import checked_context_schema, SCHEMA_SHA256, STRATEGY_SCHEMA_SHA256
 from features.numeric_encoding import checked_numeric_schema, SCHEMA_SHA256 as NUMERIC_SCHEMA_SHA256
@@ -32,7 +33,7 @@ from features.auxiliary_semantics import (checked_semantics_schema, checked_mode
     prepare_training_frame, SCHEMA_SHA256 as AUXILIARY_SCHEMA_SHA256)
 
 ROLE = "scanner_ranking_only"
-PIPELINE_VERSION = 8  # Order-independent ranking evidence cannot reuse old top-k metrics.
+PIPELINE_VERSION = 9  # Token-balanced capture evidence cannot reuse row-only approvals.
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -73,7 +74,7 @@ def _safe_model_path(family_dir: Path, relative: Any) -> Path:
 
 
 def _evaluate(model: Any, features: list[str], cohort: pd.DataFrame, target: str,
-              *, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+              *, metadata: dict[str, Any] | None = None, score_sink: list[float] | None = None) -> dict[str, Any]:
     if (not checked_context_schema(metadata or {}, features) or not checked_numeric_schema(metadata or {}, features)
             or not checked_semantics_schema(metadata or {}, features)):
         raise ValueError("Unproved advisory context encoding")
@@ -88,6 +89,9 @@ def _evaluate(model: Any, features: list[str], cohort: pd.DataFrame, target: str
     precision = ranking["precision"]
     rate = float(np.mean(y)) if len(y) else None
     identities = temporal_eligibility(cohort)[3].loc[mask]
+    token_skill = ranking_token_skill(y, scores, identities)
+    if score_sink is not None:
+        score_sink.extend(scores.tolist())
     return {
         "rows": len(y), "positives": int(y.sum()), "base_rate": rate,
         "unique_tokens": int(identities.nunique()),
@@ -95,6 +99,7 @@ def _evaluate(model: Any, features: list[str], cohort: pd.DataFrame, target: str
         "precision_at_k": precision,
         "ranking_metric_version": RANKING_METRIC_VERSION,
         "ranking_metrics": ranking,
+        "ranking_token_skill": token_skill,
         "precision_lift_at_k": float(precision / rate) if precision is not None and rate else None,
         "cohort_sha256": _cohort_digest(cohort.loc[mask]),
         "metric": "observed_peak_ranking_not_costed_profit",
@@ -102,7 +107,8 @@ def _evaluate(model: Any, features: list[str], cohort: pd.DataFrame, target: str
 
 
 def _candidate_decision(candidate: dict[str, Any], challenger: dict[str, Any],
-                        incumbent: dict[str, Any] | None, *, min_lift_delta: float) -> tuple[bool, str]:
+                        incumbent: dict[str, Any] | None, *, min_lift_delta: float,
+                        paired_comparison: dict[str, Any] | None = None) -> tuple[bool, str]:
     if not candidate.get("ranking_validation_ready"):
         return False, "internal_temporal_ranking_not_validated"
     if candidate.get("ranking_metric_version") != RANKING_METRIC_VERSION:
@@ -110,18 +116,29 @@ def _candidate_decision(candidate: dict[str, Any], challenger: dict[str, Any],
     if (challenger.get("ranking_metric_version") != RANKING_METRIC_VERSION
             or incumbent is not None and incumbent.get("ranking_metric_version") != RANKING_METRIC_VERSION):
         return False, "unsupported_later_ranking_metric"
-    lift = challenger.get("precision_lift_at_k")
+    if not ranking_token_skill_ready(candidate.get("ranking_token_skill")):
+        return False, "internal_token_ranking_skill_not_validated"
+    if not ranking_token_skill_ready(challenger.get("ranking_token_skill")):
+        return False, "later_token_ranking_skill_not_validated"
+    lift = challenger["ranking_token_skill"].get("capture_lift")
     if (challenger["rows"] < 30 or challenger["positives"] < 5
             or int(challenger.get("unique_tokens", 0)) < 30 or int(challenger.get("positive_tokens", 0)) < 5
             or lift is None or lift < 1.25):
         return False, "insufficient_later_cohort_ranking_evidence"
     if incumbent is None:
         return True, "bootstrap_validated_scanner_ranker"
-    old_lift = incumbent.get("precision_lift_at_k")
+    old_skill = incumbent.get("ranking_token_skill")
+    if not isinstance(old_skill, dict) or old_skill.get("version") != RANKING_TOKEN_SKILL_VERSION:
+        return False, "unsupported_incumbent_token_ranking_metric"
+    old_lift = old_skill.get("capture_lift")
     if challenger["cohort_sha256"] != incumbent["cohort_sha256"]:
         return False, "incomparable_cohorts"
     if old_lift is None or lift < old_lift + min_lift_delta:
         return False, "incumbent_not_outperformed_on_same_cohort"
+    if not ranking_token_skill_ready(paired_comparison, comparison="incumbent_topk"):
+        return False, "incumbent_improvement_uncertain_by_token"
+    if paired_comparison.get("cohort_sha256") != challenger["cohort_sha256"]:
+        return False, "incomparable_paired_token_cohort"
     return True, "challenger_outperformed_same_later_cohort"
 
 
@@ -176,6 +193,7 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
             "min_rows": min_rows, "min_lift_delta": delta,
             "targets": list(RUNNER_THRESHOLDS),
             "ranking_metric_version": RANKING_METRIC_VERSION,
+            "ranking_token_skill_version": RANKING_TOKEN_SKILL_VERSION,
             "precision_at_k_pct": float(getattr(CFG, "PRECISION_AT_K_PCT", .10)),
         }, sort_keys=True).encode()).hexdigest()
         result["dataset_sha256"] = fingerprint
@@ -226,9 +244,12 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
             if sha256(path.read_bytes()).hexdigest() != metadata.get("model_sha256"):
                 raise ValueError("Candidate artifact checksum mismatch")
             model = joblib.load(path)
-            evaluation = _evaluate(model, metadata["features"], holdout, target, metadata=metadata)
+            challenger_scores: list[float] = []
+            evaluation = _evaluate(model, metadata["features"], holdout, target, metadata=metadata,
+                                   score_sink=challenger_scores)
             decision["challenger"] = evaluation
             incumbent_evaluation = None
+            paired_comparison = None
             incumbent = heads.get(target)
             if incumbent:
                 old_path = _safe_model_path(family_dir, incumbent.get("path"))
@@ -263,15 +284,27 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
                     # metrics cannot become a new-generation ranking approval.
                     decision["obsolete_incumbent_ranking_metric"] = True
                     incumbent = None
+                if not ranking_token_skill_ready(old_meta.get("ranking_token_skill")):
+                    decision["obsolete_incumbent_token_ranking_skill"] = True
+                    incumbent = None
             if incumbent:
                 old_available = pd.to_datetime(old_meta.get("training_label_latest"), utc=True, errors="coerce")
                 old_tokens = set(old_meta.get("training_token_hashes") or [])
                 if pd.isna(old_available) or old_available >= test_start or not old_tokens or old_tokens & test_hashes:
                     decision["reason"] = "no_fresh_token_disjoint_incumbent_comparison"
                     continue
-                incumbent_evaluation = _evaluate(joblib.load(old_path), old_meta["features"], holdout, target, metadata=old_meta)
+                incumbent_scores: list[float] = []
+                incumbent_evaluation = _evaluate(joblib.load(old_path), old_meta["features"], holdout, target,
+                                                 metadata=old_meta, score_sink=incumbent_scores)
                 decision["incumbent"] = incumbent_evaluation
-            selected, reason = _candidate_decision(candidate, evaluation, incumbent_evaluation, min_lift_delta=delta)
+                observed = pd.to_numeric(holdout[target], errors="coerce")
+                mask = observed.isin([0, 1])
+                paired_comparison = ranking_token_skill(observed[mask].to_numpy(), challenger_scores,
+                    temporal_eligibility(holdout)[3].loc[mask], baseline_scores=incumbent_scores)
+                paired_comparison["cohort_sha256"] = _cohort_digest(holdout.loc[mask])
+                decision["paired_token_comparison"] = paired_comparison
+            selected, reason = _candidate_decision(candidate, evaluation, incumbent_evaluation,
+                min_lift_delta=delta, paired_comparison=paired_comparison)
             decision.update({"selected": selected, "reason": reason})
             # The immutable selected version has an explicit role, so the
             # probability API cannot accidentally start consuming it for buys.
@@ -327,6 +360,7 @@ def rollback_runner_advisory(*, root: Path | None = None) -> bool:
                     or not checked_numeric_schema(metadata, metadata.get("features") or [])
                     or not checked_semantics_schema(metadata, metadata.get("features") or [])
                     or metadata.get("ranking_metric_version") != RANKING_METRIC_VERSION
+                    or not ranking_token_skill_ready(metadata.get("ranking_token_skill"))
                     or sha256(model_path.read_bytes()).hexdigest() != entry.get("model_sha256")
                     or metadata.get("model_sha256") != entry.get("model_sha256")):
                 return False

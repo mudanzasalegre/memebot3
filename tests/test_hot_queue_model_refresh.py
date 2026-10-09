@@ -16,6 +16,7 @@ from analytics.inference_scope import inference_scope
 from runtime import hot_queue as queue_module
 from runtime.hot_queue import HotQueue
 from ml.model_validation_warnings import RANKING_METRIC_VERSION
+from ranking_skill_fixtures import current_ranking_skill
 
 
 class SwitchingRanker:
@@ -50,6 +51,7 @@ def write_model(root, favor_low, *, preserve_stats=False, target="runner_100"):
     metadata = {"family": "runner", "target": target, "features": ["price_pct_5m"],
         "model_sha256": sha256(path.read_bytes()).hexdigest(), "ranking_validation_ready": True,
         "ranking_metric_version": RANKING_METRIC_VERSION,
+        "ranking_token_skill": current_ranking_skill(),
         "rank_reference_quantiles": [0, .25, .5, .75, 1],
         "validation": {"mode": "purged_token_walk_forward", "temporal": {"out_of_sample_rows": 30}}}
     meta.write_text(json.dumps(metadata))

@@ -309,13 +309,14 @@ def test_actual_family_oos_and_reader_share_typed_missingness(tmp_path, monkeypa
 def test_advisory_comparison_and_rollback_require_same_numeric_contract(tmp_path):
     from ml.runner_advisory_learning import _evaluate, rollback_runner_advisory
     from ml.model_validation_warnings import RANKING_METRIC_VERSION
+    from ranking_skill_fixtures import current_ranking_skill
     names = ["price_pct_5m", PREFIX + "price_pct_5m"]
     data = missingness_frame().assign(runner_10000=[0, 1] * 80)
     model = SimpleNamespace(rank_score=lambda X: X[names[1]].to_numpy())
     with pytest.raises(ValueError, match="encoding"):
         _evaluate(model, names, data, "runner_10000", metadata={})
     metadata = {"numeric_encoding": numeric_encoding_schema(names), "features": names,
-                "ranking_metric_version": RANKING_METRIC_VERSION}
+                "ranking_metric_version": RANKING_METRIC_VERSION, "ranking_token_skill": current_ranking_skill()}
     result = _evaluate(model, names, data, "runner_10000", metadata=metadata)
     assert result["precision_lift_at_k"] == 2 and result["metric"] == "observed_peak_ranking_not_costed_profit"
     directory = tmp_path / "ml" / "models" / "runner"

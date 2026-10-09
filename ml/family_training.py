@@ -47,6 +47,8 @@ from ml.model_validation_warnings import (
     lane_stability_warning,
     ranking_at_k,
     RANKING_METRIC_VERSION,
+    ranking_token_skill,
+    ranking_token_skill_ready,
     target_validation_payload,
 )
 
@@ -281,6 +283,7 @@ def train_classifier_family(
         truth, pred, positions, temporal = _forward_predictions(target_df, target_X, y, model, min_rows=min_rows, classifier=True)
         model, calibration = fit_calibrated_ranker(model, target_X, y, target_df, min_rows=min_rows)
         ranking = ranking_at_k(truth, pred)
+        ranking_skill = ranking_token_skill(truth, pred, temporal_eligibility(target_df)[3].iloc[positions])
         p_at_k, r_at_k = ranking["precision"], ranking["recall"]
         target_warnings = [WARNING_NOT_READY_FOR_ENFORCEMENT]
         if not len(pred):
@@ -302,7 +305,7 @@ def train_classifier_family(
         positive_tokens = temporal_eligibility(target_df)[3].iloc[positions][truth == 1].nunique() if len(truth) else 0
         ranking_ready = bool(ranking["rows"] == len(truth)
                              and temporal["out_of_sample_unique_tokens"] >= 30 and positive_tokens >= 5
-                             and lift is not None and lift >= 1.25)
+                             and ranking_token_skill_ready(ranking_skill))
         report["targets"][target] = {
             "status": "trained",
             "model_path": str(model_path),
@@ -323,6 +326,7 @@ def train_classifier_family(
             "ranking_validation_ready": ranking_ready,
             "ranking_metric_version": RANKING_METRIC_VERSION,
             "ranking_metrics": ranking,
+            "ranking_token_skill": ranking_skill,
             "calibration": calibration,
             "rank_reference_quantiles": np.quantile(model.rank_score(target_X), np.linspace(0, 1, 101)).tolist(),
             "probability_caveat": "Ranking scores are separate from held-out calibrated event probabilities. Neither proves executable or costed profit, and prospective validation is required before sizing or exits change.",

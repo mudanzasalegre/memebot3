@@ -1,0 +1,292 @@
+{
+  "stage": "token_balanced_runner_capture_validation",
+  "status": "SOFTWARE_VERIFIED_RUNTIME_OFF_PROFITABILITY_INCOMPLETE",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Classifier ranking evidence, automatic advisory challenger/incumbent selection, cache generation, rollback and scalar/batch consumption. No operational run, real provider/wallet/order, active training or active artifact promotion.",
+  "source_and_grain": {
+    "controlling_sources": [
+      "ml/model_validation_warnings.py",
+      "ml/prediction_validation.py",
+      "ml/family_training.py",
+      "ml/runner_advisory_learning.py",
+      "analytics/model_runtime_common.py"
+    ],
+    "observed_grain": "One observed binary-target decision row; repeated decisions of the same case-sensitive trimmed mint form one token mean.",
+    "intended_use": "Historical OOS advisory captured-positive ranking utility. Event peak labels do not represent realized/costed financial profit.",
+    "reference": "https://numpy.org/doc/stable/reference/random/generated/numpy.random.Generator.integers.html",
+    "reference_qualification": "Official API supports the bounded uniform integer resampling used by the existing token-cluster bootstrap. It does not validate independence assumptions, infer financial returns or guarantee future statistical coverage."
+  },
+  "findings": [
+    {
+      "id": "row_dominated_later_approval",
+      "severity": "high",
+      "evidence": "Native later-cohort evaluation/selection approved a ranker highlighting20 repeated decisions from one winning mint:84 rows,65 distinct mints,5 positive mints, precision1 and row lift3.5. Initial assertion failed in2.96s with bootstrap_validated_scanner_ranker.",
+      "risk": "Row-weighted diagnostics and total distinct-positive support can hide concentrated ranking utility. This is a demonstrated software approval defect, not an observed loss or missed live trade.",
+      "repair": "One token mean of selected-positive utility, compared with a same-capacity uniform baseline and a positive lower historical token-cluster gain. Retain row precision/recall/lift as diagnostics."
+    },
+    {
+      "id": "unpaired_incumbent_comparison",
+      "severity": "high",
+      "evidence": "Previous challenger/incumbent selection compared only row precision-lift points on the same later cohort. It did not require a paired token-level improvement check.",
+      "risk": "A few lucky decision rows can replace a useful advisory incumbent; a broader signal can also be hidden by a perfect row metric dominated by repeats.",
+      "repair": "Compare current token-capture lift with unchanged numerical minimum delta, require positive lower paired token gain, bind comparison to the same original cohort hash and reuse the exact evaluated score vectors."
+    }
+  ],
+  "method": {
+    "metric_generation": "expected_boundary_ties_v1",
+    "skill_generation": "fixed_topk_paired_token_capture_v1",
+    "advisory_pipeline_version": 9,
+    "utility": "For binary target y and original exact-boundary selection weight w, captured-positive utility is y*w. Uniform baseline utility is y*k/n; an incumbent uses its own original same-capacity exact-boundary weights.",
+    "aggregation": "Mean utility and paired baseline-minus-model loss improvement per case-sensitive trimmed mint. Repeated rows remain decisions, not additional bootstrap units.",
+    "selection_lift": "Mean captured-positive utility across tokens divided by mean same-budget uniform-baseline utility. This is not row precision, calibrated probability or financial capture ratio.",
+    "uncertainty": "Reuse existing deterministic1000-sample token-cluster bootstrap, seed781 and lower quantile0.05, in50-sample batches. Cutoffs are held fixed at observed label-independent top-k values; token/time independence and future coverage remain unproved.",
+    "admission": "Current generation, complete finite observed truth/predictions/identities, at least30 tokens and5 positive token supports, capture lift>=1.25 and positive lower historical gain. Challenger replacement additionally needs current same-cohort paired improvement and the configured minimum lift delta.",
+    "legacy": "Preserve legacy weights/metadata/selector history on disk. They are neutral for current scalar/batch ranking until an independently validated current-generation successor exists; incompatible rollback is refused. Calibrated probability readiness is independent.",
+    "metadata_contract": "Current version/method/grain, exact bootstrap budget/quantile, typed token support and finite coherent capture/baseline/lift/gain are required. This is calculation lineage, not independent full-process/financial attestation."
+  },
+  "implementation": [
+    "ml/model_validation_warnings.py",
+    "ml/family_training.py",
+    "ml/runner_advisory_learning.py",
+    "analytics/model_runtime_common.py",
+    "config/config.py",
+    "tests/ranking_skill_fixtures.py",
+    "tests/test_ranking_token_skill.py",
+    "tests/test_runner_advisory_lifecycle.py",
+    "tests/test_hot_queue_model_refresh.py",
+    "tests/test_multi_head_inference.py",
+    "tests/test_context_encoding.py",
+    "tests/test_numeric_encoding.py",
+    "tests/test_ranking_tie_integrity.py",
+    "tests/test_strategy_context.py"
+  ],
+  "verification": {
+    "initial": {
+      "failed": 1,
+      "passed": 0,
+      "seconds": 2.96,
+      "exit_code": 1,
+      "reason": "Native later-cohort candidate decision selected the repeated-single-winning-token ranker with precision1 and row lift3.5;65 distinct tokens and5 positive tokens were present."
+    },
+    "interim": [
+      {
+        "passed": 54,
+        "failed": 1,
+        "seconds": 22.35,
+        "exit_code": 1,
+        "reason": "An old manual lifecycle fixture lacked current token-skill evidence; updated explicitly synthetic current-generation fixtures without weakening acceptance."
+      },
+      {
+        "passed": 479,
+        "seconds": 141.18,
+        "exit_code": 0,
+        "scope": "Integrated consumer checks before the new test module expanded from1to45 cases."
+      },
+      {
+        "passed": 42,
+        "seconds": 8.17,
+        "exit_code": 0,
+        "scope": "New synthetic test module before adding original paired-cohort and score-reuse cases."
+      },
+      {
+        "passed": 523,
+        "seconds": 139.65,
+        "exit_code": 0,
+        "scope": "Integrated checks on the45-case module, before final typed utility-declaration repair."
+      },
+      {
+        "failed": 4,
+        "seconds": 2.66,
+        "exit_code": 1,
+        "scope": "Fresh typed utility-declaration tests rejected the incomplete draft validator: missing capture, zero uniform baseline, inconsistent lift and wrong bootstrap method."
+      }
+    ],
+    "new_test_cases": 49,
+    "focused_working": {
+      "passed": 527,
+      "seconds": 155.47,
+      "exit_code": 0
+    },
+    "focused_publishing": {
+      "passed": 527,
+      "seconds": 152.27,
+      "exit_code": 0
+    },
+    "full_working": {
+      "passed": 4787,
+      "seconds": 1114.53,
+      "exit_code": 0
+    },
+    "full_publishing": {
+      "passed": 4787,
+      "seconds": 1093.5,
+      "exit_code": 0
+    },
+    "preflight_working": {
+      "generated_at_utc": "2026-10-09T11:43:52.7132980Z",
+      "ok": true,
+      "config_import_returncode": 0,
+      "compile_errors": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true,
+      "external_pytest_returncode": 0,
+      "exit_code": 0
+    },
+    "preflight_publishing": {
+      "generated_at_utc": "2026-10-09T11:43:51.1639230Z",
+      "ok": true,
+      "config_import_returncode": 0,
+      "compile_errors": 0,
+      "paper_profile_ok": true,
+      "report_builders": 7,
+      "report_builders_ok": true,
+      "external_pytest_returncode": 0,
+      "exit_code": 0
+    },
+    "source_snapshot": {
+      "files_each": 766,
+      "normalized_sha256": "09050606107a9bd667a3d31aa4d9e69aec7a92d0dd5f0091c4dce6d3797f4418",
+      "scope": "Verification source files; excludes README/docs and protected operator state."
+    },
+    "incidents": [
+      "Premature publishing-root collection was attempted before synchronization; the new file was absent and no tests were collected. This attempt is failed collection, not passing verification; the shell wrapper's final Git command returned0. Final publishing QA must run after scoped synchronization."
+    ],
+    "new_test_suite": {
+      "passed": 49,
+      "seconds": 8.73,
+      "exit_code": 0,
+      "scope": "Final isolated test_ranking_token_skill module on frozen source."
+    }
+  },
+  "trading_contract": {
+    "exact_paper_sol": 0.1,
+    "new_buy_permission": false,
+    "financial_acceptance": false,
+    "exit_change": false,
+    "uncapped_applicable_runner_residual": true,
+    "rare_extreme_scope": "Native isolated rare5-percent synthetic cohorts keep runner1000/2000/5000/10000 eligible. They do not establish actual rare-runner distribution/generalization.",
+    "entry_or_risk_threshold_relaxation": false
+  },
+  "runtime_off": {
+    "status": "VERIFIED_OFF",
+    "no_operational_start": true,
+    "requested_stop": {
+      "checkout": "working_only",
+      "requested_by": "user",
+      "exit_code": 0,
+      "immediately_captured_last_exit_code": true,
+      "started_at_utc": "2026-10-09T11:44:03Z",
+      "completed_at_utc": "2026-10-09T11:44:05Z",
+      "killed": 0,
+      "remaining": 0,
+      "runtime_finalizer_status": "ok",
+      "source": "logs/stop_stack.log"
+    },
+    "inventory": {
+      "observed_at": "2026-10-09T11:44:15.4602467+00:00",
+      "since_utc": "2026-10-08T16:09:40.0000000Z",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "checkouts": [
+        {
+          "locks": 0,
+          "protected_files": 3763,
+          "green_live_risk_file_exists": false,
+          "changed_by_mtime": 0,
+          "checkout": "working"
+        },
+        {
+          "locks": 0,
+          "protected_files": 27,
+          "green_live_risk_file_exists": false,
+          "changed_by_mtime": 0,
+          "checkout": "publishing"
+        }
+      ],
+      "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+    },
+    "read_only_runtime_sql": {
+      "observed_at": "2026-10-09T11:44:14.147559+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-09 11:44:05.247973"
+        }
+      ]
+    },
+    "read_only_paper_population": {
+      "observed_at": "2026-10-09T11:44:14.157559+00:00",
+      "groups": {
+        "primary_portfolio": {
+          "rows": 0,
+          "original_entry_fx_declared": 0,
+          "exit_events": 0,
+          "original_exit_fx_declared": 0
+        },
+        "buy_journals": {
+          "grain": "One paper original buy intent, active or resolved",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        },
+        "closed_archives": {
+          "grain": "One archived paper trade",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        },
+        "learning_sources": {
+          "grain": "One original financial learning source",
+          "rows": 0,
+          "original_entry_fx_declared": 0
+        }
+      },
+      "sql_source": "data/memebotdatabase.db",
+      "sql": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=1 GROUP BY closed",
+      "sql_rows": [],
+      "interpretation": "Declaration coverage, not proof validation or profitability. Existing unproved records are not rewritten. Empty scope is not zero investment risk or future market coverage."
+    }
+  },
+  "publication": {
+    "status": "SCOPED_SOURCE_SYNCHRONIZATION_VERIFIED",
+    "scope": "Source/tests/documentation only; operator data/models/logs/.env/.venv/work are excluded.",
+    "delivery": "Actual commit/remote equality and post-publication OFF proof will be recorded in a private same-turn delivery receipt after they exist.",
+    "initial_sync": {
+      "files": 16,
+      "deleted": 0,
+      "plan_sha256": "26787406f0f38d7d66ac57889837a9dccf885e7cb80cf789cc984e942cae3835"
+    },
+    "expected_owned_files": 17,
+    "final_source_snapshots": [
+      {
+        "checkout": "working",
+        "files": 766,
+        "sha256": "09050606107a9bd667a3d31aa4d9e69aec7a92d0dd5f0091c4dce6d3797f4418"
+      },
+      {
+        "checkout": "publishing",
+        "files": 766,
+        "sha256": "09050606107a9bd667a3d31aa4d9e69aec7a92d0dd5f0091c4dce6d3797f4418"
+      }
+    ],
+    "delivery_receipt": "work/ranking-token-skill-delivery-receipt.json"
+  },
+  "remaining": [
+    "Complete other documented ingestion/decision/source-generation, capital/admission/execution/finality and current-provider boundaries. These checks do not attest the full executing process.",
+    "Obtain independently scoped token/time/creator dependence, rare-event distribution stability, opportunity coverage and prospective full-strategy net financial evidence. Historical bootstrap is not profitable model certification.",
+    "Human stop instruction remains effective. No trading or active artifact promotion is authorized by passing synthetic tests. Future maximum profit, positive returns and a completely error-free first operational run cannot be guaranteed."
+  ],
+  "analysis_workflow": "Data Analytics grain/source checks exposed row-level approval bias; inspectable native synthetic tests retain the calculation and consumption evidence without substituting original operator records.",
+  "verified_at_utc": "2026-10-09T11:44:15.4602467+00:00"
+}

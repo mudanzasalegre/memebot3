@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ml.family_training import _recall_at_k
 from ml.model_validation_warnings import precision_at_k, ranking_at_k, RANKING_METRIC_VERSION
+from ranking_skill_fixtures import current_ranking_skill
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -118,7 +119,8 @@ def test_native_later_cohort_evaluation_cannot_claim_skill_from_constant_scores(
     evaluation = learning._evaluate(ConstantRanker(), features, frame, "runner_1000", metadata=metadata)
     assert evaluation["precision_lift_at_k"] == pytest.approx(1.)
     assert evaluation["ranking_metrics"]["boundary_tied_rows"] == 100
-    candidate = {"ranking_validation_ready": True, "ranking_metric_version": RANKING_METRIC_VERSION}
+    candidate = {"ranking_validation_ready": True, "ranking_metric_version": RANKING_METRIC_VERSION,
+                 "ranking_token_skill": current_ranking_skill()}
     assert not learning._candidate_decision(candidate, evaluation, None, min_lift_delta=.05)[0]
 
 

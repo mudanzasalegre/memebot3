@@ -409,6 +409,7 @@ class _Config:
     ML_TRAINING_LOCK_TTL_S: int = _num_env("ML_TRAINING_LOCK_TTL_S", int, 1800)
     ML_RUNNER_ADVISORY_ENABLED: bool = _bool_env("ML_RUNNER_ADVISORY_ENABLED", True)
     ML_RUNNER_ADVISORY_MIN_ROWS: int = _num_env("ML_RUNNER_ADVISORY_MIN_ROWS", int, 40)
+    # Same-cohort token-balanced captured-positive lift gain; advisory ranking only.
     ML_RUNNER_ADVISORY_MIN_LIFT_DELTA: float = _num_env("ML_RUNNER_ADVISORY_MIN_LIFT_DELTA", float, 0.05)
     ML_SKIP_RETRAIN_IF_DATASET_HASH_UNCHANGED: bool = _bool_env("ML_SKIP_RETRAIN_IF_DATASET_HASH_UNCHANGED", True)
     ML_DRIFT_MONITOR_ENABLED: bool = _bool_env("ML_DRIFT_MONITOR_ENABLED", True)
