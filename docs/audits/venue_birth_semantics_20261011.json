@@ -1,0 +1,92 @@
+{
+  "stage_status": "SOFTWARE_VERIFIED_RUNTIME_OFF",
+  "global_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "runtime_requirement": "Leave all bot, training, AutoResearch, API and UI runtime processes OFF; no operational startup, provider API calls, wallet orders or active model/policy promotion in this stage.",
+  "requested_trade_size_sol": 0.1,
+  "execution_scope": "PAPER configuration remains unchanged; synthetic native source/transport/feature/model-contract tests only.",
+  "reviewed_original_publishing_commit": "436ffa7499c270171165d7b5602033ac98f6f7ff",
+  "implementation_started": "2026-10-09",
+  "resumed_review_local_date": "2026-10-11",
+  "data_quality_contract": {
+    "owning_workflow": "Native architecture implementation with a scoped Data Analytics data-quality companion; not a standalone financial report or new dataset assessment.",
+    "authoritative_sources": "Current original publishing Python modules, reviewed implementation sources and reproducible native tests. Official provider documentation supports protocol/grain definitions, not actual access acceptance.",
+    "grain": "A token mint birth, a selected Pair/pool event, a provider HTTP receipt and an original queue observation are different records and clocks.",
+    "missingness": "Unknown original mint birth remains null; a genuine measured zero is distinct. No Pair/listing/pool metadata is promoted to mint birth by the changed adapters or common sanitizer.",
+    "historical_scope": "Read-only historical feature projection uses original event clocks. Existing datasets, operator models and policy artifacts are not rewritten.",
+    "notebook_omission": "The scoped companion reuses the owning implementation's inspectable pytest cases and source diffs; a separate notebook would duplicate native regression and transport evidence."
+  },
+  "findings": [
+    {
+      "severity": "high",
+      "finding": "Original Pair/listing clocks supplied canonical mint birth through both normalization and shared age/sanitizer consumers; fresh Pair snapshots could rejuvenate queued known birth.",
+      "evidence": "Native fixed-time synthetic 100-day birth versus 3-minute venue/listing cases, common age, historical feature projection and actual entry merge.",
+      "impact": "Invalid admission age and learned temporal features. This proves a software semantic defect, not measured market opportunity loss.",
+      "remediation": "Separate canonical birth aliases from venue metadata and retain queued known birth and original queue time."
+    },
+    {
+      "severity": "high",
+      "finding": "Original Dex lookup used an obsolete token route, assumed dictionary responses, tolerated unknown chain identity and could match an unrelated base through tokenAddress aliases.",
+      "evidence": "Native get_pair and _fetch_json with isolated fake HTTP responses, no monkeypatch of production normalization or routing.",
+      "impact": "Response-shape errors, wrong identity selection and lost valid market inputs.",
+      "remediation": "Current documented token-pairs route, list and retained wrapper parsing, explicit canonical Solana base identity, preserved pair-to-base fallback, invalid input rejection before HTTP."
+    },
+    {
+      "severity": "high",
+      "finding": "Original age-using model metadata and advisory no-change fingerprints did not declare the changed clock generation.",
+      "evidence": "Raw/encoded age and queue-age contract cases plus native model reader rejection before deserialization in isolated temporary files.",
+      "impact": "An obsolete model could consume a meaningfully different feature generation.",
+      "remediation": "Require original_mint_birth_not_venue_v2 for age-using schemas and advisory pipeline 12; unrelated numeric models are unchanged. No active artifact promotion."
+    }
+  ],
+  "implemented": [
+    "analytics/token_time.py: canonical birth aliases, typed nullable UTC venue diagnostic, detached atomic venue identity/clock record and explicit age generation.",
+    "utils/data_utils.py: common sanitizer no longer resurrects Pair/listing clocks as mint birth.",
+    "fetcher/dexscreener.py: current token-pairs route, native list/wrapper handling, explicit chain/base identity, malformed optional-node isolation, existing retry/cache/cancellation ownership retained.",
+    "fetcher/geckoterminal.py: pool event diagnostics separated from untyped token/listing metadata; existing provider transport remains unaudited here.",
+    "fetcher/birdeye.py: legacy pool-normalizer event clock separated from mint birth; token endpoint and provider/auth protocol not certified here.",
+    "utils/price_service.py and runtime/entry_observation.py: venue identity and clock move together only for the selected pair; queued known birth and original residence stay independent.",
+    "features/numeric_encoding.py and ml/runner_advisory_learning.py: changed temporal input generation checked without rewriting legacy artifacts or activating policies.",
+    "tests/test_venue_birth_semantics.py: 91 synthetic native cases. Existing epoch replay test now uses explicit token birth rather than a Pair clock; advisory context expectation follows pipeline 12."
+  ],
+  "official_references": [
+    {"url": "https://docs.dexscreener.com/api/reference", "scope": "Current token-pairs route and separate nullable pairCreatedAt schema; documentation read, not operational provider acceptance."},
+    {"url": "https://docs.coingecko.com/reference/token-data-contract-address", "scope": "Token and included-pool resource distinction; no authoritative original mint birth supplied by the reviewed metadata."},
+    {"url": "https://docs.coingecko.com/reference/top-pools-contract-address", "scope": "Pool-created clock belongs to the pool resource, not original base-mint birth."}
+  ],
+  "independent_learning_gap": {
+    "observed_at_utc": "2026-10-10T23:25:44.739820+00:00",
+    "inspection": "Read-only native-loader Parquet precedence, age declarations and schema census; no row identities, fitting or data rewrites.",
+    "source_rows": {"data/features/features_202607.parquet": 7779, "data/features/features_202610.parquet": 13},
+    "finite_birth_and_queue_age_rows": 7792,
+    "explicit_clock_generation_columns": [],
+    "original_t0_proof_column_present": false,
+    "qualification": "Absence of explicit generation columns does not prove every historical age is wrong. No T0 proof content was validated. Model schema generation alone is not original input provenance.",
+    "next_action": "Audit original temporal input proof through capture/export/training, and automatic replacement of obsolete incumbent age generation. Source inspection finds runner training raises ValueError for unsupported incumbent input encoding; this is not yet a native successor regression or measured operational failure.",
+    "private_reproduction": "work/audit-token-clock-generation.py",
+    "isolated_native_preparation_probe": {"input": "One synthetic historical row without temporal generation proof", "prepared_age_minutes": 3.0, "auxiliary_mode": "unchanged_historical_inputs_only", "separate_metadata_helper_clock_version": "original_mint_birth_not_venue_v2", "scope": "Actual preparation and metadata helpers only; not a trained, selected or operational model. This identifies the next original temporal-input provenance regression."}
+  },
+  "verification": {
+    "post_qa_formatting": {"change":"Removed one excess blank line at EOF from tests/test_venue_birth_semantics.py in both roots. No production-source or test logic change.","original_full_suite_sha256":"4384bcc3d38c8000e57368af47c8488463c08b0ac2a2a97e68c87f49f5335474","final_source_sha256":"82db69fb444210d262e5530725d42a59c0bb0a1dcdfe7bd92df0b100c772fcaf","files_each":771,"original_hash_independently_reconstructed_with_only_test_eof_newline":true,"post_format_native_working":{"passed":91,"seconds":2.75,"exit_code":0},"post_format_native_publishing":{"passed":91,"seconds":2.5,"exit_code":0},"scope":"Complete suites and preflights are the recorded pre-format runs; they were not restarted or misrepresented as post-format runs. Exact nonfunctional delta is independently checked."},
+    "new_native_cases": 91,
+    "original_published": {"parent_commit": "436ffa7499c270171165d7b5602033ac98f6f7ff", "native_modules_scoped_to_publishing": 13, "failed": 82, "passed": 9, "seconds": 0.33, "exit_code": 1},
+    "focused_working": {"passed": 778, "seconds": 126.34, "exit_code": 0},
+    "focused_publishing": {"passed": 778, "seconds": 124.45, "exit_code": 0},
+    "full_working": {"passed":5056,"seconds":1161.87,"exit_code":0},
+    "full_publishing": {"passed":5056,"seconds":1147.13,"exit_code":0},
+    "source_snapshot": {"files_each": 771, "normalized_sha256": "4384bcc3d38c8000e57368af47c8488463c08b0ac2a2a97e68c87f49f5335474", "frozen_before_full_suites": true},
+    "preflights": {"working":{"ok":true,"exit_code":0,"generated_at_utc":"2026-10-10T23:43:46.564879+00:00"},"publishing":{"ok":true,"exit_code":0,"generated_at_utc":"2026-10-10T23:43:45.363205+00:00"},"scope":"Compilation, config, profile and seven isolated report builders. External pytest attestation follows the actual completed same-source full suites; no operational startup."},
+    "current_root_probe": {"modules_scoped_each":13,"clock_generation":"original_mint_birth_not_venue_v2","advisory_pipeline":12,"venue_only_birth_is_unknown":true,"config_each":{"dry_run":true,"paper_max_trade_amount_sol":0.1,"paper_bootstrap_amount_sol":0.1},"exit_codes_each":0,"scope":"Cold source/config and synthetic normalization only; not operational startup or provider access."},
+    "shutdown": {"requested_by":"user","checkout":"working_only","started_utc":"2026-10-10T23:44:01.4695262+00:00","finished_utc":"2026-10-10T23:44:04.0327007+00:00","exit_code":0,"finalizer_status":"ok","killed":0,"remaining":0,"observed_at_utc":"2026-10-10T23:44:14.3628220+00:00","runtime_processes":0,"task_owned_previews":0,"matching_tasks":0,"matching_services":0,"locks_each":0,"sql_state":{"bot_id":"main","process_state":"stopped","reports_refresh_state":"idle","retrain_state":"idle","updated_at":"2026-10-10 23:44:03.703443"},"protected_mtime_census":[{"checkout":"working","files":3763,"changed":0},{"checkout":"publishing","files":27,"changed":0}],"qualification":"Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."},
+    "publication": "Exact implementation commit, remote equality and final clean synchronization are recorded in work/venue-birth-semantics-delivery-receipt.json after publication; no self-referential commit hash is claimed by this file."
+  },
+  "remaining_required_work": [
+    "Obtain authoritative original mint birth with independently checked identity/source semantics when unknown; generic legacy birth aliases alone do not authenticate birth.",
+    "Check historical temporal input provenance before declaring new-generation training metadata, and independently reproduce successor replacement of obsolete age-encoding incumbents. Existing numeric ages are not relabelled by this stage.",
+    "Audit actual current Birdeye token/pool protocol, authentication and access, Gecko envelope/identity/transport and other standalone/history provider contracts.",
+    "Measure actual provider freshness, rate/access behavior, latency, production-size artifact throughput and independently observed opportunity/decision coverage.",
+    "Complete broader original source/executed-process ownership, creator/longer-regime learning validation, full-strategy capital/exit/financial constraints and first-launch failure acceptance.",
+    "Require separately authorized fresh, costed full-strategy closed evidence for net profitability; synthetic extremes and passing software tests are not that evidence."
+  ],
+  "completion_rule": "This bounded stage may be software-verified and published while the complete architecture/profitability goal remains active and unproven. Do not start the operational bot or declare it profitable."
+}

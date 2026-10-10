@@ -25,6 +25,7 @@ _DISCOVERY_FIELDS = (
     "pumpportal_event_at", "pumpportal_created_at_basis",
     "created", "createdAtUtc", "pairCreatedAt", "pair_created_at",
     "pairCreatedAtMs", "listedAt", "dex_id", "dexId", "pair_address",
+    "venue_clock", "venue_clock_kind", "venue_clock_source", "venue_clock_metadata",
     "pairAddress", "pool_address", "poolAddress", "website", "twitter",
     "telegram", "discord", "websites", "socials",
 )

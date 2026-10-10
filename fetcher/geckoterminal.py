@@ -10,7 +10,8 @@ Devuelve un dict **normalizado** con el mismo esquema estándar:
         "address":          <mint SPL>,
         "pair_address":     <pool/pair si se conoce, o None>,
         "symbol":           <str|None>,
-        "created_at":       <datetime aware|None>,
+        "created_at":       None (estos atributos no acreditan nacimiento),
+        "pair_created_at":  <evento pool datetime aware|None>,
         "price_usd":        float|np.nan,
         "liquidity_usd":    float|np.nan,
         "volume_24h_usd":   float|np.nan,
@@ -148,31 +149,17 @@ def _to_float(val: Any) -> Optional[float]:
 
 
 def _epoch_to_dt(epoch: Any):
-    """Convierte epoch s/ms → datetime UTC (aware)."""
-    try:
-        x = float(epoch)
-        if x > 1e11:  # ms heurístico
-            x = x / 1000.0
-        from datetime import datetime, timezone
-        return datetime.fromtimestamp(x, tz=timezone.utc)
-    except Exception:
-        return None
+    """Typed UTC event diagnostic, not an admission birth claim."""
+    from analytics.token_time import parse_event_clock
+    return parse_event_clock(epoch)
 
 
 def _pick_created_at(attrs: dict):
-    """
-    Intenta elegir un timestamp razonable del payload de GT.
-    """
-    # Orden de preferencia (strings ISO)
-    for k in ("created_at", "pool_created_at", "pair_created_at", "listed_at", "launched_at", "launch_date"):
-        dt = parse_iso_utc(attrs.get(k))
-        if dt:
-            return dt
-    # Epochs comunes
-    for k in ("created_at_timestamp", "pool_created_at_timestamp", "pair_created_at_timestamp"):
-        dt = _epoch_to_dt(attrs.get(k))
-        if dt:
-            return dt
+    """Pool event clock only; no token birth from untyped metadata/listing."""
+    from analytics.token_time import parse_event_clock
+    for key in ("pool_created_at", "pair_created_at", "pool_created_at_timestamp", "pair_created_at_timestamp"):
+        if key in attrs and attrs[key] is not None:
+            return parse_event_clock(attrs[key])
     return None
 
 
@@ -225,7 +212,7 @@ def _normalize_attributes(addr: str, attrs: dict) -> Dict[str, Any]:
         or attrs.get("name")
     )
 
-    created_at = _pick_created_at(attrs)
+    pair_created_at = _pick_created_at(attrs)
 
     # Calcula una sola vez para no invocar _to_float dos veces
     _price_f = _to_float(price)
@@ -240,7 +227,6 @@ def _normalize_attributes(addr: str, attrs: dict) -> Dict[str, Any]:
         "address":        addr,
         "pair_address":   attrs.get("pool_address") or attrs.get("pair_address") or None,
         "symbol":         symbol,
-        "created_at":     created_at,
         "price_usd":      _price_f if _price_f is not None else np.nan,
         "fdv_usd":        _mcap_f  if _mcap_f  is not None else np.nan,
         "total_reserve_in_usd": _liq_f if _liq_f is not None else np.nan,
@@ -250,6 +236,9 @@ def _normalize_attributes(addr: str, attrs: dict) -> Dict[str, Any]:
         "market_cap_usd": _mcap_f  if _mcap_f  is not None else np.nan,
     }
 
+    from analytics.token_time import venue_clock_snapshot
+    tok_raw_first = venue_clock_snapshot(tok_raw_first, created_at=pair_created_at,
+        kind="pool_metadata", source="geckoterminal")
     normalized = {key: deepcopy(tok_raw_first.get(key)) for key in MARKET_FIELDS}
     tok = sanitize_token_data(tok_raw_first)
     tok.update(normalized)

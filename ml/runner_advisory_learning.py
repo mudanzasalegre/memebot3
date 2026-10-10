@@ -33,7 +33,7 @@ from features.auxiliary_semantics import (checked_semantics_schema, checked_mode
     prepare_training_frame, SCHEMA_SHA256 as AUXILIARY_SCHEMA_SHA256)
 
 ROLE = "scanner_ranking_only"
-PIPELINE_VERSION = 11  # Original-time burst support cannot reuse token-only ranking approvals.
+PIPELINE_VERSION = 12  # Venue-not-birth semantics invalidate earlier advisory no-change fingerprints.
 
 
 def _read_json(path: Path) -> dict[str, Any]:

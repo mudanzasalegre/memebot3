@@ -10,6 +10,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 from utils.numeric_types import binary_value
+from analytics.token_time import AGE_SEMANTICS_VERSION
 
 VERSION = "typed_t0_numeric_missingness_v1"
 PREFIX = "t0num_missing__"
@@ -80,13 +81,20 @@ def augment_numeric_frame(frame: pd.DataFrame, features: Iterable[str]) -> pd.Da
 def numeric_encoding_schema(features: Iterable[str]) -> dict | None:
     names = list(features)
     encoded = [name for name in names if name.startswith(PREFIX)]
-    if not encoded: return None  # Explicit unchanged legacy matrix semantics.
+    age_used = "age_minutes" in names or "queue_age_minutes" in names
+    if not encoded:
+        if not age_used: return None  # Unrelated legacy matrix semantics are unchanged.
+        return {"token_clock_semantics":AGE_SEMANTICS_VERSION,
+                "imputation":"unchanged_legacy_matrix", "encoded_features":[]}
     if (any(name not in FEATURE_SOURCES for name in encoded)
             or any(FEATURE_SOURCES[name] not in names for name in encoded)
             or any(PREFIX + name not in names for name in names if name in RULES)):
         raise ValueError("Numeric missingness requires known paired raw inputs")
-    return {"version": VERSION, "schema_sha256": SCHEMA_SHA256, "encoded_features": encoded,
-            "imputation": "zero_with_explicit_missing_indicator", "invalid_numeric": "unobserved"}
+    schema = {"version": VERSION, "schema_sha256": SCHEMA_SHA256, "encoded_features": encoded,
+              "imputation": "zero_with_explicit_missing_indicator", "invalid_numeric": "unobserved"}
+    if age_used:
+        schema["token_clock_semantics"] = AGE_SEMANTICS_VERSION
+    return schema
 
 
 def checked_numeric_schema(metadata, features) -> bool:

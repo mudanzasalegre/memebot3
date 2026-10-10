@@ -11,6 +11,7 @@ from utils.numeric_types import binary_value
 
 from utils.solana_addr import is_probably_mint, normalize_mint
 from utils.time import utc_now, parse_iso_utc
+from analytics.token_time import BIRTH_CLOCK_FIELDS
 
 log = logging.getLogger("data")
 
@@ -224,16 +225,7 @@ def _coerce_datetime(value: Any) -> dt.datetime | None:
 
 
 def _resolve_created_at(clean: Dict[str, Any]) -> dt.datetime | None:
-    for key in (
-        "created_at",
-        "createdAt",
-        "created",
-        "createdAtUtc",
-        "pairCreatedAt",
-        "pair_created_at",
-        "pairCreatedAtMs",
-        "listedAt",
-    ):
+    for key in BIRTH_CLOCK_FIELDS:
         parsed = _coerce_datetime(clean.get(key))
         if parsed:
             return parsed

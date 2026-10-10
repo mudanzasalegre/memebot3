@@ -240,22 +240,21 @@ def _normalize_pool_payload(addr: str, raw: Dict[str, Any]) -> Dict[str, Any]:
     vol_24h = _first_number(raw.get("volume24hUsd"), (raw.get("volume") or {}).get("h24"), (raw.get("volume") or {}).get("usd"))
     mcap_usd = _first_number(raw.get("fdv"), raw.get("marketCap"), raw.get("fdvUsd"))
 
-    created_at = (
-        parse_iso_utc(raw.get("createdAt"))
-        or _epoch_to_dt(raw.get("createUnixTime"))
-    )
+    created_raw = next((raw[key] for key in ("createdAt", "createUnixTime")
+                        if key in raw and raw[key] is not None), None)
 
     out = {
         **raw,
         "address":        raw.get("baseMint") or raw.get("baseToken") or addr,
         "pair_address":   addr,
         "symbol":         raw.get("symbol") or raw.get("poolSymbol") or raw.get("name"),
-        "created_at":     created_at,
         "price_usd":      price_usd if price_usd is not None else np.nan,
         "liquidity_usd":  liq_usd   if liq_usd   is not None else np.nan,
         "volume_24h_usd": vol_24h   if vol_24h   is not None else np.nan,
         "market_cap_usd": mcap_usd  if mcap_usd  is not None else np.nan,
     }
+    from analytics.token_time import venue_clock_snapshot
+    out = venue_clock_snapshot(out, created_at=created_raw, kind="pool", source="birdeye")
     normalized = {key: deepcopy(out.get(key)) for key in MARKET_FIELDS}
     out = sanitize_token_data(out)
     out.update(normalized)

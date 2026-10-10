@@ -4,6 +4,11 @@ Fetcher DexScreener (async) con TTL-cache y back-off.
 
 Cambios
 ───────
+2026-10-09
+• Lookup actual token-pairs/v1/solana y fallback de Pair/search.
+• chainId y base mint explícitos; pairCreatedAt es evento de par, no nacimiento.
+• Metadata de fechas separada, nullable UTC, sin rejuvenecer una fecha conocida.
+
 2025-09-15
 • Normalización de `dexId`: se expone siempre `tok["dexId"]` **normalizado**
   (lowercase, sin espacios) y mapeado a familia (raydium/orca/meteora, etc.)
@@ -48,7 +53,8 @@ import numpy as np
 from config import DEX_API_BASE
 from utils.data_utils import sanitize_token_data
 from utils.simple_cache import cache_get, cache_set, cache_delete
-from utils.time import parse_iso_utc  # ← usar helper seguro para ISO
+from utils.solana_addr import normalize_mint
+from analytics.token_time import parse_event_clock, venue_clock_snapshot
 from utils.market_observation import MARKET_FIELDS, stamp_market_observation
 from analytics.social_signal import social_signal_from_profile
 
@@ -70,12 +76,13 @@ _fail_count: dict[str, int] = {}
 def _u(*parts: str) -> str:
     """
     Une partes de URL evitando dobles // y permitiendo bases con/sin `/latest`.
-    Uso: _u("latest/dex/tokens", mint)
+    Uso: _u("token-pairs/v1/solana", mint)
     """
-    return "/".join([DEX] + [p.strip("/") for p in parts if p])
+    base = DEX[:-7] if DEX.endswith("/latest") else DEX
+    return "/".join([base] + [p.strip("/") for p in parts if p])
 
 # ───────────────────────── helpers HTTP ──────────────────────────
-async def _fetch_json(url: str, sess: aiohttp.ClientSession, *, params: dict | None = None) -> Optional[dict]:
+async def _fetch_json(url: str, sess: aiohttp.ClientSession, *, params: dict | None = None) -> Any:
     backoff = _BACKOFF_START
     for attempt in range(_MAX_TRIES):
         try:
@@ -112,23 +119,8 @@ def _safe_float(val) -> float | None:
         return None
 
 def _parse_created_any(ts: int | float | str | None) -> Optional[dt.datetime]:
-    """
-    Devuelve datetime aware en UTC a partir de:
-      • int/float (ms o s desde epoch)
-      • str ISO-8601 (usa parse_iso_utc)
-    """
-    if ts is None:
-        return None
-    # numérico → ms o s
-    if isinstance(ts, (int, float)):
-        try:
-            # heurística: > 10^12 → ms; > 10^10 → ms con decimales; sino s
-            secs = float(ts) / 1000.0 if float(ts) > 1e11 else float(ts)
-            return dt.datetime.fromtimestamp(secs, tz=dt.timezone.utc)
-        except Exception:
-            return None
-    # string ISO
-    return parse_iso_utc(str(ts))
+    """Typed nullable UTC event diagnostic, not a mint-birth declaration."""
+    return parse_event_clock(ts)
 
 def _extract_price_fields(raw: dict) -> tuple[float | None, float | None]:
     """
@@ -205,10 +197,9 @@ def _pick_best_pair(pairs: List[dict]) -> Optional[dict]:
     if not pairs:
         return None
 
-    # Filtra solana si hay etiqueta; si no, usa todos
-    spairs = [p for p in pairs if (p.get("chainId") or p.get("chain")) == "solana"]
+    spairs = [p for p in pairs if _valid_solana_pair(p)]
     if not spairs:
-        spairs = pairs[:]
+        return None
 
     def liq_usd(p: dict) -> float:
         liq = p.get("liquidity")
@@ -227,11 +218,33 @@ def _pick_best_pair(pairs: List[dict]) -> Optional[dict]:
     spairs.sort(key=lambda p: (liq_usd(p), vol_24h(p)), reverse=True)
     return spairs[0]
 
-def _matching_pairs(pairs: list, address: str) -> list[dict]:
-    return [p for p in pairs if isinstance(p, dict)
-            and (p.get("chainId") or p.get("chain")) in (None, "solana")
-            and ((p.get("baseToken") if isinstance(p.get("baseToken"), dict) else {}).get("address") == address
-                 or p.get("tokenAddress") == address or p.get("pairAddress") == address)]
+def _valid_solana_pair(pair: Any) -> bool:
+    if (not isinstance(pair, dict) or not isinstance(pair.get("chainId"), str)
+            or pair["chainId"].strip().lower() != "solana"):
+        return False
+    base = pair.get("baseToken")
+    mint = base.get("address") if isinstance(base, dict) else None
+    return isinstance(mint, str) and normalize_mint(mint) == mint.strip()
+
+
+def _matching_pairs(pairs: list, address: str, *, allow_pair_address: bool = True) -> list[dict]:
+    return [p for p in pairs if _valid_solana_pair(p)
+            and (p["baseToken"]["address"].strip() == address
+                 or allow_pair_address and isinstance(p.get("pairAddress"), str)
+                    and p["pairAddress"].strip() == address)]
+
+
+def _pair_rows(payload: Any) -> list[dict]:
+    """Documented lists plus retained Pair response envelopes; no .keys crash."""
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+    if isinstance(payload.get("pairs"), list):
+        return payload["pairs"]
+    if isinstance(payload.get("pair"), dict):
+        return [payload["pair"]]
+    return []
 
 
 def _add_legacy_aliases(tok: dict) -> dict:
@@ -308,28 +321,27 @@ def _norm_from_pair(raw_pair: dict) -> dict:
     mint = base.get("address") or raw_pair.get("tokenAddress")  # endpoints legacy
     pair_address = raw_pair.get("pairAddress") or raw_pair.get("address")
 
-    created_raw = raw_pair.get("listedAt") or raw_pair.get("createdAt") or raw_pair.get("pairCreatedAt")
-    created_dt = _parse_created_any(created_raw)
+    pair_created_at = _parse_created_any(raw_pair.get("pairCreatedAt"))
 
     price_usd, price_native = _extract_price_fields(raw_pair)
     liq_usd   = _extract_liquidity_usd(raw_pair, price_usd)
     vol_usd   = _extract_volume_24h(raw_pair)
     mcap_usd  = _extract_market_cap(raw_pair)
 
-    # txns últimos 5m
-    txns_m5 = (raw_pair.get("txns") or {}).get("m5") or {}
+    # Optional malformed provider nodes stay missing, without killing identity.
+    txns = raw_pair.get("txns") if isinstance(raw_pair.get("txns"), dict) else {}
+    txns_m5 = txns.get("m5") if isinstance(txns.get("m5"), dict) else {}
     buys_5m = _safe_float(txns_m5.get("buys"))
     sells_5m = _safe_float(txns_m5.get("sells"))
     total_5m = buys_5m + sells_5m if buys_5m is not None and sells_5m is not None else None
-    price_change = raw_pair.get("priceChange") or {}
-    volume_change = raw_pair.get("volumeChange") or {}
+    price_change = raw_pair.get("priceChange") if isinstance(raw_pair.get("priceChange"), dict) else {}
+    volume_change = raw_pair.get("volumeChange") if isinstance(raw_pair.get("volumeChange"), dict) else {}
 
     tok = {
         **raw_pair,  # Normalized identity and numbers must win over raw aliases.
         "address":        (str(mint).strip() if mint else None),  # ← MINT SPL ¡clave!
         "pair_address":   pair_address,
         "symbol":         (base.get("symbol") or raw_pair.get("symbol")),
-        "created_at":     created_dt,
         "price_usd":      price_usd if price_usd is not None else np.nan,
         "price_native":   price_native if price_native is not None else np.nan,
         "liquidity_usd":  liq_usd   if liq_usd   is not None else np.nan,
@@ -348,7 +360,8 @@ def _norm_from_pair(raw_pair: dict) -> dict:
 
     # ↪ Normalizar dexId y dejarlo **siempre** en `tok["dexId"]`
     # (lo hacemos *después* del merge con raw_pair para que prevalezca)
-    dex_raw = raw_pair.get("dexId") or (raw_pair.get("dex") or {}).get("id")
+    dex_node = raw_pair.get("dex") if isinstance(raw_pair.get("dex"), dict) else {}
+    dex_raw = raw_pair.get("dexId") or dex_node.get("id")
     tok["dexId"] = _normalize_dex_id(dex_raw)
     direct_liq = any(_safe_float(value) is not None for value in (
         (raw_pair.get("liquidity") or {}).get("usd") if isinstance(raw_pair.get("liquidity"), dict) else None,
@@ -357,6 +370,7 @@ def _norm_from_pair(raw_pair: dict) -> dict:
     tok["liquidity_usd_is_proxy"] = False if direct_liq else (True if liq_usd is not None else None)
     tok["liquidity_is_proxy"] = tok["liquidity_usd_is_proxy"]
 
+    tok = venue_clock_snapshot(tok, created_at=pair_created_at, kind="pair", source="dexscreener")
     normalized = {key: deepcopy(tok.get(key)) for key in MARKET_FIELDS}
     tok = sanitize_token_data(tok)
     tok.update(normalized)  # Raw alias coercion must not overwrite canonical observations.
@@ -375,6 +389,8 @@ def _stamp_pair_observation(pair: dict) -> dict:
 
 # ───────────────────────── API pública ────────────────────────────
 async def get_pair(address: str, *, force_refresh: bool = False) -> Optional[Dict[str, Any]]:
+    if not isinstance(address, str) or not (address := normalize_mint(address)):
+        return None
     ck = f"dex:{address}"
     if force_refresh:
         cache_delete(ck)
@@ -383,57 +399,19 @@ async def get_pair(address: str, *, force_refresh: bool = False) -> Optional[Dic
         return None if hit is _SENTINEL_NIL else deepcopy(hit)
 
     async with aiohttp.ClientSession() as s:
-        # ① tokens (mint → lista de pares)
-        url_tokens = _u("latest/dex/tokens", address)
-        raw_tok = await _fetch_json(url_tokens, s)
-        if raw_tok:
-            log.debug("[DEX] %s tokens→ %s", address[:6], list(raw_tok.keys())[:3])
-        if isinstance(raw_tok, dict) and raw_tok.get("pairs"):
-            pair = _pick_best_pair(_matching_pairs(raw_tok["pairs"], address))
+        queries = (
+            (_u("token-pairs/v1/solana", address), False, None),
+            (_u("latest/dex/pairs/solana", address), True, None),
+            (_u("latest/dex/search"), True, {"q": address}),
+        )
+        for url, allow_pair_address, params in queries:
+            payload = await _fetch_json(url, s, params=params)
+            pair = _pick_best_pair(_matching_pairs(_pair_rows(payload), address,
+                allow_pair_address=allow_pair_address))
             if pair:
                 res = _stamp_pair_observation(pair)
                 if res.get("address"):
-                    log.debug("[DEX] %s ✅ tokens-hit (mint)", address[:6])
-                    cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
-                    _fail_count.pop(address, None)
-                    return res
-
-        # ② pairs (pairAddress directo)
-        url_pair = _u("latest/dex/pairs/solana", address)
-        raw_pair = await _fetch_json(url_pair, s)
-        if raw_pair:
-            log.debug("[DEX] %s pairs→ %s", address[:6], list(raw_pair.keys())[:3])
-        if isinstance(raw_pair, dict):
-            if raw_pair.get("pair") and _matching_pairs([raw_pair["pair"]], address):
-                res = _stamp_pair_observation(raw_pair["pair"])
-                if res.get("address"):
-                    log.debug("[DEX] %s ✅ pair-hit (direct)", address[:6])
-                    cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
-                    _fail_count.pop(address, None)
-                    return res
-            if raw_pair.get("pairs"):
-                pair = _pick_best_pair(_matching_pairs(raw_pair["pairs"], address))
-                if pair:
-                    res = _stamp_pair_observation(pair)
-                    if res.get("address"):
-                        log.debug("[DEX] %s ✅ pair-hit (list)", address[:6])
-                        cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
-                        _fail_count.pop(address, None)
-                        return res
-
-        # ③ fallback search
-        url_search = _u("latest/dex/search")
-        raw_search = await _fetch_json(url_search, s, params={"q": address})
-        if raw_search:
-            log.debug("[DEX] %s search→ %s", address[:6], list(raw_search.keys())[:3])
-        if isinstance(raw_search, dict) and raw_search.get("pairs"):
-            # Search may return similarly named tokens; never pick an unrelated mint.
-            matches = _matching_pairs(raw_search["pairs"], address)
-            pair = _pick_best_pair(matches)
-            if pair:
-                res = _stamp_pair_observation(pair)
-                if res.get("address"):
-                    log.debug("[DEX] %s ✅ search-hit", address[:6])
+                    log.debug("[DEX] %s valid Solana Pair", address[:6])
                     cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
                     _fail_count.pop(address, None)
                     return res

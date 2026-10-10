@@ -83,8 +83,6 @@ _MERGE_FIELDS = [
     "symbol",
     "name",
     "created_at",
-    "pairCreatedAt",
-    "pairCreatedAtMs",
     "price_usd",
     "liquidity_usd",
     "market_cap_usd",
@@ -490,6 +488,14 @@ def _merge_market_fields(primary: dict | None, secondary: dict, source: str) -> 
                 proof["fields"][field] = deepcopy(record)
         if field == "price_usd":
             out["price_source"] = source
+    # Venue event and its identity move together, never onto a different
+    # selected pool or into created_at. This is metadata, not birth proof.
+    venue = secondary.get("venue_clock")
+    if (isinstance(venue, dict) and venue.get("pair_address") == out.get("pair_address")
+            and "venue_clock" not in out):
+        for key in ("venue_clock", "pair_created_at", "venue_clock_kind",
+                    "venue_clock_source", "venue_clock_metadata"):
+            out[key] = deepcopy(secondary.get(key))
     address = str(out.get("address") or "")
     social = [checked_social_receipt(item.get("social_signal"), address) for item in (out, secondary)]
     social = [item for item in social if item is not None]

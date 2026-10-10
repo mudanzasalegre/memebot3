@@ -191,7 +191,7 @@ def test_valid_zero_and_queue_boundary_remain_eligible(queue_age):
 def test_original_epoch_units_survive_actual_replay_feature_projection(scale):
     from backtest.event_replay import _entry_visible_row
     row = hot(first_seen_epoch_s=(T0-dt.timedelta(minutes=2)).timestamp()*scale,
-              pairCreatedAtMs=(T0-dt.timedelta(minutes=200)).timestamp()*1000,
+              created_at=(T0-dt.timedelta(minutes=200)).timestamp()*scale,
               queue_age_minutes=None, age_minutes=None)
     visible, ignored = _entry_visible_row(row)
     assert ignored == 0 and decision(visible, now=T0).allowed

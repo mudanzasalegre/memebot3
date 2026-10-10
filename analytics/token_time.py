@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+from copy import deepcopy
 from numbers import Real
 from typing import Any
 
 
-_BIRTH_CLOCKS = ("created_at", "createdAt", "created", "createdAtUtc", "pairCreatedAt", "pair_created_at", "pairCreatedAtMs")
+# Venue creation/listing is a different grain, even for the same base mint.
+BIRTH_CLOCK_FIELDS = _BIRTH_CLOCKS = ("created_at", "createdAt", "created", "createdAtUtc")
+AGE_SEMANTICS_VERSION = "original_mint_birth_not_venue_v2"
 _SEEN_CLOCKS = ("first_seen_epoch_s", "first_seen_at")
 
 
@@ -56,6 +59,32 @@ def _to_float(value: Any) -> float | None:
         return out
     except Exception:
         return None
+
+
+def parse_event_clock(value: Any, *, now: dt.datetime | None = None) -> dt.datetime | None:
+    """Nullable typed UTC event time; its presence does not prove token birth."""
+    parsed = _to_datetime(value)
+    limit = _to_datetime(now) if now is not None else dt.datetime.now(dt.timezone.utc)
+    return parsed if parsed is not None and limit is not None and parsed <= limit else None
+
+
+def venue_clock_snapshot(token: dict[str, Any], *, created_at: Any, kind: str, source: str) -> dict[str, Any]:
+    """Detach Pair/pool clocks without promoting raw aliases to mint birth.
+
+    Keep bounded original clock metadata for diagnostics. This applies only to
+    an adapter's venue/untyped metadata record, never to a queued known birth.
+    """
+    out = deepcopy(token)
+    aliases = (*_BIRTH_CLOCKS, "createTime", "createUnixTime", "age_minutes", "age_min", "token_age_min",
+               "listedAt", "listed_at", "launched_at", "launch_date")
+    metadata = {key: out.pop(key) for key in aliases if key in out}
+    event = parse_event_clock(created_at)
+    out.update(created_at=None, age_minutes=None, age_min=None, token_age_min=None,
+               pair_created_at=event, venue_clock_kind=kind,
+               venue_clock_source=source, venue_clock_metadata=metadata)
+    out["venue_clock"] = {"kind":kind, "source":source, "pair_address":out.get("pair_address"),
+                          "created_at":event, "basis":"venue_event_not_mint_birth"}
+    return out
 
 
 def compute_age_minutes(token: dict[str, Any], now: dt.datetime | None = None) -> float | None:
@@ -158,4 +187,5 @@ def token_with_age(token: dict[str, Any], now: dt.datetime | None = None) -> dic
 
 
 __all__ = ["compute_age_minutes", "compute_queue_age_minutes", "compute_shadow_age_minutes",
-           "compute_age_at_seen_minutes", "historical_age_snapshot", "token_with_age"]
+           "compute_age_at_seen_minutes", "historical_age_snapshot", "token_with_age",
+           "BIRTH_CLOCK_FIELDS", "AGE_SEMANTICS_VERSION", "parse_event_clock", "venue_clock_snapshot"]
