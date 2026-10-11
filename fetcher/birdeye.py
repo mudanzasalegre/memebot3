@@ -1,83 +1,86 @@
-# memebot3/fetcher/birdeye.py
+"""Solana Birdeye adapters, using documented token/pair/creation contracts.
+
+Market HTTP receipts are not provider market-as-of guarantees. Mint creation
+uses a separate, explicit request and is provider-reported, not independently
+verified on chain. Ordinary price collection never adds that request or cost.
 """
-Fetcher para Birdeye (https://birdeye.so)
-
-• FREE tier ≈ 1 req/s (60 RPM) – throttle cooperativo.
-• Expone:
-      get_token_info(address)   → métricas del token (normalizadas)
-      get_pool_info(address)    → métricas del pool (normalizadas)
-
-Devolvemos SIEMPRE un dict con **claves normalizadas**:
-    address, pair_address?, symbol, created_at,
-    price_usd, liquidity_usd, volume_24h_usd, market_cap_usd,
-y mantenemos los campos originales recibidos de Birdeye (flatten) en el
-mismo dict para compat y depuración.
-
-Mejoras 2025-08-24
-──────────────────
-• Coerción estricta a float y aplanado de price/liquidity/volume/fdv.
-• parse_iso_utc para fechas ISO + soporte unix epoch (s/ms).
-• Aliases de compat: liquidity.usd, volume24h, fdv (desde market_cap_usd).
-
-Mejoras previas
-───────────────
-• TTL adaptable para “sin datos”: BIRDEYE_TTL_NIL_SHORT / BIRDEYE_TTL_NIL_MAX.
-• Normalización de mints (quita sufijo 'pump', valida SPL) para evitar 404.
-"""
-
 from __future__ import annotations
 
-import aiohttp
 import asyncio
+from copy import deepcopy
+import datetime as dt
 import logging
+import math
 import os
 import time
-import math
-from copy import deepcopy
-from typing import Any, Dict, Optional
+from typing import Any, Callable
 
-import numpy as np
+import aiohttp
 
-from utils.simple_cache import cache_get, cache_set, cache_delete
-from utils.solana_addr import normalize_mint
-from utils.time import parse_iso_utc
+from analytics.token_time import parse_event_clock, venue_clock_snapshot
 from utils.data_utils import sanitize_token_data
-from utils.market_observation import MARKET_FIELDS, stamp_market_observation
+from utils.market_observation import MARKET_FIELDS, market_number, stamp_market_observation
+from utils.simple_cache import cache_delete, cache_get, cache_set
 
-# ───────────────────────── Config / constantes ──────────────────────────
-_API_KEY:   Optional[str] = os.getenv("BIRDEYE_API_KEY")
-_BASE_URL:  str           = "https://public-api.birdeye.so/public"
+_API_KEY = os.getenv("BIRDEYE_API_KEY")
+_BASE_URL = "https://public-api.birdeye.so"
+_TOKEN_EP = "/defi/token_overview"
+_POOL_EP = "/defi/v3/pair/overview/single"
+_CREATION_EP = "/defi/token_creation_info"
 
-# Límite de peticiones por minuto (default 60 → 1 RPS)
-_RPM:          int   = max(int(os.getenv("BIRDEYE_RPM", "60")), 1)
-_MIN_INTERVAL: float = 60.0 / _RPM          # seg. entre llamadas
 
-# TTL adaptativo para “sin datos”
-_TTL_NIL_SHORT = int(os.getenv("BIRDEYE_TTL_NIL_SHORT", "90"))
-_TTL_NIL_MAX   = int(os.getenv("BIRDEYE_TTL_NIL_MAX", "300"))
-_SENTINEL_NIL  = object()
+def _positive_int_env(name: str, default: int) -> int:
+    try:
+        return max(int(os.getenv(name, str(default))), 1)
+    except (TypeError, ValueError, OverflowError):
+        return default
 
-# Endpoints Birdeye (token / pool)
-_TOKEN_EP: str = "/token/{addr}"
-_POOL_EP:  str = "/pool/{addr}"
 
-log = logging.getLogger("birdeye")
-
-# rate-limit cooperativo (global en proceso)
-_last_call_ts: float         = 0.0
-_lock:          asyncio.Lock = asyncio.Lock()
-
-# contador de fallos consecutivos
+_RPM = _positive_int_env("BIRDEYE_RPM", 60)
+_MIN_INTERVAL = 60.0 / _RPM
+_TTL_NIL_SHORT = _positive_int_env("BIRDEYE_TTL_NIL_SHORT", 90)
+_TTL_NIL_MAX = max(_TTL_NIL_SHORT, _positive_int_env("BIRDEYE_TTL_NIL_MAX", 300))
+_SENTINEL_NIL = object()
+_last_call_ts = 0.0
+_lock = asyncio.Lock()
 _fail_count: dict[str, int] = {}
+log = logging.getLogger("birdeye")
+_BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 
-# ───────────────────────── Helpers genéricos ─────────────────────────────
+def _base58_bytes(value: Any, size: int) -> bool:
+    """Strict shape even when the optional base58 dependency is unavailable."""
+    if not isinstance(value, str) or not value or len(value) > size * 2:
+        return False
+    number = 0
+    for char in value:
+        digit = _BASE58.find(char)
+        if digit < 0:
+            return False
+        number = number * 58 + digit
+    leading = len(value) - len(value.lstrip("1"))
+    return leading + (number.bit_length() + 7) // 8 == size
+
+
+def _request_address(value: Any, *, token: bool) -> str | None:
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if not raw or len(raw) > 60:
+        return None
+    if _base58_bytes(raw, 32):
+        return raw  # A legitimate mint may itself end in "pump".
+    if token and raw.lower().endswith("pump"):
+        cleaned = raw[:-4].rstrip("._- \t:/")
+        if _base58_bytes(cleaned, 32):
+            return cleaned
+    return None
+
+
 async def _throttle() -> None:
-    """Enforce RPM; bloquea si la última llamada es muy reciente."""
     global _last_call_ts
     async with _lock:
-        elapsed   = time.monotonic() - _last_call_ts
-        wait_for  = _MIN_INTERVAL - elapsed
+        wait_for = _MIN_INTERVAL - (time.monotonic() - _last_call_ts)
         if wait_for > 0:
             await asyncio.sleep(wait_for)
         _last_call_ts = time.monotonic()
@@ -88,138 +91,85 @@ def _register_fail(key: str) -> None:
     _fail_count[key] = fails
     ttl = _TTL_NIL_MAX if fails >= 4 else _TTL_NIL_SHORT
     cache_set(key, _SENTINEL_NIL, ttl=ttl)
-    log.debug("[birdeye] %s → sin datos (TTL=%ss, fallos=%d)", key, ttl, fails)
+    log.debug("[birdeye] %s unavailable (TTL=%ss, failures=%d)", key, ttl, fails)
 
 
-def _reset_fail(key: str) -> None:
-    _fail_count.pop(key, None)
-
-
-def _safe_float(v: Any) -> float | None:
+def _safe_float(value: Any) -> float | None:
     try:
-        if v is None or isinstance(v, bool):
+        if value is None or isinstance(value, bool):
             return None
-        if isinstance(v, str):
-            v = v.replace(",", "")
-        number = float(v)
-        return number if math.isfinite(number) else None
-    except Exception:
+        result = float(value.replace(",", "") if isinstance(value, str) else value)
+        return result if math.isfinite(result) else None
+    except (ValueError, TypeError, OverflowError):
         return None
 
 
 def _first_number(*values: Any) -> float | None:
-    return next((number for value in values if (number := _safe_float(value)) is not None), None)
+    return next((n for value in values if (n := _safe_float(value)) is not None), None)
 
 
-def _epoch_to_dt(epoch: Any) -> Optional["datetime"]:
-    """Convierte epoch s/ms → datetime UTC (aware)."""
-    try:
-        x = float(epoch)
-        # Heurística ms vs s
-        if x > 1e11:
-            x = x / 1000.0
-        from datetime import datetime, timezone
-        return datetime.fromtimestamp(x, tz=timezone.utc)
-    except Exception:
-        return None
+def _mapping(value: Any) -> dict:
+    return value if isinstance(value, dict) else {}
 
 
-def _add_legacy_aliases(tok: dict) -> dict:
-    """
-    Aliases de compatibilidad:
-      - liquidity.usd ← liquidity_usd (aunque sea np.nan)
-      - volume24h    ← volume_24h_usd
-      - fdv          ← market_cap_usd
-    """
-    out = deepcopy(tok)
-    liq_usd = out.get("liquidity_usd", np.nan)
-    out.setdefault("liquidity", {})
-    if not isinstance(out["liquidity"], dict):
-        out["liquidity"] = {}
-    out["liquidity"]["usd"] = liq_usd
-    out.setdefault("volume24h", out.get("volume_24h_usd", np.nan))
-    out.setdefault("fdv", out.get("market_cap_usd", np.nan))
-    return out
+def _identity_matches(data: dict, address: str, field: str) -> bool:
+    # Never repair/relabel a provider identity or silently change network.
+    return (data.get(field) == address and _base58_bytes(data.get(field), 32)
+            and all(data.get(key) == "solana" for key in ("chain", "chainId", "network") if key in data))
 
 
-# ───────────────────────── HTTP ───────────────────────────────────────────
-async def _fetch(endpoint: str, cache_key: str, *, force_refresh: bool = False) -> Dict[str, Any] | None:
-    """
-    GET <BASE_URL><endpoint> con cabecera Authorization.
-
-    Devuelve el ``dict`` contenido en ``"data"`` o None.
-    Usa TTL adaptable en caso de NIL para controlar reintentos.
-    """
+async def _fetch(endpoint: str, cache_key: str, *, address: str,
+                 identity_field: str = "address", force_refresh: bool = False,
+                 ttl: int = 60, validator: Callable[[dict], bool] | None = None) -> dict | None:
     if not _API_KEY:
-        log.debug("[birdeye] desactivado – no hay API key")
         return None
-
     if force_refresh:
         cache_delete(cache_key)
-    # cache hit
     hit = None if force_refresh else cache_get(cache_key)
     if hit is not None:
-        return None if hit is _SENTINEL_NIL else deepcopy(hit)
-
+        if hit is _SENTINEL_NIL:
+            return None
+        if (isinstance(hit, dict) and _identity_matches(hit, address, identity_field)
+                and (validator is None or validator(hit))):
+            return deepcopy(hit)
+        cache_delete(cache_key)
     await _throttle()
-
-    url     = f"{_BASE_URL}{endpoint}"
-    headers = {"Authorization": f"Bearer {_API_KEY}"}
-
     try:
-        timeout = aiohttp.ClientTimeout(total=8)
-        async with aiohttp.ClientSession(timeout=timeout) as sess:
-            async with sess.get(url, headers=headers) as resp:
-                if resp.status == 200:
-                    payload = await resp.json()
-                    data = payload.get("data") or {}
-                    if not isinstance(data, dict) or not data:
-                        _register_fail(cache_key)
-                        return None
-                    data = deepcopy(data)
-                    data["_market_received_at"] = time.time()
-                    _reset_fail(cache_key)
-                    cache_set(cache_key, deepcopy(data), ttl=60)  # TTL corto para datos OK
-                    return data
-                log.debug("[birdeye] %s → HTTP %s", endpoint, resp.status)
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as session:
+            async with session.get(_BASE_URL + endpoint, params={"address": address},
+                    headers={"X-API-KEY": _API_KEY, "x-chain": "solana", "Accept": "application/json"},
+                    allow_redirects=False) as response:
+                if response.status == 200:
+                    payload = await response.json()
+                    data = payload.get("data") if isinstance(payload, dict) and payload.get("success") is True else None
+                    if (isinstance(data, dict) and _identity_matches(data, address, identity_field)
+                            and (validator is None or validator(data))):
+                        data = deepcopy(data)
+                        # Overwrite any provider-supplied local receipt marker.
+                        data["_market_received_at"] = time.time()
+                        _fail_count.pop(cache_key, None)
+                        cache_set(cache_key, deepcopy(data), ttl=ttl)
+                        return data
+                log.debug("[birdeye] %s HTTP/contract unavailable (HTTP %s)", endpoint, response.status)
+    except asyncio.CancelledError:
+        raise
     except Exception as exc:
-        log.debug("[birdeye] request error %s → %s", endpoint, exc)
-
+        # Exceptions can contain headers/URLs: log only their type.
+        log.debug("[birdeye] %s request error (%s)", endpoint, type(exc).__name__)
     _register_fail(cache_key)
     return None
 
 
-# ───────────────────────── Normalizadores ─────────────────────────────────
-def _normalize_token_payload(addr: str, raw: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Aplana y normaliza la respuesta de /token/{addr} a nuestro esquema.
-    Conserva además los campos originales en el mismo dict.
-    """
-    # Campos típicos (varían según versión de la API pública)
-    price_usd = _first_number(raw.get("priceUsd"), raw.get("price"), (raw.get("priceInfo") or {}).get("priceUsd"))
-    liq_usd = _first_number(raw.get("liquidityUsd"), (raw.get("liquidity") or {}).get("usd"), raw.get("tvlUsd"))
-    vol_24h = _first_number(raw.get("volume24hUsd"), raw.get("v24hUsd"), (raw.get("volume") or {}).get("h24"), (raw.get("volume") or {}).get("usd"))
-    mcap_usd = _first_number(raw.get("fdv"), raw.get("fdvUsd"), raw.get("marketCap"), raw.get("marketCapUsd"))
+def _add_legacy_aliases(token: dict) -> dict:
+    out = deepcopy(token)
+    out["liquidity"] = {"usd": out.get("liquidity_usd")}
+    out["volume24h"] = out.get("volume_24h_usd")
+    out["fdv"] = out.get("market_cap_usd")
+    return out
 
-    # Creation and provider update timestamps have different meanings.
-    created_at = (
-        parse_iso_utc(raw.get("createdAt"))
-        or parse_iso_utc(raw.get("createTime"))
-        or _epoch_to_dt(raw.get("createUnixTime"))
-    )
 
-    out = {
-        **raw,
-        "address":        addr,
-        "pair_address":   None,
-        "symbol":         raw.get("symbol") or raw.get("baseSymbol") or raw.get("name"),
-        "created_at":     created_at,
-        "price_usd":      price_usd if price_usd is not None else np.nan,
-        "liquidity_usd":  liq_usd   if liq_usd   is not None else np.nan,
-        "volume_24h_usd": vol_24h   if vol_24h   is not None else np.nan,
-        "market_cap_usd": mcap_usd  if mcap_usd  is not None else np.nan,
-        # copia de algunos originales más frecuentes para depurar
-    }
+def _finish_market(out: dict, raw: dict) -> dict:
+    # Sanitization must not overwrite chosen nullable values with raw aliases.
     normalized = {key: deepcopy(out.get(key)) for key in MARKET_FIELDS}
     out = sanitize_token_data(out)
     out.update(normalized)
@@ -227,106 +177,105 @@ def _normalize_token_payload(addr: str, raw: Dict[str, Any]) -> Dict[str, Any]:
     received = raw.get("_market_received_at")
     out.pop("_market_received_at", None)
     out.pop("market_observation", None)
+    out.pop("token_birth_observation", None)
     return stamp_market_observation(out, "birdeye", received_at=received) if received is not None else out
 
 
-def _normalize_pool_payload(addr: str, raw: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Aplana y normaliza la respuesta de /pool/{addr}. En pools,
-    TVL suele equivaler a liquidez útil para nuestros filtros.
-    """
-    price_usd = _first_number(raw.get("priceUsd"), raw.get("price"))
-    liq_usd = _first_number(raw.get("tvlUsd"), (raw.get("liquidity") or {}).get("usd"), raw.get("liquidityUsd"))
-    vol_24h = _first_number(raw.get("volume24hUsd"), (raw.get("volume") or {}).get("h24"), (raw.get("volume") or {}).get("usd"))
-    mcap_usd = _first_number(raw.get("fdv"), raw.get("marketCap"), raw.get("fdvUsd"))
-
-    created_raw = next((raw[key] for key in ("createdAt", "createUnixTime")
-                        if key in raw and raw[key] is not None), None)
-
-    out = {
-        **raw,
-        "address":        raw.get("baseMint") or raw.get("baseToken") or addr,
-        "pair_address":   addr,
-        "symbol":         raw.get("symbol") or raw.get("poolSymbol") or raw.get("name"),
-        "price_usd":      price_usd if price_usd is not None else np.nan,
-        "liquidity_usd":  liq_usd   if liq_usd   is not None else np.nan,
-        "volume_24h_usd": vol_24h   if vol_24h   is not None else np.nan,
-        "market_cap_usd": mcap_usd  if mcap_usd  is not None else np.nan,
+def _normalize_token_payload(address: str, raw: dict) -> dict:
+    liquidity, volume, price_info = (_mapping(raw.get(key)) for key in ("liquidity", "volume", "priceInfo"))
+    fields = {
+        "price_usd": _first_number(raw.get("price"), raw.get("priceUsd"), price_info.get("priceUsd")),
+        "liquidity_usd": _first_number(raw.get("liquidity"), raw.get("liquidityUsd"), liquidity.get("usd"), raw.get("tvlUsd")),
+        "volume_24h_usd": _first_number(raw.get("v24hUSD"), raw.get("volume24hUsd"), raw.get("v24hUsd"), volume.get("h24"), volume.get("usd")),
+        "market_cap_usd": _first_number(raw.get("marketCap"), raw.get("marketCapUsd"), raw.get("fdv"), raw.get("fdvUsd")),
+        "txns_last_5m": raw.get("trade5m"), "txns_last_5m_buys": raw.get("buy5m"),
+        "txns_last_5m_sells": raw.get("sell5m"), "holders": raw.get("holder"),
+        "price_pct_1m": raw.get("priceChange1mPercent"),
+        "price_pct_5m": raw.get("priceChange5mPercent"), "volume_pct_5m": raw.get("v5mChangePercent"),
     }
-    from analytics.token_time import venue_clock_snapshot
-    out = venue_clock_snapshot(out, created_at=created_raw, kind="pool", source="birdeye")
-    normalized = {key: deepcopy(out.get(key)) for key in MARKET_FIELDS}
-    out = sanitize_token_data(out)
-    out.update(normalized)
-    out = _add_legacy_aliases(out)
-    received = raw.get("_market_received_at")
-    out.pop("_market_received_at", None)
-    out.pop("market_observation", None)
-    return stamp_market_observation(out, "birdeye", received_at=received) if received is not None else out
+    fields = {key: market_number(value, key) for key, value in fields.items()}
+    for key in ("txns_last_5m", "txns_last_5m_buys", "txns_last_5m_sells", "holders"):
+        if fields[key] is not None and not fields[key].is_integer():
+            fields[key] = None
+    out = {**deepcopy(raw), **fields, "address": address, "pair_address": None,
+           "symbol": raw.get("symbol") or raw.get("baseSymbol") or raw.get("name")}
+    # Overview does not document original mint birth. Preserve untyped clocks
+    # for diagnostics, never promote them (or a provider's age) into predictors.
+    out = venue_clock_snapshot(out, created_at=None, kind="untyped_token_metadata", source="birdeye")
+    return _finish_market(out, raw)
 
 
-# ───────────────────────── API pública ────────────────────────────────────
-async def get_token_info(address: str, *, force_refresh: bool = False) -> Dict[str, Any] | None:
-    """
-    ``/token/{address}``   – precio, liquidez, mcap, volumen 24h…
+def _normalize_pool_payload(address: str, raw: dict) -> dict:
+    base = _mapping(raw.get("base"))
+    liquidity, volume = _mapping(raw.get("liquidity")), _mapping(raw.get("volume"))
+    fields = {
+        "price_usd": _first_number(raw.get("price"), raw.get("priceUsd")),
+        "liquidity_usd": _first_number(raw.get("liquidity"), raw.get("tvlUsd"), liquidity.get("usd"), raw.get("liquidityUsd")),
+        "volume_24h_usd": _first_number(raw.get("volume_24h"), raw.get("volume24hUsd"), volume.get("h24"), volume.get("usd")),
+        "market_cap_usd": _first_number(raw.get("marketCap"), raw.get("fdv"), raw.get("fdvUsd")),
+    }
+    out = {**deepcopy(raw), "address": base.get("address") or raw.get("baseMint") or raw.get("baseToken") or address,
+           "pair_address": address, "symbol": base.get("symbol") or raw.get("symbol") or raw.get("name"),
+           **{key: market_number(value, key) for key, value in fields.items()}}
+    event = next((raw[key] for key in ("created_at", "createdAt", "createUnixTime") if raw.get(key) is not None), None)
+    out = venue_clock_snapshot(out, created_at=event, kind="pool", source="birdeye")
+    return _finish_market(out, raw)
 
-    Normalizamos la dirección (quita sufijo 'pump' y valida mint SPL)
-    antes de llamar al endpoint para evitar 404 y spam de reintentos.
-    """
-    addr = str(address or "").strip()
-    if not addr or addr.startswith("0x") or not (30 <= len(addr) <= 60):
-        log.warning("[birdeye] address inválido (no mint SPL): %r", address)
+
+def _creation_time(data: dict) -> dt.datetime | None:
+    value = data.get("blockUnixTime")
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or value <= 0 or value >= 1e11 or value != int(value)):
         return None
-
-    key = f"be:token:{addr}"
-    data = (await _fetch(_TOKEN_EP.format(addr=addr), key, force_refresh=True) if force_refresh
-            else await _fetch(_TOKEN_EP.format(addr=addr), key))
-    if not data:
+    # Documented seconds, not heuristic milliseconds or provider update time.
+    created = parse_event_clock(value)
+    if "blockHumanTime" in data and parse_event_clock(data["blockHumanTime"]) != created:
         return None
-
-    out = _normalize_token_payload(addr, data)
-    try:
-        log.debug(
-            "[birdeye] token %s | price %.6g  liq %.0f  vol24h %.0f  fdv %.0f",
-            addr[:4], out.get("price_usd"), out.get("liquidity_usd"),
-            out.get("volume_24h_usd"), out.get("market_cap_usd"),
-        )
-    except Exception:
-        pass
-    return out
+    return created
 
 
-async def get_pool_info(address: str, *, force_refresh: bool = False) -> Dict[str, Any] | None:
-    """
-    ``/pool/{address}``    – stats de pool (TVL, volumen, fees, APR…)
+def _valid_creation(data: dict) -> bool:
+    slot = data.get("slot")
+    return (_creation_time(data) is not None and type(slot) is int and slot >= 0
+            and _base58_bytes(data.get("txHash"), 64))
 
-    Nota: si tu flujo espera *pool address* real y no mint, puedes retirar la
-    normalización y dejar que data_utils gestione advertencias. Dado tu log actual,
-    mantenemos el mismo guardarraíl para evitar llamadas /pool/<mint>pump.
-    """
-    addr = str(address or "").strip()
-    if not addr or addr.startswith("0x") or not (30 <= len(addr) <= 60):
-        log.warning("[birdeye] pool inválido (no mint SPL): %r", address)
+
+async def get_token_info(address: str, *, force_refresh: bool = False) -> dict | None:
+    address = _request_address(address, token=True)
+    if address is None:
         return None
+    data = await _fetch(_TOKEN_EP, f"be:v2:token:{address}", address=address, force_refresh=force_refresh)
+    return _normalize_token_payload(address, data) if data is not None else None
 
-    key = f"be:pool:{addr}"
-    data = (await _fetch(_POOL_EP.format(addr=addr), key, force_refresh=True) if force_refresh
-            else await _fetch(_POOL_EP.format(addr=addr), key))
-    if not data:
+
+async def get_pool_info(address: str, *, force_refresh: bool = False) -> dict | None:
+    address = _request_address(address, token=False)
+    if address is None:
         return None
-
-    out = _normalize_pool_payload(addr, data)
-    try:
-        log.debug(
-            "[birdeye] pool  %s | tvl/liquidity %.0f  vol24h %.0f",
-            addr[:4], out.get("liquidity_usd"), out.get("volume_24h_usd"),
-        )
-    except Exception:
-        pass
-    return out
+    def valid_base(data: dict) -> bool:
+        return _base58_bytes(_mapping(data.get("base")).get("address"), 32)
+    data = await _fetch(_POOL_EP, f"be:v2:pool:{address}", address=address,
+                        force_refresh=force_refresh, validator=valid_base)
+    return _normalize_pool_payload(address, data) if data is not None else None
 
 
-__all__ = [
-    "get_token_info",
-    "get_pool_info",
-]
+async def get_token_creation_info(address: str, *, force_refresh: bool = False) -> dict | None:
+    """Explicit cached creation lookup, never an implicit extra price request."""
+    address = _request_address(address, token=True)
+    if address is None:
+        return None
+    data = await _fetch(_CREATION_EP, f"be:v2:creation:{address}", address=address,
+                        identity_field="tokenAddress", force_refresh=force_refresh,
+                        ttl=86400, validator=_valid_creation)
+    if data is None:
+        return None
+    created_at = _creation_time(data)
+    return {"address": address, "created_at": created_at, "token_birth_observation": {
+        "version": "birdeye_mint_creation_receipt_v1", "source": "birdeye", "chain": "solana",
+        "address": address, "created_at": created_at.isoformat(), "slot": data["slot"],
+        "tx_hash": data["txHash"], "received_at": data["_market_received_at"],
+        "basis": "provider_reported_mint_creation_not_independent_chain_verification",
+    }}
+
+
+__all__ = ["get_token_info", "get_pool_info", "get_token_creation_info"]

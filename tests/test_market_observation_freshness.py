@@ -282,13 +282,13 @@ async def test_real_dex_search_cannot_substitute_a_similarly_named_token(monkeyp
 
 @pytest.mark.asyncio
 async def test_real_birdeye_cache_retains_http_receipt_and_throttle(monkeypatch):
-    client = AsyncSession({"data": {"priceUsd": "2", "liquidityUsd": 0, "tvlUsd": 999}})
+    client = AsyncSession({"success": True, "data": {"address": MINT, "priceUsd": "2", "liquidityUsd": 0, "tvlUsd": 999}})
     throttles = []
     async def throttle(): throttles.append(True)
     monkeypatch.setattr(birdeye, "_API_KEY", "synthetic")
     monkeypatch.setattr(birdeye, "_throttle", throttle)
     monkeypatch.setattr(birdeye.aiohttp, "ClientSession", lambda *a, **k: client)
-    simple_cache.cache_set(f"be:token:{MINT}", birdeye._SENTINEL_NIL, ttl=999)
+    simple_cache.cache_set(f"be:v2:token:{MINT}", birdeye._SENTINEL_NIL, ttl=999)
     first = await birdeye.get_token_info(MINT, force_refresh=True)
     second = await birdeye.get_token_info(MINT)
     assert first["market_observation"] == second["market_observation"]

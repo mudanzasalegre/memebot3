@@ -1,0 +1,194 @@
+{
+  "stage_status": "SOFTWARE_VERIFIED_RUNTIME_OFF",
+  "global_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "runtime_requirement": "Bot, training, AutoResearch, API and UI stay OFF. No credentialed provider call, wallet/order, operational model fitting or policy activation.",
+  "requested_trade_size_sol": 0.1,
+  "reviewed_original_publishing_commit": "fa56631edc513e630ce926e0cafef87bfd26bfb3",
+  "data_quality_contract": {
+    "owning_workflow": "Native engineering implementation with a scoped Data Analytics companion; not a standalone dataset, profitability or causal assessment.",
+    "authority": "Original native publishing adapter/consumer, current official Birdeye authentication/token/pair/creation documentation and isolated native synthetic HTTP regressions.",
+    "grain": "One explicit Solana token overview, one identified pair with its base mint, or one separately requested provider-reported original mint creation transaction.",
+    "missingness": "Malformed identity/envelope/optional metrics and untyped token birth stay unknown. Genuine zero activity/liquidity is preserved. Market HTTP receipt is not market-as-of freshness.",
+    "notebook_omission": "The scoped companion returns inspectable native pytest/source and the private native-parent reproduction helper to the owning implementation. A second notebook would duplicate the software tests."
+  },
+  "findings": [
+    {
+      "severity": "high",
+      "finding": "The adapter used /public/token/<address> and /public/pool/<address> with Bearer authentication instead of current documented Solana query-address endpoints and X-API-KEY.",
+      "evidence": "Current original native source and official protocol documentation. Isolated request assertions exercise actual adapter calls.",
+      "qualification": "No credentialed API request was made; operator subscription/access and the cause or number of missed real trades are not established.",
+      "remediation": "Use documented token overview and pair overview endpoints, explicit Solana header, address query and disabled redirects.",
+      "confidence": "High for native software reproduction; real-provider and economic impact unestablished."
+    },
+    {
+      "severity": "high",
+      "finding": "A current scalar liquidity response raised AttributeError in native normalization; current volume and 5m activity were not projected reliably into entry collection.",
+      "evidence": "Actual native original-C reproduction throws on scalar liquidity, and original entry snapshot fails to supply requested activity.",
+      "remediation": "Typed scalar/nested normalization, nullable malformed optional fields, valid finite market numbers and original receipt-bound native entry integration.",
+      "confidence": "High for native software reproduction; real-provider and economic impact unestablished."
+    },
+    {
+      "severity": "high",
+      "finding": "Original adapter accepted false/absent success or wrong/missing provider identity and relabelled data with the requested mint.",
+      "evidence": "Native original-C success-envelope and identity regressions fail.",
+      "remediation": "Require success is exactly true, object payload, exact case-sensitive requested public key and no conflicting declared network before stamping/caching. Validate pair base identity separately.",
+      "confidence": "High for native software reproduction; real-provider and economic impact unestablished."
+    },
+    {
+      "severity": "high",
+      "finding": "Undocumented overview birth aliases or ages could enter canonical birth predictors; mint creation and venue creation were not independently requested.",
+      "evidence": "Native original-C isolated legacy-shaped overview alias tests reproduce canonical birth/age promotion. Separate creation API was absent.",
+      "remediation": "Detach overview clocks/ages as untyped diagnostics; preserve pair creation only at venue grain; provide an explicit cached creation lookup with original token, timestamp, signature and slot shape checks.",
+      "qualification": "Creation receipt is provider-reported, not independent chain verification. Automatic birth enrichment and creator/chain provenance are not implemented by this stage.",
+      "confidence": "High for native software reproduction; real-provider and economic impact unestablished."
+    }
+  ],
+  "implemented": [
+    "Documented token/pair request and authentication contract, strict success/object/identity/network handling and no redirects carrying credentials.",
+    "Strict 32-byte Base58 shape independent of optional base58 dependency. Valid raw pump-ending identities remain unchanged; only invalid token inputs may use a valid controlled suffix repair. Pool identities never receive token suffix cleanup.",
+    "Current price, scalar liquidity, USD volume, market cap, holder and 5m trade/buy/sell/price/volume fields normalized with genuine zero and nullable absence. Signed/extreme percentage fields are not clipped.",
+    "Contract-versioned detached positive/negative caches retain original HTTP receipts. Refresh still applies the cooperative global throttle; cancellation propagates without a fabricated negative result. Logged exceptions expose their type only.",
+    "Current pair overview keeps requested pair identity and documented base mint separate; creation remains a nullable venue event, not canonical birth.",
+    "Explicit get_token_creation_info uses the documented independent mint-creation endpoint, 24h context cache and validated seconds/slot/signature/token context. No ordinary price or entry request automatically adds a creation call or provider CU cost.",
+    "76 native new cases plus adjusted existing freshness fixture; the existing native get_entry_snapshot consumer supplies current extreme activity from one successful overview without an extra fallback request."
+  ],
+  "verification": {
+    "original_publishing": {
+      "failed": 38,
+      "passed": 12,
+      "seconds": 0.62,
+      "exit_code": 1,
+      "native_modules_scoped": 3,
+      "scope": "Initial 50 independently supplied native contract cases before implementation; explicit missing creation API tests are capability gaps, not historical execution measurements."
+    },
+    "focused_working": {
+      "passed": 294,
+      "seconds": 5.59,
+      "exit_code": 0
+    },
+    "focused_publishing": {
+      "passed": 294,
+      "seconds": 5.39,
+      "exit_code": 0
+    },
+    "full_working": {
+      "passed": 5209,
+      "warnings": 2,
+      "seconds": 1159.92,
+      "exit_code": 0
+    },
+    "full_publishing": {
+      "passed": 5209,
+      "warnings": 2,
+      "seconds": 1142.59,
+      "exit_code": 0
+    },
+    "source_snapshot": {
+      "files_each": 774,
+      "normalized_sha256": "3ad33bdf9fb38e16bca47c8f432c561ba369a51fdb589ab675d43f91ae682644",
+      "frozen_before_full_suites": true,
+      "frozen_before_and_after_full_suites": true
+    },
+    "cold_root_probes": {
+      "exit_codes_each": 0,
+      "modules_scoped_each": 15,
+      "advisory_pipeline": 13,
+      "dry_run_each": true,
+      "paper_max_trade_amount_sol_each": 0.1,
+      "paper_bootstrap_amount_sol_each": 0.1,
+      "scope": "Native imports, unchanged clock-generation input/config checks only; no provider call or runtime start."
+    },
+    "preflights": {
+      "working": {
+        "exit_code": 0,
+        "ok": true,
+        "generated_at_utc": "2026-10-11T01:17:22.525076+00:00",
+        "report_builders": 7,
+        "compile_errors": 0,
+        "external_completed_pytest": true
+      },
+      "publishing": {
+        "exit_code": 0,
+        "ok": true,
+        "generated_at_utc": "2026-10-11T01:17:21.457041+00:00",
+        "report_builders": 7,
+        "compile_errors": 0,
+        "external_completed_pytest": true
+      },
+      "scope": "Compilation, config/profile and seven isolated report builders. External pytest attestation follows actual same-source completed full suites, not an operational startup."
+    },
+    "shutdown": {
+      "started_utc": "2026-10-11T01:17:33.8478408+00:00",
+      "finished_utc": "2026-10-11T01:17:36.4485081+00:00",
+      "exit_code": 0,
+      "checkout": "working_only",
+      "requested_by": "user",
+      "finalizer_status": "ok",
+      "killed": 0,
+      "remaining": 0
+    },
+    "final_off_inventory": {
+      "observed_at": "2026-10-11T01:17:38.0859316+00:00",
+      "since_utc": "2026-10-08T16:09:40.0000000Z",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "checkouts": [
+        {
+          "checkout": "working",
+          "protected_files": 3763,
+          "green_live_risk_file_exists": false,
+          "locks": 0,
+          "changed_by_mtime": 0
+        },
+        {
+          "checkout": "publishing",
+          "protected_files": 27,
+          "green_live_risk_file_exists": false,
+          "locks": 0,
+          "changed_by_mtime": 0
+        }
+      ],
+      "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+    },
+    "final_sql_state": {
+      "observed_at_utc": "2026-10-11T01:17:38.165674+00:00",
+      "main": {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-11 01:17:36.071329"
+      },
+      "green_live_rows": 0,
+      "paper_sql_groups": [],
+      "qualification": "Read-only scoped SQL/declaration inventories. Empty scopes do not establish whole-wallet safety, complete opportunity coverage or profitability."
+    },
+    "known_qa_warnings": {
+      "category": "pandas FutureWarning",
+      "count_each": 2,
+      "scope": "Existing concat of an all-NA peer in token-clock batch tests; future pandas compatibility is not certified."
+    },
+    "preflight_reporting_retry": {
+      "initial_wrapper_exit_code_each": 1,
+      "reason": "PowerShell reporting wrapper used true instead of $true; corrected complete reruns confirm exit0/ok in each root. This was a reporting command error, not a source or pytest failure."
+    }
+  },
+  "official_contract_sources": [
+    "https://data.birdeye.so/docs/authentication",
+    "https://data.birdeye.so/docs/data-api/stats/get-defi-token-overview",
+    "https://data.birdeye.so/docs/data-api/stats/get-defi-v3-pair-overview-single",
+    "https://data.birdeye.so/docs/data-api/creation-trending/get-defi-token-creation-info"
+  ],
+  "remaining_boundaries": [
+    "No operator Birdeye authentication, subscription entitlement, quota/RPM/CU acceptance, production latency or provider market-as-of/depth acceptance is tested. The configurable local throttle is not a guarantee of a provider tier allowance.",
+    "Automatic creation enrichment in the actual scanner/queue and independent chain/creator verification remain separate. This explicit adapter must not be described as authenticated original birth or activated automatic enrichment.",
+    "Price/cash extremes are software scenarios; actual profitable capture, rare-event generalization, full-strategy financial risk, live wallet/finality and prospective net returns are unestablished.",
+    "Legacy age-based training cohort selection, other provider contracts/access, complete first-launch operational acceptance and full-strategy generation/provenance remain independent and incomplete."
+  ],
+  "completion_rule": "This bounded provider software repair does not establish a winning bot, exhaustive opportunity coverage, real data access, guaranteed future returns or zero future errors."
+}

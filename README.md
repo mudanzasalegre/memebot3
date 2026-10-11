@@ -243,6 +243,19 @@ Ver `docs/audits/token_clock_learning_20261011.json`. Esta procedencia no autent
 el nacimiento on-chain; la reconstruccion legacy de cohortes por lane/edad,
 acceso real a proveedores y rentabilidad prospectiva siguen pendientes.
 
+Birdeye usa ahora las rutas documentadas de token overview y pair overview,
+con identidad Solana exacta, respuesta `success=true`, cabecera de acceso
+documentada y redirecciones desactivadas. Acepta liquidez escalar y conserva
+actividad de 5 minutos, ceros reales, ausencia nullable y porcentajes extremos
+sin recortar. El recibo HTTP original permanece ligado al valor y a su cache;
+no garantiza la fecha efectiva del dato de mercado.
+Los relojes/edades no tipados del overview no son nacimiento del mint, y la
+creacion del par queda separada. `get_token_creation_info` es una consulta
+explicita con contexto de creacion cacheado: no se agrega automaticamente
+a cada precio ni autentica la cadena de forma independiente.
+Ver `docs/audits/birdeye_contract_20261011.json`; el acceso, coste/cuota reales,
+enriquecimiento automatico de nacimiento y beneficios futuros no se certifican.
+
 La procedencia de las entradas aprendidas incluye ahora una comprobacion
 acotada del codigo Python cargado y sus namespaces, aliases y cierres de
 funcion frente a las fuentes originales. Una funcion sustituida, un alias
