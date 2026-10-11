@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from analytics.social_signal import social_feature_values, social_signal_from_token
-from analytics.token_time import compute_age_minutes
+from analytics.token_time import compute_age_minutes, compute_queue_age_minutes
 from ml.data_contract import (
     normalize_dex_id as contract_normalize_dex_id,
     normalize_entry_regime as contract_normalize_entry_regime,
@@ -437,6 +437,7 @@ def build_feature_vector(tok: Dict[str, Any], *, now: dt.datetime | None = None)
         "price_source": normalize_price_source(tok.get("price_source")),
         "price_source_quality": _price_source_quality(tok.get("price_source")),
         "age_minutes": age_min,
+        "queue_age_minutes": compute_queue_age_minutes(tok, now=now),
         "liquidity_is_proxy": _as_bool_int(tok.get("liquidity_is_proxy") if tok.get("liquidity_is_proxy") is not None else tok.get("liquidity_usd_is_proxy")),
         "route_proxy": _as_bool_int(tok.get("route_proxy")),
         "green_sniper_risk_level": tok.get("green_sniper_risk_level"),
@@ -478,5 +479,7 @@ def build_feature_vector(tok: Dict[str, Any], *, now: dt.datetime | None = None)
         values[col] = np.nan if parsed is None else parsed
 
     vector = pd.Series([values.get(c, np.nan) for c in COLUMNS], index=COLUMNS)
+    from features.token_clock_semantics import bind_vector_clock
+    vector = bind_vector_clock(vector, tok)
     from features.auxiliary_semantics import bind_vector_receipt
     return bind_vector_receipt(vector, tok)

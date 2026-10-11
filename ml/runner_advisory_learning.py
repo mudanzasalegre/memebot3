@@ -33,7 +33,7 @@ from features.auxiliary_semantics import (checked_semantics_schema, checked_mode
     prepare_training_frame, SCHEMA_SHA256 as AUXILIARY_SCHEMA_SHA256)
 
 ROLE = "scanner_ranking_only"
-PIPELINE_VERSION = 12  # Venue-not-birth semantics invalidate earlier advisory no-change fingerprints.
+PIPELINE_VERSION = 13  # Original T0 clock proof invalidates unproved age-using generations.
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -267,7 +267,10 @@ def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | Non
                     raise ValueError("Incumbent head identity mismatch; preserve it for diagnosis")
                 if (not checked_context_schema(old_meta, old_meta.get("features") or [])
                         or not checked_numeric_schema(old_meta, old_meta.get("features") or [])):
-                    raise ValueError("Incumbent input encoding is unsupported")
+                    # Keep obsolete artifacts and approvals for diagnosis, but
+                    # do not load them or stall an independently checked successor.
+                    decision["obsolete_incumbent_input_generation"] = True
+                    incumbent = None
                 if not checked_semantics_schema(old_meta, old_meta.get("features") or []):
                     # Retained on disk/previous_heads, but unavailable at runtime.
                     # Only the independently validated later-cohort candidate

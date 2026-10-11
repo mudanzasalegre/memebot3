@@ -78,6 +78,10 @@ def input_frame(vector):
     proof = getattr(vector, "attrs", {}).get(PROOF_COLUMN)
     if proof is not None:
         row[PROOF_COLUMN] = proof
+    from features.token_clock_semantics import PROOF_COLUMN as CLOCK_PROOF_COLUMN
+    clock = getattr(vector, "attrs", {}).get(CLOCK_PROOF_COLUMN)
+    if clock is not None:
+        row[CLOCK_PROOF_COLUMN] = clock
     return pd.DataFrame([row])
 
 
@@ -153,6 +157,8 @@ def checked_model_frame(frame, features):
     """A model with changed inputs only consumes matching causal receipts."""
     from features.context_encoding import FEATURE_SOURCES
     features = list(features)
+    from features.token_clock_semantics import checked_model_frame as checked_clock_frame
+    frame = checked_clock_frame(frame, features)
     strategy = any(FEATURE_SOURCES.get(name) == STRATEGY_SOURCE for name in features)
     if not semantic_sources(features) and not strategy:
         return frame
@@ -211,5 +217,7 @@ def prepare_training_frame(frame, *, min_current_rows=30):
     if not (len(strategy_positions) >= minimum and len(strategy_tokens) >= 30):
         out = out.drop(columns=[name for name in out if name == STRATEGY_SOURCE
             or isinstance(name, str) and name.startswith(f"t0ctx_{STRATEGY_SOURCE}__")], errors="ignore")
+    from features.token_clock_semantics import prepare_training_frame as prepare_clock_frame
+    out, report["token_clock_filtering"] = prepare_clock_frame(out, min_current_rows=min_current_rows)
     out.attrs["auxiliary_semantics_training"] = report
     return out.reset_index(drop=True), report

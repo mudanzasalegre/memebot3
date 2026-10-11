@@ -224,11 +224,24 @@ Dex usa `token-pairs/v1/solana` y conserva su evento nullable junto a la identid
 del par; Gecko y el normalizador legacy de pools Birdeye separan asimismo sus
 relojes de venue. Una observacion de mercado nueva no rejuvenece un nacimiento
 conocido ni el tiempo original en cola. Los modelos que usan edad requieren la
-generacion `original_mint_birth_not_venue_v2`; pipeline advisory 12 invalida el
-anterior fingerprint sin reescribir ni activar modelos/politicas del operador.
+generacion `original_mint_birth_not_venue_v2`; la etapa inicial empleaba pipeline
+advisory 12, sin reescribir ni activar modelos/politicas del operador.
 Ver `docs/audits/venue_birth_semantics_20261011.json`. Esto no aporta un nacimiento
 autoritativo cuando falta, ni certifica acceso real a proveedores, cobertura de
 oportunidades o beneficios. El bot permanece apagado y la medida es PAPER 0.1 SOL.
+
+El aprendizaje temporal exige ademas procedencia original de los inputs
+normalizados en T0: mint, reloj, edad y ausencia se conservan como metadata,
+fuera de las 77 columnas. Una etiqueta de generacion no basta para certificar
+edades historicas. Si faltan soporte o tokens distintos suficientes, se
+mantienen los inputs historicos no temporales sin renombrar ni reescribir datos.
+La pipeline advisory actual es 13: conserva artefactos obsoletos y exige un
+sucesor validado de forma independiente, sin activacion operativa por esta QA.
+El ranking por lotes conserva asimismo la procedencia temporal de cada Series
+y aisla los comprobantes invalidos sin convertir en desconocidos sus pares validos.
+Ver `docs/audits/token_clock_learning_20261011.json`. Esta procedencia no autentica
+el nacimiento on-chain; la reconstruccion legacy de cohortes por lane/edad,
+acceso real a proveedores y rentabilidad prospectiva siguen pendientes.
 
 La procedencia de las entradas aprendidas incluye ahora una comprobacion
 acotada del codigo Python cargado y sus namespaces, aliases y cierres de

@@ -1,0 +1,77 @@
+{
+  "stage_status": "SOFTWARE_VERIFIED_RUNTIME_OFF",
+  "global_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "runtime_requirement": "Bot, training, AutoResearch, API and UI stay OFF. No operational startup, provider request, wallet order or operator model/policy promotion.",
+  "requested_trade_size_sol": 0.1,
+  "execution_scope": "Existing exact 0.1 SOL PAPER configuration and uncapped applicable runner residuals unchanged. Temporary synthetic model fitting is regression QA only.",
+  "reviewed_original_publishing_commit": "63264a5f5fae7508ebcc711a0ea134ad6288a278",
+  "data_quality_contract": {
+    "owning_workflow": "Native engineering implementation with a scoped Data Analytics data-quality companion, not a standalone dataset or financial report.",
+    "authority": "Original native publishing modules, source diffs and independently loaded native regressions; no operational provider or market acceptance.",
+    "grain": "One original normalized mint/queue observation at T0, distinct from a training row, target-specific population and independent provider mint-birth authentication.",
+    "missingness": "Unknown, invalid and future clock inputs remain nullable. Genuine zero is retained. Receipt transport is metadata outside the unchanged 77-column vector.",
+    "history": "No historical rows, models, approvals or policies are relabelled or rewritten. Nonclock historical inputs remain usable when original clock support is insufficient.",
+    "notebook_omission": "The scoped companion uses the owning implementation's inspectable native pytest suite, source diffs and private reproduction helpers. A separate notebook would duplicate these software regression receipts."
+  },
+  "findings": [
+    {"severity":"high","finding":"Historical finite ages without original T0 clock evidence survived native preparation; a new schema meaning alone could certify an age-using artifact.","evidence":"Actual original D and native C preparation, schema and pre-deserialization tests fail; prior read-only Parquet census found 7792 rows without the new original-proof column.","qualification":"Absence of proof does not establish that all original ages were wrong, or quantify missed opportunities.","remediation":"Capture and recheck original normalized inputs/T0/identity/ages, require actual current target population support, otherwise omit only changed clock predictors and aliases."},
+    {"severity":"high","finding":"An unsupported age-using incumbent could stall native automatic runner replacement with ValueError; missing population evidence could retain the obsolete generation.","evidence":"Native temporary original-C fit/selection followed by a current candidate reproduces both defects.","remediation":"Pipeline13 keeps old artifacts and approvals but avoids deserializing an unsupported input generation. Only an independently validated successor can be selected; obsolete rollback remains rejected."},
+    {"severity":"high","finding":"Standalone metadata must not upgrade a retained legacy original entry or contradict original financial entry inputs.","evidence":"Native frozen entry, valid synthetic net-close source, malformed declared receipts, same-age different-source and exact Parquet projection regressions.","remediation":"Original retained entry/financial proof takes precedence. Declared malformed or conflicting evidence remains unavailable, never silently replaced."}
+  ],
+  "implemented": [
+    "features/token_clock_semantics.py: strict independently versioned original normalized T0 clock receipt and target population proof; current row checking and legacy nonclock fallback.",
+    "features/builder.py and features/auxiliary_semantics.py: original birth/queue clocks captured at fixed T0, nullable values and receipt metadata preserved through common transport/preparation/inference.",
+    "runtime/trade_learning.py and features/store.py: optional independently versioned receipt extension retained through original frozen entries, Parquet metadata and existing buy/close/export transport. Legacy entries remain unchanged.",
+    "features/numeric_encoding.py: age and derived missingness consumers require checked original population before deserialization; unsupported clock aliases cannot escape generic predictors.",
+    "ml/train.py and ml/family_training.py: actual final and target-specific original clock population recorded rather than generation flags or parent-cohort counts.",
+    "ml/runner_advisory_learning.py: pipeline13 invalidates no-change fingerprints and permits independently validated replacement of unsupported input generations without rewriting old artifacts.",
+    "analytics/model_runtime_common.py: native batched ranking uses common one-row input transport instead of selectively retaining only auxiliary attrs; independent valid and nullable clock rows survive a malformed peer.",
+    "tests/test_token_clock_learning.py: 77 native regression cases; existing auxiliary, strategy and venue tests retain their acceptance contracts and follow independent clock provenance/pipeline13."
+  ],
+  "verification": {
+    "initial_original_working": {"failed":19,"passed":0,"seconds":11.8,"exit_code":1},
+    "initial_original_publishing": {"failed":19,"passed":0,"seconds":9.66,"exit_code":1,"native_modules_scoped":13},
+    "expanded_original_publishing": {"failed":74,"passed":1,"seconds":14.55,"exit_code":1,"native_modules_scoped":13,"collection_failure":false},
+    "intermediate_working": {"passed":146,"seconds":16.56,"exit_code":0,"scope":"55 clock plus91 venue cases before20 additional clock/source/target cases; not final acceptance."},
+    "pre_batch_focused_working": {"passed":574,"seconds":194.45,"exit_code":0,"scope":"Intermediate pre-batch transport source, not final acceptance."},
+    "pre_batch_focused_publishing": {"passed":574,"seconds":193.84,"exit_code":0,"scope":"Intermediate pre-batch transport source, not final acceptance."},
+    "batch_transport_original": {"working":{"failed":2,"seconds":2.49,"exit_code":1},"publishing":{"failed":2,"seconds":0.73,"exit_code":1,"native_modules_scoped":13},"source_sha256":"e4a47e40dab5bdd4fdd64294756c1ac189bdfec038dc1fdafc950a19d4f8cffa","scope":"Native intermediate source loses standalone original clock attrs in Series batch conversion; scalar80 versus batchnull for valid peers."},
+    "pre_batch_full_suites": {"working":{"exit_code":1,"status":"INTENTIONALLY_INTERRUPTED_NOT_ACCEPTANCE"},"publishing":{"exit_code":1,"status":"INTENTIONALLY_INTERRUPTED_NOT_ACCEPTANCE"},"interrupted_at_utc":"2026-10-11T00:22:20Z","source_sha256":"e4a47e40dab5bdd4fdd64294756c1ac189bdfec038dc1fdafc950a19d4f8cffa","reason":"An independently reproduced batch transport omission required a source correction. Both owned QA sessions were interrupted before editing; no completed full-suite result is claimed."},
+    "focused_working": {"passed":576,"warnings":2,"seconds":201.41,"exit_code":0},
+    "focused_publishing": {"passed":576,"warnings":2,"seconds":197.86,"exit_code":0},
+    "known_qa_warnings": {"category":"pandas FutureWarning","count_each":2,"scope":"Existing concat behavior for an all-NA nullable peer in the new batch receipt regressions. No current failure; future pandas compatibility is not certified."},
+    "existing_extreme_cash_working": {"passed":11,"seconds":4.05,"exit_code":0,"scope":"Three existing native synthetic cash/entry/actual PAPER partial-ladder tests, including extreme returns up to1000000%; isolated temporary fixtures only, not operational profit."},
+    "full_working": {"passed":5133,"warnings":2,"seconds":1192.33,"exit_code":0},
+    "full_publishing": {"passed":5133,"warnings":2,"seconds":1176.06,"exit_code":0},
+    "source_snapshot": {"files_each":773,"normalized_sha256":"5c9c94847812c0795c2a8013a81f17ea82f88e02fb9bb29c09525b69c346d703","frozen_before_full_suites":true},
+    "cold_root_probes": {"exit_codes_each":0,"modules_scoped_each":15,"advisory_pipeline":13,"current_original_population_checked":true,"schema_alone_rejected":true,"legacy_nonclock_inputs_preserved":true,"venue_only_birth_unknown":true,"dry_run_each":true,"paper_max_trade_amount_sol_each":0.1,"paper_bootstrap_amount_sol_each":0.1,"scope":"Cold imports/config and synthetic input contract only; no fit, runtime start or provider access."},
+    "preflights": {"working":{"ok":true,"exit_code":0,"generated_at_utc":"2026-10-11T00:44:26.171704+00:00","report_builders":7,"compile_errors":0},"publishing":{"ok":true,"exit_code":0,"generated_at_utc":"2026-10-11T00:44:25.153312+00:00","report_builders":7,"compile_errors":0},"scope":"Compilation, config/profile and seven isolated report builders. External pytest attestation follows actual completed same-source full suites; no operational startup."},
+    "shutdown": {"started_utc":"2026-10-11T00:44:36.5668545+00:00","finished_utc":"2026-10-11T00:44:39.2498419+00:00","exit_code":0,"checkout":"working_only","requested_by":"user","finalizer_status":"ok","killed":0,"remaining":0},
+    "final_off_inventory": {"observed_at_utc":"2026-10-11T00:44:41.1996262+00:00","operational_processes":0,"matching_tasks":0,"matching_services":0,"locks_each":0,"protected_files_working":3763,"protected_files_publishing":27,"mtime_changed_since_20261008_each":0,"qualification":"Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."},
+    "final_sql_state": {"observed_at_utc":"2026-10-11T00:44:41.514512+00:00","main":{"bot_id":"main","process_state":"stopped","reports_refresh_state":"idle","retrain_state":"idle","updated_at":"2026-10-11 00:44:38.838856"},"green_live_rows":0,"paper_sql_groups":[],"qualification":"Read-only scoped SQL and PAPER declaration inventory; empty scopes are not whole-wallet risk, market coverage or profit acceptance."},
+    "initial_off_inventory": {"observed_at_utc":"2026-10-11T00:05:54.5488798+00:00","operational_processes":0,"matching_tasks":0,"matching_services":0,"locks_each":0,"protected_files_working":3763,"protected_files_publishing":27,"mtime_changed_since_20261008_each":0,"qualification":"Read-only mtime census, not a cryptographic historical preservation proof; intentional stop/preflight metrics excluded."}
+  },
+  "independent_legacy_lane_census": {
+    "observed_at_utc":"2026-10-11T00:11:05.346571+00:00",
+    "private_reproduction":"work/audit-legacy-clock-lane-selection.py",
+    "grain":"Native-precedence Parquet feature rows before outcome/financial/regime/dex filtering, not final eligible training rows.",
+    "files":[
+      {"source":"data/features/features_202607.parquet","rows":7779,"new_clock_proof_column_present":false,"raw_fallback_rows":21,"raw_fallback_rows_without_age":0,"configured_lane_selected_rows":2194,"rows_missing_lane_metadata":0,"rows_reconstructed_by_fallback":0},
+      {"source":"data/features/features_202610.parquet","rows":13,"new_clock_proof_column_present":false,"raw_fallback_rows":1,"raw_fallback_rows_without_age":0,"configured_lane_selected_rows":3,"rows_missing_lane_metadata":0,"rows_reconstructed_by_fallback":0}
+    ],
+    "qualification":"All22 raw fallback matches depend on historical ages, but neither current projected file reconstructs any missing lane. The independent software selection-provenance gap is not demonstrated to alter this operator population or measured opportunity/profit. Data was only read and compared in memory."
+  },
+  "requested_extreme_opportunities": {
+    "native_runner_thresholds_pct":[50,100,200,300,500,1000,2000,5000,10000],
+    "isolated_native_label_probe":{"original_peak_pct":25000,"largest_nested_threshold_pct":10000,"original_peak_retained":true,"unknown_peak_remains_unlabelled":true,"exit_code":0},
+    "qualification":"The largest binary ranking threshold does not truncate the retained peak or establish realizable profits. Existing synthetic cash-tail tests verify applicable residuals at much higher returns. The separate EV regression target remains configured-clipped (default upper300%); that robust target is not an execution take-profit ceiling and its tail discrimination must not be confused with uncapped runner labels. No current strategy or operator artifact is activated or changed by these probes."
+  },
+  "remaining_boundaries": [
+    "The receipt binds original normalized inputs, not independent provider mint-birth authentication. Current Birdeye creation/auth/envelope and other provider access remain separate.",
+    "Primary legacy productive-lane fallback currently reconstructs admission cohorts using historical age/age_min before current clock preparation. This independent selection-provenance gap is not repaired or certified by excluding unsupported age predictors.",
+    "No independent production latency, data coverage, complete creator/regime dependence or rare uncapped runner generalization is established.",
+    "No operational first-launch acceptance, active strategy promotion, live chain/wallet/fill reconciliation or prospective costed net profitability is performed. Full goal remains active."
+  ],
+  "completion_rule": "Do not equate this bounded source/data-quality repair, green synthetic tests or an original normalized clock receipt with a winning strategy, authenticated mint birth or guaranteed future returns."
+}

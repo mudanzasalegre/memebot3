@@ -454,15 +454,11 @@ def predict_ranking_scores(family: str, target: str, vectors: list[Any]) -> list
             reference = np.asarray(metadata.get("rank_reference_quantiles") or [], dtype=float)
             if len(reference) < 2 or not np.isfinite(reference).all() or np.any(np.diff(reference) < 0):
                 raise ValueError("Invalid rank reference")
-            from features.auxiliary_semantics import PROOF_COLUMN
             positions, records = [], []
             for index, vector in enumerate(vectors):
                 try:
                     if isinstance(vector, pd.Series):
-                        row = vector.to_dict()
-                        proof = vector.attrs.get(PROOF_COLUMN)
-                        if proof is not None:
-                            row[PROOF_COLUMN] = proof
+                        row = input_frame(vector).iloc[0].to_dict()
                     elif isinstance(vector, dict):
                         row = dict(vector)
                     else:

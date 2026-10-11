@@ -119,7 +119,8 @@ def test_enough_original_current_tokens_select_one_generation_not_mixed_meanings
     assert len(prepared) == 40 and report["mode"] == "current_receipts_only"
     assert report["current_rows"] == 40 and report["unique_tokens"] == 40
     assert "trend" in prepared and "rug_score" in prepared
-    assert sem.population_proof(prepared) == report
+    assert sem.population_proof(prepared) == {key: value for key, value in report.items() if key != "token_clock_filtering"}
+    assert report["token_clock_filtering"]["current_rows"] == len(prepared)
     assert prepared.attrs["outcome_target_join"] == mixed.attrs["outcome_target_join"]
     # A higher family/primary training requirement must keep historical stable
     # inputs usable until the current population reaches that requirement.

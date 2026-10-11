@@ -28,6 +28,8 @@ from features.strategy_context import (population_proof as strategy_population_p
 from features.context_encoding import (augment_context_frame, available_context_features,
     context_encoding_schema, FEATURE_SOURCES)
 from features.numeric_encoding import augment_numeric_frame, available_numeric_features, numeric_encoding_schema
+from features.token_clock_semantics import (population_proof as clock_population_proof,
+    checked_population as checked_clock_population, clock_sources)
 from ml.feature_sets import feature_set, feature_set_hash
 from ml.label_builder import attach_labels
 from ml.outcome_targets import enrich_outcome_targets
@@ -153,12 +155,15 @@ def _supported_target_features(features, frame):
     """A larger parent cohort cannot supply evidence missing from this target."""
     metadata = {"target_rows": len(frame), "auxiliary_semantics": semantics_schema(features),
         "auxiliary_semantics_training": population_proof(frame),
-        "strategy_context_training": strategy_population_proof(frame)}
+        "strategy_context_training": strategy_population_proof(frame),
+        "token_clock_training": clock_population_proof(frame)}
     auxiliary_ok = checked_semantics_schema(metadata, features)
     strategy_ok = checked_strategy_population(metadata)
+    clock_ok = checked_clock_population(metadata, features)
     return [name for name in features
             if (strategy_ok or FEATURE_SOURCES.get(name) != STRATEGY_SOURCE)
-            and (auxiliary_ok or not semantic_sources([name]))]
+            and (auxiliary_ok or not semantic_sources([name]))
+            and (clock_ok or not clock_sources([name]))]
 
 
 def _save_family_model(model, path: Path, metadata: dict[str, Any]) -> None:
@@ -343,6 +348,7 @@ def train_classifier_family(
             "features": features,
             "auxiliary_semantics_training": population_proof(target_df),
             "strategy_context_training": strategy_population_proof(target_df),
+            "token_clock_training": clock_population_proof(target_df),
             "validation": target_validation_payload(
                 warnings=target_warnings,
                 details={
@@ -479,6 +485,7 @@ def train_regressor_family(
             "features": features,
             "auxiliary_semantics_training": population_proof(target_df),
             "strategy_context_training": strategy_population_proof(target_df),
+            "token_clock_training": clock_population_proof(target_df),
             "validation": target_validation_payload(
                 warnings=target_warnings,
                 details={"mode": "purged_token_walk_forward" if len(pred) else "in_sample_only", "temporal": temporal, "lane_stability": lane_details},
@@ -540,6 +547,7 @@ def train_exit_classifier(
         "classification_validation_ready": evaluation["validation_ready"],
         "auxiliary_semantics_training": population_proof(df),
         "strategy_context_training": strategy_population_proof(df),
+        "token_clock_training": clock_population_proof(df),
         "trained_at_utc": datetime.now(timezone.utc).isoformat(),
         "validation": target_validation_payload(warnings=[WARNING_NOT_READY_FOR_ENFORCEMENT],
             details={"mode": "purged_token_walk_forward" if temporal["out_of_sample_rows"] else "in_sample_only", "temporal": temporal})}

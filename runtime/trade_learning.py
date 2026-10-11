@@ -83,6 +83,10 @@ def freeze_entry_features(vector, *, address, captured_at, positive_pnl_ratio=0.
             raise TradeLearningError("Strategy context requires complete original auxiliary receipts")
         payload["version"] = ENTRY_STRATEGY_VERSION
         payload["strategy_context"] = copy.deepcopy(strategy_context)
+    from features.token_clock_semantics import PROOF_COLUMN as CLOCK_PROOF_COLUMN
+    clock = getattr(vector, "attrs", {}).get(CLOCK_PROOF_COLUMN, raw.get(CLOCK_PROOF_COLUMN))
+    if clock is not None:
+        payload["token_clock"] = copy.deepcopy(json.loads(clock) if isinstance(clock, str) else clock)
     payload["payload_sha256"] = _hash(payload)
     validate_entry_features(payload, address=address)
     return payload
@@ -90,6 +94,8 @@ def freeze_entry_features(vector, *, address, captured_at, positive_pnl_ratio=0.
 
 def validate_entry_features(payload, *, address):
     keys = {"version", "captured_at", "positive_pnl_ratio", "vector", "payload_sha256"}
+    if isinstance(payload, dict) and "token_clock" in payload:
+        keys.add("token_clock")
     if isinstance(payload, dict) and payload.get("version") in {ENTRY_AUX_VERSION, ENTRY_ALL_AUX_VERSION, ENTRY_STRATEGY_VERSION}:
         keys.add("auxiliary_observations")
     if isinstance(payload, dict) and payload.get("version") == ENTRY_STRATEGY_VERSION:
@@ -102,6 +108,12 @@ def validate_entry_features(payload, *, address):
             or _time(payload["vector"]["timestamp"]) > _time(payload["captured_at"])
             or _number(payload["positive_pnl_ratio"]) < 0):
         raise TradeLearningError("Invalid frozen entry feature proof")
+    if "token_clock" in payload:
+        from features.token_clock_semantics import validate_clock_proof
+        try:
+            validate_clock_proof(payload["token_clock"], payload["vector"])
+        except (ValueError, TypeError, KeyError, OverflowError) as exc:
+            raise TradeLearningError("Invalid frozen token clock proof") from exc
     if payload["version"] == ENTRY_STRATEGY_VERSION:
         from features.strategy_context import validate_strategy_context
         try:

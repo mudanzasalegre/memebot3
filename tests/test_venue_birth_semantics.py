@@ -232,7 +232,15 @@ def test_age_using_model_schema_requires_current_clock_semantics_without_rewriti
     names=[feature]+([PREFIX+feature] if encoded else [])
     schema=numeric_encoding_schema(names)
     assert schema["token_clock_semantics"]==token_time.AGE_SEMANTICS_VERSION
-    assert checked_numeric_schema({"numeric_encoding":schema},names)
+    assert not checked_numeric_schema({"numeric_encoding":schema},names)
+    from features.builder import build_feature_vector
+    from features.auxiliary_semantics import input_frame
+    from features.token_clock_semantics import population_proof
+    rows=pd.concat([input_frame(build_feature_vector({"address":f"clock-{i}",
+        "created_at":NOW-dt.timedelta(minutes=2),"first_seen_at":NOW-dt.timedelta(minutes=1)},now=NOW))
+        for i in range(30)],ignore_index=True)
+    population=population_proof(rows)
+    assert checked_numeric_schema({"numeric_encoding":schema,"token_clock_training":population},names)
     obsolete=deepcopy(schema);obsolete.pop("token_clock_semantics")
     assert not checked_numeric_schema({"numeric_encoding":obsolete},names)
     assert not checked_numeric_schema({"numeric_encoding":{**schema,"token_clock_semantics":"venue_is_birth"}},names)

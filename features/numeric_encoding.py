@@ -99,6 +99,9 @@ def numeric_encoding_schema(features: Iterable[str]) -> dict | None:
 
 def checked_numeric_schema(metadata, features) -> bool:
     try:
-        return metadata.get("numeric_encoding") == numeric_encoding_schema(features)
+        from features.token_clock_semantics import checked_population
+        features = list(features)
+        return (metadata.get("numeric_encoding") == numeric_encoding_schema(features)
+                and checked_population(metadata, features))
     except (AttributeError, TypeError, ValueError):
         return False
