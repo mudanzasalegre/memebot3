@@ -13,6 +13,29 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Relevo primario verificado y cola extrema (2026-10-11)
+
+El relevo de la generacion cap anterior ya funciona con evidencia sintetica
+nativa: se conserva el ajuste y la seleccion originales y solo se permite un
+sucesor aprobado con una cohorte posterior, independiente y del mismo objetivo
+financiero. La integridad, el selector y la identidad se comprueban de nuevo
+bajo bloqueo. El modelo retirado no vuelve a inferencia ni a rollback.
+Otras generaciones antiguas o mixtas siguen necesitando validacion especifica.
+
+Ambas copias pasan 5.602 pruebas completas (dos avisos de pandas cada una),
+preflight y 25 imports nativos comprobados. Ademas, 12 regresiones por copia
+conservan senales y cash sinteticos hasta +1.000.000%, sin un cierre obligatorio
+al 100/200%. La escalera parcial probada retiene un 3% de la cantidad original
+para seguir la subida antes de una salida por caida de cash; no retiene todo
+el capital ni demuestra captura o beneficio real.
+
+El primario configurado en la copia de trabajo no tiene actualmente selector
+administrado ni metadata: el defecto de relevo reparado no esta establecido
+como causa del run sin compras. No se carga ni activa ningun modelo del operador.
+Bot/API/UI/entrenamiento/AutoResearch permanecen apagados; compras PAPER exactas
+de 0,1 SOL. Cobertura, primer arranque operativo y rentabilidad siguen pendientes.
+Detalles: [auditoria del relevo](docs/audits/primary_valuation_retirement_20261011.json).
+
 ### Capitalizacion/FDV y aprendizaje original (2026-10-11)
 
 La capitalizacion reportada y FDV son independientes: cero/desconocido no se
@@ -24,8 +47,8 @@ Las pruebas sinteticas conservan senales superiores al 100/200%, hasta
 Ambas copias pasan 5.567 pruebas completas (dos avisos de pandas cada una),
 preflight y 22 imports nativos comprobados. Bot/API/UI/entrenamiento/AutoResearch
 quedan apagados; PAPER mantiene compras exactas de 0,1 SOL.
-La transicion de ciertos modelos primarios antiguos necesita verificacion
-especifica; cobertura completa y beneficio neto real siguen sin establecerse.
+El relevo de la generacion cap anterior se verifica en el apartado superior;
+otras generaciones, cobertura completa y beneficio neto real siguen pendientes.
 Detalles y limites: [auditoria de valoracion](docs/audits/market_valuation_20261011.json).
 
 ### Valoracion SOL/USD y evidencia historica

@@ -148,8 +148,18 @@ def promote_candidate(artifact: ModelArtifactSet, *, active_model_path: Path | N
             raise RuntimeError("Primary incumbent changed during comparison; preserve current selection")
         current = selected_reference(REGISTRY_PATH, MODELS_DIR, active_model_path)
         previous = current["reference"] if current else None
+        retired_previous = False
         if previous:
-            read_bundle(previous, REGISTRY_PATH, MODELS_DIR)
+            from ml.primary_activation import VerifiedRetiredPrimaryBundleError
+            from ml.primary_champion import checked_retired_successor
+            try:
+                read_bundle(previous, REGISTRY_PATH, MODELS_DIR, verify_retired_generation=True)
+            except VerifiedRetiredPrimaryBundleError as retired:
+                if not checked_retired_successor(approval, retired):
+                    raise RuntimeError("Retired primary changed or successor cohort is not later/disjoint")
+                retired_previous = True
+        if "expected_retired_bundle" in approval and not retired_previous:
+            raise RuntimeError("Retired primary approval does not match the current selection")
         metrics = PROJECT_ROOT / "data" / "metrics"
         archived = (registry.get("primary_activation") or {}).get("legacy_archive")
         if current is None:

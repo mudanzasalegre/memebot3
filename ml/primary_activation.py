@@ -17,11 +17,22 @@ from utils.atomic_json import read_json_strict, write_json_atomic
 from ml.entry_probability import supported_entry_model
 from ml.financial_targets import supported_financial_training
 from features.context_encoding import checked_context_schema
-from features.numeric_encoding import checked_numeric_schema
+from features.numeric_encoding import checked_numeric_schema, checked_prevaluation_schema
 from features.auxiliary_semantics import checked_semantics_schema, AuxiliarySemanticsError
 
 VERSION = "atomic_primary_bundle_v1"
 COMPONENTS = {"model.pkl", "model.meta.json", "thresholds.by_lane.json", "threshold.json", "acceptance.json"}
+
+
+class VerifiedRetiredPrimaryBundleError(ValueError):
+    """A complete checked predecessor cannot be used for current prediction."""
+    def __init__(self, metadata, documents, reference):
+        super().__init__("Verified primary predecessor has obsolete valuation semantics")
+        self.metadata = deepcopy(metadata)
+        self.acceptance = deepcopy(documents["acceptance.json"])
+        self.binding = {"version": "verified_retired_primary_cap_v1",
+            "reason": "valuation_semantics_changed", "model_id": reference["model_id"],
+            "sha256": deepcopy(reference["sha256"])}
 
 
 @contextmanager
@@ -109,7 +120,10 @@ def reference_paths(reference: dict, registry_path: Path, models_dir: Path) -> d
     return paths
 
 
-def read_bundle(reference: dict, registry_path: Path, models_dir: Path, *, captured_payloads=None):
+def read_bundle(reference: dict, registry_path: Path, models_dir: Path, *, captured_payloads=None,
+                verify_retired_generation=False):
+    if type(verify_retired_generation) is not bool:
+        raise ValueError("Retirement verification must be explicitly boolean")
     paths = reference_paths(reference, registry_path, models_dir)
     if captured_payloads is None:
         payloads = {name: path.read_bytes() for name, path in paths.items()}
@@ -128,6 +142,10 @@ def read_bundle(reference: dict, registry_path: Path, models_dir: Path, *, captu
     from features.builder import ALLOWED_FEATURES
     from ml.primary_champion import supported_approval
     features = meta.get("features") if isinstance(meta, dict) else None
+    numeric_current = checked_numeric_schema(meta, features or [])
+    retired = (verify_retired_generation and not numeric_current
+        and checked_prevaluation_schema(meta, features or [])
+        and checked_semantics_schema(meta, features or []))
     if (not isinstance(meta, dict) or meta.get("activation_ready") is not True
             or meta.get("artifact_model_id") != reference.get("model_id")
             or not isinstance(features, list) or not features or len(set(features)) != len(features)
@@ -136,7 +154,7 @@ def read_bundle(reference: dict, registry_path: Path, models_dir: Path, *, captu
             or sha256(payloads["model.pkl"]).hexdigest() != meta.get("model_sha256")
             or not supported_financial_training(meta, entry=True)
             or not checked_context_schema(meta, meta.get("features") or [])
-            or not checked_numeric_schema(meta, meta.get("features") or [])
+            or not (numeric_current or retired)
             or not supported_approval(documents["acceptance.json"], payloads["model.pkl"], payloads["model.meta.json"])
             or documents["threshold.json"] != (meta.get("threshold_result") or {})
             or documents["thresholds.by_lane.json"] != (meta.get("thresholds_by_lane") or {})):
@@ -146,6 +164,17 @@ def read_bundle(reference: dict, registry_path: Path, models_dir: Path, *, captu
     model = joblib.load(io.BytesIO(payloads["model.pkl"]))
     if not supported_entry_model(model, meta):
         raise ValueError("Primary bundle model/calibrator mismatch")
+    if retired:
+        # Deserialize only in explicit training/promotion retirement validation,
+        # never in ordinary inference. The original fitted columns must agree.
+        names = getattr(model.base_model, "feature_names_in_", None)
+        if names is None or list(names) != features:
+            raise ValueError("Retired primary fitted feature/metadata mismatch")
+        from ml.primary_champion import checked_retired_binding
+        error = VerifiedRetiredPrimaryBundleError(meta, documents, reference)
+        if not checked_retired_binding(error.binding):
+            raise ValueError("Retired primary reference identity mismatch")
+        raise error
     return model, deepcopy(meta), documents, paths
 
 

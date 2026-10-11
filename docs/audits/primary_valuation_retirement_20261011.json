@@ -1,0 +1,243 @@
+{
+  "stage": "verified_primary_prevaluation_successor_lifecycle",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "status": "SOFTWARE_VALIDATED_NO_LIVE_GO",
+  "parent_publication_commit": "8cfc784475addbb7bd147fe22be39b0ca9bab789",
+  "scope": "Managed primary cap-generation retirement, native independent later-cohort successor, atomic selection/CAS and rollback. Bot/API/UI/training/AutoResearch remain OFF; exact0.1 SOL PAPER. No operator model load, activation, historical data rewrite or provider/wallet/order call.",
+  "native_findings": [
+    {
+      "finding": "Current incumbent loading raises generic mismatch on an otherwise coherently bound simulated pre-valuation cap schema, stopping the successor path.",
+      "evidence": "Actual untouched publishing modules:6 independently supplied transition cases fail at read_bundle,6 deselected,20.40s,exit1;4 critical native roots asserted before/after.",
+      "qualification": "The calibrated bundle and cohort are synthetic; its exact predecessor metadata is a deliberate simulated generation, with native financial/probability/approval checks retained. Not an operator-history reproduction."
+    },
+    {
+      "finding": "Promotion independently rechecks the predecessor using current input-generation requirements and rejects an independently approved later candidate.",
+      "evidence": "Separate untouched publishing diagnostic: real native approval accepted, promotion raises ValueError('Primary bundle approval/threshold/metadata mismatch'), selector bytes unchanged,4 critical native roots asserted.",
+      "qualification": "The diagnostic supplies the original empty comparison state solely to isolate this second gate; it is not a bypass used by the implemented successor path."
+    }
+  ],
+  "implementation": {
+    "recognition": "Only the exact pre-valuation numeric schema is recognized; valuation_training must be absent, cap predictors present and all unchanged numeric rules and original clock generation/population still checked. Unknown/broken current populations are not legacy.",
+    "retirement": "Only explicit boolean verify_retired_generation=True in training/promotion can verify retirement. All5 component hashes, model/meta/selector identity, contextual and auxiliary meanings, net financial training, actual supported later approval, threshold equality, deserialized calibrated model and original fitted feature order are checked. The retired model is never returned for prediction; ordinary inference still rejects it before deserialization.",
+    "original_boundaries": "Current incumbent retains original training and selected-cohort metadata, original acceptance,5-component reference binding and actual CAS epoch while model=None. Later cohort reservation and independent candidate approval enforce strict later time, disjoint original fit/selection tokens and unchanged financial target. No old-model performance comparison is manufactured.",
+    "atomic_successor": "Approved successors carry expected_retired_bundle. Promotion rechecks the actual retirement and identical bound components under the OS registry lock after epoch validation, and rechecks old temporal/token/target boundaries before writing the new immutable bundle/selector. Ordinary candidate financial/probability/current-input approval guards remain.",
+    "rollback": "The retired predecessor remains the immutable previous reference, but ordinary read/rollback cannot restore its incompatible input generation. Current compatible predecessor rollback remains covered by existing lifecycle tests.",
+    "preservation": "No operator model, registry, policy, .env or dataset is changed. Synthetic fits and promotions are confined to pytest/temp directories; no operational runtime is launched.",
+    "owned_sources": [
+      "features/numeric_encoding.py",
+      "ml/primary_activation.py",
+      "ml/primary_champion.py",
+      "ml/model_registry.py",
+      "tests/test_auxiliary_semantics.py",
+      "tests/primary_valuation_retirement_fixtures.py",
+      "tests/test_primary_valuation_retirement.py"
+    ]
+  },
+  "validation": {
+    "original_incumbent": {
+      "failed": 6,
+      "passed": 0,
+      "deselected": 6,
+      "seconds": 20.4,
+      "exit_code": 1,
+      "native_modules_scoped": 4
+    },
+    "original_promotion": {
+      "diagnostic_exit_code": 0,
+      "approval_accepted": true,
+      "promotion_exception": "ValueError",
+      "selector_unchanged": true,
+      "native_modules_scoped": 4
+    },
+    "initial_focused": {
+      "passed": 12,
+      "seconds": 36.1,
+      "exit_code": 0
+    },
+    "expanded_focused_working": {
+      "passed": 153,
+      "seconds": 174.71,
+      "exit_code": 0,
+      "scope": "New retirement tests and existing primary lifecycle, snapshot and auxiliary semantics suites."
+    },
+    "full_suites": {
+      "working": {
+        "passed": 5602,
+        "warnings": 2,
+        "seconds": 1407.83,
+        "exit_code": 0
+      },
+      "publishing": {
+        "passed": 5602,
+        "warnings": 2,
+        "seconds": 1384.96,
+        "exit_code": 0
+      },
+      "warnings_scope": "Two existing pandas FutureWarnings each in analytics/model_runtime_common.py:487; no failing tests."
+    },
+    "preflights": {
+      "working": {
+        "started_at_utc": "2026-10-11T05:52:26.8869008+00:00",
+        "generated_at_utc": "2026-10-11T05:52:30.452166+00:00",
+        "exit_code": 0,
+        "ok": true,
+        "compile_errors": 0,
+        "report_builders": 7,
+        "report_failed": 0,
+        "config_returncode": 0,
+        "pytest_returncode": 0
+      },
+      "publishing": {
+        "started_at_utc": "2026-10-11T05:52:26.8891972+00:00",
+        "generated_at_utc": "2026-10-11T05:52:29.251893+00:00",
+        "exit_code": 0,
+        "ok": true,
+        "compile_errors": 0,
+        "report_builders": 7,
+        "report_failed": 0,
+        "config_returncode": 0,
+        "pytest_returncode": 0
+      }
+    },
+    "frozen_source": {
+      "files_each": 787,
+      "sha256": "3b2540022651caeb46ed8717e357a868c3643b66d27ad704b07d95605bcce458",
+      "frozen_before_full_suites": true,
+      "rechecked_after_both_full_suites_and_preflights": true
+    },
+    "operator_primary_metadata_inventory": {
+      "observed_at": "2026-10-11T05:33:31.026257+00:00",
+      "source_scope": "configured D working primary only",
+      "selected_managed_bundle": false,
+      "registry_exists": false,
+      "metadata_exists": false,
+      "checks": null,
+      "scope": "Metadata predicates/bytes hash only, no read_bundle, deserialization, prediction, activation or history repair. Not whole-roster or operational/financial acceptance."
+    },
+    "new_authored_cases": 35,
+    "original_fit_boundary_probe": {
+      "checks": 2,
+      "native_retired_fit_tokens_rejected": true,
+      "independently_new_fit_and_fresh_cohort_accepted": true,
+      "promotion_rechecks_original_fit_tokens_under_lock": true,
+      "selector_unchanged": true,
+      "scope": "Synthetic actual separate fit/cohort, temporary artifacts; no operator activation or profitability acceptance.",
+      "exit_code": 0
+    },
+    "cold_probes": {
+      "working": {
+        "modules_scoped_each": 25,
+        "clock_generation": "original_mint_birth_not_venue_v2",
+        "advisory_pipeline": 14,
+        "current_original_population_checked": true,
+        "schema_alone_rejected": true,
+        "legacy_nonclock_inputs_preserved": true,
+        "venue_only_birth_unknown": true,
+        "config": {
+          "dry_run": true,
+          "paper_max_trade_amount_sol": 0.1,
+          "paper_bootstrap_amount_sol": 0.1
+        },
+        "paper_exact_trade_size_enabled": true,
+        "paper_exact_trade_size_sol": 0.1,
+        "provider_birth_context_retained": true,
+        "creation_budget_defaults_checked": true,
+        "scope": "Cold native imports/config and synthetic input contract only; no fit, runtime start or provider access."
+      },
+      "publishing": {
+        "modules_scoped_each": 25,
+        "clock_generation": "original_mint_birth_not_venue_v2",
+        "advisory_pipeline": 14,
+        "current_original_population_checked": true,
+        "schema_alone_rejected": true,
+        "legacy_nonclock_inputs_preserved": true,
+        "venue_only_birth_unknown": true,
+        "config": {
+          "dry_run": true,
+          "paper_max_trade_amount_sol": 0.1,
+          "paper_bootstrap_amount_sol": 0.1
+        },
+        "paper_exact_trade_size_enabled": true,
+        "paper_exact_trade_size_sol": 0.1,
+        "provider_birth_context_retained": true,
+        "creation_budget_defaults_checked": true,
+        "scope": "Cold native imports/config and synthetic input contract only; no fit, runtime start or provider access."
+      }
+    },
+    "tail_regressions": {
+      "working": {
+        "passed": 12,
+        "seconds": 3.28,
+        "exit_code": 0
+      },
+      "publishing": {
+        "passed": 12,
+        "seconds": 3.01,
+        "exit_code": 0
+      },
+      "scope": "Native synthetic entry momentum up to+1000000%, exact cash runner return up to+1000000%, and actual costed PAPER partial ladder up to+100000% with3% original quantity retained before later cash drawdown. No fixed100/200% upper-profit exit in these tested paths; not exhaustive admission, all capital retention, real fills or profitable capture."
+    }
+  },
+  "shutdown": {
+    "requested_stop": {
+      "started_at_utc": "2026-10-11T05:52:41.4292220+00:00",
+      "finished_at_utc": "2026-10-11T05:52:43.9245057+00:00",
+      "exit_code": 0,
+      "killed": 0,
+      "remaining": 0,
+      "finalizer_status": "ok",
+      "scope": "D working checkout only; no publishing checkout stop or runtime launch."
+    },
+    "inventory": {
+      "observed_at": "2026-10-11T05:52:45.8849183+00:00",
+      "since_utc": "2026-10-08T16:09:40.0000000Z",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "checkouts": [
+        {
+          "protected_files": 3763,
+          "checkout": "working",
+          "green_live_risk_file_exists": false,
+          "locks": 0,
+          "changed_by_mtime": 0
+        },
+        {
+          "protected_files": 27,
+          "checkout": "publishing",
+          "green_live_risk_file_exists": false,
+          "locks": 0,
+          "changed_by_mtime": 0
+        }
+      ],
+      "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+    },
+    "sql": {
+      "observed_at": "2026-10-11T05:52:44.590667+00:00",
+      "source": "data/memebotdatabase.db",
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-11 05:52:43.587933"
+        }
+      ],
+      "scoped_green_live_groups": 0,
+      "qualification": "The empty scoped green LIVE groups do not prove the whole wallet, all lanes or profitability."
+    },
+    "publication_handoff": "Fresh post-publication inventory will be recorded in the private delivery receipt; publication commit is verified after this public ledger is committed."
+  },
+  "remaining_limits": [
+    "Only the exactly recognized preceding cap schema is retired. Other obsolete primary clock/auxiliary schemas or mixed-generation models are not universally certified and remain fail-closed.",
+    "No operator-artifact or operational first-launch/model acceptance was performed; all services remain intentionally stopped.",
+    "Actual provider access, circulating supply accuracy, executable routes/capacity, full opportunity coverage and prospective costed strategy profitability remain unestablished.",
+    "Synthetic approval/returns and software QA are not evidence of live profits, maximum benefit or future zero errors.",
+    "The actual configured D primary has no managed selector registry or metadata at the read-only observation. This scoped transition defect is not established as the cause of the previous no-buy run, nor does this inventory cover every advisory/family artifact."
+  ]
+}

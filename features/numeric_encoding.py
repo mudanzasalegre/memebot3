@@ -113,3 +113,27 @@ def checked_numeric_schema(metadata, features) -> bool:
                 and checked_population(metadata, features) and checked_valuation_population(metadata, features))
     except (AttributeError, TypeError, ValueError):
         return False
+
+
+def checked_prevaluation_schema(metadata, features) -> bool:
+    """Recognize exactly the preceding cap schema, not arbitrary bad evidence.
+
+    This only identifies a candidate for independent retirement verification.
+    It does not make its cap inputs usable or fabricate a current population.
+    Clock generation/population and all unchanged numeric rules still apply.
+    """
+    try:
+        from copy import deepcopy
+        from features.token_clock_semantics import checked_population
+        from features.valuation_semantics import sources
+        names = list(features)
+        if not sources(names) or "valuation_training" in metadata:
+            return False
+        previous = deepcopy(numeric_encoding_schema(names))
+        if not isinstance(previous, dict) or previous.pop("valuation_semantics", None) != VALUATION_VERSION:
+            return False
+        if not previous.get("encoded_features") and "token_clock_semantics" not in previous:
+            previous = None
+        return metadata.get("numeric_encoding") == previous and checked_population(metadata, names)
+    except (AttributeError, TypeError, ValueError):
+        return False

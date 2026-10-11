@@ -220,13 +220,17 @@ def test_unusable_primary_generation_preserves_the_actual_cas_epoch(tmp_path, mo
     monkeypatch.setattr(activation, "read_registry", lambda path: {"unchanged": True})
     monkeypatch.setattr(activation, "active_epoch", lambda registry, path: "actual-active-epoch")
     monkeypatch.setattr(activation, "selected_reference", lambda *a: {"reference": {"model_id": "old"}})
-    def obsolete(*a): raise sem.AuxiliarySemanticsError("old source generation")
+    def obsolete(*a, **kwargs):
+        assert kwargs == {"verify_retired_generation": True}
+        raise sem.AuxiliarySemanticsError("old source generation")
     monkeypatch.setattr(activation, "read_bundle", obsolete)
     state = champion.current_incumbent(registry_path=tmp_path / "registry.json",
         models_dir=tmp_path, model_alias=tmp_path / "model.pkl")
     assert state["epoch"] == "actual-active-epoch" and state["model"] is None
     assert state["unavailable_reason"] == "auxiliary_semantics_changed"
-    def corrupt(*a): raise ValueError("checksum mismatch")
+    def corrupt(*a, **kwargs):
+        assert kwargs == {"verify_retired_generation": True}
+        raise ValueError("checksum mismatch")
     monkeypatch.setattr(activation, "read_bundle", corrupt)
     with pytest.raises(ValueError, match="checksum"):
         champion.current_incumbent(registry_path=tmp_path / "registry.json",

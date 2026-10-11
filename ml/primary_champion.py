@@ -82,13 +82,20 @@ def reserve_later_cohort(frame, *, min_train_rows=20, incumbent_metadata=None, i
 
 
 def current_incumbent(*, registry_path: Path, models_dir: Path, model_alias: Path):
-    from ml.primary_activation import read_registry, active_epoch, selected_reference, read_bundle
+    from ml.primary_activation import (read_registry, active_epoch, selected_reference, read_bundle,
+        VerifiedRetiredPrimaryBundleError)
     registry = read_registry(registry_path)
     epoch = active_epoch(registry, model_alias)
     selected = selected_reference(registry_path, models_dir, model_alias)
     if selected is not None:
         try:
-            model, meta, documents, _ = read_bundle(selected["reference"], registry_path, models_dir)
+            model, meta, documents, _ = read_bundle(selected["reference"], registry_path, models_dir,
+                verify_retired_generation=True)
+        except VerifiedRetiredPrimaryBundleError as retired:
+            _provenance(retired.metadata)
+            return {"epoch": epoch, "model": None, "metadata": retired.metadata,
+                    "acceptance": retired.acceptance, "retired_bundle": retired.binding,
+                    "unavailable_reason": "valuation_semantics_changed"}
         except AuxiliarySemanticsError:
             # Preserve its bytes and the actual CAS epoch. An incompatible
             # incumbent is not a financial comparison or a reason to prevent
@@ -109,6 +116,41 @@ def _ensure_input_encoding(meta):
             or not checked_context_schema(meta, features) or not checked_numeric_schema(meta, features)
             or not checked_semantics_schema(meta, features)):
         raise ValueError("Unproved primary comparison input encoding")
+
+
+def checked_retired_binding(binding):
+    from ml.primary_activation import COMPONENTS
+    if (not isinstance(binding, dict) or set(binding) != {"version", "reason", "model_id", "sha256"}
+            or binding["version"] != "verified_retired_primary_cap_v1"
+            or binding["reason"] != "valuation_semantics_changed"
+            or not isinstance(binding["model_id"], str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", binding["model_id"])):
+        return False
+    hashes = binding["sha256"]
+    return (isinstance(hashes, dict) and set(hashes) == COMPONENTS
+            and all(isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)
+                    for value in hashes.values()))
+
+
+def _later_than_incumbent(meta, acceptance, start, hashes, financial):
+    _, latest, used = _provenance(meta)
+    if acceptance:
+        latest = max(latest, pd.to_datetime(acceptance["cohort_label_latest"], utc=True))
+        used |= set(acceptance["cohort_token_sha256"])
+    return (latest < start-pd.Timedelta(seconds=60) and not used & set(hashes)
+            and meta["financial_training"]["positive_pnl_ratios"] == financial["positive_pnl_ratios"])
+
+
+def checked_retired_successor(approval, retired):
+    """Bind the new approval to the actual checked predecessor under the lock."""
+    try:
+        return (checked_retired_binding(approval.get("expected_retired_bundle"))
+            and approval["expected_retired_bundle"] == retired.binding
+            and _later_than_incumbent(retired.metadata, retired.acceptance,
+                pd.to_datetime(approval["cohort_start"], utc=True), approval["cohort_token_sha256"],
+                approval["financial_cohort"]))
+    except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+        return False
 
 
 def _predictions(model, meta, cohort):
@@ -187,17 +229,17 @@ def authorize_candidate(artifact, cohort, *, incumbent: dict, min_rows=30, min_s
         result["reason"] = "challenger_later_support_precision_net_or_probability_skill_failed"
         return result
     reference = np.zeros(len(checked))
-    if incumbent.get("model") is not None:
+    if incumbent.get("metadata") is not None:
         old_meta = incumbent["metadata"]
-        _, old_latest, old_tokens = _provenance(old_meta)
-        previous = incumbent.get("acceptance") or {}
-        if previous:
-            old_latest = max(old_latest, pd.to_datetime(previous["cohort_label_latest"], utc=True))
-            old_tokens |= set(previous["cohort_token_sha256"])
-        if (old_latest >= start - pd.Timedelta(seconds=60) or old_tokens & set(hashes)
-                or old_meta["financial_training"]["positive_pnl_ratios"] != financial["positive_pnl_ratios"]):
+        if not _later_than_incumbent(old_meta, incumbent.get("acceptance") or {}, start, hashes, financial):
             result["reason"] = "incumbent_cannot_be_compared_on_same_later_target_population"
             return result
+    if incumbent.get("retired_bundle") is not None:
+        if incumbent.get("model") is not None or not checked_retired_binding(incumbent["retired_bundle"]):
+            raise ValueError("Unproved retired primary reference")
+        result["expected_retired_bundle"] = deepcopy(incumbent["retired_bundle"])
+    if incumbent.get("model") is not None:
+        old_meta = incumbent["metadata"]
         evaluation, reference = _predictions(incumbent["model"], old_meta, checked)
         result["incumbent"] = evaluation
     # paired_token_loss_check requires nonnegative losses. Shift both losses by
@@ -217,6 +259,8 @@ def authorize_candidate(artifact, cohort, *, incumbent: dict, min_rows=30, min_s
 def supported_approval(approval, model_bytes: bytes, meta_bytes: bytes) -> bool:
     try:
         meta = json.loads(meta_bytes)
+        if "expected_retired_bundle" in approval and not checked_retired_binding(approval["expected_retired_bundle"]):
+            return False
         proof, trained_latest, trained_tokens = _provenance(meta)
         hashes = approval["cohort_token_sha256"]
         start = pd.to_datetime(approval["cohort_start"], utc=True, errors="coerce")
