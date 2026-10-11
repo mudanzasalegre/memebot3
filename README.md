@@ -13,6 +13,28 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Ciclo nativo PAPER completo y aprendizaje sin logging (2026-10-11)
+
+El ciclo probado admite senales sinteticas de +500%, +25.000% y +1.000.000%,
+compra exactamente 0,1 SOL y mantiene una cola parcial en una trayectoria de
+precio hasta 10.001x, sin cerrar por un techo fijo del 100/200%. Los parciales
+reducen la cantidad: queda aproximadamente el 3% original antes de la caida.
+Son pruebas sinteticas, no captura ni rentabilidad reales.
+
+Se ha corregido un defecto independiente: sin `--log` ni identidad del launcher,
+una compra y su cierre podian quedarse sin identidad causal para aprender.
+Ahora se conserva la identidad explicita o se genera una por run. No se aflojan
+riesgo, ruta, antiguedad, politica, whitelist, capacidad ni controles de compra.
+
+Catorce casos nuevos ejecutan entrada guardada, buyer, SQL, journals, monitor,
+parciales, cierre y exportacion Parquet neta e idempotente nativos en copias
+temporales sin credenciales ni datos del operador. Tambien verifican rechazos.
+Ambas suites completas pasan 5.666 pruebas, con dos avisos de pandas cada una;
+ambos preflight y 26 imports por copia pasan. Todo el runtime sigue apagado.
+Queda una carrera de publicacion/cache de Dex reproducida pero aun sin reparar,
+ademas de la aceptacion operativa y financiera independiente. El objetivo global
+sigue incompleto. [Auditoria del ciclo nativo](docs/audits/native_paper_lifecycle_20261011.json).
+
 ### Bootstrap PAPER por fases y oportunidades extremas (2026-10-11)
 
 La admision preliminar permite recoger riesgo, ruta e impacto todavia ausentes;

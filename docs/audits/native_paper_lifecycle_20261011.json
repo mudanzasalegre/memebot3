@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "stage": "native_paper_lifecycle_no_log_identity",
+  "date": "2026-10-11",
+  "status": "SOFTWARE_VERIFIED_INCOMPLETE_GOAL_RUNTIME_OFF",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Whole native guarded PAPER entry/monitor/close/net-export in a credential-free source-only temporary checkout; real native application functions, synthetic provider boundaries, no operational main loop or operator model activation.",
+  "source_files": [
+    "run_bot.py",
+    "tests/native_paper_lifecycle_case.py",
+    "tests/test_native_paper_lifecycle.py"
+  ],
+  "diagnosis": {
+    "defect": "Without optional --log and without explicit launcher run id, native initialization leaves run_id empty. Native SQL/PAPER/durable buy journals can still accept a .1 SOL fill, but full costed close cannot satisfy causal learning ownership. Actual prepare_close raises TradeLearningError: Close source identity/quantity conflicts.",
+    "reproduction": {
+      "untouched_publishing_parent": "a07729e5ccddfe9d807c0126c5c857bb48e8869d",
+      "failed": 2,
+      "seconds": 9.73,
+      "exit_code": 1,
+      "scope": "Actual original C runtime source copied to isolated root, imported and executed through native guarded entry and monitor; original unchanged native buyer, SQL, journals/archive and learning validator. Providers only were simulated."
+    },
+    "control": "Supplying a synthetic run identity to the otherwise identical complete native flow makes prepare_close succeed. This isolates the ownership gap, rather than bypassing the learning validator.",
+    "historical_causality": "Not established as cause of retained original no-buy run. That original Oct4 short smoke already has run_id 20261004-1 and independent overlapping quality vetoes. This repair is scoped to unlogged first-launch/explicit ownership, not a claim of profitable missed trades."
+  },
+  "implementation": {
+    "optional_logging": "The no-file-log branch preserves a nonempty explicit launcher identity or allocates a 32-character per-run date/UUID identity. Logging and durable ownership are independent.",
+    "unchanged": "No market/risk/route/strategy/whitelist/capacity/ML/sizing/exit or activation gates relaxed. Exact .1 SOL PAPER remains; existing data and old incomplete trades are not relabeled.",
+    "paper_only": true,
+    "live_authorized": false
+  },
+  "verification": {
+    "new_cases": 14,
+    "focused_working": {
+      "passed": 170,
+      "seconds": 82.27,
+      "exit_code": 0
+    },
+    "focused_publishing": {
+      "passed": 14,
+      "seconds": 68.03,
+      "exit_code": 0
+    },
+    "full_suites": {
+      "working": {
+        "passed": 5666,
+        "warnings": 2,
+        "seconds": 1452.83,
+        "exit_code": 0
+      },
+      "publishing": {
+        "passed": 5666,
+        "warnings": 2,
+        "seconds": 1441.41,
+        "exit_code": 0
+      },
+      "warnings_scope": "Two existing pandas FutureWarnings each at analytics/model_runtime_common.py:487. No failing tests; future pandas dtype behavior remains a compatibility warning."
+    },
+    "preflights": {
+      "working": {
+        "exit_code": 0,
+        "generated_at_utc": "2026-10-11T07:36:49.918232+00:00",
+        "ok": true,
+        "compile_errors": 0,
+        "report_builders": 7,
+        "failed_reports": 0,
+        "config_dry_run": "True",
+        "pytest_exit": 0,
+        "feature_files": 2,
+        "scope": "Compilation/profile/config and seven isolated reports, external attestation after actual completed full suite; not operational startup."
+      },
+      "publishing": {
+        "exit_code": 0,
+        "generated_at_utc": "2026-10-11T07:36:48.896261+00:00",
+        "ok": true,
+        "compile_errors": 0,
+        "report_builders": 7,
+        "failed_reports": 0,
+        "config_dry_run": "True",
+        "pytest_exit": 0,
+        "feature_files": 0,
+        "scope": "Compilation/profile/config and seven isolated reports, external attestation after actual completed full suite; not operational startup."
+      }
+    },
+    "source_freeze": {
+      "files_each": 790,
+      "normalized_sha256": "b79c1cd9c00d12116bf1c459004f22775dd0bdd89685ebbcba6feb2137113d21",
+      "frozen_before_full": true,
+      "after_full": {
+        "matching_roots": true,
+        "files_each": 790,
+        "normalized_sha256": "b79c1cd9c00d12116bf1c459004f22775dd0bdd89685ebbcba6feb2137113d21",
+        "rechecked_after_both_full_suites_and_preflights": true
+      }
+    },
+    "native_integration": {
+      "minimum_loaded_native_modules": 160,
+      "whole_native_import_scoped": true,
+      "qualified_entry_momentum_pct": [
+        500,
+        25000,
+        1000000
+      ],
+      "exact_buy_amount_sol": 0.1,
+      "actual_native_guarded_entry": true,
+      "actual_native_buyer": true,
+      "duplicate_dispatch_no_second_fill": true,
+      "actual_sql_and_original_intent_ownership": true,
+      "whole_native_monitor": true,
+      "synthetic_forward_spot_multiples": [
+        3,
+        6,
+        11,
+        51,
+        101,
+        1001,
+        10001
+      ],
+      "four_partial_fills_cover_six_steps": true,
+      "retained_original_quantity_fraction": 0.03,
+      "no_fixed_100_or_200_profit_ceiling_in_tested_path": true,
+      "terminal_drawdown_spot_multiple": 1001,
+      "actual_native_sell_recovery_archive_and_close": true,
+      "sql_fill_quantities_conserve_original_entry": true,
+      "frozen_t0_signal_is_retained": true,
+      "net_target_below_gross_target": true,
+      "actual_native_publish_close": true,
+      "idempotent_original_one_row_parquet_export": true,
+      "operator_files_copied": 0,
+      "outbound_attempts": 0
+    },
+    "negative_cases": [
+      "unavailable route",
+      "unavailable cluster evidence",
+      "observed concentration risk",
+      "stale original Jupiter receipt",
+      "unavailable SOL/USD",
+      "explicit strategy shadow",
+      "explicit strategy off",
+      "venue whitelist rejection"
+    ],
+    "qa_harness_corrections": "Exploratory direct entry invocation lacked the native owned guard; initial price/quote mocks did not cover all actual provider signatures; an initial export-file assertion looked for CSV rather than the actual Parquet. These were test-harness defects, corrected without changing application gates. Original-C defect reproduction and final focused suites use the complete native guarded path and actual Parquet population.",
+    "shutdown": {
+      "requested_stop": {
+        "started_log_utc": "2026-10-11T07:36:33Z",
+        "finished_log_utc": "2026-10-11T07:36:35Z",
+        "exit_code": 0,
+        "finalizer_status": "ok",
+        "killed": 0,
+        "remaining": 0,
+        "scope": "User-requested D working stack stop only, captured immediately; no publishing runtime stop or bot launch."
+      },
+      "inventory": {
+        "observed_at": "2026-10-11T07:37:57.9571948+00:00",
+        "since_utc": "2026-10-08T16:09:40.0000000Z",
+        "runtime_processes": 0,
+        "task_owned_previews": 0,
+        "matching_tasks": 0,
+        "running_tasks": 0,
+        "matching_services": 0,
+        "running_services": 0,
+        "checkouts": [
+          {
+            "green_live_risk_file_exists": false,
+            "protected_files": 3763,
+            "checkout": "working",
+            "locks": 0,
+            "changed_by_mtime": 0
+          },
+          {
+            "green_live_risk_file_exists": false,
+            "protected_files": 27,
+            "checkout": "publishing",
+            "locks": 0,
+            "changed_by_mtime": 0
+          }
+        ],
+        "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+      },
+      "sql": {
+        "observed_at": "2026-10-11T07:37:58.037588+00:00",
+        "source": "data/memebotdatabase.db",
+        "runtime_state": [
+          {
+            "bot_id": "main",
+            "process_state": "stopped",
+            "reports_refresh_state": "idle",
+            "retrain_state": "idle",
+            "updated_at": "2026-10-11 07:36:34.870748"
+          }
+        ],
+        "scoped_green_live_groups": 0,
+        "qualification": "Empty scoped green LIVE groups are not a whole-wallet or profitability proof."
+      },
+      "publication_handoff": "A fresh post-publication inventory and exact commit/remote/source parity must be checked and retained in the private delivery receipt."
+    },
+    "cold_probes": {
+      "modules_scoped_each": 26,
+      "exit_codes_each": 0,
+      "dry_run_each": true,
+      "paper_exact_trade_size_sol_each": 0.1,
+      "operator_model_loaded": false,
+      "scope": "Actual D and C native imports/config and synthetic input contract only; no fit, operational runtime startup or provider access."
+    }
+  },
+  "preservation": "Operator env, raw data/logs, models, registries, policies and historical datasets are excluded from source-only tests and publication. Fresh 2026-10-11T07:37:57.9571948+00:00 read-only census finds protected3763D/27C changes0 since2026-10-08T16:09:40Z. This is an mtime observation, not cryptographic historical preservation proof. The requested stop intentionally updates authoritative runtime SQL/logs; preflight diagnostic metrics are outside that census.",
+  "pending_architecture_findings": {
+    "dex_request_publication_race": "Additional native source-only diagnostic reproduces two compatible normal collectors, an older success replacing a newer forced cache value, and an older failure replacing the newer value with negative cache. Not repaired in this frozen stage; private diagnosis work/dex-request-next-stage-diagnosis.json. Not established as a historical no-buy cause."
+  },
+  "remaining": "Overall architecture and actual provider/first-operational-launch acceptance remain incomplete, including the reproduced unrepaired Dex request/cache publication race. Independent forward full-strategy costed profitable extreme-tail capture is not established. Synthetic paths do not prove future profitability, all-capital retention, best fills, maximum benefit or exhaustive coverage. All operational runtime remains OFF; this stage does not activate models or authorize LIVE."
+}

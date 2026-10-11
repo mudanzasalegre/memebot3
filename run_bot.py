@@ -51,6 +51,7 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from collections import deque
 from types import SimpleNamespace
 from typing import Sequence, Dict, List, Tuple, Optional
@@ -642,7 +643,15 @@ if args.log:
     )
     log.info("📂 File-logging activo (run_id %s)", run_id)
 else:
-    set_runtime_context(started_at=dt.datetime.now(dt.timezone.utc), test_event=False)
+    # File logging is optional, but durable trade/learning ownership is not.
+    # Preserve an explicit launcher identity; otherwise allocate one per run.
+    started_at = dt.datetime.now(dt.timezone.utc)
+    set_runtime_context(
+        run_id=(get_runtime_context().get("run_id")
+                or f"{started_at:%Y%m%d}-{uuid.uuid4().hex[:23]}"),
+        started_at=started_at,
+        test_event=False,
+    )
 
 _emit_paper_safe_risk_banner()
 
