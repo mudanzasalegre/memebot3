@@ -467,8 +467,10 @@ def test_runtime_capacity_snapshot_uses_native_aggregate_functions():
     index = next(i for i,key in enumerate(assignment.value.keys) if isinstance(key,ast.Constant) and key.value=="provider_capacity")
     expression = ast.Expression(assignment.value.values[index])
     result = eval(compile(ast.fix_missing_locations(expression), "native-runtime-snapshot", "eval"),
-        {"cache_snapshot":cache.cache_snapshot,"birdeye_pressure_snapshot":be.request_runtime_snapshot})
+        {"cache_snapshot":cache.cache_snapshot,"birdeye_pressure_snapshot":be.request_runtime_snapshot,
+         "gecko_pressure_snapshot":gt.request_runtime_snapshot})
     assert result["shared_cache"]["capacity"] == 8192 and result["birdeye"]["requests"]["owners"] == 0
+    assert result["gecko"]["active_requests"] == 0 and result["gecko"]["public_max_calls_per_minute"] <= 10
 
 
 @pytest.mark.asyncio

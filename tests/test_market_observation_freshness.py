@@ -299,7 +299,8 @@ async def test_real_birdeye_cache_retains_http_receipt_and_throttle(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_real_gecko_async_force_keeps_provider_cooldown_and_rate_limiter(monkeypatch):
-    client = AsyncSession({"data": {"attributes": {"price_usd": "2", "reserve_in_usd": 0}}})
+    client = AsyncSession({"data": {"id":f"solana_{MINT}","type":"token",
+        "attributes": {"address":MINT,"price_usd": "2", "total_reserve_in_usd": 0}}})
     calls = []
     async def cooldown(): calls.append("cooldown")
     class Limiter:
@@ -323,7 +324,9 @@ def test_real_gecko_sync_force_keeps_cooldown_and_rate_limiter(monkeypatch):
     class Response:
         status_code = 200
         def raise_for_status(self): pass
-        def json(self): return {"data": {"attributes": {"price_usd": "2", "reserve_in_usd": 0}}}
+        def close(self): pass
+        def json(self): return {"data": {"id":f"solana_{MINT}","type":"token",
+            "attributes": {"address":MINT,"price_usd": "2", "total_reserve_in_usd": 0}}}
     class Client:
         def get(self, *args, **kwargs): calls.append("http"); return Response()
     monkeypatch.setattr(geckoterminal, "USE_GECKO_TERMINAL", True)
@@ -336,7 +339,7 @@ def test_real_gecko_sync_force_keeps_cooldown_and_rate_limiter(monkeypatch):
     first["market_observation"]["fields"]["liquidity_usd"]["value"] = 999
     second = geckoterminal.get_token_data("solana", MINT, Client())
     assert fresh_market_value(second, "liquidity_usd") == 0
-    assert calls == ["cooldown", "throttle", "limiter", "http", "cooldown"]
+    assert calls == ["cooldown", "throttle", "limiter", "http"]
 
 
 def test_provider_updated_time_is_not_fabricated_token_creation_time():

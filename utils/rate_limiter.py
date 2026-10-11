@@ -4,8 +4,8 @@ Limitadores de ritmo para el bot.
 
 Incluye dos implementaciones complementarias:
 
-1) RateLimiter (token-bucket, async + sync)
-   - Útil para limitar llamadas a APIs a un ritmo fijo (p.ej. 30/min).
+1) RateLimiter (ventana fija compartida, async + sync)
+   - Útil para limitar llamadas a APIs a un ritmo fijo (p.ej.10/min).
    - Soporta uso como context manager async y vía método síncrono.
 
    Uso:
@@ -30,6 +30,8 @@ Incluye dos implementaciones complementarias:
 from __future__ import annotations
 
 import asyncio
+import math
+from utils.bounded_state import bounded_int
 import os
 import threading
 import time
@@ -42,88 +44,49 @@ __all__ = [
     "GECKO_LIMITER",
 ]
 
-# ╭────────────────── RateLimiter (token-bucket) ───────────────────╮
+# ╭────────────────── RateLimiter (ventana fija) ───────────────────╮
 class RateLimiter:
-    """Token-bucket para limitar *max_calls* por *interval* segundos.
-
-    *max_calls* ─ tokens por ventana.
-    *interval*  ─ tamaño de la ventana, en segundos (def. 60).
-    """
+    """Shared monotonic fixed-window admission; every wakeup retries permission."""
 
     def __init__(self, max_calls: int, interval: float = 60.0) -> None:
-        if max_calls <= 0:
-            raise ValueError("max_calls debe ser > 0")
-        if interval <= 0:
-            raise ValueError("interval debe ser > 0")
-
-        self.max_calls = int(max_calls)
-        self.interval = float(interval)
-
-        # estado
+        if (isinstance(max_calls, bool) or isinstance(interval, bool)
+                or not math.isfinite(float(max_calls)) or not math.isfinite(float(interval))
+                or float(max_calls) < 1 or not float(max_calls).is_integer() or float(interval) <= 0):
+            raise ValueError("Invalid rate window")
+        self.max_calls, self.interval = int(max_calls), float(interval)
         self._tokens = self.max_calls
-        self._last_reset = time.monotonic()
+        self._last_reset = self._last_observed = time.monotonic()
+        self._lock = threading.RLock()
 
-        # candados
-        self._async_lock = asyncio.Lock()
-        self._sync_lock = threading.Lock()
-
-    # ─────────────────── async interface ────────────────────
-    async def __aenter__(self) -> "RateLimiter":
+    async def __aenter__(self):
         await self.acquire()
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> Optional[bool]:
-        return False  # no swallow
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
 
-    async def acquire(self) -> None:
-        """Consume 1 token (async). Duerme si el bucket está vacío."""
-        async with self._async_lock:
-            self._refill_if_needed()
-            if self._tokens > 0:
-                self._tokens -= 1
-                return
-            sleep_for = self._time_until_reset()
-
-        # dormir fuera del lock
-        await asyncio.sleep(sleep_for)
-
-        # segunda pasada tras dormir
-        async with self._async_lock:
-            self._refill_if_needed()
-            # garantizado >=1 token
-            self._tokens = max(0, self._tokens - 1) if self._tokens > 0 else self.max_calls - 1
-            if self._tokens < 0:
-                self._tokens = 0  # no negativo por seguridad
-
-    # ──────────────── sync interface ────────────────────────
-    def acquire_sync(self) -> None:
-        """Consume 1 token (bloqueante)."""
-        with self._sync_lock:
-            self._refill_if_needed()
-            if self._tokens > 0:
-                self._tokens -= 1
-                return
-            sleep_for = self._time_until_reset()
-
-        # dormir fuera del lock
-        time.sleep(sleep_for)
-
-        # segunda pasada
-        with self._sync_lock:
-            self._refill_if_needed()
-            self._tokens = max(0, self._tokens - 1) if self._tokens > 0 else self.max_calls - 1
-            if self._tokens < 0:
-                self._tokens = 0
-
-    # ───────────────── helpers ──────────────────────────────
-    def _refill_if_needed(self) -> None:
+    def _permission_or_wait(self):
         now = time.monotonic()
-        if now - self._last_reset >= self.interval:
-            self._tokens = self.max_calls
-            self._last_reset = now
+        if not math.isfinite(now):
+            raise ValueError("Invalid local monotonic clock")
+        with self._lock:
+            if now < self._last_observed:
+                self._tokens, self._last_reset = 0, now
+            self._last_observed = now
+            if now - self._last_reset >= self.interval:
+                self._tokens, self._last_reset = self.max_calls, now
+            if self._tokens > 0:
+                self._tokens -= 1
+                return 0.
+            return max(0., self.interval - (now - self._last_reset))
 
-    def _time_until_reset(self) -> float:
-        return max(0.0, self.interval - (time.monotonic() - self._last_reset))
+    async def acquire(self):
+        while (wait := self._permission_or_wait()) > 0:
+            await asyncio.sleep(wait)
+
+    def acquire_sync(self):
+        while (wait := self._permission_or_wait()) > 0:
+            time.sleep(wait)
 
 
 # ╭────────────────── LeakyBucket (ventana deslizante) ──────────────╮
@@ -184,9 +147,9 @@ class LeakyBucket:
 
 
 # ╭────────────────── Limiter público de ejemplo ───────────────────╮
-# Límite típico para llamadas a GeckoTerminal (30 req/min).
+# Límite típico para llamadas a GeckoTerminal (approximately10 req/min).
 try:
-    MAX_GT_CALLS_PER_MIN = max(1, int(os.getenv("GECKO_RATE_LIMIT", "30")))
+    MAX_GT_CALLS_PER_MIN = bounded_int(os.getenv("GECKO_RATE_LIMIT", "10"), 10, 1, 10)
 except Exception:
-    MAX_GT_CALLS_PER_MIN = 30
+    MAX_GT_CALLS_PER_MIN = 10
 GECKO_LIMITER = RateLimiter(max_calls=MAX_GT_CALLS_PER_MIN)

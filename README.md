@@ -290,6 +290,30 @@ modificar el `.env` personal. Esto no certifica acceso/cuotas, throughput,
 cobertura de todos los proveedores, oportunidades ejecutables ni rentabilidad.
 Ver `docs/audits/provider_capacity_20261011.json`.
 
+El adaptador publico GeckoTerminal exige ahora HTTP200 y recurso token con
+`id`, `type` y `attributes.address` correspondientes al mint solicitado.
+Solicita `include=top_pools` y utiliza solo el primer pool enlazado, unico y
+con relacion base/quote comprobada. Su reserva no se sustituye por la suma
+de reservas del token: sin pool comprobado, esa suma es solo un proxy.
+Capitalizacion desconocida y FDV permanecen separados; cero y desconocido
+no se confunden. Precio y cambios extremos no se recortan, y la actividad
+direccional del token base no se atribuye al token quote. El nacimiento del
+pool nunca acredita el nacimiento del mint.
+
+El acceso sigue siendo al gateway publico, con version Accept20230203 y un
+maximo local de10 llamadas/minuto compartido entre rutas sync/async, conforme
+al Swagger publico actual; la cuota upstream puede fluctuar. Sus endpoints
+tienen cache upstream de1 minuto: un recibo HTTP nuevo no acredita mercado
+instantaneo. No se migra a CoinGecko Demo/Pro ni se agregan credenciales.
+Consultas async compatibles comparten trabajo; force-refresh conserva su
+propia generacion, y respuestas antiguas no reemplazan cache/backoff nuevos.
+Como maximo hay16 operaciones Gecko sync+async admitidas; cancelaciones
+repetidas conservan la propiedad hasta completar su limpieza. La presion y
+los resultados agregados no son contadores de peticiones facturadas.
+Ver `docs/audits/gecko_contract_20261011.json`. La cobertura real, la latencia
+de limpieza y la rentabilidad neta siguen sin acreditarse; bot y servicios
+permanecen apagados, con compras configuradas de0.1 SOL exclusivamente PAPER.
+
 La procedencia de las entradas aprendidas incluye ahora una comprobacion
 acotada del codigo Python cargado y sus namespaces, aliases y cierres de
 funcion frente a las fuentes originales. Una funcion sustituida, un alias

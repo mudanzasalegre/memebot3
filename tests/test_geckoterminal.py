@@ -1,132 +1,99 @@
-# memebot3/tests/test_geckoterminal.py
+"""Legacy numeric compatibility and complete monotonic throttle intervals.
+
+Pure native fixtures: valid typed Solana token, owned fake Session/Response,
+no real HTTP. Forced calls exercise throttle; cached calls do not consume it.
 """
-Tests del wrapper GeckoTerminal.
-
-• Comprueba que `get_token_data` convierte los valores string → numérico.
-• Verifica que el rate-limit obliga a dormir (~≥1.9 s) entre llamadas
-  consecutivas (parcheando `time.time` y `time.sleep`).
-
-Se usan parches (monkeypatch) para:
-  – `requests.get`             → MockResponse
-  – `time.time` y `time.sleep` → control de la ventana y captura de sleeps
-"""
-
-from __future__ import annotations
-
+from copy import deepcopy
+import time
 import types
-from typing import Any, Dict, List
 
 import pytest
 
-# --- mock JSON devuelto por GeckoTerminal ---
-_MOCK_JSON: Dict[str, Any] = {
-    "data": {
-        "attributes": {
-            "price_usd": "0.01234",
-            "fdv_usd": "123456",
-            "total_reserve_in_usd": "9876.5",
-            "volume_usd": {"h24": "6543.21"},
-        }
-    }
-}
+from fetcher import geckoterminal as gt
+from utils.simple_cache import cache_clear
+
+MINT = "So11111111111111111111111111111111111111112"
+_MOCK_JSON = {"data":{"id":f"solana_{MINT}", "type":"token", "attributes":{
+    "address":MINT, "price_usd":"0.01234", "market_cap_usd":None,
+    "fdv_usd":"123456", "total_reserve_in_usd":"9876.5",
+    "volume_usd":{"h24":"6543.21"}}}}
 
 
-# -----------------------------------------------------------------
 class MockResponse:
     status_code = 200
-
-    def json(self) -> Dict[str, Any]:
-        return _MOCK_JSON
-
-    def raise_for_status(self):  # mimics requests.Response API
-        pass
+    headers = {}
+    def json(self): return deepcopy(_MOCK_JSON)
+    def close(self): pass
 
 
-# -----------------------------------------------------------------
 @pytest.fixture
 def mock_requests_get(monkeypatch):
-    """Parcha requests.get para que devuelva siempre MockResponse."""
-    import requests
-
-    def _fake_get(*args, **kwargs):
-        return MockResponse()
-
-    monkeypatch.setattr(requests, "get", _fake_get)
+    class Client:
+        def __init__(self): self.calls = []; self.closed = 0
+        def get(self,url,**kwargs):
+            assert url == f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{MINT}"
+            assert kwargs["allow_redirects"] is False
+            self.calls.append((url,kwargs))
+            return MockResponse()
+        def close(self): self.closed += 1
+    client = Client()
+    def forbidden(*args,**kwargs): raise AssertionError("Real HTTP forbidden")
+    cache_clear()
+    monkeypatch.setattr(gt,"USE_GECKO_TERMINAL",True)
+    monkeypatch.setattr(gt.requests,"get",forbidden)
+    monkeypatch.setattr(gt.requests,"Session",lambda:client)
+    monkeypatch.setattr(gt,"GECKO_LIMITER",types.SimpleNamespace(max_calls=10,acquire_sync=lambda:None))
+    monkeypatch.setattr(gt,"_cooldown_until",0.)
+    monkeypatch.setattr(gt,"_last_observed_ts",None)
+    yield client
+    cache_clear()
 
 
 @pytest.fixture
 def patch_time(monkeypatch):
-    """
-    Parchea time.time y time.sleep:
-      • time.time avanza 0.1 s cada llamada sucesiva
-      • time.sleep registra los segundos “dormidos” sin esperar realmente
-    Devuelve la lista `sleeps` para inspección en las pruebas.
-    """
-    import time
-
-    counter = {"t": 0.0}
-    sleeps: List[float] = []
-
-    def fake_time() -> float:
-        counter["t"] += 0.1
+    counter = {"t":10000.}
+    sleeps = []
+    def fake_monotonic():
+        counter["t"] += .1
         return counter["t"]
-
-    def fake_sleep(sec: float):
-        sleeps.append(sec)
-        # NO dormimos en realidad
-
-    monkeypatch.setattr(time, "time", fake_time, raising=True)
-    monkeypatch.setattr(time, "sleep", fake_sleep, raising=True)
-    # Exponemos la lista para el test
+    def fake_sleep(seconds):
+        sleeps.append(seconds)
+        counter["t"] += seconds
+    # Patch only this adapter's clock, not shared cache or other modules.
+    monkeypatch.setattr(gt,"time",types.SimpleNamespace(
+        monotonic=fake_monotonic,time=time.time,sleep=fake_sleep))
     return sleeps
 
 
-# -----------------------------------------------------------------
-def test_get_token_data_numeric_conversion(mock_requests_get, patch_time, monkeypatch):
-    """
-    • price_usd, fdv_usd, total_reserve_in_usd, volume_usd_24h deben ser numéricos.
-    • Se ejecutan dos llamadas seguidas para disparar el rate-limit; se
-      comprueba la pausa descontando el tiempo transcurrido entre llamadas.
-    """
-    # importamos late para que los parches ya estén aplicados
-    from fetcher.geckoterminal import get_token_data
-    from fetcher import geckoterminal
-    monkeypatch.setattr(geckoterminal, "_min_interval_s", 2.0)
-    monkeypatch.setattr(geckoterminal, "_last_call_ts", 0.0)
-
-    out1 = get_token_data("solana", "0xABCDEF1234567890")
-    out2 = get_token_data("solana", "0xABCDEF1234567890")  # misma addr: da igual al test
-
-    # --- conversión numérica ---
-    assert isinstance(out1["price_usd"], float)
-    assert isinstance(out1["fdv_usd"], float)
-    assert isinstance(out1["total_reserve_in_usd"], float)
-    assert isinstance(out1["volume_usd_24h"], float)
-
-    # Los valores deben coincidir (numéricamente) con el mock
-    assert out1["price_usd"] == pytest.approx(0.01234)
-    assert out1["fdv_usd"] == pytest.approx(123456.0)
-    assert out1["total_reserve_in_usd"] == pytest.approx(9876.5)
-    assert out1["volume_usd_24h"] == pytest.approx(6543.21)
-
-    # --- rate-limit: al menos un sleep ~2 s ---
-    sleeps = patch_time        # alias claro
-    assert sleeps, "El rate-limit no llamó a time.sleep()"
-    # Tomamos la mayor pausa registrada
-    # The fake clock advances 0.1s per read; elapsed time counts toward the
-    # interval too. A sleep alone need not be the complete 2s interval.
-    assert max(sleeps) == pytest.approx(1.8)
+def test_get_token_data_numeric_conversion(mock_requests_get,patch_time,monkeypatch):
+    monkeypatch.setattr(gt,"_min_interval_s",2.)
+    monkeypatch.setattr(gt,"_last_call_ts",10000.)
+    out1=gt.get_token_data("solana",MINT,force_refresh=True)
+    out2=gt.get_token_data("solana",MINT,force_refresh=True)
+    for row in (out1,out2):
+        for field,expected in (("price_usd",.01234),("fdv_usd",123456.),
+            ("total_reserve_in_usd",9876.5),("volume_usd_24h",6543.21)):
+            assert isinstance(row[field],float)
+            assert row[field] == pytest.approx(expected)
+        assert row["market_cap_usd"] is None
+        assert row["liquidity_usd_is_proxy"] is True
+    assert max(patch_time) == pytest.approx(1.8)
+    assert len(mock_requests_get.calls)==2 and mock_requests_get.closed==2
+    before=list(patch_time)
+    cached=gt.get_token_data("solana",MINT)
+    assert cached["market_observation"]==out2["market_observation"]
+    assert len(mock_requests_get.calls)==2 and patch_time==before
 
 
 def test_sync_throttle_respects_complete_interval(monkeypatch):
-    from fetcher import geckoterminal
-    times = iter([1.0, 2.0, 2.1, 4.0])
-    sleeps = []
-    monkeypatch.setattr(geckoterminal, "_min_interval_s", 2.0)
-    monkeypatch.setattr(geckoterminal, "_last_call_ts", 0.0)
-    monkeypatch.setattr(geckoterminal.time, "time", lambda: next(times))
-    monkeypatch.setattr(geckoterminal.time, "sleep", sleeps.append)
-    geckoterminal._throttle_internal()
-    geckoterminal._throttle_internal()
-    assert sleeps == pytest.approx([1.0, 1.9])
-    assert geckoterminal._last_call_ts == 4.0
+    times=iter([1.,2.,2.1,4.])
+    sleeps=[]
+    monkeypatch.setattr(gt,"_min_interval_s",2.)
+    monkeypatch.setattr(gt,"_last_call_ts",0.)
+    monkeypatch.setattr(gt,"_last_observed_ts",None)
+    monkeypatch.setattr(gt,"time",types.SimpleNamespace(
+        monotonic=lambda:next(times),sleep=sleeps.append))
+    gt._throttle_internal()
+    gt._throttle_internal()
+    assert sleeps==pytest.approx([1.,1.9])
+    assert gt._last_call_ts==4.

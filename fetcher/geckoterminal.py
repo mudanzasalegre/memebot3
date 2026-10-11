@@ -1,438 +1,467 @@
-# memebot3/fetcher/geckoterminal.py
-"""
-Wrapper para la API pública de **GeckoTerminal** (CoinGecko DEX).
-
-• Actúa como *fallback* cuando DexScreener y Birdeye no traen datos,
-  y `USE_GECKO_TERMINAL=true`.
-
-Devuelve un dict **normalizado** con el mismo esquema estándar:
-    {
-        "address":          <mint SPL>,
-        "pair_address":     <pool/pair si se conoce, o None>,
-        "symbol":           <str|None>,
-        "created_at":       None (estos atributos no acreditan nacimiento),
-        "pair_created_at":  <evento pool datetime aware|None>,
-        "price_usd":        float|np.nan,
-        "liquidity_usd":    float|np.nan,
-        "volume_24h_usd":   float|np.nan,
-        "market_cap_usd":   float|np.nan,
-        ... (campos originales útiles)
-    }
-
-Mejoras 2025-08-24
-──────────────────
-• Coerción a float y aplanado (priceUsd, liquidity.usd, volume.h24, fdv/mcap).
-• Campos extra: address/symbol/created_at con parse_iso_utc + epoch s/ms.
-• Aliases de compat: liquidity.usd, volume24h, fdv (desde market_cap_usd).
-"""
-
+"""GeckoTerminal public-v2 token/pool receipts, not market-as-of or fill proof."""
 from __future__ import annotations
 
-from copy import deepcopy
-from utils.market_observation import MARKET_FIELDS, stamp_market_observation
-
 import asyncio
+from copy import deepcopy
 import logging
 import math
 import os
+import re
 import threading
 import time
-from typing import Optional, TypedDict, cast, Any, Dict
+from urllib.parse import urlsplit
 
 import requests
-import numpy as np
-
-from config.config import GECKO_API_URL
-from utils.rate_limiter import GECKO_LIMITER
-from utils.simple_cache import cache_get, cache_set, cache_delete
-from utils.bounded_state import BoundedFailureCounter, bounded_int, increment_failure
-from utils.solana_addr import normalize_mint
-from utils.time import parse_iso_utc
-from utils.data_utils import sanitize_token_data
-
 try:
     import aiohttp
 except ImportError:  # pragma: no cover
-    aiohttp = None  # type: ignore
+    aiohttp = None
+
+from analytics.token_birth import base58_size
+from analytics.token_time import venue_clock_snapshot
+from config.config import GECKO_API_URL
+from utils.bounded_state import BoundedFailureCounter, bounded_int, increment_failure
+from utils.data_utils import sanitize_token_data
+from utils.market_observation import MARKET_FIELDS, market_number, stamp_market_observation
+from utils.rate_limiter import GECKO_LIMITER
+from utils.request_ownership import OwnedRequests
+from utils.simple_cache import cache_get, cache_set, cache_delete
 
 logger = logging.getLogger("fetcher.geckoterminal")
-
-# ────────────────────────── flags y constantes ──────────────────────────
-# Soportamos tanto USE_GECKO_TERMININAL (con doble "N") como el correcto.
 USE_GECKO_TERMINAL = os.getenv("USE_GECKO_TERMININAL", os.getenv("USE_GECKO_TERMINAL", "true")).lower() == "true"
 _BASE_URL = GECKO_API_URL.rstrip("/")
-
+_CONTRACT = "gecko_public_token_pool_v1"
+_HEADERS = {"Accept": "application/json;version=20230203", "User-Agent": "memebot3/1.0"}
 _TTL_NIL_SHORT = bounded_int(os.getenv("GECKO_TTL_NIL_SHORT", "120"), 120, 1, 3600)
 _TTL_NIL_MAX = max(_TTL_NIL_SHORT, bounded_int(os.getenv("GECKO_TTL_NIL_MAX", "600"), 600, 1, 86400))
 _SENTINEL_NIL = object()
-
-# contador de fallos consecutivos
 _fail_count = BoundedFailureCounter()
-
-# rate-limit interno extra (mínimo intervalo entre llamadas)
+_REQUESTS = OwnedRequests(name="gecko-http-request")
+_state_lock = threading.RLock()
+_latest_request = {}
+_active_requests = 0
+_MAX_ACTIVE = 16
+_diagnostics = {name:0 for name in ("success", "invalid_resource", "http_unavailable",
+    "request_error", "rate_limited", "cancelled", "capacity_rejected", "cleanup_failed")}
 _last_call_ts = 0.0
-_min_interval_s = max(0.0, 60.0 / max(1, int(getattr(GECKO_LIMITER, "max_calls", 30))))
-try:
-    _cooldown_on_429_s = max(5.0, float(os.getenv("GECKO_COOLDOWN_ON_429_S", "60")))
-except Exception:
-    _cooldown_on_429_s = 60.0
+_last_observed_ts = None
+_min_interval_s = 60.0 / max(1, min(10, GECKO_LIMITER.max_calls))
+_cooldown_on_429_s = bounded_int(os.getenv("GECKO_COOLDOWN_ON_429_S", "60"), 60, 5, 300)
 _cooldown_until = 0.0
 _cooldown_lock = threading.Lock()
 
-# ─────────────────────────────── tipos ──────────────────────────────────
-class GTData(TypedDict, total=False):
-    address: str | None
-    pair_address: str | None
-    symbol: str | None
-    created_at: object  # datetime | None
-    price_usd: float | None
-    liquidity_usd: float | None
-    volume_24h_usd: float | None
-    market_cap_usd: float | None
 
-
-# ─────────────────────── helpers internos ───────────────────────────────
-def _throttle_internal() -> None:
-    """Pausa si no ha pasado el intervalo mínimo desde la última llamada."""
-    global _last_call_ts
-    now = time.time()
-    delta = now - _last_call_ts
-    if delta < _min_interval_s:
-        time.sleep(_min_interval_s - delta)
-    _last_call_ts = time.time()
-
-
-def _cooldown_remaining() -> float:
-    return max(0.0, _cooldown_until - time.monotonic())
-
-
-def _register_global_cooldown(ttl_s: float | None = None) -> None:
-    global _cooldown_until
-    ttl = max(float(ttl_s or _cooldown_on_429_s), _cooldown_on_429_s)
-    with _cooldown_lock:
-        _cooldown_until = max(_cooldown_until, time.monotonic() + ttl)
-    logger.warning("[GT] cooldown global %.0fs tras 429", ttl)
-
-
-def _wait_for_global_cooldown_sync() -> None:
-    remaining = _cooldown_remaining()
-    if remaining > 0:
-        logger.debug("[GT] cooldown activo (sync) %.1fs", remaining)
-        time.sleep(remaining)
-
-
-async def _wait_for_global_cooldown_async() -> None:
-    remaining = _cooldown_remaining()
-    if remaining > 0:
-        logger.debug("[GT] cooldown activo (async) %.1fs", remaining)
-        await asyncio.sleep(remaining)
-
-
-def _build_endpoint(network: str, address: str) -> str:
-    network = network.lower()
+def _context(network, address):
+    if not isinstance(network, str) or not isinstance(address, str):
+        return None
+    network, raw = network.strip().lower(), address.strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", network) or len(raw) > 64:
+        return None
     if network == "solana":
-        return f"{_BASE_URL}/networks/solana/tokens/{address}"
+        if not base58_size(raw, 32):
+            raw = re.sub(r"[._\-\s:/]*pump$", "", raw, flags=re.IGNORECASE)
+        if not base58_size(raw, 32):
+            return None
+    elif re.fullmatch(r"0x[0-9a-fA-F]{40}", raw):
+        raw = raw.lower()
+    else:
+        return None
+    try:
+        base = urlsplit(_BASE_URL)
+    except (TypeError, ValueError):
+        return None
+    if (base.scheme != "https" or base.netloc != "api.geckoterminal.com"
+            or base.path.rstrip("/") != "/api/v2" or base.query or base.fragment):
+        return None  # Public protocol is not a paid/credentialed gateway.
+    return network, raw
+
+
+def _build_endpoint(network, address):
     return f"{_BASE_URL}/networks/{network}/tokens/{address}"
 
 
-def _to_float(val: Any) -> Optional[float]:
+def _number(value, field):
+    if isinstance(value, str):
+        value = value.replace(",", "")
+    return market_number(value, field)
+
+
+def _to_float(value):
+    if isinstance(value, bool) or value is None:
+        return None
     try:
-        if val is None:
-            return None
-        if isinstance(val, str):
-            val = val.replace(",", "")
-        if isinstance(val, bool):
-            return None
-        x = float(val)
-        return x if math.isfinite(x) else None
-    except (TypeError, ValueError):
+        result = float(value.replace(",", "") if isinstance(value, str) else value)
+        return result if math.isfinite(result) else None
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
-def _epoch_to_dt(epoch: Any):
-    """Typed UTC event diagnostic, not an admission birth claim."""
-    from analytics.token_time import parse_event_clock
-    return parse_event_clock(epoch)
+def _count(value):
+    number = _number(value, "count")
+    return int(number) if number is not None and number.is_integer() else None
 
 
-def _pick_created_at(attrs: dict):
-    """Pool event clock only; no token birth from untyped metadata/listing."""
+def _pick_created_at(attrs):
     from analytics.token_time import parse_event_clock
     for key in ("pool_created_at", "pair_created_at", "pool_created_at_timestamp", "pair_created_at_timestamp"):
-        if key in attrs and attrs[key] is not None:
+        if attrs.get(key) is not None:
             return parse_event_clock(attrs[key])
     return None
 
 
-def _add_legacy_aliases(d: dict) -> dict:
-    """
-    Inyecta:
-      - liquidity.usd ← liquidity_usd
-      - volume24h    ← volume_24h_usd
-      - fdv          ← market_cap_usd
-    para compatibilidad con lectores antiguos.
-    """
-    tok = deepcopy(d)
-    # Asegura 'liquidity' como dict
-    if not isinstance(tok.get("liquidity"), dict):
-        tok["liquidity"] = {}
-    liq = _to_float(tok.get("liquidity_usd"))
-    tok["liquidity"]["usd"] = liq if liq is not None else np.nan
-
-    vol24 = _to_float(tok.get("volume_24h_usd"))
-    tok.setdefault("volume24h", vol24 if vol24 is not None else np.nan)
-
-    mcap = _to_float(tok.get("market_cap_usd"))
-    tok.setdefault("fdv", mcap if mcap is not None else np.nan)
-
-    return tok
+def _epoch_to_dt(value):
+    from analytics.token_time import parse_event_clock
+    return parse_event_clock(value)
 
 
-def _normalize_attributes(addr: str, attrs: dict) -> Dict[str, Any]:
-    """
-    Aplana y normaliza los atributos de GT al esquema estándar.
-    """
-    price = (
-        attrs.get("base_token_price_usd")
-        or attrs.get("price_usd")
-        or attrs.get("price_in_usd")
-    )
-
-    liquidity = next((attrs[k] for k in ("reserve_in_usd", "total_reserve_in_usd", "liquidity_in_usd")
-                      if attrs.get(k) is not None), None)
-
-    mcap = attrs.get("market_cap_usd") or attrs.get("fdv_usd")
-
-    vol_node = attrs.get("volume_usd")
-    vol24 = vol_node.get("h24") if isinstance(vol_node, dict) else None
-
-    symbol = (
-        attrs.get("symbol")
-        or attrs.get("token_symbol")
-        or attrs.get("base_token_symbol")
-        or attrs.get("name")
-    )
-
-    pair_created_at = _pick_created_at(attrs)
-
-    # Calcula una sola vez para no invocar _to_float dos veces
-    _price_f = _to_float(price)
-    _liq_f   = _to_float(liquidity)
-    _vol_f   = _to_float(vol24)
-    _mcap_f  = _to_float(mcap)
-
-    # IMPORTANTE: primero los atributos crudos y DESPUÉS los normalizados,
-    # para que los floats normalizados sobreescriban posibles strings crudos.
-    tok_raw_first: Dict[str, Any] = {
-        **attrs,  # crudo de la API (puede contener strings y anidados)
-        "address":        addr,
-        "pair_address":   attrs.get("pool_address") or attrs.get("pair_address") or None,
-        "symbol":         symbol,
-        "price_usd":      _price_f if _price_f is not None else np.nan,
-        "fdv_usd":        _mcap_f  if _mcap_f  is not None else np.nan,
-        "total_reserve_in_usd": _liq_f if _liq_f is not None else np.nan,
-        "liquidity_usd":  _liq_f   if _liq_f   is not None else np.nan,
-        "volume_usd_24h": _vol_f   if _vol_f   is not None else np.nan,
-        "volume_24h_usd": _vol_f   if _vol_f   is not None else np.nan,
-        "market_cap_usd": _mcap_f  if _mcap_f  is not None else np.nan,
-    }
-
-    from analytics.token_time import venue_clock_snapshot
-    tok_raw_first = venue_clock_snapshot(tok_raw_first, created_at=pair_created_at,
-        kind="pool_metadata", source="geckoterminal")
-    normalized = {key: deepcopy(tok_raw_first.get(key)) for key in MARKET_FIELDS}
-    tok = sanitize_token_data(tok_raw_first)
-    tok.update(normalized)
-    tok = _add_legacy_aliases(tok)
-    return tok
+def _relation(node, name):
+    relationships = node.get("relationships")
+    value = relationships.get(name) if isinstance(relationships, dict) else None
+    return value.get("data") if isinstance(value, dict) else None
 
 
-# ────────────────────────── API pública (sync) ──────────────────────────
-def get_token_data(
-    network: str,
-    address: str,
-    session: Optional[requests.Session] = None,
-    timeout: int = 5,
-    *,
-    force_refresh: bool = False,
-) -> Optional[dict]:
-    if not USE_GECKO_TERMINAL:
+def _selected_pool(data, included, network, address):
+    top = _relation(data, "top_pools")
+    if not isinstance(top, list) or not top or not isinstance(top[0], dict):
         return None
-
-    # Normaliza el mint (quita 'pump', valida longitud/no-0x)
-    addr = normalize_mint(address)
-    if not addr:
-        if str(address or "").strip().lower().startswith("0x"):
-            addr = str(address).strip()
-        else:
-            logger.warning("[GT] address inválido (no mint SPL): %r", address)
-            return None
-
-    ck = f"gt:{network}:{addr}"
-    if force_refresh:
-        cache_delete(ck)
-    _wait_for_global_cooldown_sync()
-    hit = None if force_refresh else cache_get(ck)
-    if hit is not None:
-        return None if hit is _SENTINEL_NIL else deepcopy(hit)
-
-    _throttle_internal()
-    _acquire_sync()
-
-    url = _build_endpoint(network, addr)
-    headers = {"Accept": "application/json", "User-Agent": "memebot3/1.0"}
-    sess = session or requests
-
-    try:
-        resp = sess.get(url, headers=headers, timeout=timeout)
-        if resp.status_code == 429:
-            _register_global_cooldown()
-            _register_fail(ck)
-            return None
-        if resp.status_code == 404:
-            _register_fail(ck)
-            return None
-        resp.raise_for_status()
-        attrs = resp.json()["data"]["attributes"]
-    except Exception as exc:
-        logger.warning("[GT] Error %s para %s…", exc, addr[:6])
-        _register_fail(ck)
+    reference = top[0]
+    ident = reference.get("id")
+    prefix = network + "_"
+    if (reference.get("type") != "pool" or not isinstance(ident, str)
+            or not ident.startswith(prefix) or not isinstance(included, list)):
         return None
-
-    _reset_fail(ck)
-    tok = stamp_market_observation(_normalize_attributes(addr, attrs), "geckoterminal")
-    try:
-        # Casteo defensivo como en la versión async
-        _p = tok.get("price_usd")
-        _l = tok.get("liquidity_usd")
-        _v = tok.get("volume_24h_usd")
-        logger.debug(
-            "[GT] %s | price %.6g liq %.0f vol24h %.0f",
-            addr[:4],
-            float(_p) if _p is not None else float("nan"),
-            float(_l) if _l is not None else float("nan"),
-            float(_v) if _v is not None else float("nan"),
-        )
-    except Exception:
-        pass
-    cache_set(ck, deepcopy(tok), ttl=60)  # TTL corto para datos OK
-    return tok
-
-
-# ────────────────────────── API pública (async) ─────────────────────────
-async def get_token_data_async(
-    network: str,
-    address: str,
-    session: Optional["aiohttp.ClientSession"] = None,
-    timeout: int = 5,
-    *,
-    force_refresh: bool = False,
-) -> Optional[dict]:
-    if not USE_GECKO_TERMINAL:
+    matches = [node for node in included if isinstance(node, dict) and node.get("id") == ident]
+    if len(matches) != 1:
         return None
-
-    # Normaliza el mint (quita 'pump', valida longitud/no-0x)
-    addr = normalize_mint(address)
-    if not addr:
-        if str(address or "").strip().lower().startswith("0x"):
-            addr = str(address).strip()
-        else:
-            logger.warning("[GT] address inválido (no mint SPL): %r", address)
-            return None
-
-    ck = f"gt:{network}:{addr}"
-    if force_refresh:
-        cache_delete(ck)
-    hit = None if force_refresh else cache_get(ck)
-    if hit is not None:
-        return None if hit is _SENTINEL_NIL else deepcopy(hit)
-
-    await _wait_for_global_cooldown_async()
-
-    # ratelimit interno + bucket global
-    global _last_call_ts
-    now = time.monotonic()
-    delta = now - _last_call_ts
-    if delta < _min_interval_s:
-        await asyncio.sleep(_min_interval_s - delta)
-    _last_call_ts = time.monotonic()
-
-    async with GECKO_LIMITER:
-        url = _build_endpoint(network, addr)
-        headers = {"Accept": "application/json", "User-Agent": "memebot3/1.0"}
-
-        async def _fetch(client: "aiohttp.ClientSession") -> Optional[dict]:
-            try:
-                async with client.get(url, headers=headers, timeout=timeout) as r:
-                    if r.status == 429:
-                        _register_global_cooldown()
-                        _register_fail(ck)
-                        return None
-                    if r.status == 404:
-                        _register_fail(ck)
-                        return None
-                    r.raise_for_status()
-                    payload = cast(dict, await r.json())
-                    payload["_market_received_at"] = time.time()
-                    return payload
-            except Exception as exc:  # aiohttp.ClientError y otros
-                logger.warning("[GT] Error red %s", exc)
-                _register_fail(ck)
+    pool = matches[0]
+    attrs = pool.get("attributes")
+    pair = ident[len(prefix):]
+    context = _context(network, pair)
+    if (pool.get("type") != "pool" or not isinstance(attrs, dict) or context is None
+            or context[1] != pair or attrs.get("address") != pair):
+        return None
+    base, quote = _relation(pool, "base_token"), _relation(pool, "quote_token")
+    token_id = prefix + address
+    for role, link in (("base", base), ("quote", quote)):
+        if isinstance(link, dict) and link.get("type") == "token" and link.get("id") == token_id:
+            other = quote if role == "base" else base
+            if (not isinstance(other, dict) or other.get("type") != "token"
+                    or not isinstance(other.get("id"), str) or not other["id"].startswith(prefix)
+                    or other["id"] == token_id
+                    or _context(network, other["id"][len(prefix):]) is None):
                 return None
+            return pair, attrs, role
+    return None
 
-        client = session or aiohttp.ClientSession()
-        try:
-            j = await _fetch(client)
-        finally:
-            if session is None:
-                await client.close()
 
-    if not j:
+def _normalize_attributes(addr, attrs, *, pool=None, token_context=False):
+    """Private projection; public callers first require exact JSON resource identity."""
+    if not isinstance(attrs, dict):
         return None
+    pool_attrs = pool[1] if pool is not None else {}
+    volume = attrs.get("volume_usd")
+    volume = volume if isinstance(volume, dict) else {}
+    price = _number(attrs.get("price_usd"), "price_usd")
+    cap = _number(attrs.get("market_cap_usd"), "market_cap_usd")
+    fdv = _number(attrs.get("fdv_usd"), "market_cap_usd")
+    if pool is not None:
+        liquidity = _number(pool_attrs.get("reserve_in_usd"), "liquidity_usd")
+        proxy, basis = False, "selected_pool_reserve"
+    else:
+        liquidity = _number(attrs.get("total_reserve_in_usd"), "liquidity_usd")
+        proxy, basis = True, "token_total_reserve_not_route_liquidity"
+        if not token_context and "reserve_in_usd" in attrs:
+            liquidity = _number(attrs["reserve_in_usd"], "liquidity_usd")
+            proxy, basis = False, "private_pool_attribute_projection"
+    changes = pool_attrs.get("price_change_percentage")
+    changes = changes if isinstance(changes, dict) else {}
+    activity = pool_attrs.get("transactions")
+    activity = activity.get("m5") if isinstance(activity, dict) else None
+    activity = activity if isinstance(activity, dict) else {}
+    # Pool buy/sell and change fields are not assumed to describe its quote token.
+    base_role = pool is not None and pool[2] == "base"
+    buys = _count(activity.get("buys")) if base_role else None
+    sells = _count(activity.get("sells")) if base_role else None
+    total = buys + sells if buys is not None and sells is not None else None
+    normalized = {key: None for key in MARKET_FIELDS}
+    normalized.update(price_usd=price, liquidity_usd=liquidity, market_cap_usd=cap,
+        volume_24h_usd=_number(volume.get("h24"), "volume_24h_usd"),
+        txns_last_5m=total, txns_last_5m_buys=buys, txns_last_5m_sells=sells,
+        price_pct_5m=_number(changes.get("m5"), "price_pct_5m") if base_role else None)
+    out = {**deepcopy(attrs), **normalized, "address":addr,
+        "symbol":attrs.get("symbol") if isinstance(attrs.get("symbol"), str) else None,
+        "pair_address":pool[0] if pool is not None else None,
+        "fdv_usd":fdv, "fdv":fdv, "liquidity_usd_is_proxy":proxy,
+        "liquidity_is_proxy":proxy, "liquidity_basis":basis, "gecko_contract_version":_CONTRACT}
+    event_attrs = pool_attrs if token_context else attrs
+    out = venue_clock_snapshot(out, created_at=_pick_created_at(event_attrs),
+        kind="pool_metadata", source="geckoterminal")
+    out = sanitize_token_data(out)
+    out.update(normalized)  # Alias coercion cannot resurrect missing canonical values.
+    out["liquidity"] = {"usd":liquidity}
+    out["volume24h"] = normalized["volume_24h_usd"]
+    out["volume_usd_24h"] = normalized["volume_24h_usd"]
+    out["total_reserve_in_usd"] = _number(attrs.get("total_reserve_in_usd"), "liquidity_usd")
+    out["fdv_usd"] = out["fdv"] = fdv
+    return out
 
-    try:
-        attrs = j["data"]["attributes"]
-    except KeyError:
-        logger.warning("[GT] JSON sin 'attributes' para %s…", addr[:6])
-        _register_fail(ck)
+
+def _decode_response(payload, network, address, received_at):
+    if not isinstance(payload, dict) or "errors" in payload or "error" in payload:
         return None
-
-    _reset_fail(ck)
-    tok = stamp_market_observation(_normalize_attributes(addr, attrs), "geckoterminal",
-                                   received_at=j["_market_received_at"])
-    try:
-        logger.debug(
-            "[GT] %s | price %.6g liq %.0f vol24h %.0f",
-            addr[:4],
-            float(tok.get("price_usd")) if tok.get("price_usd") is not None else float("nan"),
-            float(tok.get("liquidity_usd")) if tok.get("liquidity_usd") is not None else float("nan"),
-            float(tok.get("volume_24h_usd")) if tok.get("volume_24h_usd") is not None else float("nan"),
-        )
-    except Exception:
-        pass
-    cache_set(ck, deepcopy(tok), ttl=60)
-    return tok
+    data = payload.get("data")
+    attrs = data.get("attributes") if isinstance(data, dict) else None
+    if (not isinstance(data, dict) or data.get("type") != "token"
+            or data.get("id") != f"{network}_{address}" or not isinstance(attrs, dict)
+            or attrs.get("address") != address):
+        return None
+    pool = _selected_pool(data, payload.get("included"), network, address)
+    return stamp_market_observation(_normalize_attributes(address, attrs, pool=pool, token_context=True),
+        "geckoterminal", received_at=received_at)
 
 
-# ───────────────────────── helpers de rate-limit sync ───────────────────
-def _acquire_sync() -> None:
+def _throttle_wait():
+    global _last_call_ts, _last_observed_ts
+    now = time.monotonic()
+    if not math.isfinite(now):
+        raise ValueError("Invalid local monotonic clock")
+    with _state_lock:
+        if _last_observed_ts is not None and now < _last_observed_ts:
+            _last_call_ts = now
+        _last_observed_ts = now
+        wait = max(0., _min_interval_s - (now - _last_call_ts))
+        if not wait:
+            _last_call_ts = now
+        return wait
+
+
+def _throttle_internal():
+    while (wait := _throttle_wait()) > 0:
+        time.sleep(wait)
+
+
+async def _throttle_async():
+    while (wait := _throttle_wait()) > 0:
+        await asyncio.sleep(wait)
+
+
+def _cooldown_remaining():
+    with _cooldown_lock:
+        return max(0., _cooldown_until - time.monotonic())
+
+
+def _register_global_cooldown(ttl_s=None):
+    global _cooldown_until
+    value = _to_float(ttl_s)
+    ttl = max(_cooldown_on_429_s, min(300., value)) if value is not None and value >= 0 else _cooldown_on_429_s
+    with _cooldown_lock:
+        _cooldown_until = max(_cooldown_until, time.monotonic() + ttl)
+
+
+def _wait_for_global_cooldown_sync():
+    while (wait := _cooldown_remaining()) > 0:
+        time.sleep(wait)
+
+
+async def _wait_for_global_cooldown_async():
+    while (wait := _cooldown_remaining()) > 0:
+        await asyncio.sleep(wait)
+
+
+def _acquire_sync():
     GECKO_LIMITER.acquire_sync()
 
 
-# ───────────────────────── control de fallos ────────────────────────────
-def _register_fail(key: str) -> None:
+def _register_fail(key):
     fails = increment_failure(_fail_count, key)
-    ttl = _TTL_NIL_MAX if fails >= 4 else _TTL_NIL_SHORT
-    cache_set(key, _SENTINEL_NIL, ttl=ttl)
-    logger.debug("[GT] %s → sin datos (TTL=%ss, capped_backoff_level=%d)", key, ttl, fails)
+    cache_set(key, _SENTINEL_NIL, ttl=_TTL_NIL_MAX if fails >= 4 else _TTL_NIL_SHORT)
 
 
-def _reset_fail(key: str) -> None:
+def _reset_fail(key):
     _fail_count.pop(key, None)
 
 
-__all__ = [
-    "get_token_data",
-    "get_token_data_async",
-    "USE_GECKO_TERMINAL",
-]
+def _begin_request(key):
+    global _active_requests
+    with _state_lock:
+        if _active_requests >= _MAX_ACTIVE:
+            _diagnostics["capacity_rejected"] += 1
+            return None
+        generation = object()
+        _active_requests += 1
+        _latest_request[key] = generation
+        return generation
+
+
+def _record_outcome(name):
+    with _state_lock:
+        _diagnostics[name] += 1
+
+
+def _end_request(key, generation):
+    global _active_requests
+    with _state_lock:
+        _active_requests -= 1
+        if _latest_request.get(key) is generation:
+            _latest_request.pop(key, None)
+
+
+def _publish(key, generation, result):
+    with _state_lock:
+        if _latest_request.get(key) is not generation:
+            return
+        if result is None:
+            _register_fail(key)
+        else:
+            _reset_fail(key)
+            cache_set(key, deepcopy(result), ttl=60)
+
+
+def _cached(key, address):
+    hit = cache_get(key)
+    if hit is _SENTINEL_NIL:
+        return True, None
+    if isinstance(hit, dict) and hit.get("address") == address and hit.get("gecko_contract_version") == _CONTRACT:
+        return True, deepcopy(hit)
+    return False, None
+
+
+def _timeout(value):
+    result = _to_float(value)
+    return result if result is not None and result > 0 else None
+
+
+def get_token_data(network, address, session=None, timeout=5, *, force_refresh=False):
+    context = _context(network, address) if USE_GECKO_TERMINAL else None
+    deadline = _timeout(timeout)
+    if context is None or deadline is None:
+        return None
+    network, address = context
+    key = f"gt:{_CONTRACT}:{network}:{address}"
+    if force_refresh:
+        cache_delete(key)
+    else:
+        found, hit = _cached(key, address)
+        if found:
+            return hit
+    generation = _begin_request(key)
+    if generation is None:
+        return None
+    client, response = None, None
+    result = None
+    try:
+        _wait_for_global_cooldown_sync()
+        _throttle_internal()
+        _acquire_sync()
+        client = session if session is not None else requests.Session()
+        response = client.get(_build_endpoint(network, address), headers=dict(_HEADERS),
+            params={"include":"top_pools"}, timeout=deadline, allow_redirects=False)
+        if response.status_code == 429:
+            _record_outcome("rate_limited")
+            _register_global_cooldown(getattr(response, "headers", {}).get("Retry-After"))
+        if response.status_code == 200:
+            body = response.json()
+            received = time.time()
+            result = _decode_response(body, network, address, received)
+            _record_outcome("success" if result is not None else "invalid_resource")
+        else:
+            _record_outcome("http_unavailable")
+    except Exception:
+        _record_outcome("request_error")
+        result = None
+    finally:
+        try:
+            if response is not None:
+                response.close()
+        except Exception:
+            _record_outcome("cleanup_failed")
+            result = None
+        finally:
+            try:
+                if session is None and client is not None:
+                    client.close()
+            except Exception:
+                _record_outcome("cleanup_failed")
+                result = None
+            finally:
+                try:
+                    _publish(key, generation, result)
+                finally:
+                    _end_request(key, generation)
+    return deepcopy(result)
+
+
+async def _fetch_async(network, address, key, session, timeout):
+    generation = _begin_request(key)
+    if generation is None:
+        return None
+    client = None
+    result = None
+    try:
+        await _wait_for_global_cooldown_async()
+        await _throttle_async()
+        async with GECKO_LIMITER:
+            client = session if session is not None else aiohttp.ClientSession()
+            try:
+                async with client.get(_build_endpoint(network, address), headers=dict(_HEADERS),
+                        params={"include":"top_pools"}, timeout=timeout, allow_redirects=False) as response:
+                    if response.status == 429:
+                        _record_outcome("rate_limited")
+                        _register_global_cooldown(getattr(response, "headers", {}).get("Retry-After"))
+                    if response.status == 200:
+                        body = await response.json()
+                        received = time.time()
+                        result = _decode_response(body, network, address, received)
+                        _record_outcome("success" if result is not None else "invalid_resource")
+                    else:
+                        _record_outcome("http_unavailable")
+            finally:
+                if session is None and client is not None:
+                    try:
+                        await client.close()
+                    except Exception:
+                        _record_outcome("cleanup_failed")
+                        raise
+        _publish(key, generation, result)
+        return result
+    except asyncio.CancelledError:
+        _record_outcome("cancelled")
+        raise
+    except Exception:
+        _record_outcome("request_error")
+        _publish(key, generation, None)
+        return None
+    finally:
+        _end_request(key, generation)
+
+
+async def get_token_data_async(network, address, session=None, timeout=5, *, force_refresh=False):
+    context = _context(network, address) if USE_GECKO_TERMINAL else None
+    deadline = _timeout(timeout)
+    if context is None or deadline is None or (session is None and aiohttp is None):
+        return None
+    network, address = context
+    key = f"gt:{_CONTRACT}:{network}:{address}"
+    if force_refresh:
+        cache_delete(key)
+    else:
+        found, hit = _cached(key, address)
+        if found:
+            return hit
+    # Injected callers share work only when they own the same session object.
+    ownership_key = (key, id(session), deadline)
+    result = await _REQUESTS.run(ownership_key,
+        lambda:_fetch_async(network, address, key, session, deadline), force_refresh=force_refresh)
+    return deepcopy(result)
+
+
+def request_runtime_snapshot():
+    with _state_lock:
+        state = {"active_requests":_active_requests, "max_active":_MAX_ACTIVE,
+            "latest_generations":len(_latest_request), "diagnostic_outcomes":dict(_diagnostics)}
+    return {**state, "requests":_REQUESTS.snapshot(), "failure_keys":_fail_count.snapshot(),
+        "public_max_calls_per_minute":min(10, GECKO_LIMITER.max_calls),
+        "basis":"local_admission_not_actual_provider_quota_or_wire_billing"}
+
+
+__all__ = ["get_token_data", "get_token_data_async", "USE_GECKO_TERMINAL"]
