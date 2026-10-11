@@ -39,6 +39,8 @@ class PaperBootstrapDecision:
     risk_notes: tuple[str, ...] = ()
     model_cold: bool = False
     require_route: bool = True
+    provisional: bool = False
+    pending_checks: tuple[str, ...] = ()
 
 
 def _first(row: dict[str, Any], *keys: str) -> Any:
@@ -191,6 +193,11 @@ def _field_present(row: dict[str, Any], *keys: str) -> bool:
         return False
 
 
+def _unobserved(row: dict[str, Any], *keys: str) -> bool:
+    """Only absent/None may await enrichment; malformed observations cannot."""
+    return all(row.get(key) is None for key in keys)
+
+
 def _candidate_age_minutes(row: dict[str, Any], *, now: dt.datetime | None = None) -> float | None:
     return compute_age_minutes(row, now=now)
 
@@ -319,9 +326,15 @@ def should_allow_paper_bootstrap(
     trigger_stage: str,
     trigger_reason: str,
     require_observed_route: bool = False,
+    allow_pending_enrichment: bool = False,
     cfg: Any = CFG,
     now: dt.datetime | None = None,
 ) -> PaperBootstrapDecision:
+    if type(allow_pending_enrichment) is not bool:
+        raise ValueError("Pending enrichment must be explicitly boolean")
+    if allow_pending_enrichment and require_observed_route:
+        raise ValueError("Pending enrichment cannot authorize a final bootstrap check")
+    pending_checks: list[str] = []
     amount = min(
         max(0.0, _float_cfg(cfg, "PAPER_BOOTSTRAP_AMOUNT_SOL", 0.1)),
         max(0.0001, _float_cfg(cfg, "PAPER_BOOTSTRAP_MAX_AMOUNT_SOL", 0.1)),
@@ -348,6 +361,8 @@ def should_allow_paper_bootstrap(
             risk_notes=risk_notes,
             model_cold=bool(model_cold),
             require_route=_bool_cfg(cfg, "PAPER_BOOTSTRAP_REQUIRE_ROUTE", True),
+            provisional=bool(allowed and pending_checks),
+            pending_checks=tuple(pending_checks),
         )
 
     if not _bool_cfg(cfg, "PAPER_BOOTSTRAP_ENABLED", True):
@@ -357,12 +372,28 @@ def should_allow_paper_bootstrap(
     if _bool_cfg(cfg, "PAPER_BOOTSTRAP_REQUIRE_COLD_START", False) and not model_cold:
         return decision(False, "paper_bootstrap_cold_start_complete")
 
+    if allow_pending_enrichment:
+        # This is continuation to the existing risk/quote stages, not buy
+        # permission. Both native post-enrichment and pre-execution guards
+        # revalidate strictly. Observed failures are never provisional.
+        if (_bool_cfg(cfg, "PAPER_BOOTSTRAP_BLOCK_CLUSTER_BAD", False)
+                and _unobserved(row, "cluster_bad", "helius_cluster_bad")):
+            pending_checks.append("cluster_status_unknown")
+        if (_float_cfg(cfg, "PAPER_BOOTSTRAP_MAX_PRICE_IMPACT_PCT", 40.) > 0
+                and _unobserved(row, "price_impact_pct", "buy_price_impact_pct",
+                    "route_price_impact_pct", "jupiter_price_impact_pct")):
+            pending_checks.append("price_impact_missing")
+        if (_bool_cfg(cfg, "PAPER_BOOTSTRAP_REQUIRE_ROUTE", True)
+                and _unobserved(row, "has_jupiter_route", "route_ok", "route_available")):
+            pending_checks.append("no_jupiter_route")
+
     failures = _hard_failures(row, cfg=cfg) + _quality_failures(
         row,
         cfg=cfg,
         require_observed_route=require_observed_route,
         now=now or dt.datetime.now(dt.timezone.utc),
     )
+    failures = tuple(failure for failure in failures if failure not in pending_checks)
     if failures:
         return decision(False, "paper_bootstrap_hard_risk", hard_failures=failures)
 
@@ -420,6 +451,8 @@ def apply_paper_bootstrap_context(row: dict[str, Any], decision: PaperBootstrapD
     row["paper_bootstrap_trigger_reason"] = decision.trigger_reason
     row["paper_bootstrap_amount_sol"] = float(decision.amount_sol)
     row["paper_bootstrap_model_cold"] = int(bool(decision.model_cold))
+    row["paper_bootstrap_provisional"] = int(bool(decision.provisional))
+    row["paper_bootstrap_pending_checks"] = ",".join(decision.pending_checks)
     row["paper_bootstrap_risk_notes"] = ",".join(decision.risk_notes)
     row["require_jupiter_for_buy"] = int(bool(decision.require_route))
     row["green_sniper_reason"] = POLICY_PAPER_BOOTSTRAP

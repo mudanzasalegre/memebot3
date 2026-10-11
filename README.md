@@ -13,6 +13,28 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Bootstrap PAPER por fases y oportunidades extremas (2026-10-11)
+
+La admision preliminar permite recoger riesgo, ruta e impacto todavia ausentes;
+no autoriza una compra. Datos malformados o riesgos observados siguen bloqueando.
+Tras el enriquecimiento y antes de ejecutar, los controles nativos exigen datos
+completos, ademas de capacidad, politica y coherencia de entrada.
+
+Dos casos reproducen el fallo de orden original. La correccion pasa 50 casos
+nuevos, 308 pruebas focalizadas y 5.652 pruebas completas en cada copia (dos
+avisos de pandas cada una), ambos preflight y 26 imports nativos comprobados.
+Otras 14 regresiones por copia conservan senales/cash sinteticos hasta
++1.000.000% y una cola parcial hasta +100.000%, sin un techo al 100/200%.
+Esto no prueba captura ni beneficio real, ni conservar todo el capital.
+
+El ultimo run conservado es una prueba corta del 4 de octubre: 19 evaluaciones
+bootstrap rechazadas por motivos de calidad solapados, bajo otra configuracion,
+sin intentos de compra. No queda demostrado que el nuevo defecto fuera su causa.
+Data Analytics ayuda a distinguir datos pendientes de datos invalidos o negativos.
+Bot/API/UI/entrenamiento/AutoResearch quedan apagados; PAPER mantiene compras
+exactas de 0,1 SOL. Rentabilidad, cobertura y primer arranque operativo no estan
+certificados. Detalles: [auditoria por fases](docs/audits/paper_bootstrap_phases_20261011.json).
+
 ### Relevo primario verificado y cola extrema (2026-10-11)
 
 El relevo de la generacion cap anterior ya funciona con evidencia sintetica

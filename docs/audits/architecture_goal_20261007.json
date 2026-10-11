@@ -13,9 +13,10 @@
   ],
   "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
   "historical_initial_publication_state": {"branch": "main", "origin_main_commit_before_sync": "3479e24", "working_tree_clean_before_sync": true, "remote_fetch_completed": true, "source_sync_completed": true, "implementation_commit": "0c7aa6c0d2bc10462d29b1d8207a68a23fc7fbb8", "commit_push": "COMPLETE", "remote_revision_verified": true, "scope": "Initial publication proof, not the current Git HEAD after later source stages"},
-  "latest_stage_evidence": "docs/audits/primary_valuation_retirement_20261011.json",
-  "latest_stage_summary": "Native verified retirement recognizes only the exact preceding cap schema and keeps original fit/selection time, tokens, financial target, immutable5-component binding and actual CAS epoch. Ordinary inference/rollback still reject the retired model; independently later/disjoint current candidate promotion rechecks all evidence under the OS lock. Untouched publishing source reproduces6 incumbent failures and an independent promotion mismatch;35 new cases,153 focused checks and2 extra native independent-fit/lock guards pass. Both5602 full suites pass (D1407.83s/C1384.96s,2 existing pandas FutureWarnings each), both preflights and25 actual-root cold imports pass on matching frozen787-source SHA2563b2540022651caeb46ed8717e357a868c3643b66d27ad704b07d95605bcce458. Both12 explicit extreme-tail regressions pass; these preserve synthetic signals/cash through1000000% and costed partial runners through100000%, not real profitable capture. D-only requested stop05:52:41-43Z plus05:52:44-45Z inventory/SQL verify OFF and exact0.1 SOL PAPER. Read-only configured D primary currently has neither managed selector registry nor metadata; the repaired transition is not established as the no-buy run cause. Other generation/bootstrap/provider/full-strategy financial acceptance remains incomplete.",
+  "latest_stage_evidence": "docs/audits/paper_bootstrap_phases_20261011.json",
+  "latest_stage_summary": "Native PAPER bootstrap separates provisional continuation from strict post-risk/route and final execution authorization. Only absent/None cluster, impact and route await enrichment; observed failures and malformed values remain blocked. Original C reproduces2 failures,50 new cases and308 focused pass;18 cases execute native guard blocks including downstream-return and overlay/capacity veto. Both5652 full suites pass (D1357.24s/C1338.10s,2 existing pandas FutureWarnings each), both preflights and26 root-checked cold imports pass on matching frozen788-source SHA256083bbfa7cd0dc7a2f22bda9bd8848f4ed5e7164938f3f4a90a833fe9745c610a. Both14 extreme-tail regressions retain synthetic signals/cash through1000000% and partial runners through100000%, not real profit. D-only requested stop06:35:50-53Z and06:35:54-55Z inventory/SQL verify OFF and exact0.1 SOL PAPER. Original retained Oct4 short smoke has19 bootstrap evaluations/blocked events, independent overlapping quality failures and no buy attempts under different original config. Current model alias/metadata are absent. The repaired ordering defect is not established as that smoke's cause. Other fallback/source/operational/full-strategy financial acceptance remains incomplete.",
   "implemented_this_stage": [
+    "Separate native preliminary PAPER bootstrap enrichment from strict post-risk/route and final execution approval. Preserve malformed/observed risk vetoes, market/activity/score/real-liquidity controls, exact0.1 SOL size, quotas, freshness, overlay/capacity and entry coherence. Data quality distinguishes missing pending fields from invalid/negative observations. Original C2 failures,50 new cases,308 focused, both5652 full, both14 extreme-tail regressions, both preflights and26 native-root cold imports pass. No operator model activation or start. The retained short smoke does not establish historical causality or profitability. Evidence: docs/audits/paper_bootstrap_phases_20261011.json.",
     "Verify and retire only the exactly known pre-valuation managed-primary cap bundle, preserving all original fit/selection/financial/CAS boundaries. Approve only independently later/disjoint current successors and recheck actual immutable binding under the registry lock; ordinary obsolete inference/rollback stays closed. Data quality distinguishes generation change from corrupt or unapproved evidence. No operator model load, activation, history rewrite or runtime start. Native35 new cases,153 focused and2 additional independent-fit guards, both5602 full suites, both12 extreme-tail regressions, both preflights and25-module root probes pass. Exact0.1 SOL PAPER and OFF remain verified; current configured D primary has no managed selector/metadata, so no previous no-buy causality or profitability is claimed. Evidence: docs/audits/primary_valuation_retirement_20261011.json.",
     "Keep extreme momentum uncapped through independent native valuation projection/receipt/merge; final synthetic cases retain +500/+1000/+25000/+1000000 percentage-point signals. These are not executed returns or exhaustive route/runner acceptance. Evidence: docs/audits/market_valuation_20261011.json.",
     "Separate provider-reported USD cap and FDV, preserve canonical zero/unknown and field receipts, and bind cap/bucket predictors to original T0 provenance outside77 raw predictors. Each actual model target checks30 original rows/distinct tokens or omits incompatible predictors; no active model or history is relabeled. Evidence: docs/audits/market_valuation_20261011.json.",
@@ -119,6 +120,7 @@
     "Implement current Jupiter Swap v2 managed defaults and known Ultra endpoint migration without touching personal .env; request supported v0, preserve canonical original request/order/fee/expiry/message/wallet/co-signature provenance, suppress redirects, omit zero RFQ aggregator nonce and retain one execute POST in an owned HTTP worker. Classify post-start errors as uncertain. Use checked provider wallet-output rather than quoted quantities, preserve all four amount/fee roles, avoid unrelated Metis routing vetoes and respect explicit mode flags. Proved pre-POST buyer failures become durable known no-fill; seller fallback remains liquidity-gated and canonical only before submission. Cryptographically verify provider-added sponsor signatures against original public payer/message without inventing their earlier presence; all independent chain/wallet/content proofs remain unverified. One-hundred-forty synthetic cases cover adapters, actual SDK and actual consumers; no runtime, artifact/policy, order or upside cap."
   ],
   "evidence": [
+    "docs/audits/paper_bootstrap_phases_20261011.json",
     "docs/audits/primary_valuation_retirement_20261011.json",
     "docs/audits/market_valuation_20261011.json",
     "docs/audits/gecko_contract_20261011.json",
@@ -293,6 +295,181 @@
     "tests/test_primary_snapshot_contents.py"
   ],
   "verification": {
+    "paper_bootstrap_phases_suite": {
+      "stage": "docs/audits/paper_bootstrap_phases_20261011.json",
+      "new_authored_cases": 50,
+      "initial_focused": {
+        "passed": 50,
+        "seconds": 2.43,
+        "exit_code": 0
+      },
+      "expanded_focused": {
+        "passed": 308,
+        "seconds": 79.97,
+        "exit_code": 0,
+        "scope": "Native staged bootstrap guards plus existing entry observation, inference coherence, pre-entry risk and loaded/code integrity suites."
+      },
+      "executed_guard_scope": "18 cases execute complete native guard blocks with actual bootstrap logic and inert dependencies/downstream sentinels, including rejection, completion and overlay/capacity veto. Bounded guard execution, not full running-bot/provider acceptance.",
+      "full_suites": {
+        "working": {
+          "passed": 5652,
+          "warnings": 2,
+          "seconds": 1357.24,
+          "exit_code": 0
+        },
+        "publishing": {
+          "passed": 5652,
+          "warnings": 2,
+          "seconds": 1338.1,
+          "exit_code": 0
+        },
+        "warnings_scope": "Two existing pandas FutureWarnings each at analytics/model_runtime_common.py:487; no failing tests."
+      },
+      "preflights": {
+        "working": {
+          "started_at_utc": "2026-10-11T06:35:27.6179761+00:00",
+          "generated_at_utc": "2026-10-11T06:35:30.654432+00:00",
+          "exit_code": 0,
+          "ok": true,
+          "compile_errors": 0,
+          "report_builders": 7,
+          "report_failed": 0,
+          "config_returncode": 0,
+          "pytest_returncode": 0
+        },
+        "publishing": {
+          "started_at_utc": "2026-10-11T06:35:27.6180773+00:00",
+          "generated_at_utc": "2026-10-11T06:35:29.668048+00:00",
+          "exit_code": 0,
+          "ok": true,
+          "compile_errors": 0,
+          "report_builders": 7,
+          "report_failed": 0,
+          "config_returncode": 0,
+          "pytest_returncode": 0
+        }
+      },
+      "frozen_source": {
+        "files_each": 788,
+        "sha256": "083bbfa7cd0dc7a2f22bda9bd8848f4ed5e7164938f3f4a90a833fe9745c610a",
+        "frozen_before_full_suites": true,
+        "rechecked_after_both_full_suites_and_preflights": true
+      },
+      "cold_probes": {
+        "working": {
+          "modules_scoped_each": 26,
+          "clock_generation": "original_mint_birth_not_venue_v2",
+          "advisory_pipeline": 14,
+          "current_original_population_checked": true,
+          "schema_alone_rejected": true,
+          "legacy_nonclock_inputs_preserved": true,
+          "venue_only_birth_unknown": true,
+          "config": {
+            "dry_run": true,
+            "paper_max_trade_amount_sol": 0.1,
+            "paper_bootstrap_amount_sol": 0.1
+          },
+          "paper_exact_trade_size_enabled": true,
+          "paper_exact_trade_size_sol": 0.1,
+          "provider_birth_context_retained": true,
+          "creation_budget_defaults_checked": true,
+          "bootstrap_provisional_continuation_checked": true,
+          "bootstrap_final_missing_checks_rejected": true,
+          "bootstrap_final_complete_exact_size_checked": true,
+          "scope": "Cold native imports/config and synthetic input contract only; no fit, runtime start or provider access."
+        },
+        "publishing": {
+          "modules_scoped_each": 26,
+          "clock_generation": "original_mint_birth_not_venue_v2",
+          "advisory_pipeline": 14,
+          "current_original_population_checked": true,
+          "schema_alone_rejected": true,
+          "legacy_nonclock_inputs_preserved": true,
+          "venue_only_birth_unknown": true,
+          "config": {
+            "dry_run": true,
+            "paper_max_trade_amount_sol": 0.1,
+            "paper_bootstrap_amount_sol": 0.1
+          },
+          "paper_exact_trade_size_enabled": true,
+          "paper_exact_trade_size_sol": 0.1,
+          "provider_birth_context_retained": true,
+          "creation_budget_defaults_checked": true,
+          "bootstrap_provisional_continuation_checked": true,
+          "bootstrap_final_missing_checks_rejected": true,
+          "bootstrap_final_complete_exact_size_checked": true,
+          "scope": "Cold native imports/config and synthetic input contract only; no fit, runtime start or provider access."
+        }
+      },
+      "shutdown": {
+        "requested_stop": {
+          "started_at_utc": "2026-10-11T06:35:50.9743742+00:00",
+          "finished_at_utc": "2026-10-11T06:35:53.3782661+00:00",
+          "exit_code": 0,
+          "killed": 0,
+          "remaining": 0,
+          "finalizer_status": "ok",
+          "scope": "D working checkout only; no publishing stop or runtime launch."
+        },
+        "inventory": {
+          "observed_at": "2026-10-11T06:35:54.9762866+00:00",
+          "since_utc": "2026-10-08T16:09:40.0000000Z",
+          "runtime_processes": 0,
+          "task_owned_previews": 0,
+          "matching_tasks": 0,
+          "running_tasks": 0,
+          "matching_services": 0,
+          "running_services": 0,
+          "checkouts": [
+            {
+              "locks": 0,
+              "protected_files": 3763,
+              "changed_by_mtime": 0,
+              "checkout": "working",
+              "green_live_risk_file_exists": false
+            },
+            {
+              "locks": 0,
+              "protected_files": 27,
+              "changed_by_mtime": 0,
+              "checkout": "publishing",
+              "green_live_risk_file_exists": false
+            }
+          ],
+          "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+        },
+        "sql": {
+          "observed_at": "2026-10-11T06:35:55.502498+00:00",
+          "source": "data/memebotdatabase.db",
+          "runtime_state": [
+            {
+              "bot_id": "main",
+              "process_state": "stopped",
+              "reports_refresh_state": "idle",
+              "retrain_state": "idle",
+              "updated_at": "2026-10-11 06:35:52.927231"
+            }
+          ],
+          "scoped_green_live_groups": 0,
+          "qualification": "Empty scoped green LIVE groups do not prove whole-wallet or profitable full-strategy acceptance."
+        },
+        "publication_handoff": "Fresh post-publication verification is recorded in the private delivery receipt."
+      },
+      "tail_regressions": {
+        "working": {
+          "passed": 14,
+          "seconds": 2.46,
+          "exit_code": 0
+        },
+        "publishing": {
+          "passed": 14,
+          "seconds": 2.29,
+          "exit_code": 0
+        },
+        "scope": "Native synthetic bootstrap/market momentum and exact cash through+1000000%; actual isolated costed PAPER partial executions through+100000%, 3% original quantity retained before later cash drawdown. Not real financial capture or all-capital retention."
+      }
+    },
+    "previous_primary_valuation_retirement_shutdown_evidence": "docs/audits/primary_valuation_retirement_20261011.json",
     "primary_valuation_retirement_suite": {
       "stage": "docs/audits/primary_valuation_retirement_20261011.json",
       "new_authored_cases": 35,
@@ -853,7 +1030,7 @@
     "previous_research_temporal_publishing_suite": "4420 passed in802.14s on the identical frozen756-source fingerprint, using existing D Python without publishing personal.env/local.venv. First-launch preflight passes; no operational bot/provider/wallet or active model/policy activation.",
     "ranking_tie_previous_general_publishing_suite": "4488 passed in1131.73s on the identical frozen757-source fingerprint using existing working Python without publishing personal.env/local.venv. Preflight passes at04:59:17.123035Z; no operational provider/wallet or active model/policy activation.",
     "final_publishing_suite": "5602 passed in1384.96s,2 existing pandas FutureWarnings on matching frozen787 sources SHA2563b2540022651caeb46ed8717e357a868c3643b66d27ad704b07d95605bcce458 using working Python. Actual preflight2026-10-11T05:52:29.251893+00:00,25-module native cold probe and12 explicit synthetic tail regressions pass. Protected operator artifacts remain outside source publication.",
-    "publishing_preflight": "PASS_CURRENT_PRIMARY_VALUATION_RETIREMENT_STAGE: both actual full suites exit0 before both external-pytest preflights exit0/ok,compile errors0,7 passing no-data report builders,config and actual external pytest returncode0. Generated D2026-10-11T05:52:30.452166+00:00/C2026-10-11T05:52:29.251893+00:00. Not operational/financial acceptance.",
+    "publishing_preflight": "PASS_CURRENT_PAPER_BOOTSTRAP_PHASE_STAGE: both full suites exit0 before both external-pytest preflights exit0/ok,compile errors0,7 passing no-data report builders,config and external pytest returncode0. Generated D2026-10-11T06:35:30.654432+00:00/C2026-10-11T06:35:29.668048+00:00. Not operational/financial acceptance.",
     "publishing_ui_build": "Previously passed with bundle-size warning; UI unchanged in uncertainty, transport, collector, incumbent-successor, composition, independent-monitor, buy-integrity, sell-integrity, paper-archive, runner-intake, net-learning, financial-model and market-freshness stages",
     "focused_runner_and_forward_suite": "147 passed in 59.65s in previous runner stage",
     "focused_learning_and_uncertainty_suite": "75 passed in 18.30s in previous model stage",
@@ -926,20 +1103,20 @@
     "previous_discovery_burst_shutdown": "VERIFIED_OFF_2026-10-09T07:51:09.6648041Z; historical stage/publication evidence in docs/audits/discovery_burst_20261009.json and its same-turn delivery receipt.",
     "previous_loaded_entry_shutdown": "VERIFIED_OFF_2026-10-09T09:51:32.0807555Z: bot/training/research/API/UI processes, owned previews, tasks/services and both checkout locks all zero. D-only requested stop09:51:19Z reports killed0/remaining0, immediately captured LASTEXITCODE0 and actual finalizer status ok. SQL main stopped/idle/idle updated09:51:19.239267Z. Protected3763D/27C mtimes unchanged since2026-10-08T16:09:40Z, not cryptographic history proof. Repeat post-publication OFF proof is recorded separately.",
     "previous_discovery_profile_final_shutdown": "VERIFIED_OFF_2026-10-09T14:58:29.2519919Z: bot/training/research/API/UI processes, owned previews, matching tasks/services and both checkout locks all zero. D-only requested stop14:57:59-14:58:02Z reports killed0/remaining0, immediately captured LASTEXITCODE0 and actual finalizer status ok. SQL main stopped/idle/idle updated14:58:01.961757Z. Protected3763D/27C mtimes unchanged since2026-10-08T16:09:40Z, not cryptographic history proof. Empty scoped PAPER/green-LIVE groups are not whole-wallet or profit proof. Repeat post-publication proof is recorded in the private same-turn delivery receipt.",
-    "final_shutdown": "VERIFIED_OFF_2026-10-11T05:52:45.8849183+00:00: runtime processes, owned previews, matching tasks/services and both checkout locks0. D-only requested stop05:52:41.4292220-05:52:43.9245057Z, immediately captured exit0,actual finalizer ok,killed0/remaining0. SQL main stopped/idle/idle updated2026-10-11 05:52:43.587933 UTC. Protected3763D/27C mtime changes0 since2026-10-08T16:09:40Z; not cryptographic historical proof. Empty scoped green LIVE groups are not whole-wallet/profit proof. Fresh post-publication inventory is recorded in the private receipt.",
+    "final_shutdown": "VERIFIED_OFF_2026-10-11T06:35:54.9762866+00:00: runtime processes, owned previews, matching tasks/services and both checkout locks0. D-only requested stop2026-10-11T06:35:50.9743742+00:00 to 2026-10-11T06:35:53.3782661+00:00, immediately captured exit0,actual finalizer ok,killed0/remaining0. SQL main stopped/idle/idle updated2026-10-11 06:35:52.927231 UTC. Protected3763D/27C mtime changes0 since2026-10-08T16:09:40Z; not cryptographic historical proof. Empty scoped green LIVE groups are not whole-wallet/profit proof. Fresh post-publication inventory is recorded in the private receipt.",
     "jupiter_all_router_observation_suite": "97 final focused plus both3365 complete suites and both final preflights PASS. Actual all-router scanner/PAPER/archive, prospective runner/entry-gate research and causal checked net export use synthetic responses and isolated artifacts only. Frozen731 verification-source files (excluding docs/README) match normalized SHA2560bad4bcba67954b7c145dd5b7b75ed251e4c998c84110ca0abdd4b4b6d69c087; original initial snapshot reconstructed with parent README matches23b28a175d4b955d4c04685fc6e45815a699d363783fff1091eea00786134152. No real provider/wallet/order or profitability acceptance.",
     "jupiter_price_evidence_suite": "Both3442 complete regressions pass (D371.37s/C357.51s), both final first-launch preflights pass, and the executed12-case notebook is visually inspected. Final normalized731-source SHA256b6569f7d874bcb95b264a2841c26f9f7ab183917952775df168240126e263cd4 matches both roots before and after the full runs. Pure/parser/actual-budgeted-HTTP/cache/PriceService tests use synthetic data only. No operator/runtime/model/policy/order change or profitability acceptance.",
     "previous_all_router_final_shutdown": "VERIFIED_OFF_2026-10-08T15:07:02.2902551Z",
     "previous_birdeye_contract_shutdown_evidence": "docs/audits/birdeye_contract_20261011.json",
     "previous_token_birth_enrichment_shutdown_evidence": "docs/audits/token_birth_enrichment_20261011.json",
     "previous_provider_capacity_shutdown_evidence": "docs/audits/provider_capacity_20261011.json",
-    "current_shutdown_evidence": "docs/audits/primary_valuation_retirement_20261011.json"
+    "current_shutdown_evidence": "docs/audits/paper_bootstrap_phases_20261011.json"
   },
   "isolated_advisory_result": {"source_period": "2026-07-13 through 2026-07-15", "settled_source_rows": 2147, "comparison_rows": 536, "selected_ranking_targets": ["runner_50", "runner_100"], "active_runtime_models_changed": false, "bot_started": false, "interpretation": "Useful historical ranking discrimination only; rare higher targets remain unvalidated and no costed future profits are established"},
   "remaining_required_work": [
     "Original declared entry sources plus bounded loaded callable/namespace/alias/closure agreement are checked through prospective enrollment, original cohort/cache and per-entry composition. Compact chained journal references retain the original full source identity without exceeding the native128-case reader ceiling. Legacy operator artifacts are not backfilled. Complete independently scoped actual outer-caller/executed-frame proof, applicable class/default/global/dynamic source/input availability and full-process/financial ownership boundaries. Source hashes and bounded function checks do not authenticate a complete executing process or establish profitability.",
     "Primary/standalone PAPER quote-cash marks, archived peak receipts, paired runner per-arm cash and entry-gate own-cash financial software are implemented. Original primary PAPER entry/fill FX passes through execution/recovery/close/archive/net-learning and typed compatible pending research fill reuse. First-partial runner realized-prefix cash is now independently reconstructed from retained original partial receipts before intake/preparation/terminal/cohort/policy consumption. Complete other applicable original LIVE FX/current-wallet/finality and full-strategy sampling/decision/capital boundaries. The bounded quote budget does not establish exhaustive opportunity/valuation coverage. Resolve historical basis only from authoritative original records, never post-hoc FX or fabricated zero loss. Green LIVE canary risk has durable original-source reconciliation and pre-send reservations; other full-strategy risk and prospective financial acceptance remain independent and incomplete.",
-    "Complete other architecture and evidence boundaries across ingestion, opportunity ranking, scheduling, execution, monitoring, exit paths and learned activation. Actual HotQueue/PumpPortal pending/delivery/overflow/clock contracts and common feature/green/main nullable birth-age consumers, basic filter/requeue, priority and exposure classification are repaired and source-tested. Checked runner-generation replacement now refreshes pending ranking automatically, retaining original waiting/expiry and bounded reconsideration; synthetic nine-head repricing is vectorized. Actual main discovery now uses bounded vectorized admission with cooperative128-row chunks, complete prepared-input identity and shared scalar/bulk feature epoch. Actual main waits for fresh valid age before promotions, while source exposure is not birth/admission proof. Independent supervised serial Dex and HotQueue Pump discovery now avoid native main/other-source pull blocking; one guarded entry owner and drained socket preserve admission/shutdown ownership. Documented latest/recent-update Dex profiles now have source-scoped Solana mint identity, fair collection/cap and nullable UTC diagnostic clocks, without profile birth admission. Native Pair/pool/listing events are now separated from canonical birth through changed providers, sanitizer, entry merge and historical consumers; current Dex token-pairs routing checks native lists/wrappers and explicit Solana base identity. Unknown original mint birth remains unknown, not fabricated youth. Original normalized T0 clock provenance and independently validated obsolete-input successor replacement are implemented in the native learning and inference contracts, including batch transport. This is not provider mint-birth authentication. Primary legacy productive-lane cohort reconstruction still uses historical age before current predictor preparation; current projected Parquet files reconstruct no absent lane, so operational impact is not established. Current documented Birdeye auth/envelope/token/pair identity and explicit provider-reported mint creation contracts are software-tested. Bounded automatic original birth enrichment now runs before native common entry market collection; detached birth receipt survives discovery, retry metadata, HotQueue, fallback market merge and original T0 learning proof without rejuvenating known birth or queue residence. Local budget, LRU, coalescence and repeated-cancellation ownership have native tests; unknown birth remains unknown under absence/degradation/timeout. This is not independently authenticated chain/creator birth or complete opportunity coverage. Shared TTL/LRU cache and Birdeye/Dex/Gecko failure state now have bounded capacity/retention; generic loaders and same-loop normal Birdeye requests coalesce, latest admitted generation atomically controls cache/backoff across loops/threads, and owned cleanup drains repeated cancellation. These software limits do not certify every cache/registry or real wire usage. Actual operator provider access/quotas, cleanup latency/SLA and unit/indexing/valuation consistency remain separate. Gecko public-v2 token/pool identity, independent cap/FDV fields, selected-pool reserve versus aggregate proxy, common-entry extreme signal, shared monotonic rate admission and compatible same-loop async HTTP coalescence are now repaired and natively tested, not operational provider or financial acceptance. Birdeye/Dex/common reported USD cap and FDV are now independent, including canonical zero/unknown, receipt merge and original T0 target-scoped learning; no circulating-supply authentication or operational impact is claimed. The exact preceding managed-primary cap-schema succession gap is now natively reproduced and repaired with complete verified retirement, preserved original fit/selection/target boundaries and independently approved current succession under CAS/OS lock. Other old clock/auxiliary or mixed generations are not universally certified. The configured working primary currently has no managed registry or metadata, so this scoped defect is not established as the previous no-buy cause; applicable bootstrap/fallback and other actual artifact paths remain separate. Gecko sync and Dex HTTP coalescence, upstream market-asof/cache latency and actual quota, other standalone/history clocks and registries, production-size throughput, independent feed/decision coverage and actual profitable capture remain incomplete",
+    "Complete other architecture and evidence boundaries across ingestion, opportunity ranking, scheduling, execution, monitoring, exit paths and learned activation. Actual HotQueue/PumpPortal pending/delivery/overflow/clock contracts and common feature/green/main nullable birth-age consumers, basic filter/requeue, priority and exposure classification are repaired and source-tested. Checked runner-generation replacement now refreshes pending ranking automatically, retaining original waiting/expiry and bounded reconsideration; synthetic nine-head repricing is vectorized. Actual main discovery now uses bounded vectorized admission with cooperative128-row chunks, complete prepared-input identity and shared scalar/bulk feature epoch. Actual main waits for fresh valid age before promotions, while source exposure is not birth/admission proof. Independent supervised serial Dex and HotQueue Pump discovery now avoid native main/other-source pull blocking; one guarded entry owner and drained socket preserve admission/shutdown ownership. Documented latest/recent-update Dex profiles now have source-scoped Solana mint identity, fair collection/cap and nullable UTC diagnostic clocks, without profile birth admission. Native Pair/pool/listing events are now separated from canonical birth through changed providers, sanitizer, entry merge and historical consumers; current Dex token-pairs routing checks native lists/wrappers and explicit Solana base identity. Unknown original mint birth remains unknown, not fabricated youth. Original normalized T0 clock provenance and independently validated obsolete-input successor replacement are implemented in the native learning and inference contracts, including batch transport. This is not provider mint-birth authentication. Primary legacy productive-lane cohort reconstruction still uses historical age before current predictor preparation; current projected Parquet files reconstruct no absent lane, so operational impact is not established. Current documented Birdeye auth/envelope/token/pair identity and explicit provider-reported mint creation contracts are software-tested. Bounded automatic original birth enrichment now runs before native common entry market collection; detached birth receipt survives discovery, retry metadata, HotQueue, fallback market merge and original T0 learning proof without rejuvenating known birth or queue residence. Local budget, LRU, coalescence and repeated-cancellation ownership have native tests; unknown birth remains unknown under absence/degradation/timeout. This is not independently authenticated chain/creator birth or complete opportunity coverage. Shared TTL/LRU cache and Birdeye/Dex/Gecko failure state now have bounded capacity/retention; generic loaders and same-loop normal Birdeye requests coalesce, latest admitted generation atomically controls cache/backoff across loops/threads, and owned cleanup drains repeated cancellation. These software limits do not certify every cache/registry or real wire usage. Actual operator provider access/quotas, cleanup latency/SLA and unit/indexing/valuation consistency remain separate. Gecko public-v2 token/pool identity, independent cap/FDV fields, selected-pool reserve versus aggregate proxy, common-entry extreme signal, shared monotonic rate admission and compatible same-loop async HTTP coalescence are now repaired and natively tested, not operational provider or financial acceptance. Birdeye/Dex/common reported USD cap and FDV are now independent, including canonical zero/unknown, receipt merge and original T0 target-scoped learning; no circulating-supply authentication or operational impact is claimed. The exact preceding managed-primary cap-schema succession gap is now natively reproduced and repaired with complete verified retirement, preserved original fit/selection/target boundaries and independently approved current succession under CAS/OS lock. Other old clock/auxiliary or mixed generations are not universally certified. The configured working primary currently has no managed registry or metadata, so this scoped defect is not established as the previous no-buy cause; the native bootstrap pre-enrichment ordering gap is now repaired by provisional-only continuation and strict post-risk/final checks. The retained Oct4 short smoke has independent overlapping quality failures under different config, without an established historical cause or profitable counterfactual. Other artifact/fallback paths and operational acceptance remain separate. Gecko sync and Dex HTTP coalescence, upstream market-asof/cache latency and actual quota, other standalone/history clocks and registries, production-size throughput, independent feed/decision coverage and actual profitable capture remain incomplete",
     "Expected exact-boundary ties, token-mean captured-positive utility and same-cohort paired comparisons respect each original model-fit top-k budget. Current v3/pipeline13 additionally carry original OOS decision times into fixed hourly burst-support checks at two origins; token-only approvals cannot supply this evidence. Complete empirically justified dependence-horizon/longer-regime and original creator checks, rare-runner distribution stability and risk/continuation validation on fresh evidence. Earliest-mint hourly anchoring does not test all later-decision dependence; synthetic5-percent extreme labels and pure diagnostic benchmarks do not certify rare-event generalization, real opportunity/production throughput or net financial profitability.",
     "Complete scanner/feed follow-up and first-launch execution constraints; exact 0.1 SOL paper sizing and frozen runner exits are integrated but trading-policy activation remains separate",
     "Owned buy/sell intents, primary paper JSON/SQL fill recovery, durable closed-trade archival/reentry protection, original first-partial research intake/recovery, managed paper T0/net-label export, checked net-only financial model acceptance and primary fallback/monitor HTTP-receipt freshness are implemented; complete independently checked live wallet/quantity/finality reconciliation, provider market-asof/depth and production response contracts, other research/export error paths, full-strategy forward-source integrity and prospective financial acceptance. No client receipt, submission receipt or green paper test certifies these separate financial integrity boundaries",

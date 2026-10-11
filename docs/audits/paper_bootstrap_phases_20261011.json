@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "stage": "paper_bootstrap_provisional_enrichment_phases",
+  "date": "2026-10-11",
+  "status": "SOFTWARE_VALIDATED_OFF_PROFITABILITY_UNPROVEN",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "scope": "Native PAPER bootstrap continuation versus strict authorization. No operational launch, provider request, operator model deserialization/activation or new market-performance sample.",
+  "source_files": [
+    "analytics/paper_bootstrap.py",
+    "run_bot.py",
+    "tests/test_paper_bootstrap_phases.py"
+  ],
+  "diagnosis": {
+    "native_ordering": "Early green-sniper/basic-filter bootstrap gates execute before native risk/cluster enrichment and executable route/price-impact collection. Requiring those unobserved fields at this point prevents otherwise qualified synthetic PAPER candidates from reaching collection.",
+    "original_publishing_reproduction": {
+      "parent_commit": "da4a53a774f87c5842e4bda77b597d7645224574",
+      "failed": 2,
+      "deselected": 30,
+      "seconds": 0.46,
+      "exit_code": 1,
+      "scope": "Untouched publishing native bootstrap and AST-executed original run_bot helper, synthetic valid market fields and config, missing cluster/impact/route. No actual provider or runtime."
+    },
+    "causality_limit": "The reproduced ordering defect is not established as the cause of the retained no-buy smoke: its 19 bootstrap evaluations contained overlapping independent quality failures under a different original configuration. No eligible historical counterfactual or missed profitable trade is established.",
+    "readonly_original_context": {
+      "observed_at": "2026-10-11T06:00:29.698248+00:00",
+      "config": {
+        "DRY_RUN": true,
+        "ML_GATE_MODE": "shadow",
+        "ML_SHADOW_CANDIDATE_MODEL_FALLBACK_ENABLED": true,
+        "PAPER_EXACT_TRADE_SIZE_ENABLED": true,
+        "PAPER_EXACT_TRADE_SIZE_SOL": 0.1,
+        "PAPER_BOOTSTRAP_ENABLED": true,
+        "PAPER_BOOTSTRAP_REQUIRE_COLD_START": false,
+        "PAPER_BOOTSTRAP_AMOUNT_SOL": 0.1,
+        "PAPER_BOOTSTRAP_MAX_AMOUNT_SOL": 0.1,
+        "PAPER_BOOTSTRAP_MAX_OPEN": 0,
+        "PAPER_BOOTSTRAP_MAX_DAILY_BUYS": 0,
+        "PAPER_BOOTSTRAP_MAX_HOURLY_BUYS": 0,
+        "PAPER_BOOTSTRAP_MIN_SECONDS_BETWEEN_BUYS": 0,
+        "PAPER_BOOTSTRAP_REQUIRE_ROUTE": true,
+        "PAPER_BOOTSTRAP_REQUIRE_PUMPSWAP": false,
+        "PAPER_BOOTSTRAP_REQUIRE_REAL_LIQUIDITY": true,
+        "PAPER_BOOTSTRAP_REQUIRE_EXACT_AMOUNT": false,
+        "PAPER_BOOTSTRAP_MAX_AGE_MIN": 0,
+        "PAPER_BOOTSTRAP_MAX_QUEUE_AGE_MIN": 0,
+        "PAPER_BOOTSTRAP_MIN_LIQUIDITY_USD": 1500,
+        "PAPER_BOOTSTRAP_MIN_MARKET_CAP_USD": 2000,
+        "PAPER_BOOTSTRAP_MIN_TXNS_5M": 25,
+        "PAPER_BOOTSTRAP_MIN_SCORE_TOTAL": 30,
+        "PAPER_BOOTSTRAP_MAX_PRICE_IMPACT_PCT": 40,
+        "PAPER_BOOTSTRAP_BLOCK_CLUSTER_BAD": true
+      },
+      "configured_primary": {
+        "alias": "ml/model.pkl",
+        "model_bytes_exist": false,
+        "metadata_exists": false
+      },
+      "train_status_metadata": {
+        "rows": null,
+        "eligible_rows": 2147,
+        "eligible_unique_tokens": 2132,
+        "eligible_positives": 86,
+        "holdout_rows": 1286,
+        "holdout_positives": 58,
+        "dataset_quality_passed": null,
+        "last_train_attempt_at": "2026-10-04T10:42:21.815222+00:00",
+        "last_train_status": "trained",
+        "status": "trained",
+        "blocker": null,
+        "activation_ready": false,
+        "training_scope": "productive_strict",
+        "bootstrap_used": false
+      },
+      "original_runtime_quality": {
+        "physical_lines": 101665,
+        "eligible_raw_events": 101665
+      },
+      "current_run": {
+        "run_id": "20261004-1",
+        "run_started_at": "2026-10-04T10:42:23.164444+00:00",
+        "selected_at": "2026-10-04T10:42:23.164444+00:00",
+        "source": "runtime_events",
+        "last_event_at": "2026-10-04T10:44:49.346529+00:00"
+      },
+      "current_run_events": {
+        "boot_config_audit": 1,
+        "post_partial_activation_audit": 1,
+        "regime_health": 6,
+        "queue_add": 19,
+        "social_enrichment_scheduled": 13,
+        "paper_bootstrap_eval": 19,
+        "paper_bootstrap_blocked": 19,
+        "blocked_before_buy": 31,
+        "social_enrichment_completed": 13,
+        "shadow_followup_micro_eval": 5,
+        "shadow_followup_micro_blocked": 5,
+        "research_rank_canary_eval": 9,
+        "ml_decision": 9,
+        "ml_policy_decision": 9,
+        "strategy_decision": 9,
+        "requeue": 8,
+        "hot_queue_add": 33,
+        "hot_queue_eval": 30
+      },
+      "bootstrap_events": {
+        "paper_bootstrap_eval": 19,
+        "paper_bootstrap_blocked": 19
+      },
+      "bootstrap_eval_hard_failures": {
+        "liquidity_proxy_unknown": 3,
+        "score_below_min": 17,
+        "not_pumpswap": 16,
+        "txns5m_below_min": 17,
+        "age_above_max": 2,
+        "cluster_bad": 3,
+        "proxy_liquidity": 14,
+        "liquidity_below_min": 17,
+        "mcap_below_min": 17,
+        "no_jupiter_route": 13,
+        "price5m_missing": 10,
+        "snapshot_missing>1": 8,
+        "price_impact_too_high": 1
+      },
+      "bootstrap_trigger_stages": {
+        "green_sniper": 13,
+        "basic_filter": 3,
+        "entry_lane_guard": 3
+      },
+      "scope": "Original retained runtime event grain and current readonly config/metadata, no model load or operational replay. The latest retained run can be a previous controlled smoke; not a current live market or whole-strategy performance sample."
+    }
+  },
+  "implementation": {
+    "provisional_only": "Explicit boolean opt-in may defer only absent/None cluster status, route and impact to existing collection stages; malformed, observed negative or unsafe inputs are never deferred.",
+    "unchanged_gates": "Known risk, real liquidity, market/score/activity, original age, exact central PAPER size, quotas, pre-entry risk, route collection freshness, final overlay/capacity and original entry-observation/coherence controls remain.",
+    "strict_after_enrichment": "Both native post_risk_enrichment and final_execution_guard revalidate with observed-route requirement and no pending-enrichment opt-in. They return before downstream persistence/buy on missing/failed checks.",
+    "telemetry": "Native events and token context distinguish provisional continuation/pending checks from completed authorization. Successful strict revalidation clears pending state.",
+    "live_permission": false,
+    "requested_paper_size_sol": 0.1,
+    "extreme_signal_scope": "Synthetic +500%, +25000% and +1000000% momentum passes both qualified phases unchanged and at exact 0.1 SOL. No artificial 100/200% ceiling in these paths; not executed profit, all-capital retention, best fills or exhaustive opportunity capture."
+  },
+  "verification": {
+    "new_authored_cases": 50,
+    "initial_focused": {
+      "passed": 50,
+      "seconds": 2.43,
+      "exit_code": 0
+    },
+    "expanded_focused": {
+      "passed": 308,
+      "seconds": 79.97,
+      "exit_code": 0,
+      "scope": "Native staged bootstrap guards plus existing entry observation, inference coherence, pre-entry risk and loaded/code integrity suites."
+    },
+    "executed_guard_scope": "18 cases execute complete native guard blocks with actual bootstrap logic and inert dependencies/downstream sentinels, including rejection, completion and overlay/capacity veto. Bounded guard execution, not full running-bot/provider acceptance.",
+    "full_suites": {
+      "working": {
+        "passed": 5652,
+        "warnings": 2,
+        "seconds": 1357.24,
+        "exit_code": 0
+      },
+      "publishing": {
+        "passed": 5652,
+        "warnings": 2,
+        "seconds": 1338.1,
+        "exit_code": 0
+      },
+      "warnings_scope": "Two existing pandas FutureWarnings each at analytics/model_runtime_common.py:487; no failing tests."
+    },
+    "preflights": {
+      "working": {
+        "started_at_utc": "2026-10-11T06:35:27.6179761+00:00",
+        "generated_at_utc": "2026-10-11T06:35:30.654432+00:00",
+        "exit_code": 0,
+        "ok": true,
+        "compile_errors": 0,
+        "report_builders": 7,
+        "report_failed": 0,
+        "config_returncode": 0,
+        "pytest_returncode": 0
+      },
+      "publishing": {
+        "started_at_utc": "2026-10-11T06:35:27.6180773+00:00",
+        "generated_at_utc": "2026-10-11T06:35:29.668048+00:00",
+        "exit_code": 0,
+        "ok": true,
+        "compile_errors": 0,
+        "report_builders": 7,
+        "report_failed": 0,
+        "config_returncode": 0,
+        "pytest_returncode": 0
+      }
+    },
+    "frozen_source": {
+      "files_each": 788,
+      "sha256": "083bbfa7cd0dc7a2f22bda9bd8848f4ed5e7164938f3f4a90a833fe9745c610a",
+      "frozen_before_full_suites": true,
+      "rechecked_after_both_full_suites_and_preflights": true
+    },
+    "cold_probes": {
+      "working": {
+        "modules_scoped_each": 26,
+        "clock_generation": "original_mint_birth_not_venue_v2",
+        "advisory_pipeline": 14,
+        "current_original_population_checked": true,
+        "schema_alone_rejected": true,
+        "legacy_nonclock_inputs_preserved": true,
+        "venue_only_birth_unknown": true,
+        "config": {
+          "dry_run": true,
+          "paper_max_trade_amount_sol": 0.1,
+          "paper_bootstrap_amount_sol": 0.1
+        },
+        "paper_exact_trade_size_enabled": true,
+        "paper_exact_trade_size_sol": 0.1,
+        "provider_birth_context_retained": true,
+        "creation_budget_defaults_checked": true,
+        "bootstrap_provisional_continuation_checked": true,
+        "bootstrap_final_missing_checks_rejected": true,
+        "bootstrap_final_complete_exact_size_checked": true,
+        "scope": "Cold native imports/config and synthetic input contract only; no fit, runtime start or provider access."
+      },
+      "publishing": {
+        "modules_scoped_each": 26,
+        "clock_generation": "original_mint_birth_not_venue_v2",
+        "advisory_pipeline": 14,
+        "current_original_population_checked": true,
+        "schema_alone_rejected": true,
+        "legacy_nonclock_inputs_preserved": true,
+        "venue_only_birth_unknown": true,
+        "config": {
+          "dry_run": true,
+          "paper_max_trade_amount_sol": 0.1,
+          "paper_bootstrap_amount_sol": 0.1
+        },
+        "paper_exact_trade_size_enabled": true,
+        "paper_exact_trade_size_sol": 0.1,
+        "provider_birth_context_retained": true,
+        "creation_budget_defaults_checked": true,
+        "bootstrap_provisional_continuation_checked": true,
+        "bootstrap_final_missing_checks_rejected": true,
+        "bootstrap_final_complete_exact_size_checked": true,
+        "scope": "Cold native imports/config and synthetic input contract only; no fit, runtime start or provider access."
+      }
+    },
+    "shutdown": {
+      "requested_stop": {
+        "started_at_utc": "2026-10-11T06:35:50.9743742+00:00",
+        "finished_at_utc": "2026-10-11T06:35:53.3782661+00:00",
+        "exit_code": 0,
+        "killed": 0,
+        "remaining": 0,
+        "finalizer_status": "ok",
+        "scope": "D working checkout only; no publishing stop or runtime launch."
+      },
+      "inventory": {
+        "observed_at": "2026-10-11T06:35:54.9762866+00:00",
+        "since_utc": "2026-10-08T16:09:40.0000000Z",
+        "runtime_processes": 0,
+        "task_owned_previews": 0,
+        "matching_tasks": 0,
+        "running_tasks": 0,
+        "matching_services": 0,
+        "running_services": 0,
+        "checkouts": [
+          {
+            "locks": 0,
+            "protected_files": 3763,
+            "changed_by_mtime": 0,
+            "checkout": "working",
+            "green_live_risk_file_exists": false
+          },
+          {
+            "locks": 0,
+            "protected_files": 27,
+            "changed_by_mtime": 0,
+            "checkout": "publishing",
+            "green_live_risk_file_exists": false
+          }
+        ],
+        "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+      },
+      "sql": {
+        "observed_at": "2026-10-11T06:35:55.502498+00:00",
+        "source": "data/memebotdatabase.db",
+        "runtime_state": [
+          {
+            "bot_id": "main",
+            "process_state": "stopped",
+            "reports_refresh_state": "idle",
+            "retrain_state": "idle",
+            "updated_at": "2026-10-11 06:35:52.927231"
+          }
+        ],
+        "scoped_green_live_groups": 0,
+        "qualification": "Empty scoped green LIVE groups do not prove whole-wallet or profitable full-strategy acceptance."
+      },
+      "publication_handoff": "Fresh post-publication verification is recorded in the private delivery receipt."
+    },
+    "tail_regressions": {
+      "working": {
+        "passed": 14,
+        "seconds": 2.46,
+        "exit_code": 0
+      },
+      "publishing": {
+        "passed": 14,
+        "seconds": 2.29,
+        "exit_code": 0
+      },
+      "scope": "Native synthetic bootstrap/market momentum and exact cash through+1000000%; actual isolated costed PAPER partial executions through+100000%, 3% original quantity retained before later cash drawdown. Not real financial capture or all-capital retention."
+    }
+  },
+  "preservation": "Source-only changes; operator env/data/models/registries/policies/history stay outside publication. Current readonly model alias is absent, distinct from incompatible/rejected model. Train status is inactive metadata, not a runtime probability or profitability proof.",
+  "remaining": "Operational first-launch/provider and full-strategy independent forward evidence, profitable extreme-tail capture, actual access/latency/depth/fills and other architecture acceptance remain incomplete. Runtime must remain OFF."
+}

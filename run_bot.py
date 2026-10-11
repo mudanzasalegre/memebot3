@@ -1908,6 +1908,9 @@ def _record_paper_bootstrap_event(
             "hard_failures": ",".join(str(item) for item in hard_failures),
             "risk_notes": ",".join(str(item) for item in risk_notes),
             "model_cold": bool(getattr(decision, "model_cold", False)),
+            "provisional": bool(getattr(decision, "provisional", False)),
+            "pending_checks": ",".join(str(item) for item in
+                (getattr(decision, "pending_checks", ()) or ())),
             "trigger_stage": str(getattr(decision, "trigger_stage", "") or payload.get("trigger_stage", "") or ""),
             "trigger_reason": str(getattr(decision, "trigger_reason", "") or payload.get("trigger_reason", "") or ""),
             "entry_regime": str(token.get("entry_regime") or ""),
@@ -1947,6 +1950,9 @@ async def _maybe_apply_paper_bootstrap(
             hard_failures=(),
             risk_notes=(),
             model_cold=True,
+            provisional=bool(token.get("paper_bootstrap_provisional")),
+            pending_checks=tuple(item for item in
+                str(token.get("paper_bootstrap_pending_checks") or "").split(",") if item),
         )
 
     open_count, daily_buys, hourly_buys, seconds_since_last = await _paper_bootstrap_quota_state(ses)
@@ -1972,6 +1978,7 @@ async def _maybe_apply_paper_bootstrap(
         trigger_stage=trigger_stage,
         trigger_reason=trigger_reason,
         require_observed_route=bool(revalidate_existing),
+        allow_pending_enrichment=not revalidate_existing,
     )
     _record_paper_bootstrap_event(
         "paper_bootstrap_eval",
