@@ -139,9 +139,11 @@ def test_env_files_have_new_flags_once() -> None:
     # These new settings have safe defaults; do not rewrite personal secrets
     # merely to mirror optional template keys. All previous key parity,
     # required Prime flags and duplicate checks remain enforced.
-    optional_birth = {"BIRTH_ENRICHMENT_ENABLED", "BIRTH_ENRICHMENT_RPM",
-        "BIRTH_ENRICHMENT_TIMEOUT_S", "BIRTH_ENRICHMENT_CACHE_SIZE", "BIRTH_ENRICHMENT_NEGATIVE_TTL_S"}
-    assert key_sets and all(keys - optional_birth == key_sets[0] - optional_birth for keys in key_sets)
+    optional_defaults = {"BIRTH_ENRICHMENT_ENABLED", "BIRTH_ENRICHMENT_RPM",
+        "BIRTH_ENRICHMENT_TIMEOUT_S", "BIRTH_ENRICHMENT_CACHE_SIZE", "BIRTH_ENRICHMENT_NEGATIVE_TTL_S",
+        "MEMORY_CACHE_MAX_ENTRIES", "PROVIDER_FAILURE_MAX_ENTRIES", "PROVIDER_FAILURE_RETENTION_S",
+        "BIRDEYE_MAX_INFLIGHT", "BIRDEYE_MAX_JOINERS"}
+    assert key_sets and all(keys - optional_defaults == key_sets[0] - optional_defaults for keys in key_sets)
 
 
 @pytest.mark.parametrize("change", ["optional_omitted", "duplicate", "missing_required"])
@@ -156,7 +158,9 @@ def test_new_optional_defaults_preserve_private_env_contract(tmp_path, monkeypat
     elif change == "missing_required": personal = "\n".join(original.splitlines()[1:]) + "\n"
     (tmp_path / ".env").write_text(personal, encoding="utf-8")
     (tmp_path / ".env.example").write_text(original + "BIRTH_ENRICHMENT_ENABLED=true\nBIRTH_ENRICHMENT_RPM=12\n"
-        "BIRTH_ENRICHMENT_TIMEOUT_S=3\nBIRTH_ENRICHMENT_CACHE_SIZE=2048\nBIRTH_ENRICHMENT_NEGATIVE_TTL_S=30\n",
+        "BIRTH_ENRICHMENT_TIMEOUT_S=3\nBIRTH_ENRICHMENT_CACHE_SIZE=2048\nBIRTH_ENRICHMENT_NEGATIVE_TTL_S=30\n"
+        "MEMORY_CACHE_MAX_ENTRIES=8192\nPROVIDER_FAILURE_MAX_ENTRIES=8192\nPROVIDER_FAILURE_RETENTION_S=3600\n"
+        "BIRDEYE_MAX_INFLIGHT=16\nBIRDEYE_MAX_JOINERS=256\n",
         encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     if change == "optional_omitted": test_env_files_have_new_flags_once()

@@ -1,54 +1,36 @@
-"""
-utils.simple_cache
-~~~~~~~~~~~~~~~~~~
-Caché en memoria con TTL muy ligero y _thread-safe_ para corutinas.
-No persiste entre ejecuciones.
-
-Uso:
-    from utils.simple_cache import cache_get, cache_set
-
-    v = cache_get("clave")
-    if v is None:
-        v = await algo_costoso()
-        cache_set("clave", v, ttl=60)
-"""
-from __future__ import annotations
-
-import asyncio
+"""Bounded thread-safe local TTL/LRU cache; original values are not restamped."""
+import os
 import time
-from typing import Any, Dict, Tuple
 
-# clave → (expira_at, valor)
-_CACHE: Dict[str, Tuple[float, Any]] = {}
-_LOCK = asyncio.Lock()  # evita carreras simples
+from utils.bounded_state import TTLStore, bounded_int
+from utils.request_ownership import OwnedRequests
 
-
-def cache_get(key: str) -> Any | None:
-    exp, val = _CACHE.get(key, (0.0, None))
-    if exp > time.time():
-        return val
-    # expirado → lo quitamos
-    _CACHE.pop(key, None)
-    return None
+_MAX_ENTRIES = bounded_int(os.getenv("MEMORY_CACHE_MAX_ENTRIES", "8192"), 8192)
+_STORE = TTLStore(_MAX_ENTRIES, clock=lambda: time.time())
+_CACHE = _STORE.entries  # Existing diagnostic/test tuple contract (expiry,value).
+_LOADERS = OwnedRequests(name="local-cache-loader")
 
 
-def cache_set(key: str, value: Any, ttl: int = 60) -> None:
-    _CACHE[key] = (time.time() + ttl, value)
+def cache_get(key): return _STORE.get(key)
 
 
-def cache_delete(key: str) -> None:
-    """Invalidate one entry without creating a negative result."""
-    _CACHE.pop(key, None)
+def cache_set(key, value, ttl=60):
+    # Allows bounded isolated fixtures; production capacity is parsed once.
+    with _STORE._lock:
+        _STORE.max_entries = bounded_int(_MAX_ENTRIES, 8192)
+        _STORE.set(key, value, ttl)
 
 
-async def cache_get_or_set(key: str, coro, ttl: int = 60):
-    """
-    Variante async: si no existe, evalúa la coroutine `coro()` y guarda.
-    """
-    async with _LOCK:
-        hit = cache_get(key)
-        if hit is not None:
-            return hit
+def cache_delete(key): _STORE.delete(key)
+def cache_clear(): _STORE.clear()
+def cache_snapshot(): return {**_STORE.snapshot(), "loaders": _LOADERS.snapshot()}
+
+
+async def cache_get_or_set(key, coro, ttl=60):
+    hit = cache_get(key)
+    if hit is not None: return hit
+    async def load():
         value = await coro()
         cache_set(key, value, ttl)
         return value
+    return await _LOADERS.run(key, load)

@@ -12,6 +12,7 @@ import datetime as dt
 import logging
 import math
 import os
+import threading
 import time
 from typing import Any, Callable
 
@@ -22,6 +23,8 @@ from analytics.token_birth import base58_size as _base58_bytes
 from utils.data_utils import sanitize_token_data
 from utils.market_observation import MARKET_FIELDS, market_number, stamp_market_observation
 from utils.simple_cache import cache_delete, cache_get, cache_set
+from utils.bounded_state import BoundedFailureCounter, increment_failure
+from utils.request_ownership import OwnedRequests
 
 _API_KEY = os.getenv("BIRDEYE_API_KEY")
 _BASE_URL = "https://public-api.birdeye.so"
@@ -44,13 +47,25 @@ _TTL_NIL_MAX = max(_TTL_NIL_SHORT, _positive_int_env("BIRDEYE_TTL_NIL_MAX", 300)
 _SENTINEL_NIL = object()
 _last_call_ts = 0.0
 _lock = asyncio.Lock()
-_fail_count: dict[str, int] = {}
+_fail_count = BoundedFailureCounter()
+_REQUESTS = OwnedRequests(os.getenv("BIRDEYE_MAX_INFLIGHT", "16"),
+    os.getenv("BIRDEYE_MAX_JOINERS", "256"), name="birdeye-http-request")
+_latest_request = {}
+_request_state_lock = threading.RLock()
 log = logging.getLogger("birdeye")
 
 
 def creation_lookup_configured() -> bool:
     """Expose availability without exposing the credential itself."""
     return bool(_API_KEY)
+
+
+def request_runtime_snapshot() -> dict:
+    """Aggregate local pressure, no addresses/credentials or wire-cost claim."""
+    with _request_state_lock:
+        latest = len(_latest_request)
+    return {"requests": _REQUESTS.snapshot(), "failure_keys": _fail_count.snapshot(),
+            "latest_generations": latest}
 
 
 def _request_address(value: Any, *, token: bool) -> str | None:
@@ -78,11 +93,10 @@ async def _throttle() -> None:
 
 
 def _register_fail(key: str) -> None:
-    fails = _fail_count.get(key, 0) + 1
-    _fail_count[key] = fails
+    fails = increment_failure(_fail_count, key)
     ttl = _TTL_NIL_MAX if fails >= 4 else _TTL_NIL_SHORT
     cache_set(key, _SENTINEL_NIL, ttl=ttl)
-    log.debug("[birdeye] %s unavailable (TTL=%ss, failures=%d)", key, ttl, fails)
+    log.debug("[birdeye] %s unavailable (TTL=%ss, capped_backoff_level=%d)", key, ttl, fails)
 
 
 def _safe_float(value: Any) -> float | None:
@@ -124,6 +138,37 @@ async def _fetch(endpoint: str, cache_key: str, *, address: str,
                 and (validator is None or validator(hit))):
             return deepcopy(hit)
         cache_delete(cache_key)
+    async def request():
+        return await _fetch_uncached(endpoint, cache_key, address=address,
+            identity_field=identity_field, ttl=ttl, validator=validator)
+    data = await _REQUESTS.run((endpoint, cache_key, address, identity_field), request,
+                              force_refresh=force_refresh)
+    return deepcopy(data) if data is not None else None
+
+
+async def _fetch_uncached(endpoint, cache_key, *, address, identity_field, ttl, validator):
+    # A newer request, especially force_refresh, supersedes an older success or
+    # failure. No late response may overwrite the latest cache/backoff state.
+    generation = object()
+    with _request_state_lock:
+        _latest_request[cache_key] = generation
+    def publish(data):
+        with _request_state_lock:
+            if _latest_request.get(cache_key) is not generation: return
+            if data is None: _register_fail(cache_key)
+            else:
+                _fail_count.pop(cache_key, None)
+                cache_set(cache_key, deepcopy(data), ttl=ttl)
+    try:
+        return await _request_http(endpoint, cache_key, address=address,
+            identity_field=identity_field, ttl=ttl, validator=validator,
+            publish=publish)
+    finally:
+        with _request_state_lock:
+            if _latest_request.get(cache_key) is generation: _latest_request.pop(cache_key, None)
+
+
+async def _request_http(endpoint, cache_key, *, address, identity_field, ttl, validator, publish):
     await _throttle()
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as session:
@@ -138,8 +183,7 @@ async def _fetch(endpoint: str, cache_key: str, *, address: str,
                         data = deepcopy(data)
                         # Overwrite any provider-supplied local receipt marker.
                         data["_market_received_at"] = time.time()
-                        _fail_count.pop(cache_key, None)
-                        cache_set(cache_key, deepcopy(data), ttl=ttl)
+                        publish(data)
                         return data
                 log.debug("[birdeye] %s HTTP/contract unavailable (HTTP %s)", endpoint, response.status)
     except asyncio.CancelledError:
@@ -147,7 +191,7 @@ async def _fetch(endpoint: str, cache_key: str, *, address: str,
     except Exception as exc:
         # Exceptions can contain headers/URLs: log only their type.
         log.debug("[birdeye] %s request error (%s)", endpoint, type(exc).__name__)
-    _register_fail(cache_key)
+    publish(None)
     return None
 
 

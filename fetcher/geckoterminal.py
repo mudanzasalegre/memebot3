@@ -45,6 +45,7 @@ import numpy as np
 from config.config import GECKO_API_URL
 from utils.rate_limiter import GECKO_LIMITER
 from utils.simple_cache import cache_get, cache_set, cache_delete
+from utils.bounded_state import BoundedFailureCounter, bounded_int, increment_failure
 from utils.solana_addr import normalize_mint
 from utils.time import parse_iso_utc
 from utils.data_utils import sanitize_token_data
@@ -61,12 +62,12 @@ logger = logging.getLogger("fetcher.geckoterminal")
 USE_GECKO_TERMINAL = os.getenv("USE_GECKO_TERMININAL", os.getenv("USE_GECKO_TERMINAL", "true")).lower() == "true"
 _BASE_URL = GECKO_API_URL.rstrip("/")
 
-_TTL_NIL_SHORT = int(os.getenv("GECKO_TTL_NIL_SHORT", "120"))
-_TTL_NIL_MAX = int(os.getenv("GECKO_TTL_NIL_MAX", "600"))
+_TTL_NIL_SHORT = bounded_int(os.getenv("GECKO_TTL_NIL_SHORT", "120"), 120, 1, 3600)
+_TTL_NIL_MAX = max(_TTL_NIL_SHORT, bounded_int(os.getenv("GECKO_TTL_NIL_MAX", "600"), 600, 1, 86400))
 _SENTINEL_NIL = object()
 
 # contador de fallos consecutivos
-_fail_count: dict[str, int] = {}
+_fail_count = BoundedFailureCounter()
 
 # rate-limit interno extra (mínimo intervalo entre llamadas)
 _last_call_ts = 0.0
@@ -420,11 +421,10 @@ def _acquire_sync() -> None:
 
 # ───────────────────────── control de fallos ────────────────────────────
 def _register_fail(key: str) -> None:
-    fails = _fail_count.get(key, 0) + 1
-    _fail_count[key] = fails
+    fails = increment_failure(_fail_count, key)
     ttl = _TTL_NIL_MAX if fails >= 4 else _TTL_NIL_SHORT
     cache_set(key, _SENTINEL_NIL, ttl=ttl)
-    logger.debug("[GT] %s → sin datos (TTL=%ss, fallos=%d)", key, ttl, fails)
+    logger.debug("[GT] %s → sin datos (TTL=%ss, capped_backoff_level=%d)", key, ttl, fails)
 
 
 def _reset_fail(key: str) -> None:

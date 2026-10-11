@@ -1,0 +1,157 @@
+{
+  "stage": "provider_request_capacity_and_cache_authority",
+  "status": "SOFTWARE_VERIFIED_RUNTIME_OFF",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "requested_trade_size_sol": 0.1,
+  "runtime_requirement": "All bot/API/UI/training/AutoResearch services remain OFF. No credentialed provider/wallet/order call or active artifact/history rewrite.",
+  "data_quality_scope": {
+    "sources": [
+      "Actual native shared cache and Birdeye/Dex/Gecko adapters from the publishing parent",
+      "Independent native synthetic request, cache and clock-pressure tests",
+      "Native runtime snapshot expression and read-only OFF/SQL census"
+    ],
+    "parent_commit": "3529ac7ed6fa272d9fce6517b23b553dc19bc65a",
+    "grain": "One canonical request context (endpoint, cache key, exact mint, identity field), one original HTTP receipt and one latest admitted request generation. Cache entries and backoff levels are local state, not trades or financial measurements.",
+    "operational_impact": "NOT_ESTABLISHED. Native failures prove software defects, not measured missed buys, paid wire calls, executable coverage or profit.",
+    "findings": [
+      {
+        "id": "duplicate-identical-requests",
+        "severity": "high",
+        "confidence": "native_source_and_synthetic_reproduction",
+        "finding": "Eight identical overlapping ordinary Birdeye calls issue eight fake HTTP requests in the publishing parent.",
+        "repair": "Same-loop ordinary callers share latest owned work; each adapter result remains detached. A force_refresh always owns a new request and normal followers may join it."
+      },
+      {
+        "id": "out_of_order_cache_authority",
+        "severity": "high",
+        "confidence": "native_source_and_synthetic_reproduction",
+        "finding": "An older successful or unavailable response can overwrite a newer forced success with stale data or a negative cache entry.",
+        "repair": "Latest admitted generation atomically controls cache/backoff publication, across loops/threads; older responses keep their own unchanged receipt but cannot overwrite latest state."
+      },
+      {
+        "id": "unbounded_cache_and_failure_state",
+        "severity": "medium",
+        "confidence": "native_source_and_synthetic_reproduction",
+        "finding": "Unqueried expired shared rows and per-key Birdeye/Gecko failure state grow without capacity or retention limits.",
+        "repair": "Shared TTL/LRU store defaults8192 entries; expiry heap is independently bounded. Birdeye/Dex/Gecko counters each default8192 recent keys, one-hour retention and capped escalation level4, with atomic increments."
+      },
+      {
+        "id": "cross_key_blocking_and_cleanup",
+        "severity": "high",
+        "confidence": "native_source_and_isolated_ownership_tests",
+        "finding": "The shared async cache loader holds one lock across the entire load, blocking unrelated keys; added coalescence must not introduce orphaned requests or cancellation propagation.",
+        "repair": "Bounded per-key ownership, separate loop buckets removed when idle, shielded joiners and explicitly owned child cleanup drained under repeated cancellation/timeout. Capacity rejection is unknown, not provider failure or permission to buy."
+      }
+    ]
+  },
+  "official_sources": [{"title":"Python3.12 asyncio Coroutines and Tasks","url":"https://docs.python.org/3.12/library/asyncio-task.html","claims":["shield does not cancel child work when the awaiting caller is cancelled", "CancelledError normally propagates after cleanup", "Keep a strong reference to owned tasks", "wait_for waits for cancellation acknowledgement, which may exceed its timeout"]}],
+  "implementation": {
+    "files": [
+      "utils/bounded_state.py",
+      "utils/request_ownership.py",
+      "utils/simple_cache.py",
+      "fetcher/birdeye.py",
+      "fetcher/dexscreener.py",
+      "fetcher/geckoterminal.py",
+      "run_bot.py",
+      ".env.example",
+      "tests/test_provider_capacity.py",
+      "tests/test_pumpswap_prime_strict.py"
+    ],
+    "cache": "Shared default8192 entries with TTL/LRU, expiry sweep on ordinary operations, bounded expiry index max(64,2*capacity), thread RLock and fail-closed backwards/invalid local clock handling. Stored receipts and values are not restamped. Adapters, not the generic cache, own detached-copy/sentinel semantics.",
+    "failures": "Birdeye/Dex/Gecko recent-key counters each default8192 with monotonic retention3600s and capped backoff level4; these are not total actual failures or wire/billing counters. Existing success resets and negative TTL thresholds remain. Dex/Gecko malformed TTL settings now parse safely.",
+    "requests": "Birdeye defaults16 total owners and256 joiners across active loops; normal exact-context requests coalesce only within one loop. Force callers never join older work. No autonomous loop is added; owner cancellation drains child acknowledgement, which may exceed a caller timeout.",
+    "latest_state": "Cache/backoff publication uses latest admitted request generation under one thread lock. Failed/rejected/cancelled work does not fabricate successful evidence. Rejection does not insert a provider-negative cache or failure level.",
+    "runtime_visibility": "Existing native state snapshot adds aggregate provider_capacity with shared cache, request owners/joiners and recent failure-key pressure; no mint identifiers, cache values or credentials.",
+    "optional_settings": [
+      "MEMORY_CACHE_MAX_ENTRIES",
+      "PROVIDER_FAILURE_MAX_ENTRIES",
+      "PROVIDER_FAILURE_RETENTION_S",
+      "BIRDEYE_MAX_INFLIGHT",
+      "BIRDEYE_MAX_JOINERS"
+    ],
+    "personal_env": "Unmodified; existing env parity test exempts only the ten known new optional defaulted settings (five birth and five capacity). Mandatory Prime keys, all other parity and duplicates stay enforced.",
+    "financial_scope": "Exact0.1 SOL PAPER, checked risk/route/cash guards, predictor schemas, pipeline13 and active models/policies remain unchanged. Synthetic+25000% signal and original HTTP receipts remain intact; no executed opportunity/profit claim."
+  },
+  "validation": {
+    "native_original": {
+      "modules_scoped": 4,
+      "cases": 11,
+      "failed": 9,
+      "passed": 2,
+      "seconds": 0.36,
+      "exit_code": 1,
+      "scope": "Actual unchanged C modules preloaded before independent initial D tests; no run_bot import/start or real provider access."
+    },
+    "new_cases": 61,
+    "native_new_working": {
+      "passed": 61,
+      "seconds": 2.29,
+      "exit_code": 0
+    },
+    "focused_working": {
+      "passed": 737,
+      "warnings": 2,
+      "seconds": 78.57,
+      "exit_code": 0
+    },
+    "focused_publishing": {
+      "passed": 737,
+      "warnings": 2,
+      "seconds": 77.98,
+      "exit_code": 0
+    },
+    "verification_source_snapshot": {
+      "files_each": 780,
+      "normalized_sha256": "5491702baec90280b5e83fd3ba46e3433d4b8fdc9ae2d5c0b0f786fd921455e1",
+      "frozen_before_and_after_final_full_suites": true,
+      "scope": "Normalized source/test allowlist; README/docs and protected personal .env/data/models/logs/work excluded."
+    },
+    "native_case_coverage": [
+      "Expired unqueried rows, TTL boundary, invalid TTL/capacity, LRU pressure and10000 same-key expiry-index rewrites",
+      "Threaded shared cache and atomic recent failure retention/escalation/reset",
+      "Ordinary coalescence, force freshness boundary, original receipts, detached adapter copies and+25000% signal",
+      "Saturation without provider/cache poisoning, owner/joiner repeated cancel/timeout and native birth-to-Birdeye nested cleanup",
+      "Distinct/finished loops, cross-loop ownership capacity and native late success/failure after fresh forced response",
+      "Cold actual provider imports with malformed optional settings, aggregate runtime expression and private env preservation"
+    ],
+    "extreme_tail_regressions": {
+      "test_files": ["tests/test_runner_ladder_v2.py", "tests/test_runner_cash_forward.py"],
+      "runner_exit_percent_cases": [200, 500, 1000, 5000, 10000, 100000],
+      "paper_cash_mark_percent_cases": [300, 1000, 10000, 1000000],
+      "scope": "Existing applicable moonshot/runner positions and isolated exact-size PAPER cash scenarios are included in both focused suites. They preserve a residual position without an upper profit ceiling. These cases are not new production trades, future return forecasts or proof of executable profitable opportunity capture.",
+      "prospective_profitability_accepted": false
+    },
+    "full_working": {"passed":5328,"warnings":2,"seconds":1223.88,"exit_code":0},
+    "full_publishing": {"passed":5328,"warnings":2,"seconds":1202.81,"exit_code":0},
+    "preflights": {"working":{"exit_code":0,"ok":true,"generated_at_utc":"2026-10-11T03:07:42.682867+00:00","compile_errors":0,"report_builders":7,"config_import_returncode":0,"pytest_returncode":0,"report_builder_results":[{"name":"baseline","ok":true,"rows_or_keys":12},{"name":"funnel","ok":true,"rows_or_keys":0},{"name":"missed_pumps","ok":true,"rows_or_keys":0},{"name":"event_replay","ok":true,"rows_or_keys":13},{"name":"policy_replay","ok":true,"rows_or_keys":22},{"name":"runner_capture","ok":true,"rows_or_keys":3},{"name":"trade_diagnostics","ok":true,"rows_or_keys":3}]},"publishing":{"exit_code":0,"ok":true,"generated_at_utc":"2026-10-11T03:07:41.635613+00:00","compile_errors":0,"report_builders":7,"config_import_returncode":0,"pytest_returncode":0,"report_builder_results":[{"name":"baseline","ok":true,"rows_or_keys":12},{"name":"funnel","ok":true,"rows_or_keys":0},{"name":"missed_pumps","ok":true,"rows_or_keys":0},{"name":"event_replay","ok":true,"rows_or_keys":13},{"name":"policy_replay","ok":true,"rows_or_keys":22},{"name":"runner_capture","ok":true,"rows_or_keys":3},{"name":"trade_diagnostics","ok":true,"rows_or_keys":3}]},"scope":"Compilation, config/profile and seven isolated no-data report builders. External pytest attestation follows both actually completed unchanged-source full suites; no operational startup."},
+    "cold_root_probes": {"modules_scoped_each":19,"exit_code_each":0,"dry_run_each":true,"paper_exact_trade_size_enabled_each":true,"paper_exact_trade_size_sol_each":0.1,"trade_amount_sol_asserted_each":0.1,"advisory_pipeline":13,"scope":"Cold imports asserted native current-root files and synthetic original input contracts; no runtime/provider/fit/model activation."},
+    "known_qa_warnings": {
+      "category": "pandas FutureWarning",
+      "count_each": 2,
+      "scope": "Existing all-NA peer concat in token-clock tests, no future pandas-version compatibility acceptance."
+    },
+    "final_acceptance": {"result":"SOFTWARE_VERIFIED_RUNTIME_OFF","source_frozen_after_full_suites":true,"no_operational_start":true,"prospective_profitability_accepted":false,"goal_status":"ACTIVE_INCOMPLETE"}
+  },
+  "during_qa_off_inventory": {
+    "observed_at_utc": "2026-10-11T02:47:19.2528360+00:00",
+    "operational_processes": 0,
+    "task_owned_previews": 0,
+    "matching_tasks": 0,
+    "matching_services": 0,
+    "locks_each": 0,
+    "protected_files_working": 3763,
+    "protected_files_publishing": 27,
+    "mtime_changed_each": 0,
+    "qualification": "Read-only mtime census, not cryptographic historical preservation; intended stop SQL/log/preflight metrics excluded."
+  },
+  "final_off_evidence": {"stop":{"started_at_utc":"2026-10-11T03:07:48.6770115+00:00","finished_at_utc":"2026-10-11T03:07:52.4150643+00:00","exit_code":0,"checkout":"working","requested_by":"user","killed":0,"remaining":0,"runtime_finalizer":"ok"},"inventory":{"observed_at":"2026-10-11T03:08:04.6143766+00:00","since_utc":"2026-10-08T16:09:40.0000000Z","runtime_processes":0,"task_owned_previews":0,"matching_tasks":0,"running_tasks":0,"matching_services":0,"running_services":0,"checkouts":[{"checkout":"working","locks":0,"protected_files":3763,"changed_by_mtime":0,"green_live_risk_file_exists":false},{"checkout":"publishing","locks":0,"protected_files":27,"changed_by_mtime":0,"green_live_risk_file_exists":false}],"qualification":"Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."},"sql":{"observed_at_utc":"2026-10-11T03:08:04.804714+00:00","source":"data/memebotdatabase.db","main":{"bot_id":"main","process_state":"stopped","reports_refresh_state":"idle","retrain_state":"idle","updated_at":"2026-10-11 03:07:50.961242"},"green_live_sniper_rows":[],"green_live_risk_file_exists":false},"original_paper_declaration_scope":{"observed_at_utc":"2026-10-11T03:08:04.870661+00:00","groups":{"primary_portfolio":{"rows":0,"original_entry_fx_declared":0,"exit_events":0,"original_exit_fx_declared":0},"buy_journals":{"grain":"One paper original buy intent, active or resolved","rows":0,"original_entry_fx_declared":0},"closed_archives":{"grain":"One archived paper trade","rows":0,"original_entry_fx_declared":0},"learning_sources":{"grain":"One original financial learning source","rows":0,"original_entry_fx_declared":0}},"sql_rows":[],"interpretation":"Declaration coverage, not proof validation or profitability. Existing unproved records are not rewritten. Empty scope is not zero investment risk or future market coverage."}},
+  "remaining_limits": [
+    "Actual operator provider access, paid traffic/quota, indexing and production latency/throughput are not tested.",
+    "The shared TTL cache and these three failure maps are bounded, not every registry/cache in the project; Dex/Gecko HTTP coalescence and protocol/identity acceptance remain separate.",
+    "Coalescence only shares a compatible same-loop request. Capacity eviction can cause later calls to re-fetch; optional local limits are not entitlement or exhaustive feed coverage.",
+    "A caller timeout initiates cancellation; safe cleanup can take longer. Native synthetic cleanup tests do not prove real provider shutdown latency.",
+    "Original HTTP receipt is not provider market-as-of, independent chain/finality proof, fill reconciliation or prospective profit. Global goal remains incomplete."
+  ]
+}

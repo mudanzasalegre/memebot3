@@ -53,6 +53,7 @@ import numpy as np
 from config import DEX_API_BASE
 from utils.data_utils import sanitize_token_data
 from utils.simple_cache import cache_get, cache_set, cache_delete
+from utils.bounded_state import BoundedFailureCounter, bounded_int, increment_failure
 from utils.solana_addr import normalize_mint
 from analytics.token_time import parse_event_clock, venue_clock_snapshot
 from utils.market_observation import MARKET_FIELDS, stamp_market_observation
@@ -65,12 +66,12 @@ DEX = DEX_API_BASE.rstrip("/")
 
 _MAX_TRIES, _BACKOFF_START = 3, 1
 _CACHE_TTL_OK = 120
-_TTL_NIL_SHORT = int(os.getenv("DEXS_TTL_NIL_SHORT", "90"))
-_TTL_NIL_MAX = int(os.getenv("DEXS_TTL_NIL_MAX", "600"))
+_TTL_NIL_SHORT = bounded_int(os.getenv("DEXS_TTL_NIL_SHORT", "90"), 90, 1, 3600)
+_TTL_NIL_MAX = max(_TTL_NIL_SHORT, bounded_int(os.getenv("DEXS_TTL_NIL_MAX", "600"), 600, 1, 86400))
 _SENTINEL_NIL = object()
 
 # contador de fallos consecutivos por token
-_fail_count: dict[str, int] = {}
+_fail_count = BoundedFailureCounter()
 
 # ───────────────────────── helpers URL ───────────────────────────
 def _u(*parts: str) -> str:
@@ -417,10 +418,9 @@ async def get_pair(address: str, *, force_refresh: bool = False) -> Optional[Dic
                     return res
 
     # si llega aquí, no hubo datos
-    fails = _fail_count.get(address, 0) + 1
-    _fail_count[address] = fails
+    fails = increment_failure(_fail_count, address)
     ttl = _TTL_NIL_MAX if fails >= 4 else _TTL_NIL_SHORT
 
     cache_set(ck, _SENTINEL_NIL, ttl=ttl)
-    log.debug("[DEX] %s ❌ sin datos (TTL=%ss, fallos=%d)", address[:6], ttl, fails)
+    log.debug("[DEX] %s ❌ sin datos (TTL=%ss, capped_backoff_level=%d)", address[:6], ttl, fails)
     return None

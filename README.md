@@ -272,6 +272,24 @@ la residencia original en cola. Los porcentajes extremos siguen sin recorte;
 esto no certifica oportunidades ejecutadas ni beneficio neto.
 Ver `docs/audits/token_birth_enrichment_20261011.json`.
 
+La cache compartida en memoria usa ahora TTL/LRU con8192 entradas por defecto,
+barrido de expirados no consultados e indice de expiracion acotado. Los
+contadores recientes de Birdeye/Dex/Gecko tambien tienen8192 claves por
+proveedor, retencion de1 hora y nivel de backoff limitado a4; no son contadores
+de todas las peticiones o costes. Los valores/recibos originales no se
+rejuvenecen; un reloj local invalido o que retrocede invalida la cache.
+Birdeye comparte consultas normales identicas dentro del mismo event loop,
+con limites globales de16 operaciones propias y256 seguidores. Un refresco
+forzado siempre inicia otra consulta; una respuesta anterior ya no puede
+sobrescribir la cache ni el backoff de un refresco mas nuevo. La cancelacion
+del propietario drena su trabajo, incluso con senales repetidas; el timeout
+no garantiza la latencia real de esa limpieza. El estado operativo publica
+solo presion agregada, no claves privadas o direcciones.
+Los cinco ajustes opcionales de capacidad aparecen en `.env.example`, sin
+modificar el `.env` personal. Esto no certifica acceso/cuotas, throughput,
+cobertura de todos los proveedores, oportunidades ejecutables ni rentabilidad.
+Ver `docs/audits/provider_capacity_20261011.json`.
+
 La procedencia de las entradas aprendidas incluye ahora una comprobacion
 acotada del codigo Python cargado y sus namespaces, aliases y cierres de
 funcion frente a las fuentes originales. Una funcion sustituida, un alias

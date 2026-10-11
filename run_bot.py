@@ -3680,6 +3680,8 @@ def _build_info_payload() -> dict[str, object]:
 
 
 async def _build_runtime_state_snapshot() -> RuntimeStateSnapshot:
+    from utils.simple_cache import cache_snapshot
+    from fetcher.birdeye import request_runtime_snapshot as birdeye_pressure_snapshot
     now = utc_now()
     queue_pending, queue_requeued, queue_cooldown = queue_stats()
     queue_oldest_first_seen_at, queue_items = _queue_snapshot_payload(now)
@@ -3742,6 +3744,7 @@ async def _build_runtime_state_snapshot() -> RuntimeStateSnapshot:
     stats_payload = {
         **_stats,
         "token_birth_enrichment": GLOBAL_TOKEN_BIRTH_RESOLVER.snapshot(),
+        "provider_capacity": {"shared_cache": cache_snapshot(), "birdeye": birdeye_pressure_snapshot()},
         "last_buy_at": _last_buy_at,
         "last_sell_at": _last_sell_at,
         "pending_ai_vectors": len(_pending_ai_vectors),
