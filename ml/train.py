@@ -30,6 +30,7 @@ from ml.feature_matrix import coerce_feature_frame
 from features.auxiliary_semantics import prepare_training_frame, population_proof, semantics_schema, PROOF_COLUMN
 from features.strategy_context import population_proof as strategy_population_proof
 from features.token_clock_semantics import population_proof as clock_population_proof, PROOF_COLUMN as CLOCK_PROOF_COLUMN
+from features.valuation_semantics import population_proof as valuation_population_proof
 from ml.financial_targets import checked_financial_frame, supported_financial_training
 from features.builder import ALLOWED_FEATURES
 from features.context_encoding import (CONTEXT_FEATURES, augment_context_frame,
@@ -1818,6 +1819,7 @@ def train_and_save() -> TrainResult:
         "auxiliary_semantics_training": population_proof(df_trainable),
         "strategy_context_training": strategy_population_proof(df_trainable),
         "token_clock_training": clock_population_proof(df_trainable),
+        "valuation_training": valuation_population_proof(df_trainable),
         "feature_set_hash": feat_hash,
         "excluded_columns": sorted(excluded_effective),
         "model_path": str(MODEL_PATH),

@@ -1,0 +1,293 @@
+{
+  "stage": "independent_market_cap_fdv_and_original_T0_valuation_learning",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "status": "SOFTWARE_VERIFIED_RUNTIME_OFF",
+  "parent_publication_commit": "89ebbf283a7172056223f9d2236de0723b8c0191",
+  "scope": "Native provider/common USD valuation projections, zero/unknown selection, cap/bucket learning provenance and current-root regression. Exact0.1 SOL PAPER. No operational launch, real market/wallet/order calls, historical data rewrite, active model/policy change or profitability certification.",
+  "official_sources": [
+    {
+      "url": "https://docs.dexscreener.com/api/reference",
+      "role": "Pair schema declares nullable marketCap and fdv independently, alongside pool liquidity.",
+      "qualification": "Source contract, not actual provider access, token accuracy, circulating-supply authentication or executable-route proof."
+    },
+    {
+      "url": "https://birdeye.so/data-api/blog/detail/token-investigation-dashboard-solana-birdeye-data",
+      "role": "First-party July28,2026 guide separately identifies marketCap, fdv, circulatingSupply and USD liquidity in token_overview.",
+      "qualification": "Guide is not an exact live response schema. Endpoint reference redirects remained inaccessible; undocumented mc/supply mappings are not introduced."
+    }
+  ],
+  "native_findings": [
+    "Birdeye token/pool and Dex cap extraction used FDV when reported cap was absent or invalid. Birdeye also overwrote the original FDV alias with cap.",
+    "Common tick coercion treated FDV as cap. Basic filters could replace known zero/unknown cap with FDV; stale aliases could survive cap rejection.",
+    "Removing incompatible cap/bucket predictors initially invalidated unchanged auxiliary receipts. The final contract separately checks selected cap meanings and preserves original unchanged auxiliary provenance.",
+    "These are native synthetic software defects, not attribution of all historical non-buys or proof of real financial opportunity loss."
+  ],
+  "implementation": {
+    "valuation": "Independent nullable market_cap_usd and fdv_usd, typed finite nonnegative USD scalars; zero is retained. Canonical key presence wins over raw aliases. FDV is never inferred from cap, and neither valuation is computed from circulating or raw total supply.",
+    "receipts": "FDV participates in existing original HTTP-receipt freshness and field-specific merge. All valuation aliases are removed when freshness rejects the observation. Chosen zero/value/source/timestamp stay together; current cap meaning is explicit and old receipts are not upgraded by a later marker.",
+    "selection": "Basic filters no longer substitute FDV for missing cap. Measured liquidity/volume zero is not rescued by raw aliases. Cap thresholds and unknown-cap policy are unchanged. Priority/dynamic cap buckets use an older buy value only if the canonical key is absent, not when it declares unknown/zero.",
+    "tail": "Pure native projection/receipt/common-merge cases retain +500,+1000,+25000,+1000000 percentage-point momentum. This neither admits every such token nor proves profitable entry, exit or runner capture.",
+    "learning": "New t0_valuation_proof is metadata outside the77 raw predictors. Native builder derives consistent cap buckets; Series, original frozen entries, Parquet, financial source and scalar/batch inference retain and recheck it. Strict identity/T0/value/exact-float32/receipt-age/meaning checks reject rehashed incompatible input.",
+    "training": "Cap-using models require their own original current-generation population with at least30 rows and30 distinct tokens, and a matching numeric semantic schema. Each family target is checked separately. Without support, only incompatible cap/bucket predictors are excluded; unchanged historical numeric/auxiliary meanings and original financial targets remain usable. A later standalone marker cannot upgrade a legacy original entry.",
+    "automatic_generation": "Runner advisory pipeline14 invalidates the obsolete input-generation fingerprint. Primary and classifier/regressor/exit families record target-scoped valuation provenance. No model is activated or operationally trained by this stage; isolated synthetic fits use temporary directories.",
+    "preservation": "Protected operator .env, models, policies, data, archives, logs and .venv are not synchronized or rewritten. Cap is provider-reported, not independently verified circulating cap. Supply units and depth/route verification remain separate.",
+    "owned_sources": [
+      "analytics/filters.py",
+      "features/auxiliary_semantics.py",
+      "features/builder.py",
+      "features/numeric_encoding.py",
+      "features/store.py",
+      "features/valuation_semantics.py",
+      "fetcher/birdeye.py",
+      "fetcher/dexscreener.py",
+      "ml/family_training.py",
+      "ml/runner_advisory_learning.py",
+      "ml/train.py",
+      "runtime/candidate_priority.py",
+      "runtime/dynamic_thresholds.py",
+      "runtime/trade_learning.py",
+      "tests/test_auxiliary_semantics.py",
+      "tests/test_market_valuation_contract.py",
+      "tests/test_strategy_context.py",
+      "tests/test_valuation_semantics.py",
+      "utils/data_utils.py",
+      "utils/market_observation.py",
+      "utils/price_service.py",
+      "utils/valuation.py"
+    ]
+  },
+  "validation": {
+    "native_original": {
+      "checkout": "publishing_untouched",
+      "native_modules_scoped": 7,
+      "cases": 62,
+      "failed": 55,
+      "passed": 7,
+      "seconds": 0.24,
+      "exit_code": 1,
+      "scope": "Exact native C module roots asserted before/after independent cases. Pure synthetic helpers; no HTTP."
+    },
+    "intermediate_fixture_error": "Initial pool fixture omitted documented base.address; corrected before the retained original reproduction. Two new batch tests initially used a nonexistent helper name; corrected to actual predict_ranking_scores. Neither is represented as a production defect.",
+    "intermediate_generation_failure": {
+      "failed": 3,
+      "passed": 478,
+      "seconds": 112.29,
+      "exit_code": 1,
+      "cause": "Cap-column exclusion invalidated auxiliary population metadata. Repaired separate contract and all family target metadata; assertions preserved."
+    },
+    "focused_before_final_report_assertion": {
+      "checkout": "working",
+      "passed": 628,
+      "warnings": 2,
+      "seconds": 180.6,
+      "exit_code": 0,
+      "source_sha256": "17aee997212e757ab995694f077ac7679bf783592a3f7319fdba5215df3e32ad",
+      "qualification": "Includes98 new cases and integration selection. Subsequent source change only updates an existing report assertion; not a full-suite result."
+    },
+    "initial_full_regression": {
+      "checkout": "publishing",
+      "failed": 1,
+      "passed": 303,
+      "seconds": 16.34,
+      "exit_code": 1,
+      "scope": "--maxfail1 terminal run. Existing equality omitted the new valuation_filtering report; changed to compare the original auxiliary proof and additionally the exact valuation population proof."
+    },
+    "repaired_auxiliary_suite": {
+      "checkout": "working",
+      "passed": 29,
+      "seconds": 76.92,
+      "exit_code": 0
+    },
+    "new_cases": 98,
+    "frozen_verification_source": {
+      "files_each": 785,
+      "sha256": "2fffa53f6ecad802324111d28bb32a4ab7762f24f881df7623146cc133e312d1",
+      "frozen_before_and_after_full_suites": true
+    },
+    "full_suites": {
+      "working": {
+        "passed": 5567,
+        "warnings": 2,
+        "seconds": 1293.56,
+        "exit_code": 0,
+        "scope": "Native isolated full current-root software suite, not trades or profitability."
+      },
+      "publishing": {
+        "passed": 5567,
+        "warnings": 2,
+        "seconds": 1272.05,
+        "exit_code": 0,
+        "scope": "Native isolated full current-root software suite, not trades or profitability."
+      },
+      "qualification": "Two pandas FutureWarnings each in existing empty/all-NA DataFrame concatenation; no failed tests. Not operational, real provider, whole-strategy or financial acceptance."
+    },
+    "preflights": {
+      "working": {
+        "started_at": "2026-10-11T05:05:32.7981016+00:00",
+        "generated_at_utc": "2026-10-11T05:05:35.792128+00:00",
+        "root": "scoped_working_checkout_asserted",
+        "exit_code": 0,
+        "ok": true,
+        "compile_errors": 0,
+        "report_builders": 7,
+        "report_builders_failed": 0,
+        "config_returncode": 0,
+        "pytest_returncode": 0,
+        "pytest_mode": "external_actual_full_suite_success",
+        "failure_tail": null
+      },
+      "publishing": {
+        "started_at": "2026-10-11T05:05:32.7966516+00:00",
+        "generated_at_utc": "2026-10-11T05:05:34.818449+00:00",
+        "root": "scoped_publishing_checkout_asserted",
+        "exit_code": 0,
+        "ok": true,
+        "compile_errors": 0,
+        "report_builders": 7,
+        "report_builders_failed": 0,
+        "config_returncode": 0,
+        "pytest_returncode": 0,
+        "pytest_mode": "external_actual_full_suite_success",
+        "failure_tail": null
+      }
+    },
+    "native_cold": {
+      "checkouts": [
+        "working",
+        "publishing"
+      ],
+      "modules_scoped_each": 22,
+      "pipeline": 14,
+      "exact_paper_size_sol": 0.1,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "scope": "Actual current-root imports/config and synthetic original-clock/valuation contract. No bot, API, UI, provider, signer, training daemon or model activation.",
+      "working": {
+        "root": "scoped_working_checkout_asserted",
+        "modules_scoped_each": 22,
+        "clock_generation": "original_mint_birth_not_venue_v2",
+        "advisory_pipeline": 14,
+        "current_original_population_checked": true,
+        "schema_alone_rejected": true,
+        "legacy_nonclock_inputs_preserved": true,
+        "venue_only_birth_unknown": true,
+        "config": {
+          "dry_run": true,
+          "paper_max_trade_amount_sol": 0.1,
+          "paper_bootstrap_amount_sol": 0.1
+        },
+        "paper_exact_trade_size_enabled": true,
+        "paper_exact_trade_size_sol": 0.1,
+        "provider_birth_context_retained": true,
+        "creation_budget_defaults_checked": true,
+        "scope": "Cold native imports/config and synthetic input contract only; no fit, runtime start or provider access."
+      },
+      "publishing": {
+        "root": "scoped_publishing_checkout_asserted",
+        "modules_scoped_each": 22,
+        "clock_generation": "original_mint_birth_not_venue_v2",
+        "advisory_pipeline": 14,
+        "current_original_population_checked": true,
+        "schema_alone_rejected": true,
+        "legacy_nonclock_inputs_preserved": true,
+        "venue_only_birth_unknown": true,
+        "config": {
+          "dry_run": true,
+          "paper_max_trade_amount_sol": 0.1,
+          "paper_bootstrap_amount_sol": 0.1
+        },
+        "paper_exact_trade_size_enabled": true,
+        "paper_exact_trade_size_sol": 0.1,
+        "provider_birth_context_retained": true,
+        "creation_budget_defaults_checked": true,
+        "scope": "Cold native imports/config and synthetic input contract only; no fit, runtime start or provider access."
+      }
+    },
+    "primary_legacy_transition": {
+      "status": "STATIC_INFERENCE_NOT_RUNTIME_REPRODUCED",
+      "locations": [
+        "ml/primary_activation.py:read_bundle",
+        "ml/primary_champion.py:current_incumbent"
+      ],
+      "scope": "Dedicated intact legacy-bundle reproduction and independently checked successor validation remain required. No operator bundle load/activation or metadata relabeling."
+    },
+    "new_case_collection": {
+      "cases": 98,
+      "seconds": 1.67,
+      "exit_code": 0,
+      "scope": "Two new test files collected natively after final full QA; full total also includes existing parameterized contracts."
+    }
+  },
+  "shutdown": {
+    "requested_stop": {
+      "started_at": "2026-10-11T05:06:03.1474562+00:00",
+      "ended_at": "2026-10-11T05:06:05.3064198+00:00",
+      "immediately_captured_exit_code": 0,
+      "killed": 0,
+      "remaining": 0,
+      "finalizer_status": "ok",
+      "finalizer_process_state": "stopped",
+      "requested_by": "user",
+      "checkout": "working_only"
+    },
+    "inventory": {
+      "observed_at": "2026-10-11T05:06:13.1110088+00:00",
+      "since_utc": "2026-10-08T16:09:40.0000000Z",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "checkouts": [
+        {
+          "changed_by_mtime": 0,
+          "protected_files": 3763,
+          "green_live_risk_file_exists": false,
+          "locks": 0,
+          "checkout": "working"
+        },
+        {
+          "changed_by_mtime": 0,
+          "protected_files": 27,
+          "green_live_risk_file_exists": false,
+          "locks": 0,
+          "checkout": "publishing"
+        }
+      ],
+      "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+    },
+    "sql": {
+      "observed_at": "2026-10-11T05:06:12.044744+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-11 05:06:05.049382"
+        }
+      ]
+    },
+    "qualification": "D-only stop after actual paired QA, actual finalizer status ok, killed0/remaining0. Inventory/read-only SQL verify OFF. Mtime is not cryptographic historical preservation proof; empty scoped SQL groups are not whole-wallet, profit or financial-risk proof. Post-publication inventory is separately recorded in private delivery receipt."
+  },
+  "remaining_limits": [
+    "Prospective profitable costed capture, opportunity coverage, early detection and actual executable capacity are unestablished. OFF requirement prohibits operational acceptance in this stage.",
+    "Provider cap/FDV accuracy, authenticated circulating/total-supply units, market-asof/cache lag, aggregate versus selected route depth and actual quotas require separate evidence.",
+    "Other numeric zero/alias consumers, registry/cache/HTTP lifetime and production-size throughput are not universally certified.",
+    "No promise of future zero errors, winner profitability, maximum benefit or100% capture.",
+    "Static review only: managed primary read_bundle reports cap-generation schema incompatibility as generic ValueError, while current_incumbent catches AuxiliarySemanticsError for verified obsolete-generation bootstrap. A retained otherwise-valid legacy cap bundle may therefore need a dedicated verified transition; no operator reproduction or operational impact is established. Current input loaders reject incompatible meanings; old bundle activation/succession is not certified by this stage."
+  ],
+  "publication": {
+    "parent_commit": "89ebbf283a7172056223f9d2236de0723b8c0191",
+    "source_sync": "Reviewed source/test allowlist only; both native roots match frozen785-file fingerprint.",
+    "qualification": "This source ledger does not self-certify its future Git commit/push; exact published revision and post-publication state are recorded in the same-turn private delivery receipt."
+  }
+}

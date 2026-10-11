@@ -13,7 +13,7 @@ def _bucket_key(row: dict[str, Any]) -> str:
         [
             str(row.get("entry_lane") or "unknown"),
             price5m_bucket(row.get("price_pct_5m") or row.get("buy_price_pct_5m")),
-            mcap_bucket(row.get("market_cap_usd") or row.get("buy_market_cap_usd")),
+            mcap_bucket(row.get("market_cap_usd") if "market_cap_usd" in row else row.get("buy_market_cap_usd")),
             str(bool(row.get("liquidity_is_proxy") or row.get("buy_liquidity_is_proxy"))).lower(),
             rank_bucket(row.get("rank_score") or row.get("research_rank_score")),
         ]

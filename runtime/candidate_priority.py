@@ -62,7 +62,7 @@ def research_rank_priority_fit(token: dict[str, Any]) -> bool:
     rank = _normalize_score(token.get("rank_score") if token.get("rank_score") is not None else token.get("research_rank_score"), -1.0)
     price5m = _to_float(token.get("price_pct_5m") or token.get("buy_price_pct_5m"), 0.0)
     txns5m = _to_float(token.get("txns_last_5m") or token.get("buy_txns_last_5m"), 0.0)
-    mcap = _to_float(token.get("market_cap_usd") or token.get("buy_market_cap_usd"), 0.0)
+    mcap = _to_float(token.get("market_cap_usd") if "market_cap_usd" in token else token.get("buy_market_cap_usd"), 0.0)
     proxy = _boolish(token.get("liquidity_is_proxy") or token.get("liquidity_usd_is_proxy") or token.get("buy_liquidity_is_proxy"))
     has_route = _boolish(token.get("has_jupiter_route"))
     if lane not in {LANE_RESEARCH_SNIPER, LANE_SNIPER_RESEARCH_MICRO_FALLBACK, LANE_RESEARCH_RANK_CANARY}:

@@ -82,6 +82,10 @@ def input_frame(vector):
     clock = getattr(vector, "attrs", {}).get(CLOCK_PROOF_COLUMN)
     if clock is not None:
         row[CLOCK_PROOF_COLUMN] = clock
+    from features.valuation_semantics import PROOF_COLUMN as VALUATION_PROOF_COLUMN
+    valuation = getattr(vector, "attrs", {}).get(VALUATION_PROOF_COLUMN)
+    if valuation is not None:
+        row[VALUATION_PROOF_COLUMN] = valuation
     return pd.DataFrame([row])
 
 
@@ -146,7 +150,12 @@ def checked_row_receipt(row):
         if not isinstance(proof, dict) or proof.get("version") not in {ENTRY_VERSION, STRATEGY_ENTRY_VERSION}:
             return None
         validate_entry_features(proof, address=row.get("address"))
-        if any(not _same_value(name, row.get(name), value) for name, value in proof["vector"].items()):
+        from features.valuation_semantics import FEATURES as VALUATION_FEATURES
+        # Training may remove incompatible cap predictors while retaining the
+        # same original receipt for unchanged auxiliary inputs. A removed column
+        # is not a new cap observation; cap-using inference has its own proof gate.
+        if any(not _same_value(name, row.get(name), value) for name, value in proof["vector"].items()
+               if name in row or name not in VALUATION_FEATURES):
             return None
         return proof
     except (ValueError, TypeError, KeyError, RuntimeError, OverflowError):
@@ -157,6 +166,8 @@ def checked_model_frame(frame, features):
     """A model with changed inputs only consumes matching causal receipts."""
     from features.context_encoding import FEATURE_SOURCES
     features = list(features)
+    from features.valuation_semantics import checked_model_frame as checked_valuation_frame
+    frame = checked_valuation_frame(frame, features)
     from features.token_clock_semantics import checked_model_frame as checked_clock_frame
     frame = checked_clock_frame(frame, features)
     strategy = any(FEATURE_SOURCES.get(name) == STRATEGY_SOURCE for name in features)
@@ -219,5 +230,7 @@ def prepare_training_frame(frame, *, min_current_rows=30):
             or isinstance(name, str) and name.startswith(f"t0ctx_{STRATEGY_SOURCE}__")], errors="ignore")
     from features.token_clock_semantics import prepare_training_frame as prepare_clock_frame
     out, report["token_clock_filtering"] = prepare_clock_frame(out, min_current_rows=min_current_rows)
+    from features.valuation_semantics import prepare_training_frame as prepare_valuation_frame
+    out, report["valuation_filtering"] = prepare_valuation_frame(out, min_current_rows=min_current_rows)
     out.attrs["auxiliary_semantics_training"] = report
     return out.reset_index(drop=True), report

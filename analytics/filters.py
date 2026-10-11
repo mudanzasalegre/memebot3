@@ -570,9 +570,14 @@ def basic_filters(token: dict[str, Any]) -> Optional[bool]:
     early_barrier_min = max(1.0, float(thresholds.min_age_min) * 2.0)
 
     # 3) liquidez • volumen • market-cap --------------------------------------------
-    liq = _to_float_or_none(token.get("liquidity_usd") or (token.get("liquidity") or {}).get("usd"))
-    vol24 = _to_float_or_none(token.get("volume_24h_usd") or token.get("volume24hUsd") or (token.get("volume") or {}).get("h24"))
-    mcap = _to_float_or_none(token.get("market_cap_usd") or token.get("fdv") or token.get("marketCapUsd"))
+    from utils.valuation import project_valuation
+    from utils.market_observation import market_number
+    liquidity, volume = token.get("liquidity"), token.get("volume")
+    liq = market_number(token.get("liquidity_usd") if "liquidity_usd" in token else
+        (liquidity.get("usd") if isinstance(liquidity, dict) else None), "liquidity_usd")
+    vol24 = market_number(token.get("volume_24h_usd") if "volume_24h_usd" in token else
+        token.get("volume24hUsd", volume.get("h24") if isinstance(volume, dict) else None), "volume_24h_usd")
+    mcap = project_valuation(token)["market_cap_usd"]
 
     # — ajustes suaves para Pump.fun —
     is_pf = thresholds.regime == "pumpfun"

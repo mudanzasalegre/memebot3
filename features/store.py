@@ -43,6 +43,7 @@ from config.config import CFG
 from features.builder import COLUMNS as _FEAT_COLS
 from features.auxiliary_semantics import PROOF_COLUMN
 from features.token_clock_semantics import PROOF_COLUMN as CLOCK_PROOF_COLUMN
+from features.valuation_semantics import PROOF_COLUMN as VALUATION_PROOF_COLUMN
 from ml.data_contract import (
     normalize_dex_id,
     normalize_entry_lane,
@@ -59,7 +60,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 _OUTCOME_COLS = ["max_pnl_pct_seen", "outcome_closed_at", "outcome_trade_id", "outcome_source_sha256",
                  "outcome_return_basis", "outcome_gross_pnl_pct", "outcome_execution_proof"]
-_PARQUET_COLS = _FEAT_COLS + [PROOF_COLUMN, CLOCK_PROOF_COLUMN, "label", "target_total_pnl_pct", "sample_type", "ts"] + _OUTCOME_COLS
+_PARQUET_COLS = _FEAT_COLS + [PROOF_COLUMN, CLOCK_PROOF_COLUMN, VALUATION_PROOF_COLUMN, "label", "target_total_pnl_pct", "sample_type", "ts"] + _OUTCOME_COLS
 
 # —— esquema fijo ——————————————————————————————
 # Nota: Si añades nuevas columnas en builder.COLUMNS, debes reflejarlas aquí
@@ -152,6 +153,7 @@ _COL_TYPES = OrderedDict(
         ("is_incomplete", pa.int8()),
         (PROOF_COLUMN, pa.string()),
         (CLOCK_PROOF_COLUMN, pa.string()),
+        (VALUATION_PROOF_COLUMN, pa.string()),
         # label + ts
         ("label", pa.int8()),
         ("target_total_pnl_pct", pa.float32()),
@@ -382,6 +384,7 @@ def append(
 
     proof = getattr(vec, "attrs", {}).get(PROOF_COLUMN)
     clock = getattr(vec, "attrs", {}).get(CLOCK_PROOF_COLUMN)
+    valuation = getattr(vec, "attrs", {}).get(VALUATION_PROOF_COLUMN)
     if isinstance(vec, pd.Series):
         vec = vec.to_dict()
 
@@ -391,6 +394,7 @@ def append(
         row[c] = _normalize_scalar(vec.get(c, None))
     row[PROOF_COLUMN] = _normalize_scalar(proof if proof is not None else vec.get(PROOF_COLUMN))
     row[CLOCK_PROOF_COLUMN] = _normalize_scalar(clock if clock is not None else vec.get(CLOCK_PROOF_COLUMN))
+    row[VALUATION_PROOF_COLUMN] = _normalize_scalar(valuation if valuation is not None else vec.get(VALUATION_PROOF_COLUMN))
 
     row["entry_regime"] = normalize_entry_regime(row.get("entry_regime"))
     row["entry_lane"] = normalize_entry_lane(row.get("entry_lane"))

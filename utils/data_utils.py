@@ -255,6 +255,9 @@ def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
     Normaliza el token sin destruir la información de ausencia real.
     """
     clean = token
+    from utils.valuation import CAP_ALIASES, FDV_ALIASES, project_valuation
+    valuations = (project_valuation(clean) if any(key in clean for key in
+                  ("market_cap_usd", "fdv_usd", *CAP_ALIASES, *FDV_ALIASES)) else None)
     ctx = clean.get("symbol") or clean.get("address", "")[:4]
     clean.pop("sniper_research_defensive_exit", None)
 
@@ -281,6 +284,9 @@ def sanitize_token_data(token: Dict[str, Any]) -> Dict[str, Any]:
     for field in _BOOL_INT_FIELDS:
         if field in clean:
             clean[field] = binary_value(clean[field])
+
+    if valuations is not None:
+        clean.update(valuations)  # Same-grain canonical absence/zero wins over aliases.
 
     if "trend" in clean:
         clean["trend"] = _normalize_trend(clean["trend"])

@@ -22,6 +22,7 @@ from analytics.token_time import parse_event_clock, venue_clock_snapshot
 from analytics.token_birth import base58_size as _base58_bytes
 from utils.data_utils import sanitize_token_data
 from utils.market_observation import MARKET_FIELDS, market_number, stamp_market_observation
+from utils.valuation import project_valuation
 from utils.simple_cache import cache_delete, cache_get, cache_set
 from utils.bounded_state import BoundedFailureCounter, increment_failure
 from utils.request_ownership import OwnedRequests
@@ -199,7 +200,7 @@ def _add_legacy_aliases(token: dict) -> dict:
     out = deepcopy(token)
     out["liquidity"] = {"usd": out.get("liquidity_usd")}
     out["volume24h"] = out.get("volume_24h_usd")
-    out["fdv"] = out.get("market_cap_usd")
+    out["fdv"] = out.get("fdv_usd")
     return out
 
 
@@ -222,7 +223,7 @@ def _normalize_token_payload(address: str, raw: dict) -> dict:
         "price_usd": _first_number(raw.get("price"), raw.get("priceUsd"), price_info.get("priceUsd")),
         "liquidity_usd": _first_number(raw.get("liquidity"), raw.get("liquidityUsd"), liquidity.get("usd"), raw.get("tvlUsd")),
         "volume_24h_usd": _first_number(raw.get("v24hUSD"), raw.get("volume24hUsd"), raw.get("v24hUsd"), volume.get("h24"), volume.get("usd")),
-        "market_cap_usd": _first_number(raw.get("marketCap"), raw.get("marketCapUsd"), raw.get("fdv"), raw.get("fdvUsd")),
+        **project_valuation(raw, provider=True),
         "txns_last_5m": raw.get("trade5m"), "txns_last_5m_buys": raw.get("buy5m"),
         "txns_last_5m_sells": raw.get("sell5m"), "holders": raw.get("holder"),
         "price_pct_1m": raw.get("priceChange1mPercent"),
@@ -247,7 +248,7 @@ def _normalize_pool_payload(address: str, raw: dict) -> dict:
         "price_usd": _first_number(raw.get("price"), raw.get("priceUsd")),
         "liquidity_usd": _first_number(raw.get("liquidity"), raw.get("tvlUsd"), liquidity.get("usd"), raw.get("liquidityUsd")),
         "volume_24h_usd": _first_number(raw.get("volume_24h"), raw.get("volume24hUsd"), volume.get("h24"), volume.get("usd")),
-        "market_cap_usd": _first_number(raw.get("marketCap"), raw.get("fdv"), raw.get("fdvUsd")),
+        **project_valuation(raw, provider=True),
     }
     out = {**deepcopy(raw), "address": base.get("address") or raw.get("baseMint") or raw.get("baseToken") or address,
            "pair_address": address, "symbol": base.get("symbol") or raw.get("symbol") or raw.get("name"),

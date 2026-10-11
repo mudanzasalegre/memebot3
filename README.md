@@ -13,6 +13,21 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Capitalizacion/FDV y aprendizaje original (2026-10-11)
+
+La capitalizacion reportada y FDV son independientes: cero/desconocido no se
+sustituyen por el otro campo. Los predictores de cap exigen evidencia original
+T0 por objetivo; no se reetiqueta el historico ni se activa ningun modelo.
+Las pruebas sinteticas conservan senales superiores al 100/200%, hasta
++1.000.000%, sin presentarlas como rentabilidad obtenida.
+
+Ambas copias pasan 5.567 pruebas completas (dos avisos de pandas cada una),
+preflight y 22 imports nativos comprobados. Bot/API/UI/entrenamiento/AutoResearch
+quedan apagados; PAPER mantiene compras exactas de 0,1 SOL.
+La transicion de ciertos modelos primarios antiguos necesita verificacion
+especifica; cobertura completa y beneficio neto real siguen sin establecerse.
+Detalles y limites: [auditoria de valoracion](docs/audits/market_valuation_20261011.json).
+
 ### Valoracion SOL/USD y evidencia historica
 
 La conversion compartida exige un precio SOL/USD numerico positivo, el

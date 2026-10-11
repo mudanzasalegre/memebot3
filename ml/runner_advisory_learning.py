@@ -33,7 +33,7 @@ from features.auxiliary_semantics import (checked_semantics_schema, checked_mode
     prepare_training_frame, SCHEMA_SHA256 as AUXILIARY_SCHEMA_SHA256)
 
 ROLE = "scanner_ranking_only"
-PIPELINE_VERSION = 13  # Original T0 clock proof invalidates unproved age-using generations.
+PIPELINE_VERSION = 14  # Original cap semantics invalidates cap/FDV-confounded generations.
 
 
 def _read_json(path: Path) -> dict[str, Any]:

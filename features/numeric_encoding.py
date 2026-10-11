@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from utils.numeric_types import binary_value
 from analytics.token_time import AGE_SEMANTICS_VERSION
+from utils.market_observation import VALUATION_VERSION
 
 VERSION = "typed_t0_numeric_missingness_v1"
 PREFIX = "t0num_missing__"
@@ -82,10 +83,14 @@ def numeric_encoding_schema(features: Iterable[str]) -> dict | None:
     names = list(features)
     encoded = [name for name in names if name.startswith(PREFIX)]
     age_used = "age_minutes" in names or "queue_age_minutes" in names
+    from features.valuation_semantics import sources as valuation_sources
+    valuation_used = bool(valuation_sources(names))
     if not encoded:
-        if not age_used: return None  # Unrelated legacy matrix semantics are unchanged.
-        return {"token_clock_semantics":AGE_SEMANTICS_VERSION,
-                "imputation":"unchanged_legacy_matrix", "encoded_features":[]}
+        if not age_used and not valuation_used: return None
+        schema = {"imputation":"unchanged_legacy_matrix", "encoded_features":[]}
+        if age_used: schema["token_clock_semantics"] = AGE_SEMANTICS_VERSION
+        if valuation_used: schema["valuation_semantics"] = VALUATION_VERSION
+        return schema
     if (any(name not in FEATURE_SOURCES for name in encoded)
             or any(FEATURE_SOURCES[name] not in names for name in encoded)
             or any(PREFIX + name not in names for name in names if name in RULES)):
@@ -94,14 +99,17 @@ def numeric_encoding_schema(features: Iterable[str]) -> dict | None:
               "imputation": "zero_with_explicit_missing_indicator", "invalid_numeric": "unobserved"}
     if age_used:
         schema["token_clock_semantics"] = AGE_SEMANTICS_VERSION
+    if valuation_used:
+        schema["valuation_semantics"] = VALUATION_VERSION
     return schema
 
 
 def checked_numeric_schema(metadata, features) -> bool:
     try:
         from features.token_clock_semantics import checked_population
+        from features.valuation_semantics import checked_population as checked_valuation_population
         features = list(features)
         return (metadata.get("numeric_encoding") == numeric_encoding_schema(features)
-                and checked_population(metadata, features))
+                and checked_population(metadata, features) and checked_valuation_population(metadata, features))
     except (AttributeError, TypeError, ValueError):
         return False

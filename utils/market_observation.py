@@ -5,11 +5,15 @@ from copy import deepcopy
 import math
 import time
 from typing import Any
+import numpy as np
 
 OBSERVATION_VERSION = "provider_http_receipt_v1"
+VALUATION_VERSION = "reported_cap_separate_from_fdv_usd_v1"
+VALUATION_MEANINGS = {"market_cap_usd": "provider_reported_market_cap_not_fdv_or_supply_derived",
+                      "fdv_usd": "provider_reported_fully_diluted_valuation_not_market_cap"}
 DEFAULT_MAX_AGE_S = 30.0
 MARKET_FIELDS = (
-    "price_usd", "price_native", "liquidity_usd", "market_cap_usd",
+    "price_usd", "price_native", "liquidity_usd", "market_cap_usd", "fdv_usd",
     "volume_24h_usd", "txns_last_5m", "txns_last_5m_buys",
     "txns_last_5m_sells", "holders", "price_pct_1m", "price_pct_5m",
     "volume_pct_5m",
@@ -19,13 +23,14 @@ MARKET_FIELDS = (
 MARKET_ALIASES = (
     "priceUsd", "priceNative", "liquidity", "liquidityUsd", "liq_usd",
     "volume", "vol24h", "vol24h_usd", "volume24h", "volume_24h", "volume_usd",
-    "fdv", "mcap", "market_cap",
+    "fdv", "fdvUsd", "fullyDilutedValuation", "fullyDilutedMarketCap", "fully_diluted_valuation",
+    "mcap", "market_cap", "marketCap", "marketCapUsd",
 )
 _SIGNED_FIELDS = {"price_pct_1m", "price_pct_5m", "volume_pct_5m"}
 
 
 def market_number(value: Any, field: str) -> float | None:
-    if isinstance(value, bool) or value is None:
+    if isinstance(value, (bool, np.bool_, dict, list, tuple, set, np.ndarray, complex, np.complexfloating)) or value is None:
         return None
     try:
         number = float(value)
@@ -50,10 +55,13 @@ def stamp_market_observation(
         value = market_number(out.get(field), field)
         if value is not None:
             fields[field] = {"source": source, "received_at": received, "value": value}
+            if field in VALUATION_MEANINGS:
+                fields[field]["meaning"] = VALUATION_MEANINGS[field]
     out["market_observation"] = {
         "version": OBSERVATION_VERSION,
         "address": out.get("address"),
         "basis": "http_response_received_not_provider_market_asof",
+        "valuation_semantics": VALUATION_VERSION,
         "fields": fields,
     }
     return out

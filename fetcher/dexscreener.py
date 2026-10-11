@@ -18,7 +18,7 @@ Cambios
 • parse_iso_utc para fechas ISO y manejo seguro de enteros ms/seg (sin .replace).
 • Coerción estricta a float en price/liquidity/volume/mcap y aplanado del tick.
 • Exposición de price_native (si viene) y de txns_last_5m / txns_last_5m_sells.
-• Aliases de compat: liquidity.usd, volume24h, fdv (desde market_cap_usd).
+• Aliases de compat: liquidity.usd, volume24h; fdv conserva su propio significado.
 
 2025-08-17
 • Endpoints actualizados a `latest/dex/...` (compat con base sin `/latest`).
@@ -57,6 +57,7 @@ from utils.bounded_state import BoundedFailureCounter, bounded_int, increment_fa
 from utils.solana_addr import normalize_mint
 from analytics.token_time import parse_event_clock, venue_clock_snapshot
 from utils.market_observation import MARKET_FIELDS, stamp_market_observation
+from utils.valuation import project_valuation
 from analytics.social_signal import social_signal_from_profile
 
 log = logging.getLogger("dexscreener")
@@ -175,21 +176,8 @@ def _extract_volume_24h(raw: dict) -> float | None:
     return _safe_float(vol)
 
 def _extract_market_cap(raw: dict) -> float | None:
-    """
-    FDV/MarketCap desde varias variantes comunes.
-    """
-    for k in (
-        "marketCap",
-        "fdv",
-        "fullyDilutedValuation",
-        "fullyDilutedMarketCap",
-        "fdvUsd",
-        "fully_diluted_valuation",
-    ):
-        v = _safe_float(raw.get(k))
-        if v is not None:
-            return v
-    return None
+    """Reported USD cap only, never a fallback to FDV."""
+    return project_valuation(raw, provider=True)["market_cap_usd"]
 
 def _pick_best_pair(pairs: List[dict]) -> Optional[dict]:
     """
@@ -253,7 +241,7 @@ def _add_legacy_aliases(tok: dict) -> dict:
     Inyecta:
       - liquidity.usd ← liquidity_usd (aunque sea np.nan)
       - volume24h    ← volume_24h_usd
-      - fdv          ← market_cap_usd
+      - fdv          ← fdv_usd (nunca capitalizacion)
     para compatibilidad con lectores antiguos.
     """
     out = deepcopy(tok)
@@ -263,8 +251,7 @@ def _add_legacy_aliases(tok: dict) -> dict:
     out["liquidity"]["usd"] = liq_usd
     if "volume24h" not in out:
         out["volume24h"] = out.get("volume_24h_usd", np.nan)
-    if "fdv" not in out:
-        out["fdv"] = out.get("market_cap_usd", np.nan)
+    out["fdv"] = out.get("fdv_usd")
     return out
 
 # ─────────────────────── normalización de dexId ───────────────────────
@@ -347,7 +334,8 @@ def _norm_from_pair(raw_pair: dict) -> dict:
         "price_native":   price_native if price_native is not None else np.nan,
         "liquidity_usd":  liq_usd   if liq_usd   is not None else np.nan,
         "volume_24h_usd": vol_usd   if vol_usd   is not None else np.nan,
-        "market_cap_usd": mcap_usd  if mcap_usd  is not None else np.nan,
+        "market_cap_usd": mcap_usd,
+        "fdv_usd": project_valuation(raw_pair, provider=True)["fdv_usd"],
         # señales rápidas
         "txns_last_5m":        total_5m,
         "txns_last_5m_buys":   buys_5m,

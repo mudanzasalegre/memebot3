@@ -32,7 +32,9 @@ from utils.market_observation import (
     MARKET_FIELDS, OBSERVATION_VERSION,
     market_number, fresh_market_value, retain_fresh_market_fields,
     stamp_market_observation,
+    VALUATION_VERSION,
 )
+from utils.valuation import project_valuation
 from utils.sol_price import get_sol_usd
 from utils.solana_addr import normalize_mint
 from analytics.social_signal import checked_social_receipt
@@ -86,6 +88,7 @@ _MERGE_FIELDS = [
     "price_usd",
     "liquidity_usd",
     "market_cap_usd",
+    "fdv_usd",
     "volume_24h_usd",
     "txns_last_5m",
     "txns_last_5m_sells",
@@ -188,8 +191,8 @@ def _coerce_tick_numbers(tick: dict | None) -> dict:
         vol = (t.get("volume") or {}).get("h24")
     t["volume_24h_usd"] = _f(vol)
 
-    # Market cap / FDV
-    t["market_cap_usd"] = _f(t.get("market_cap_usd") if "market_cap_usd" in t else t.get("fdv", t.get("mcap")))
+    # Independent USD valuations; canonical unknown/zero may not be resurrected.
+    t.update(project_valuation(t))
 
     for key in (
         "txns_last_5m",
@@ -455,6 +458,7 @@ def _merge_market_fields(primary: dict | None, secondary: dict, source: str) -> 
     from analytics.token_birth import merge_birth_context
     from analytics.token_time import BIRTH_CLOCK_FIELDS
     out = deepcopy(primary if primary else secondary)
+    out.update(project_valuation(out))
     if not primary and market_number(out.get("price_usd"), "price_usd") is not None:
         out["price_source"] = source
     out.setdefault("address", secondary.get("address"))
@@ -467,6 +471,8 @@ def _merge_market_fields(primary: dict | None, secondary: dict, source: str) -> 
         out["market_observation"] = proof
     incoming = secondary.get("market_observation", {})
     incoming_fields = incoming.get("fields", {}) if isinstance(incoming, dict) else {}
+    if isinstance(incoming, dict) and incoming.get("valuation_semantics") == VALUATION_VERSION:
+        proof["valuation_semantics"] = VALUATION_VERSION
     for field in _MERGE_FIELDS + ["price_native"]:
         if field in BIRTH_CLOCK_FIELDS:
             continue

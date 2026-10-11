@@ -304,11 +304,9 @@ def _normalize_dex_id(value: Any) -> str:
 
 
 def _mcap_bucket(value: Any) -> tuple[str, int]:
-    try:
-        mcap = float(value)
-    except Exception:
-        return "missing", 0
-    if mcap <= 0:
+    from utils.market_observation import market_number
+    mcap = market_number(value, "market_cap_usd")
+    if mcap is None or mcap <= 0:
         return "missing", 0
     if mcap < 25_000:
         return "<25k", 1
@@ -446,7 +444,7 @@ def build_feature_vector(tok: Dict[str, Any], *, now: dt.datetime | None = None)
         "liquidity_risk_level": tok.get("liquidity_risk_level"),
         "liquidity_risk_reasons": tok.get("liquidity_risk_reasons"),
         "venue_is_pumpswap": int(dex_id == "pumpswap"),
-        "mcap_bucket": str(tok.get("mcap_bucket") or mcap_bucket),
+        "mcap_bucket": mcap_bucket,
         "mcap_bucket_code": int(mcap_bucket_code),
         "price5m_bucket": str(tok.get("price5m_bucket") or price5m_bucket),
         "price5m_bucket_code": int(price5m_bucket_code),
@@ -481,5 +479,7 @@ def build_feature_vector(tok: Dict[str, Any], *, now: dt.datetime | None = None)
     vector = pd.Series([values.get(c, np.nan) for c in COLUMNS], index=COLUMNS)
     from features.token_clock_semantics import bind_vector_clock
     vector = bind_vector_clock(vector, tok)
+    from features.valuation_semantics import bind_vector as bind_valuation
+    vector = bind_valuation(vector, tok)
     from features.auxiliary_semantics import bind_vector_receipt
     return bind_vector_receipt(vector, tok)
