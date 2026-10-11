@@ -452,6 +452,8 @@ def _provider_tick(payload: dict | None, address: str, *, fresh: bool) -> dict |
 
 def _merge_market_fields(primary: dict | None, secondary: dict, source: str) -> dict:
     """Merge chosen values and their original receipt together, preserving real zero."""
+    from analytics.token_birth import merge_birth_context
+    from analytics.token_time import BIRTH_CLOCK_FIELDS
     out = deepcopy(primary if primary else secondary)
     if not primary and market_number(out.get("price_usd"), "price_usd") is not None:
         out["price_source"] = source
@@ -466,6 +468,8 @@ def _merge_market_fields(primary: dict | None, secondary: dict, source: str) -> 
     incoming = secondary.get("market_observation", {})
     incoming_fields = incoming.get("fields", {}) if isinstance(incoming, dict) else {}
     for field in _MERGE_FIELDS + ["price_native"]:
+        if field in BIRTH_CLOCK_FIELDS:
+            continue
         missing = (market_number(out.get(field), field) is None if field in MARKET_FIELDS
                    else out.get(field) is None or out.get(field) == "")
         if not missing:
@@ -488,6 +492,8 @@ def _merge_market_fields(primary: dict | None, secondary: dict, source: str) -> 
                 proof["fields"][field] = deepcopy(record)
         if field == "price_usd":
             out["price_source"] = source
+    out = merge_birth_context(out, secondary)
+    proof = out["market_observation"]
     # Venue event and its identity move together, never onto a different
     # selected pool or into created_at. This is metadata, not birth proof.
     venue = secondary.get("venue_clock")

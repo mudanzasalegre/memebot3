@@ -17,11 +17,14 @@ from analytics.social_signal import (
     social_cache_ttl_s, social_feature_values, social_signal_from_dict,
 )
 from utils.auxiliary_observation import KINDS, checked_auxiliary_observation, auxiliary_scalar, clock_after
+from analytics.token_time import BIRTH_CLOCK_FIELDS
+from analytics.token_birth import FIELD as BIRTH_FIELD, merge_birth_context, token_birth_problem
 
 # Queue items carry discovery identity, not reusable decisions/model inputs.
 _DISCOVERY_FIELDS = (
     "address", "symbol", "name", "creator", "source", "discovered_via",
     "discovered_at", "first_seen", "first_seen_at", "created_at", "createdAt",
+    "token_birth_observation", "token_birth_enrichment",
     "pumpportal_event_at", "pumpportal_created_at_basis",
     "created", "createdAtUtc", "pairCreatedAt", "pair_created_at",
     "pairCreatedAtMs", "listedAt", "dex_id", "dexId", "pair_address",
@@ -55,8 +58,9 @@ def prepare_entry_candidate(queued: Mapping[str, Any], snapshot: dict | None) ->
     if clean is None or fresh_market_value(clean, "price_usd") is None:
         return None
     for key in _DISCOVERY_FIELDS + _SNAPSHOT_FIELDS + MARKET_FIELDS + ("market_observation", "social_signal"):
-        if key in clean and clean[key] is not None:
+        if key not in (*BIRTH_CLOCK_FIELDS, BIRTH_FIELD) and key in clean and clean[key] is not None:
             out[key] = deepcopy(clean[key])
+    out = merge_birth_context(out, clean)
     # Explicit absence prevents default/alias resurrection in later enrichers.
     for field in MARKET_FIELDS:
         out[field] = clean.get(field)
@@ -93,6 +97,7 @@ class EntryObservation:
     provider_proxy: bool = False
     social: str | None = None
     auxiliary: str | None = None
+    birth: str | None = None
 
 
 def freeze_entry_social_observation(token: dict, observation: EntryObservation) -> EntryObservation:
@@ -205,7 +210,10 @@ def freeze_entry_observation(token: dict, *, paper: bool) -> EntryObservation | 
         receipt = token["market_observation"]["fields"][field]
         receipts.append((field, str(receipt["source"]), float(receipt["received_at"])))
     provider_proxy = proxy is None and bool(token.get("liquidity_usd_is_proxy") or token.get("liquidity_is_proxy"))
-    observation = EntryObservation(str(token.get("address") or ""), values, tuple(receipts), proxy, provider_proxy)
+    if token_birth_problem(token) is not None:
+        return None
+    birth = json.dumps(token[BIRTH_FIELD], sort_keys=True, allow_nan=False) if BIRTH_FIELD in token else None
+    observation = EntryObservation(str(token.get("address") or ""), values, tuple(receipts), proxy, provider_proxy, birth=birth)
     return observation if entry_observation_problem(token, observation, paper=paper) is None else None
 
 
@@ -216,6 +224,17 @@ def entry_observation_problem(
     """Return a transient reevaluation reason; never refresh just a price here."""
     if observation is None or token.get("address") != observation.address:
         return "missing_or_changed_identity"
+    if observation.birth is not None:
+        if token.get(BIRTH_FIELD) != json.loads(observation.birth):
+            return "changed_token_birth_receipt"
+        if problem := token_birth_problem(token):
+            return problem
+        if vector is not None:
+            from features.token_clock_semantics import capture_clock_proof
+            try:
+                capture_clock_proof(vector, token)
+            except (ValueError, TypeError, KeyError, OverflowError):
+                return "changed_model_birth_inputs"
     if observation.social is not None:
         payload = json.loads(observation.social)
         if token.get("social_signal") != payload:

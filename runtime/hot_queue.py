@@ -14,6 +14,8 @@ from runtime.candidate_priority import candidate_priority_score
 from runtime.runner_priority import runner_priority_generation, learned_runner_priorities
 from analytics.inference_scope import inference_scope
 from analytics.token_time import compute_age_minutes
+from analytics.token_time import BIRTH_CLOCK_FIELDS
+from analytics.token_birth import FIELD as BIRTH_FIELD, merge_birth_context
 from utils.runtime_telemetry import record_runtime_event
 
 
@@ -288,7 +290,13 @@ class HotQueue:
         # Internal clocks and learned cache identities are queue-owned.
         token = deepcopy({k: v for k, v in token.items() if not k.startswith("_hot_queue_") and k != "learned_runner_priority"})
         incoming_has_age = any(_valid_age(token.get(key)) for key in ("age_minutes", "age_min"))
+        birth = merge_birth_context({**(previous if previous is not None else token), "address": address},
+                                   {**token, "address": address}, now=now)
         token = {**(previous or {}), **token}
+        for key in (*BIRTH_CLOCK_FIELDS, BIRTH_FIELD):
+            token.pop(key, None)
+            if key in birth:
+                token[key] = birth[key]
         token["address"] = address
         token.setdefault("source", source)
         token.setdefault("discovered_via", source)

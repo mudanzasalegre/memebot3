@@ -1,0 +1,59 @@
+{
+  "stage": "automatic_original_mint_birth_enrichment",
+  "status": "SOFTWARE_VERIFIED_RUNTIME_OFF",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "requested_trade_size_sol": 0.1,
+  "runtime_requirement": "Keep all bot, training, research, API and UI services OFF; no provider credentialed calls, wallet/order or active model/policy writes during this stage.",
+  "data_quality_scope": {
+    "sources": ["Actual native run_bot.py entry prefix and requeue context", "Native adapters, HotQueue, market merge and original T0 learning receipts", "Official public Birdeye creation endpoint contract", "Independent native synthetic tests and final runtime inventory"],
+    "source_root_before_changes": "C:/Users/monmo10/Documents/GitHub/memebot3",
+    "source_parent_commit": "df743e9c78b887dd8b636e762019b150dc5fdfcb",
+    "unit_of_analysis": "One canonical case-sensitive Solana mint, its original birth context and one T0 entry decision, not a pool/listing row or client receipt age.",
+    "capture_grain": "Provider-reported creation context plus local original HTTP receipt; separate fresh market collection and preserved queue residence.",
+    "operational_run_impact": "NOT_ESTABLISHED. Native original failures prove software gaps, not missed real buys, coverage or profitable outcomes.",
+    "findings": [
+      {"id":"unused-creation-source","severity":"high","confidence":"verified_native_source_and_reproduction","finding":"Common original entry never invokes the available creation lookup and defers unknown birth after market collection.","repair":"Await a bounded optional creation lookup before collecting market inputs in the single guarded entry owner; independently supervised discovery/monitor owners remain unchanged."},
+      {"id":"lost-birth-context","severity":"high","confidence":"verified_native_source_and_reproduction","finding":"Discovery snapshots, fallback merges and original T0 proofs fail to retain provider birth receipt alongside its clock.","repair":"Carry detached identity/creation context atomically through discovery, market merge, retry metadata and original T0 learning proof, outside unchanged predictors."},
+      {"id":"birth-rejuvenation","severity":"high","confidence":"verified_native_source_and_reproduction","finding":"A fresh market snapshot can replace an existing original birth with a different clock.","repair":"Preserve known original clocks and proof through fresh snapshot and HotQueue updates. Freeze typed receipt and reject changed clock, receipt or model ages before buy."},
+      {"id":"provider-cost-and-absence","severity":"medium","confidence":"verified_local_contract_not_live_entitlement","finding":"Creation is a separate documented35-CU request; automatic calls need bounded local ownership and absence handling.","repair":"Default12 spaced creation reservations/minute,3s timeout,2048-entry LRU,30s negative cache, at most2 owners and same-mint Future coalescence. Missing configuration/circuit degradation/budget/timeout leave birth unknown without detached work or price-circuit poisoning."}
+    ]
+  },
+  "official_sources": [{"title":"Birdeye Token Creation Info","url":"https://data.birdeye.so/docs/data-api/creation-trending/get-defi-token-creation-info","claims":["GET /defi/token_creation_info returns token creation context", "Solana network and token-address query are explicit", "35 CU per request is documented, not operator access or quota proof"]}],
+  "implementation": {
+    "files": ["analytics/token_birth.py", "runtime/token_birth_enrichment.py", "fetcher/birdeye.py", "runtime/entry_observation.py", "runtime/hot_queue.py", "features/token_clock_semantics.py", "utils/price_service.py", "run_bot.py", ".env.example", "tests/test_token_birth_enrichment.py", "tests/test_entry_observation.py", "tests/test_pumpswap_prime_strict.py"],
+    "ownership": "Existing single guarded entry owner awaits/cancels an explicitly owned provider Task; no autonomous new loop or detached provider worker is added. Parallel callers share an owned Future. Repeated cancellation cannot release ownership before provider cleanup acknowledgement. Timeout requests cancellation and is not a provider cleanup latency SLA.",
+    "birth_guards": "Strict32-byte mint and64-byte signature shape, exact receipt/source/network/context fields, canonical UTC original clock and original received_at causality. These do not authenticate chain transaction content or finality.",
+    "budget_scope": "Creation-only lookup reservation upper bound12/min and420 documented CU/min by default; all other provider traffic is additional. Cache hits can reserve fewer actual wire requests than the conservative local reservation count. This is not provider billing or entitlement acceptance.",
+    "cache_scope": "Capacity2048 defaults, original HTTP receipt never restamped; success lifetime bounded by original receipt24h and negative30s local cache. Existing adapter negative TTL also applies.",
+    "proof_compatibility": "Original normalized clock v2 accepts optional checked token_birth_observation metadata. Older v2 normalized proofs remain valid without being retroactively certified provider birth. No generation/model activation, history migration or predictor is added.",
+    "extreme_signal_scope": "Actual common entry fixture retains price_pct_5m=25000 after automatic birth collection. Existing applicable uncapped exits and exact0.1 SOL PAPER configuration remain unchanged. Fixture transport is not executed capture or profit."
+  },
+  "validation": {
+    "native_original": {"cases":8,"failed":8,"passed":0,"seconds":0.99,"exit_code":1,"modules_verified":5,"scope":"Actual C parent modules preloaded before independent initial D tests; native run functions extracted from original C cwd without starting run_bot."},
+    "new_cases":58,
+    "focused_working": {"passed":451,"warnings":2,"seconds":32.94,"exit_code":0},
+    "focused_publishing": {"passed":451,"warnings":2,"seconds":32.83,"exit_code":0},
+    "repeated_cancellation_reproduction": {"before_repair":{"exit_code":1,"owner_finished_before_provider_cleanup":true,"inflight_during_cleanup":0,"provider_cleanup_completed_at_capture":false},"after_repair":{"exit_code":0,"owner_finished_before_provider_cleanup":false,"inflight_during_cleanup":1,"provider_cleanup_completed":true,"inflight_after_cleanup":0},"scope":"Synthetic delayed provider cleanup, not credentialed HTTP or operational runtime."},
+    "earlier_full_attempts": {"working_session":80774,"publishing_session":74279,"exit_code_each":1,"status":"INTENTIONALLY_INTERRUPTED_NOT_ACCEPTED","reason":"Additional isolated cancellation probe found premature ownership release; source repair completed only after both test jobs were stopped and their Python children were absent."},
+    "cold_root_probes": {"exit_codes_each":0,"modules_scoped_each":17,"advisory_pipeline":13,"dry_run_each":true,"paper_max_trade_amount_sol_each":0.1,"paper_bootstrap_amount_sol_each":0.1,"paper_exact_trade_size_enabled_each":true,"paper_exact_trade_size_sol_each":0.1,"native_trade_amount_sol_each":0.1,"provider_birth_context_retained":true,"captured_at_utc":"2026-10-11T02:28:10+00:00","scope":"Cold native imports/config and synthetic input contract only; no fit, runtime start or provider access."},
+    "pre_optional_env_contract_full_suites": {"working":{"failed":1,"passed":5263,"warnings":2,"seconds":1397.71,"exit_code":1},"publishing":{"passed":5264,"warnings":2,"seconds":1379.91,"exit_code":0},"files_each":777,"normalized_sha256":"56c8ec341914bcace1acb05b694925de616a34d7f0b35ba719e100296f3ad833","cause":"Legacy Prime env test required full personal/template key parity. Read-only comparison found exactly the five new optional BIRTH_ENRICHMENT settings; private .env was not modified. Test now ignores only those five optional keys in parity and still enforces all other parity, mandatory flags and duplicate checks.","scope":"Completed earlier rounds, not final same-source acceptance after the test-only repair."},
+    "verification_source_snapshot": {"files_each":777,"normalized_sha256":"4ebd342176a724d5458ac1cde3086eb0e332a325d06fab69875e4769dc10da5c","frozen_before_and_after_final_full_suites":true,"scope":"Normalized source/test allowlist; README/docs are excluded, personal .env/data/models/logs/work are protected and excluded."},
+    "full_working": {"passed":5267,"warnings":2,"seconds":1436.79,"exit_code":0},
+    "full_publishing": {"passed":5267,"warnings":2,"seconds":1423.78,"exit_code":0},
+    "preflights": {"working":{"ok":true,"exit_code":0,"generated_at_utc":"2026-10-11T02:28:22.857629+00:00","report_builders":7,"compile_errors":0},"publishing":{"ok":true,"exit_code":0,"generated_at_utc":"2026-10-11T02:28:21.711101+00:00","report_builders":7,"compile_errors":0},"scope":"Compilation, native configuration/profile checks and seven isolated report builders. External pytest attestation follows actual completed final same-source suites, not an operational first launch or provider/wallet acceptance."},
+    "known_qa_warnings": {"category":"pandas FutureWarning","count_each":2,"scope":"Existing concat of an all-NA peer in token-clock batch tests; future pandas compatibility is not certified."},
+    "final_acceptance": "PASS_SCOPED_SOFTWARE_ONLY_NO_LIVE_GO"
+  },
+  "shutdown": {"started_utc":"2026-10-11T02:28:39.8610872+00:00","finished_utc":"2026-10-11T02:28:42.7185489+00:00","exit_code":0,"checkout":"working_only","requested_by":"user","finalizer_status":"ok","killed":0,"remaining":0},
+  "final_off_inventory": {"observed_at":"2026-10-11T02:28:49.5631517+00:00","since_utc":"2026-10-08T16:09:40.0000000Z","runtime_processes":0,"task_owned_previews":0,"matching_tasks":0,"running_tasks":0,"matching_services":0,"running_services":0,"checkouts":[{"checkout":"working","locks":0,"protected_files":3763,"changed_by_mtime":0,"green_live_risk_file_exists":false},{"checkout":"publishing","locks":0,"protected_files":27,"changed_by_mtime":0,"green_live_risk_file_exists":false}],"qualification":"Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."},
+  "final_sql_state": {"observed_at_utc":"2026-10-11T02:28:49.762880+00:00","main":{"bot_id":"main","process_state":"stopped","reports_refresh_state":"idle","retrain_state":"idle","updated_at":"2026-10-11 02:28:42.302844"},"green_live_rows":0,"paper_sql_groups":[],"paper_declaration_groups_each_empty":true,"qualification":"Read-only scoped SQL/declaration inventories; empty scopes are not whole-wallet safety, complete opportunity coverage or profitability."},
+  "remaining_limits": [
+    "Actual operator Birdeye access, quota/billing, latency and newly indexed mint coverage were not tested.",
+    "The3s cancellation deadline includes the existing shared Birdeye throttle; cleanup may exceed it. The resolver LRU is bounded, not all shared adapter caches or per-key failure counters. Production throughput and global cache capacity remain independent work.",
+    "Provider-reported mint context and Base58 signature shape are not independent chain/creator/finality verification.",
+    "Creation lookup is deliberately budgeted and can defer candidates; exhaustive feed or opportunity coverage is not established.",
+    "Other providers, historical birth/cohort semantics, longer-regime/creator dependence and complete cross-strategy financial ownership remain independent work.",
+    "No fresh full-strategy closed evidence or prospective net profitability is established; no guaranteed winners or zero future errors claim."
+  ]
+}

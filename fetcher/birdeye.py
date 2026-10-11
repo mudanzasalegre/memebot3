@@ -18,6 +18,7 @@ from typing import Any, Callable
 import aiohttp
 
 from analytics.token_time import parse_event_clock, venue_clock_snapshot
+from analytics.token_birth import base58_size as _base58_bytes
 from utils.data_utils import sanitize_token_data
 from utils.market_observation import MARKET_FIELDS, market_number, stamp_market_observation
 from utils.simple_cache import cache_delete, cache_get, cache_set
@@ -45,21 +46,11 @@ _last_call_ts = 0.0
 _lock = asyncio.Lock()
 _fail_count: dict[str, int] = {}
 log = logging.getLogger("birdeye")
-_BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 
-def _base58_bytes(value: Any, size: int) -> bool:
-    """Strict shape even when the optional base58 dependency is unavailable."""
-    if not isinstance(value, str) or not value or len(value) > size * 2:
-        return False
-    number = 0
-    for char in value:
-        digit = _BASE58.find(char)
-        if digit < 0:
-            return False
-        number = number * 58 + digit
-    leading = len(value) - len(value.lstrip("1"))
-    return leading + (number.bit_length() + 7) // 8 == size
+def creation_lookup_configured() -> bool:
+    """Expose availability without exposing the credential itself."""
+    return bool(_API_KEY)
 
 
 def _request_address(value: Any, *, token: bool) -> str | None:

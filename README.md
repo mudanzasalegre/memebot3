@@ -254,7 +254,23 @@ creacion del par queda separada. `get_token_creation_info` es una consulta
 explicita con contexto de creacion cacheado: no se agrega automaticamente
 a cada precio ni autentica la cadena de forma independiente.
 Ver `docs/audits/birdeye_contract_20261011.json`; el acceso, coste/cuota reales,
-enriquecimiento automatico de nacimiento y beneficios futuros no se certifican.
+entitlement y beneficios futuros no se certifican.
+
+La entrada comun resuelve ahora el nacimiento original desconocido antes de
+recabar su snapshot de mercado. La consulta es opcional si Birdeye no esta
+configurado o esta degradado, tiene timeout y presupuesto propios, cache
+acotada y coalescencia por mint; nunca fabrica edad cero ni permiso de compra.
+Los valores por defecto reservan como maximo 12 consultas de creacion/minuto
+(hasta420 CU documentados, aparte de precios), separadas5 segundos, con timeout
+de3 segundos y2048 entradas de cache. Los cinco ajustes `BIRTH_ENRICHMENT_*`
+estan descritos en `.env.example`; no se modifica el `.env` personal.
+Se conserva el nacimiento original y su recibo en reintentos/HotQueue,
+snapshots y metadata T0 del aprendizaje, sin agregar un predictor ni reescribir
+modelos o historicos. El recibo es reportado por el proveedor, no una prueba
+independiente de cadena. No reemplaza un nacimiento conocido ni rejuvenece
+la residencia original en cola. Los porcentajes extremos siguen sin recorte;
+esto no certifica oportunidades ejecutadas ni beneficio neto.
+Ver `docs/audits/token_birth_enrichment_20261011.json`.
 
 La procedencia de las entradas aprendidas incluye ahora una comprobacion
 acotada del codigo Python cargado y sus namespaces, aliases y cierres de

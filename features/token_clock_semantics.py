@@ -14,6 +14,7 @@ import pandas as pd
 
 from analytics.token_time import (AGE_SEMANTICS_VERSION, BIRTH_CLOCK_FIELDS,
     _to_datetime, _to_float, compute_age_minutes, compute_queue_age_minutes)
+from analytics.token_birth import FIELD as BIRTH_FIELD, token_birth_problem
 
 VERSION = AGE_SEMANTICS_VERSION
 PROOF_COLUMN = "t0_token_clock_proof"
@@ -62,6 +63,8 @@ def _same_age(value, original):
 
 def validate_clock_proof(proof, row):
     keys = {"version", "basis", "address", "captured_at", "inputs", "ages", "payload_sha256"}
+    if isinstance(proof, dict) and BIRTH_FIELD in proof:
+        keys.add(BIRTH_FIELD)
     stamp = _to_datetime(proof.get("captured_at")) if isinstance(proof, dict) else None
     row_stamp = _to_datetime(row.get("timestamp"))
     if (not isinstance(proof, dict) or set(proof) != keys or proof.get("version") != VERSION
@@ -77,6 +80,9 @@ def validate_clock_proof(proof, row):
             or proof["payload_sha256"] != _hash({key: value for key, value in proof.items() if key != "payload_sha256"})):
         raise ValueError("Invalid original token clock proof")
     expected = _ages(proof["inputs"], stamp)
+    if BIRTH_FIELD in proof and token_birth_problem({"address": proof["address"],
+            **proof["inputs"], BIRTH_FIELD: proof[BIRTH_FIELD]}, now=stamp) is not None:
+        raise ValueError("Invalid or noncausal original provider birth context")
     for name in AGE_FEATURES:
         value = proof["ages"][name]
         if (value is not None and type(value) is not float or value != expected[name]
@@ -93,6 +99,8 @@ def capture_clock_proof(vector, token):
     inputs = _inputs(token)
     proof = {"version": VERSION, "basis": BASIS, "address": row.get("address"),
              "captured_at": stamp.isoformat(), "inputs": inputs, "ages": _ages(inputs, stamp)}
+    if BIRTH_FIELD in token:
+        proof[BIRTH_FIELD] = deepcopy(token[BIRTH_FIELD])
     proof["payload_sha256"] = _hash(proof)
     return validate_clock_proof(proof, row)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import pytest
 
 from analytics.pumpswap_prime_strict import (
     build_pumpswap_prime_strict_report,
@@ -135,4 +136,30 @@ def test_env_files_have_new_flags_once() -> None:
         assert len(keys) == len(set(keys))
         assert required <= set(keys)
         key_sets.append(set(keys))
-    assert key_sets and all(keys == key_sets[0] for keys in key_sets)
+    # These new settings have safe defaults; do not rewrite personal secrets
+    # merely to mirror optional template keys. All previous key parity,
+    # required Prime flags and duplicate checks remain enforced.
+    optional_birth = {"BIRTH_ENRICHMENT_ENABLED", "BIRTH_ENRICHMENT_RPM",
+        "BIRTH_ENRICHMENT_TIMEOUT_S", "BIRTH_ENRICHMENT_CACHE_SIZE", "BIRTH_ENRICHMENT_NEGATIVE_TTL_S"}
+    assert key_sets and all(keys - optional_birth == key_sets[0] - optional_birth for keys in key_sets)
+
+
+@pytest.mark.parametrize("change", ["optional_omitted", "duplicate", "missing_required"])
+def test_new_optional_defaults_preserve_private_env_contract(tmp_path, monkeypatch, change):
+    required = ["PUMPSWAP_PRIME_STRICT_ENABLED", "PUMPSWAP_PRIME_MIN_TXNS_5M",
+        "PUMPSWAP_PRIME_MIN_LIQUIDITY_USD", "PUMPSWAP_PRIME_REQUIRE_REAL_LIQUIDITY",
+        "PUMPSWAP_PRIME_REQUIRE_ROUTE", "PUMPSWAP_PRIME_MAX_PRICE_IMPACT_PCT",
+        "PUMPSWAP_PRIME_SHADOW_IF_NOT_STRICT"]
+    original = "\n".join(f"{key}=1" for key in required) + "\n"
+    personal = original
+    if change == "duplicate": personal += f"{required[0]}=1\n"
+    elif change == "missing_required": personal = "\n".join(original.splitlines()[1:]) + "\n"
+    (tmp_path / ".env").write_text(personal, encoding="utf-8")
+    (tmp_path / ".env.example").write_text(original + "BIRTH_ENRICHMENT_ENABLED=true\nBIRTH_ENRICHMENT_RPM=12\n"
+        "BIRTH_ENRICHMENT_TIMEOUT_S=3\nBIRTH_ENRICHMENT_CACHE_SIZE=2048\nBIRTH_ENRICHMENT_NEGATIVE_TTL_S=30\n",
+        encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    if change == "optional_omitted": test_env_files_have_new_flags_once()
+    else:
+        with pytest.raises(AssertionError): test_env_files_have_new_flags_once()
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == personal

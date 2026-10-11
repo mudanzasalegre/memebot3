@@ -178,6 +178,9 @@ except Exception:
 
 from analytics import filters, requeue_policy  # noqa: E402
 from analytics.token_time import compute_age_minutes  # noqa: E402
+from analytics.token_birth import FIELD as BIRTH_FIELD, merge_birth_context  # noqa: E402
+from analytics.token_time import BIRTH_CLOCK_FIELDS  # noqa: E402
+from runtime.token_birth_enrichment import enrich_token_birth, GLOBAL_TOKEN_BIRTH_RESOLVER  # noqa: E402
 import analytics.api_budget as api_budget  # noqa: E402
 import analytics.sizing as entry_sizing  # noqa: E402
 import analytics.exit_policy as exit_policy  # noqa: E402
@@ -1029,6 +1032,10 @@ def _remember_queue_context(addr: str, token: dict | None = None) -> None:
     meta = lista_pares.meta(addr)
     if meta is None:
         return
+    birth_context = merge_birth_context({**meta, "address": addr}, token)
+    for key in (*BIRTH_CLOCK_FIELDS, BIRTH_FIELD):
+        if birth_context.get(key) is not None:
+            meta[key] = birth_context[key]
     discovered_via = str(token.get("discovered_via") or meta.get("discovered_via") or "").strip().lower()
     if discovered_via:
         meta["discovered_via"] = discovered_via
@@ -3734,6 +3741,7 @@ async def _build_runtime_state_snapshot() -> RuntimeStateSnapshot:
     }
     stats_payload = {
         **_stats,
+        "token_birth_enrichment": GLOBAL_TOKEN_BIRTH_RESOLVER.snapshot(),
         "last_buy_at": _last_buy_at,
         "last_sell_at": _last_sell_at,
         "pending_ai_vectors": len(_pending_ai_vectors),
@@ -4795,6 +4803,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     require_jup_for_buy = filters.effective_require_jupiter_for_buy(token, _REQUIRE_JUP_FOR_BUY)
     queue_meta = lista_pares.meta(addr)
     meta = queue_meta or {}
+    token = merge_birth_context(token, {**meta, "address": addr})
     queue_attempts = int(meta.get("attempts", 0) or 0)
     first_seen_epoch_s = float(meta.get("first_seen", time.time()) or time.time())
     stored_discovered_via = str(meta.get("discovered_via") or "").strip().lower()
@@ -4840,6 +4849,11 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     if is_pumpfun and not _pf_can_try_now(addr):
         _defer_entry_observation(token, reason="provider_quota", stage="entry_snapshot")
         return
+    # Separate immutable mint creation from fresh market collection. Awaited,
+    # locally bounded lookup cannot hold independently owned discovery/monitor
+    # loops, and its latency cannot age an already collected entry quote.
+    token = await enrich_token_birth(token)
+    _remember_queue_context(addr, token)
     use_gt = (_PUMPFUN_PRICE_USE_GECKO if is_pumpfun else
               queue_attempts >= _GECKO_MIN_QUEUE_ATTEMPTS
               and time.time() - first_seen_epoch_s >= _GECKO_MIN_QUEUE_AGE_S)

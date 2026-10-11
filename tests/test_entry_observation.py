@@ -266,6 +266,8 @@ def preparation_namespace(snapshot):
         "_pf_can_try_now": lambda *a: True, "_PUMPFUN_PRICE_USE_GECKO": False,
         "_GECKO_MIN_QUEUE_ATTEMPTS": 2, "_GECKO_MIN_QUEUE_AGE_S": 90,
         "price_service": SimpleNamespace(get_entry_snapshot=source), "DRY_RUN": True,
+        "merge_birth_context": __import__("analytics.token_birth", fromlist=["merge_birth_context"]).merge_birth_context,
+        "enrich_token_birth": AsyncMock(side_effect=lambda token: deepcopy(token)),
         "_maybe_apply_green_sniper_liquidity_proxy": AsyncMock(return_value=False),
         "_maybe_apply_paper_sniper_liquidity_proxy": AsyncMock(return_value=False),
         "_defer_entry_observation": lambda token, **kwargs: waits.append(kwargs),
