@@ -1,0 +1,500 @@
+{
+  "stage": "native_dex_request_admission_cache_ownership",
+  "status": "SOFTWARE_VERIFIED_INCOMPLETE_GOAL_RUNTIME_OFF",
+  "date": "2026-10-11",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "runtime_requirement": "All operational bot/API/UI/training/research remain OFF; tests only, no LIVE orders.",
+  "source_files": [
+    "fetcher/dexscreener.py",
+    "utils/request_ownership.py",
+    "tests/test_dex_request_ownership.py"
+  ],
+  "publishing_parent": "ec84c58809de13387e885eccbdf39bac10a35d9d",
+  "original_reproduction": {
+    "source": "Actual unchanged C native get_pair before runtime edits",
+    "passed": 0,
+    "failed": 3,
+    "deselected": 19,
+    "seconds": 1.66,
+    "exit_code": 1,
+    "normal_compatible_http_owners": 8,
+    "expected_normal_owners": 1,
+    "older_success_cache": 1,
+    "newer_force_result": 2,
+    "older_failure_cache": null,
+    "qualification": "Native calls/parser/cache, synthetic provider boundary only. Not historical no-buy or financial counterfactual proof."
+  },
+  "implementation": {
+    "normal_same_loop_coalescence": true,
+    "forced_calls_independent": true,
+    "global_owner_joiner_bounds": true,
+    "synchronous_admission_hook": true,
+    "generation_reserved_before_child_scheduling": true,
+    "latest_admission_atomic_cache_and_backoff_publication": true,
+    "loops_threads_share_publication_lock": true,
+    "capacity_rejection_preserves_good_cache": true,
+    "detached_original_receipts": true,
+    "cancelled_child_pre_start_generation_released": true,
+    "repeated_owner_stop_drains_session_before_release": true,
+    "operator_models_or_policies_changed": false,
+    "real_provider_access": false,
+    "protocol_or_risk_gate_relaxation": false
+  },
+  "new_authored_cases": 25,
+  "focused_suites": {
+    "working": {
+      "passed": 221,
+      "seconds": 3.03,
+      "exit_code": 0
+    },
+    "publishing": {
+      "passed": 221,
+      "seconds": 2.75,
+      "exit_code": 0
+    }
+  },
+  "source_only_native_probe": {
+    "working": {
+      "source_files_copied": 477,
+      "exit_code": 0,
+      "normal": {
+        "compatible_normal_http_owners": 1,
+        "both_prices": [
+          1,
+          1
+        ]
+      },
+      "older_success": {
+        "newer_price": 2,
+        "older_return": 1,
+        "cache_after_older_finishes": 2
+      },
+      "older_failure": {
+        "newer_price": 2,
+        "older_return": null,
+        "cache_after_older_finishes": 2
+      },
+      "external_attempts": [],
+      "operator_files_copied": 0,
+      "pressure": {
+        "requests": {
+          "owners": 0,
+          "joiners": 0,
+          "max_owners": 16,
+          "max_joiners": 256,
+          "loop_buckets": 0,
+          "coalesced": 1,
+          "capacity_rejections": 0,
+          "basis": "local_ownership_not_wire_billing_or_entitlement"
+        },
+        "failure_keys": {
+          "entries": 0,
+          "capacity": 8192,
+          "expiry_records": 0,
+          "expired": 0,
+          "capacity_evictions": 0,
+          "clock_resets": 0,
+          "retention_s": 3600,
+          "max_count": 4
+        },
+        "latest_generations": 0
+      },
+      "scope": "Native public get_pair plus synthetic HTTP boundary in a source-only root; no wire/provider or profitability proof."
+    },
+    "publishing": {
+      "source_files_copied": 477,
+      "exit_code": 0,
+      "normal": {
+        "compatible_normal_http_owners": 1,
+        "both_prices": [
+          1,
+          1
+        ]
+      },
+      "older_success": {
+        "newer_price": 2,
+        "older_return": 1,
+        "cache_after_older_finishes": 2
+      },
+      "older_failure": {
+        "newer_price": 2,
+        "older_return": null,
+        "cache_after_older_finishes": 2
+      },
+      "external_attempts": [],
+      "operator_files_copied": 0,
+      "pressure": {
+        "requests": {
+          "owners": 0,
+          "joiners": 0,
+          "max_owners": 16,
+          "max_joiners": 256,
+          "loop_buckets": 0,
+          "coalesced": 1,
+          "capacity_rejections": 0,
+          "basis": "local_ownership_not_wire_billing_or_entitlement"
+        },
+        "failure_keys": {
+          "entries": 0,
+          "capacity": 8192,
+          "expiry_records": 0,
+          "expired": 0,
+          "capacity_evictions": 0,
+          "clock_resets": 0,
+          "retention_s": 3600,
+          "max_count": 4
+        },
+        "latest_generations": 0
+      },
+      "scope": "Native public get_pair plus synthetic HTTP boundary in a source-only root; no wire/provider or profitability proof."
+    }
+  },
+  "verification_freeze": [
+    {
+      "checkout": "working",
+      "files": 791,
+      "sha256": "3d79c70836c186c35714e9a27f194efb3a12a8ffadb624ee3f550b05bc98835e"
+    },
+    {
+      "checkout": "publishing",
+      "files": 791,
+      "sha256": "3d79c70836c186c35714e9a27f194efb3a12a8ffadb624ee3f550b05bc98835e"
+    }
+  ],
+  "initial_revision_correction": {
+    "scope": "New implementation, not pre-existing original Dex",
+    "test": "child cancellation before factory start",
+    "failed": 1,
+    "teardown_error": 1,
+    "seconds": 1.78,
+    "repair": "Generation cleanup moved to admitted caller finally, after OwnedRequests drains child/session, including never-started child."
+  },
+  "pre_full_off_inventory": {
+    "observed_at": "2026-10-11T07:48:49.5579951+00:00",
+    "since_utc": "2026-10-08T16:09:40.0000000Z",
+    "runtime_processes": 0,
+    "task_owned_previews": 0,
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "protected_files": 3763,
+        "checkout": "working",
+        "changed_by_mtime": 0,
+        "locks": 0,
+        "green_live_risk_file_exists": false
+      },
+      {
+        "protected_files": 27,
+        "checkout": "publishing",
+        "changed_by_mtime": 0,
+        "locks": 0,
+        "green_live_risk_file_exists": false
+      }
+    ],
+    "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+  },
+  "limits": [
+    "Local ownership and admitted-response publication, not authenticated upstream market-asof, real latency/SLA, API entitlement, billing or wire throughput.",
+    "Coalescence is compatible same-loop only; cross-loop callers own independent HTTP, bounded globally and publication coordinated.",
+    "Synthetic extreme signal retained, not profitability, optimal fills or independent exhaustive opportunity capture.",
+    "Overall ten broad required areas remain incomplete; current learner decision-clock defect is reproduced but unrepaired. No profitability or full operational first-launch claim."
+  ],
+  "schema_version": 1,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "full_suites": {
+    "working": {
+      "passed": 5691,
+      "warnings": 2,
+      "seconds": 1444.85,
+      "exit_code": 0,
+      "terminal": true,
+      "session_id": 87103
+    },
+    "publishing": {
+      "passed": 5691,
+      "warnings": 2,
+      "seconds": 1424.14,
+      "exit_code": 0,
+      "terminal": true,
+      "session_id": 24854
+    },
+    "warnings_scope": "Two existing pandas FutureWarnings each at analytics/model_runtime_common.py:487; no failures. Software QA, not operational or financial acceptance."
+  },
+  "preflights": {
+    "working": {
+      "exit_code": 0,
+      "generated_at_utc": "2026-10-11T08:13:14.128521+00:00",
+      "ok": true,
+      "compile_errors": 0,
+      "report_builders": 7,
+      "failed_reports": 0,
+      "config_dry_run": "True",
+      "pytest_exit": 0,
+      "feature_files": 2,
+      "scope": "Static config/compilation and isolated no-data reports after actual completed full suite; not operational first launch."
+    },
+    "publishing": {
+      "exit_code": 0,
+      "generated_at_utc": "2026-10-11T08:13:13.104018+00:00",
+      "ok": true,
+      "compile_errors": 0,
+      "report_builders": 7,
+      "failed_reports": 0,
+      "config_dry_run": "True",
+      "pytest_exit": 0,
+      "feature_files": 0,
+      "scope": "Static config/compilation and isolated no-data reports after actual completed full suite; not operational first launch."
+    }
+  },
+  "cold_probes": {
+    "modules_scoped_each": 26,
+    "exit_codes_each": 0,
+    "dry_run_each": true,
+    "paper_exact_trade_size_sol_each": 0.1,
+    "scope": "Actual root imports/config and synthetic input contracts; no operator model load, training, runtime or provider access."
+  },
+  "source_freeze": {
+    "files_each": 791,
+    "normalized_sha256": "3d79c70836c186c35714e9a27f194efb3a12a8ffadb624ee3f550b05bc98835e",
+    "frozen_before_full": true,
+    "rechecked_after_both_full_suites_and_preflights": true
+  },
+  "shutdown": {
+    "requested_stop": {
+      "started_log_utc": "2026-10-11T08:13:26Z",
+      "finished_log_utc": "2026-10-11T08:13:28Z",
+      "exit_code": 0,
+      "finalizer_status": "ok",
+      "killed": 0,
+      "remaining": 0,
+      "scope": "User-requested D stack only; no publishing stack stop or operational startup."
+    },
+    "inventory": {
+      "observed_at": "2026-10-11T08:13:36.9894913+00:00",
+      "since_utc": "2026-10-08T16:09:40.0000000Z",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "checkouts": [
+        {
+          "changed_by_mtime": 0,
+          "locks": 0,
+          "protected_files": 3763,
+          "green_live_risk_file_exists": false,
+          "checkout": "working"
+        },
+        {
+          "changed_by_mtime": 0,
+          "locks": 0,
+          "protected_files": 27,
+          "green_live_risk_file_exists": false,
+          "checkout": "publishing"
+        }
+      ],
+      "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+    },
+    "sql": {
+      "observed_at": "2026-10-11T08:13:37.492465+00:00",
+      "source": "data/memebotdatabase.db",
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-11 08:13:28.079741"
+        }
+      ],
+      "scoped_green_live_groups": 0,
+      "qualification": "Empty scoped groups are not whole-wallet/profit evidence."
+    },
+    "publication_handoff": "Fresh exact commit/remote/source parity and OFF census belong in the private delivery receipt."
+  },
+  "read_only_tail_learning_quality": {
+    "observed_at_utc": "2026-10-11T07:59:02.517328+00:00",
+    "sources": [
+      {
+        "file": "data/features/features_202607.parquet",
+        "sha256": "18edc6f91c13e617e0ba8b9afa96106807353ba7887ac062840ab54cac589ab0",
+        "bytes": 767216,
+        "mtime_utc": "2026-07-15T18:18:25.193220+00:00"
+      },
+      {
+        "file": "data/features/features_202610.parquet",
+        "sha256": "9b5226d4284eedaa8d5e4cc1206128a04b13247f21e80d8ee26de67091a2c84c",
+        "bytes": 23809,
+        "mtime_utc": "2026-10-04T10:43:35.278763+00:00"
+      },
+      {
+        "file": "data/metrics/candidate_outcomes.jsonl",
+        "sha256": "3e6721a861f4bdf012b9a66c410fd17caa53ba29ff726b9b249eba616563c96f",
+        "bytes": 135161377,
+        "mtime_utc": "2026-10-04T10:44:49.141558+00:00"
+      }
+    ],
+    "unchanged_after_read": true,
+    "native_method": "_load_dataset -> _filter_outcome_training_rows -> enrich_outcome_targets -> attach_labels -> profile_runner_population; no model load or fit.",
+    "raw_rows": 7792,
+    "eligible_rows": 2147,
+    "distinct_tokens": 2132,
+    "decision_start_utc": "2026-07-13T12:06:34.183735+00:00",
+    "decision_end_utc": "2026-07-15T17:46:15.159836+00:00",
+    "target_counts": {
+      "runner_50": {
+        "observed": 2147,
+        "positive_rows": 60,
+        "positive_tokens": 59,
+        "unknown_or_invalid_rows": 0,
+        "positive_rate": 0.027945971122496506
+      },
+      "runner_100": {
+        "observed": 2147,
+        "positive_rows": 32,
+        "positive_tokens": 32,
+        "unknown_or_invalid_rows": 0,
+        "positive_rate": 0.014904517931998137
+      },
+      "runner_200": {
+        "observed": 2147,
+        "positive_rows": 18,
+        "positive_tokens": 18,
+        "unknown_or_invalid_rows": 0,
+        "positive_rate": 0.008383791336748951
+      },
+      "runner_300": {
+        "observed": 2147,
+        "positive_rows": 14,
+        "positive_tokens": 14,
+        "unknown_or_invalid_rows": 0,
+        "positive_rate": 0.006520726595249185
+      },
+      "runner_500": {
+        "observed": 2147,
+        "positive_rows": 5,
+        "positive_tokens": 5,
+        "unknown_or_invalid_rows": 0,
+        "positive_rate": 0.002328830926874709
+      },
+      "runner_1000": {
+        "observed": 2147,
+        "positive_rows": 4,
+        "positive_tokens": 4,
+        "unknown_or_invalid_rows": 0,
+        "positive_rate": 0.0018630647414997672
+      },
+      "runner_2000": {
+        "observed": 2147,
+        "positive_rows": 0,
+        "positive_tokens": 0,
+        "unknown_or_invalid_rows": 0,
+        "positive_rate": 0
+      },
+      "runner_5000": {
+        "observed": 2147,
+        "positive_rows": 0,
+        "positive_tokens": 0,
+        "unknown_or_invalid_rows": 0,
+        "positive_rate": 0
+      },
+      "runner_10000": {
+        "observed": 2147,
+        "positive_rows": 0,
+        "positive_tokens": 0,
+        "unknown_or_invalid_rows": 0,
+        "positive_rate": 0
+      }
+    },
+    "checked_net_rows": 0,
+    "current_auxiliary_receipt_rows": 0,
+    "checked_net_ready": false,
+    "read_only_guards": {
+      "attempts": [],
+      "model_deserializations": 0,
+      "fit_or_training_called": false,
+      "runtime_started": false
+    },
+    "legacy_ev_clipping": {
+      "rows_above_500": 2,
+      "clipped_ev_rows": 2,
+      "scope": "Diagnostic legacy/shadow values, not checked net profit. Consumer impact not established; clipping not changed."
+    },
+    "caveats": [
+      "Overlapping runner thresholds must not be summed.",
+      "Observed shadow price peaks are not orders, executable proceeds or costed returns.",
+      "Repeated observations of one token do not provide independent extreme-event support.",
+      "Historic evidence does not establish current opportunity coverage or future profitability.",
+      "Unknown or unsupported event labels are not negative outcomes.",
+      "Zero checked-net rows does not prove zero historical wallet profit; these records cannot certify it.",
+      "Four independent 1000+ peak tokens over the whole eligible history cannot satisfy the native later-cohort minimum of five positive tokens; no extreme-model activation is warranted."
+    ]
+  },
+  "next_unrepaired_training_clock_finding": {
+    "status": "REPRODUCED_NOT_REPAIRED_THIS_STAGE",
+    "source": "Actual unchanged native ml.train loader and temporal validator in source-only synthetic root.",
+    "source_files_copied": 477,
+    "exit_code": 0,
+    "cases": [
+      {
+        "case": "original_t0",
+        "loaded_rows": 1,
+        "native_decision_clock": "2026-08-01T12:00:00+00:00",
+        "eligible": true,
+        "original_t0_supplied": true
+      },
+      {
+        "case": "close_ts_only",
+        "loaded_rows": 1,
+        "native_decision_clock": "2026-08-02T12:00:00+00:00",
+        "eligible": true,
+        "original_t0_supplied": false
+      },
+      {
+        "case": "mint_birth_only",
+        "loaded_rows": 1,
+        "native_decision_clock": "2026-07-31T12:00:00+00:00",
+        "eligible": true,
+        "original_t0_supplied": false
+      },
+      {
+        "case": "venue_listing_only",
+        "loaded_rows": 1,
+        "native_decision_clock": "2026-08-01T11:00:00+00:00",
+        "eligible": true,
+        "original_t0_supplied": false
+      },
+      {
+        "case": "no_decision_clock",
+        "loaded_rows": 1,
+        "native_decision_clock": "2026-10-11T08:12:39.976207+00:00",
+        "eligible": false,
+        "original_t0_supplied": false
+      },
+      {
+        "case": "explicit_null_t0_with_ts",
+        "loaded_rows": 1,
+        "native_decision_clock": null,
+        "eligible": false,
+        "original_t0_supplied": true
+      },
+      {
+        "case": "invalid_t0_with_ts",
+        "loaded_rows": 1,
+        "native_decision_clock": null,
+        "eligible": false,
+        "original_t0_supplied": true
+      }
+    ],
+    "external_attempts": [],
+    "operator_model_deserializations": 0,
+    "fit_called": false,
+    "runtime_started": false,
+    "historical_impact": "Retained actual Parquet timestamps are populated; no occurrence or no-buy cause established.",
+    "next_step": "Preserve missing/invalid original T0 as unknown rather than substituting close, mint/venue clocks or now; validate actual native loader and consumers before publication."
+  }
+}

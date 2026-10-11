@@ -13,6 +13,29 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Dex: propiedad de peticiones y calidad del aprendizaje (2026-10-11)
+
+Las consultas normales compatibles de Dexscreener comparten una peticion en el
+mismo loop; los refresh forzados mantienen propietarios independientes y limites
+globales. La ultima admision controla cache/backoff incluso entre loops e hilos:
+una respuesta antigua ya no pisa el resultado reciente. Cancelaciones y rechazos
+de capacidad conservan la propiedad y liberan la sesion sin dejar generaciones.
+
+Veinticinco casos nuevos y 221 pruebas focalizadas por copia pasan. Las suites
+completas pasan 5.691 pruebas por copia, con dos avisos existentes de pandas;
+ambos preflight y 26 imports nativos por copia pasan. PAPER sigue en 0,1 SOL.
+Bot/API/UI/entrenamiento/AutoResearch permanecen apagados; no hubo ordenes LIVE.
+
+La revision de solo lectura encuentra 2.147 filas elegibles de julio: cinco
+tokens con pico >=500%, cuatro >=1.000% y ninguno >=2.000%. Los umbrales se
+solapan. Ninguna fila acredita neto bajo el contrato actual; los picos no son
+beneficios ni cobertura del mercado actual. No se activa un modelo por ellos.
+
+Ademas, queda reproducido pero sin reparar en esta etapa que el cargador de
+entrenamiento sustituye un T0 ausente por cierre/nacimiento/listado o ahora.
+No se ha observado ese caso en los Parquet retenidos. El objetivo global sigue
+incompleto. [Auditoria Dex y calidad](docs/audits/dex_request_ownership_20261011.json).
+
 ### Ciclo nativo PAPER completo y aprendizaje sin logging (2026-10-11)
 
 El ciclo probado admite senales sinteticas de +500%, +25.000% y +1.000.000%,
@@ -31,9 +54,9 @@ parciales, cierre y exportacion Parquet neta e idempotente nativos en copias
 temporales sin credenciales ni datos del operador. Tambien verifican rechazos.
 Ambas suites completas pasan 5.666 pruebas, con dos avisos de pandas cada una;
 ambos preflight y 26 imports por copia pasan. Todo el runtime sigue apagado.
-Queda una carrera de publicacion/cache de Dex reproducida pero aun sin reparar,
-ademas de la aceptacion operativa y financiera independiente. El objetivo global
-sigue incompleto. [Auditoria del ciclo nativo](docs/audits/native_paper_lifecycle_20261011.json).
+La carrera Dex que esta etapa dejo reproducida se corrige en la etapa posterior
+documentada arriba; la aceptacion operativa y financiera sigue independiente.
+El objetivo global sigue incompleto. [Auditoria del ciclo nativo](docs/audits/native_paper_lifecycle_20261011.json).
 
 ### Bootstrap PAPER por fases y oportunidades extremas (2026-10-11)
 

@@ -44,7 +44,10 @@ class OwnedRequests:
             except (asyncio.CancelledError, Exception): pass
             raise
 
-    async def run(self, key, factory, *, force_refresh=False):
+    async def run(self, key, factory, *, force_refresh=False, on_admit=None):
+        # Optional synchronous owner hook: run after capacity acceptance but
+        # before child scheduling. Joiners/rejected work never mutate generation
+        # or invalidate cache. A failed hook has allocated no ownership state.
         loop = asyncio.get_running_loop()
         with self._lock:
             bucket = self._loops.get(loop)
@@ -60,6 +63,8 @@ class OwnedRequests:
                 if self._owners >= self.max_owners:
                     self._rejected += 1
                     return None
+                if on_admit is not None:
+                    on_admit()
                 if bucket is None:
                     bucket = {"latest": {}, "owners": set()}
                     self._loops[loop] = bucket

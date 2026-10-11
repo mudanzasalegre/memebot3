@@ -44,6 +44,7 @@ import datetime as dt
 import logging
 import math
 import time
+import threading
 from copy import deepcopy
 from typing import Dict, Optional, List, Any
 
@@ -54,6 +55,7 @@ from config import DEX_API_BASE
 from utils.data_utils import sanitize_token_data
 from utils.simple_cache import cache_get, cache_set, cache_delete
 from utils.bounded_state import BoundedFailureCounter, bounded_int, increment_failure
+from utils.request_ownership import OwnedRequests
 from utils.solana_addr import normalize_mint
 from analytics.token_time import parse_event_clock, venue_clock_snapshot
 from utils.market_observation import MARKET_FIELDS, stamp_market_observation
@@ -73,6 +75,18 @@ _SENTINEL_NIL = object()
 
 # contador de fallos consecutivos por token
 _fail_count = BoundedFailureCounter()
+_REQUESTS = OwnedRequests(os.getenv("DEXS_MAX_INFLIGHT", "16"),
+    os.getenv("DEXS_MAX_JOINERS", "256"), name="dexscreener-http-request")
+_latest_request = {}
+_request_state_lock = threading.RLock()
+
+
+def request_runtime_snapshot() -> dict:
+    """Aggregate local pressure; no mint, secret, wire cost or asof claim."""
+    with _request_state_lock:
+        latest = len(_latest_request)
+    return {"requests": _REQUESTS.snapshot(), "failure_keys": _fail_count.snapshot(),
+            "latest_generations": latest}
 
 # ───────────────────────── helpers URL ───────────────────────────
 def _u(*parts: str) -> str:
@@ -381,12 +395,55 @@ async def get_pair(address: str, *, force_refresh: bool = False) -> Optional[Dic
     if not isinstance(address, str) or not (address := normalize_mint(address)):
         return None
     ck = f"dex:{address}"
-    if force_refresh:
-        cache_delete(ck)
     hit = None if force_refresh else cache_get(ck)
     if hit is not None:
         return None if hit is _SENTINEL_NIL else deepcopy(hit)
 
+    generation = None
+    def admitted():
+        nonlocal generation
+        with _request_state_lock:
+            if force_refresh:
+                cache_delete(ck)
+            generation = object()
+            _latest_request[ck] = generation
+
+    async def request():
+        return await _fetch_pair(address, ck, generation)
+
+    try:
+        result = await _REQUESTS.run(ck, request, force_refresh=force_refresh,
+                                     on_admit=admitted)
+        # Each consumer owns a detached original receipt, including shared callers.
+        return deepcopy(result) if result is not None else None
+    finally:
+        # Cleanup belongs to the admitted caller, not its child coroutine: a
+        # cancelled child may never start and therefore never run its finally.
+        # OwnedRequests has already drained any child/session before release.
+        if generation is not None:
+            with _request_state_lock:
+                if _latest_request.get(ck) is generation:
+                    _latest_request.pop(ck, None)
+
+
+def _publish_pair(address, ck, generation, result):
+    # Admission, not response arrival order, owns both cache and failure state.
+    # This lock also coordinates callers using different loops/threads.
+    with _request_state_lock:
+        if _latest_request.get(ck) is not generation:
+            return
+        if result is not None:
+            cache_set(ck, deepcopy(result), ttl=_CACHE_TTL_OK)
+            _fail_count.pop(address, None)
+        else:
+            fails = increment_failure(_fail_count, address)
+            ttl = _TTL_NIL_MAX if fails >= 4 else _TTL_NIL_SHORT
+            cache_set(ck, _SENTINEL_NIL, ttl=ttl)
+            log.debug("[DEX] %s sin datos (TTL=%ss, capped_backoff_level=%d)",
+                      address[:6], ttl, fails)
+
+
+async def _fetch_pair(address, ck, generation):
     async with aiohttp.ClientSession() as s:
         queries = (
             (_u("token-pairs/v1/solana", address), False, None),
@@ -401,14 +458,8 @@ async def get_pair(address: str, *, force_refresh: bool = False) -> Optional[Dic
                 res = _stamp_pair_observation(pair)
                 if res.get("address"):
                     log.debug("[DEX] %s valid Solana Pair", address[:6])
-                    cache_set(ck, deepcopy(res), ttl=_CACHE_TTL_OK)
-                    _fail_count.pop(address, None)
+                    _publish_pair(address, ck, generation, res)
                     return res
 
-    # si llega aquí, no hubo datos
-    fails = increment_failure(_fail_count, address)
-    ttl = _TTL_NIL_MAX if fails >= 4 else _TTL_NIL_SHORT
-
-    cache_set(ck, _SENTINEL_NIL, ttl=ttl)
-    log.debug("[DEX] %s ❌ sin datos (TTL=%ss, capped_backoff_level=%d)", address[:6], ttl, fails)
+    _publish_pair(address, ck, generation, None)
     return None
