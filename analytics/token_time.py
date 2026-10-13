@@ -42,9 +42,14 @@ def _to_datetime(value: Any) -> dt.datetime | None:
             return None
     else:
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt.timezone.utc)
-    return parsed.astimezone(dt.timezone.utc)
+    try:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed.astimezone(dt.timezone.utc)
+    except (ValueError, TypeError, OverflowError):
+        # Nullable dataframe clocks (notably pandas.NaT) are datetime-like but
+        # have no UTC instant. Preserve unknown instead of crashing labels.
+        return None
 
 
 def _to_float(value: Any) -> float | None:

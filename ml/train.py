@@ -283,12 +283,12 @@ def _missing_dataset_action() -> str:
 
 
 def _coerce_timestamp(df: pd.DataFrame) -> pd.DataFrame:
-    for cand in ("timestamp", "ts", "created_at", "listed_at"):
-        if cand in df.columns:
-            df["timestamp"] = pd.to_datetime(df[cand], utc=True, errors="coerce")
-            break
-    else:
-        df["timestamp"] = pd.to_datetime("now", utc=True)
+    # Feature-store timestamp is the original decision T0. ts is persistence,
+    # and mint/venue clocks are not decisions. Never fabricate T0 from them or
+    # from load time; keep unknowns for diagnostics, not temporal acceptance.
+    original = df.get("timestamp", pd.Series(pd.NaT, index=df.index,
+                                             dtype="datetime64[ns, UTC]"))
+    df["timestamp"] = pd.to_datetime(original, utc=True, errors="coerce")
     return df
 
 

@@ -13,8 +13,8 @@
   ],
   "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
   "historical_initial_publication_state": {"branch": "main", "origin_main_commit_before_sync": "3479e24", "working_tree_clean_before_sync": true, "remote_fetch_completed": true, "source_sync_completed": true, "implementation_commit": "0c7aa6c0d2bc10462d29b1d8207a68a23fc7fbb8", "commit_push": "COMPLETE", "remote_revision_verified": true, "scope": "Initial publication proof, not the current Git HEAD after later source stages"},
-  "latest_stage_evidence": "docs/audits/dex_request_ownership_20261011.json",
-  "latest_stage_summary": "Actual unchanged native Dex reproduces three ownership/cache regressions: eight compatible owners instead of one, older success and older failure overwrite a newer forced result. Accepted synchronous owner admission now precedes child scheduling; latest generation atomically owns cache/backoff across loops/threads, rejected force preserves good cache and drained cancellation frees pre-start generations. Twenty-five new cases and221 focused tests each pass; full5691 pass D1444.85s/C1424.14s with2 existing pandas warnings each on matching frozen791-source SHA2563d79c70836c186c35714e9a27f194efb3a12a8ffadb624ee3f550b05bc98835e. Both preflights and26 cold root imports pass, exact0.1 PAPER and all runtime OFF verified. Read-only actual data has2147 July eligible rows/2132 tokens, five>=500 peak tokens/four>=1000/none>=2000 and zero current checked-net rows, not wallet-profit or current-market coverage. A separate native training loader now reproduces substitution of absent original T0 by close/birth/listing/now; not repaired here or established in retained history. No real provider, model activation, LIVE order or profitability acceptance; overall goal remains incomplete.",
+  "latest_stage_evidence": "docs/audits/training_decision_clock_20261013.json",
+  "latest_stage_summary": "Original native T0 is no longer substituted by close persistence, mint birth, venue listing or load time. Missing/invalid T0 retains raw labels but cannot enter native temporal folds or runner populations. Native NaT historical label UTC conversion now returns unknown instead of raising. Original unchanged C reproduces3 loader failures and an independent parser ValueError;27 new cases and387 focused tests each pass. After pause both original QA handles were missing with no pytest processes, so no old pass was inferred: controlled durable rerun actual5718 suites pass D1581.00s/C1562.56s with2 existing pandas warnings each. Both JUnit files independently include5718 cases/27 new and zero errors/failures/skips. Both preflights and26 current native root imports pass on frozen matching792-source SHA256153b4ba251dda3650b072c1888aacabb98642db601caf0efac685100e8179d80. D-only stop08:27:51-54Z and inventory/SQL verify OFF, exact0.1 PAPER unchanged. Actual retained source hashes remain identical; the Oct11 profile is historical, not new financial/current-market measurement. No operational startup, operator activation, LIVE orders or profitable counterfactual. The original no-buy cause and broad full-strategy/provider/first-launch financial acceptance remain unproven. After full QA, one empty EOF test line is removed; its Python AST hash e78200ee27e8d0e28c632d62f51c2724033fa9a4f69dbd3bdb192597bab74c9a is identical before/after in both copies, all27 touched cases pass again and both post-cleanup preflights pass. No native runtime or test statement changed. Final matching792 publication SHA256d788b787790bc2fb1906a920c37537303bcb021aefdd26877b8f9a77fb5f5e73 is explicitly distinct from full-suite frozen bytes.",
   "implemented_this_stage": [
     "Repair native no-file-log run ownership without relaxing learning validation: preserve explicit launcher run_id or allocate a date/UUID identity before guarded entry. Fourteen complete source-only native PAPER integration cases cover exact0.1 SOL original buy ownership, duplicate dispatch, uncapped synthetic extreme signals and runner path, original partial/close quantity conservation, durable archive, net T0 learning and idempotent one-row Parquet export with/without logging, plus missing evidence and explicit policy vetoes. No operational main loop, operator artifact activation, historical relabeling or LIVE authorization.",
     "Separate native preliminary PAPER bootstrap enrichment from strict post-risk/route and final execution approval. Preserve malformed/observed risk vetoes, market/activity/score/real-liquidity controls, exact0.1 SOL size, quotas, freshness, overlay/capacity and entry coherence. Data quality distinguishes missing pending fields from invalid/negative observations. Original C2 failures,50 new cases,308 focused, both5652 full, both14 extreme-tail regressions, both preflights and26 native-root cold imports pass. No operator model activation or start. The retained short smoke does not establish historical causality or profitability. Evidence: docs/audits/paper_bootstrap_phases_20261011.json.",
@@ -119,7 +119,8 @@
     "Move actual GMGN signing/RPC work off the shared event loop with private executor Future ownership and copied context. Skip cancelled queued work, retain original caller and durable buy/sell intent ownership through repeated cancellation or timeout, preserve original results/errors and close/drain all registered workers before actual stopped publication. Correct the canonical GMGN sell mint. Twenty-two synthetic actual-consumer cases plus both complete regressions validate software lifecycle, not provider latency, financial fills or profit. Separate legacy Jupiter paths were observed here and repaired in the next stage.",
     "Repair actual legacy Jupiter post-send retry and duplicate outdated SDK signer; recheck detached complete quotes/wallet/options/packets, bound unsigned-only transient retries, close HTTP sessions before backoff and invoke one shared owned common-SDK signing/send outside the build loop. Preserve checked QuoteResult in actual seller and permit fallback only after proven no-dispatch preparation failure; classify even spoofed preparation errors after dispatch as uncertain. Own managed local signing cancellation without certifying its protocol/finality. Eighty-seven synthetic adapter/SDK/consumer cases cover these boundaries; no runtime, active artifact, order or upside ceiling is introduced.",
     "Implement current Jupiter Swap v2 managed defaults and known Ultra endpoint migration without touching personal .env; request supported v0, preserve canonical original request/order/fee/expiry/message/wallet/co-signature provenance, suppress redirects, omit zero RFQ aggregator nonce and retain one execute POST in an owned HTTP worker. Classify post-start errors as uncertain. Use checked provider wallet-output rather than quoted quantities, preserve all four amount/fee roles, avoid unrelated Metis routing vetoes and respect explicit mode flags. Proved pre-POST buyer failures become durable known no-fill; seller fallback remains liquidity-gated and canonical only before submission. Cryptographically verify provider-added sponsor signatures against original public payer/message without inventing their earlier presence; all independent chain/wallet/content proofs remain unverified. One-hundred-forty synthetic cases cover adapters, actual SDK and actual consumers; no runtime, artifact/policy, order or upside cap.",
-    "Repair native Dex compatible HTTP ownership and admitted-generation cache/backoff publication, including forced capacity rejection, cross-loop/thread ordering, detached original receipts, repeated cancellation and child pre-start cleanup. Original untouched native code reproduces three failures;25 new cases/221 focused and both5691 full suites pass without provider or risk/strategy relaxation. Read-only actual extreme-tail profile separates overlapping observed peaks from absent current checked-net proof. Native original training T0 fallback is separately reproduced and remains to be repaired; no operational startup, model promotion or financial acceptance."
+    "Repair native Dex compatible HTTP ownership and admitted-generation cache/backoff publication, including forced capacity rejection, cross-loop/thread ordering, detached original receipts, repeated cancellation and child pre-start cleanup. Original untouched native code reproduces three failures;25 new cases/221 focused and both5691 full suites pass without provider or risk/strategy relaxation. Read-only actual extreme-tail profile separates overlapping observed peaks from absent current checked-net proof. Native original training T0 fallback is separately reproduced and remains to be repaired; no operational startup, model promotion or financial acceptance.",
+    "Repair the actual original decision-clock loader and nullable historical label parser without rewriting operator records or substituting close/birth/listing/load clocks. Synthetic CSV/Parquet, mixed partitions, native writer, raw extreme labels and temporal-fold exclusions cover27 new cases; both387 focused and controlled5718 complete suites pass. After pause no old missing QA handle is credited; durable JUnit results independently confirm all cases/no skips/errors/failures. Native26 cold imports/preflights and D user shutdown pass on matching792 frozen sources; exact0.1 PAPER and old labels stay intact. This is scoped data-integrity/software completion, not real winning strategy or all legacy artifact/full-process timing certification."
   ],
   "evidence": [
     "docs/audits/native_paper_lifecycle_20261011.json",
@@ -299,9 +300,250 @@
     "docs/audits/primary_snapshot_contents_20261008.json",
     "tests/test_primary_snapshot_contents.py",
     "docs/audits/dex_request_ownership_20261011.json",
-    "tests/test_dex_request_ownership.py"
+    "tests/test_dex_request_ownership.py",
+    "docs/audits/training_decision_clock_20261013.json",
+    "tests/test_training_decision_clock.py"
   ],
   "verification": {
+    "training_decision_clock_suite": {
+      "stage": "docs/audits/training_decision_clock_20261013.json",
+      "diagnosis": {
+        "native_original_loader_reproduction": {
+          "failed": 3,
+          "deselected": 21,
+          "seconds": 2.26,
+          "exit_code": 1,
+          "source": "Actual original unchanged C loader before runtime edits; synthetic temporary Parquet, not historical evidence."
+        },
+        "native_original_nat_reproduction": {
+          "exit_code": 1,
+          "error": "ValueError: NaTType does not support astimezone",
+          "source": "Actual unchanged C analytics.token_time parser."
+        },
+        "initial_expanded_run": {
+          "working": {
+            "failed": 9,
+            "passed": 170,
+            "seconds": 25.37
+          },
+          "publishing": {
+            "failed": 9,
+            "passed": 170,
+            "seconds": 25.25
+          },
+          "cause": "Preserving missing T0 exposed existing native label path's NaT UTC conversion crash; fix parser, do not invent clocks or bypass labels."
+        },
+        "historical_impact": "Actual retained Parquet T0 fields are populated. No occurrence, no-buy cause or profitable missed-trade counterfactual established."
+      },
+      "new_cases": 27,
+      "focused_suites": {
+        "working": {
+          "passed": 387,
+          "seconds": 38.64,
+          "exit_code": 0
+        },
+        "publishing": {
+          "passed": 387,
+          "seconds": 38.55,
+          "exit_code": 0
+        }
+      },
+      "full_suites": {
+        "working": {
+          "passed": 5718,
+          "warnings": 2,
+          "seconds": 1581,
+          "exit_code": 0,
+          "finished_at_utc": "2026-10-13T08:24:24.9537807+00:00"
+        },
+        "publishing": {
+          "passed": 5718,
+          "warnings": 2,
+          "seconds": 1562.56,
+          "exit_code": 0,
+          "finished_at_utc": "2026-10-13T08:24:25.2537801+00:00"
+        },
+        "warnings_scope": "Two existing pandas FutureWarnings each at analytics/model_runtime_common.py:487; future dtype compatibility, not failing tests."
+      },
+      "durable_junit": [
+        {
+          "checkout": "D",
+          "tests": 5718,
+          "test_cases": 5718,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0,
+          "new_t0_cases": 27,
+          "seconds": 1580.899,
+          "sha256": "66d79feaedf1691a77b2febad31af8089a24d5d1d65a722f61efe8f180277fe8",
+          "mtime_utc": "2026-10-13T08:24:21.7036610Z"
+        },
+        {
+          "checkout": "C",
+          "tests": 5718,
+          "test_cases": 5718,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0,
+          "new_t0_cases": 27,
+          "seconds": 1562.475,
+          "sha256": "6184c88788927f9a60a54c5fa178f44d1ed0c7c3c7ee25935ad253228c194871",
+          "mtime_utc": "2026-10-13T08:24:03.0046584Z"
+        }
+      ],
+      "preflights": {
+        "working": {
+          "exit_code": 0,
+          "ok": true,
+          "generated_at_utc": "2026-10-13T08:26:43.554331+00:00",
+          "compile_errors": 0,
+          "report_builders": 7,
+          "failed_reports": 0,
+          "config_dry_run": "True",
+          "pytest_exit": 0,
+          "feature_files": 2,
+          "scope": "Static config/compile and seven isolated reports after actual completed full QA, not operational first launch."
+        },
+        "publishing": {
+          "exit_code": 0,
+          "ok": true,
+          "generated_at_utc": "2026-10-13T08:26:42.303402+00:00",
+          "compile_errors": 0,
+          "report_builders": 7,
+          "failed_reports": 0,
+          "config_dry_run": "True",
+          "pytest_exit": 0,
+          "feature_files": 0,
+          "scope": "Static config/compile and seven isolated reports after actual completed full QA, not operational first launch."
+        }
+      },
+      "cold_probes": {
+        "modules_scoped_each": 26,
+        "exit_codes_each": 0,
+        "dry_run_each": true,
+        "paper_exact_trade_size_sol_each": 0.1
+      },
+      "source_freeze": {
+        "files_each": 792,
+        "normalized_sha256": "153b4ba251dda3650b072c1888aacabb98642db601caf0efac685100e8179d80",
+        "frozen_before_original_and_controlled_rerun": true,
+        "unchanged_after_both_terminal_suites_and_preflights": true,
+        "final_publication_files_each": 792,
+        "final_publication_normalized_sha256": "d788b787790bc2fb1906a920c37537303bcb021aefdd26877b8f9a77fb5f5e73"
+      },
+      "post_full_test_eof_cleanup": {
+        "scope": "Only one empty EOF line removed from the owned new test file after completed full QA. git diff confirms exactly that deletion; no native runtime file or test statement changed.",
+        "ast": {
+          "sha256": "e78200ee27e8d0e28c632d62f51c2724033fa9a4f69dbd3bdb192597bab74c9a",
+          "matching_roots": true,
+          "identical_before_after": true,
+          "scope": "One trailing empty EOF line removed in owned new test only; no executable statement, native runtime source or test case changed."
+        },
+        "post_cleanup_tests": {
+          "working": {
+            "passed": 27,
+            "seconds": 5.05,
+            "exit_code": 0
+          },
+          "publishing": {
+            "passed": 27,
+            "seconds": 4.66,
+            "exit_code": 0
+          }
+        },
+        "post_cleanup_preflights": {
+          "working": {
+            "ok": true,
+            "generated_at_utc": "2026-10-13T08:47:54.855234+00:00",
+            "exit_code": 0,
+            "compile_errors": 0,
+            "report_builders": 7,
+            "failed_reports": 0,
+            "config_dry_run": "True",
+            "pytest_exit": 0
+          },
+          "publishing": {
+            "ok": true,
+            "generated_at_utc": "2026-10-13T08:47:53.336096+00:00",
+            "exit_code": 0,
+            "compile_errors": 0,
+            "report_builders": 7,
+            "failed_reports": 0,
+            "config_dry_run": "True",
+            "pytest_exit": 0
+          }
+        }
+      },
+      "interrupted_validation": {
+        "original_handles": [
+          31338,
+          10563
+        ],
+        "original_terminal_results": "Unavailable after goal pause/resume; never counted as passed.",
+        "authoritative_resumed_state": "Both old handles missing and no pytest process before rerun on unchanged sources.",
+        "controlled_rerun_started_at": "2026-10-13 07:57:57 UTC",
+        "reports": [
+          "work/validation/training-decision-clock-D-20261013.xml",
+          "work/validation/training-decision-clock-C-20261013.xml"
+        ],
+        "scope": "Private durable reports independently contain5718 cases each, including all27 new cases, zero failures/errors/skips; actual terminal exit0 retrieved."
+      },
+      "shutdown": {
+        "requested_stop": {
+          "started_log_utc": "2026-10-13T08:27:51Z",
+          "finished_log_utc": "2026-10-13T08:27:54Z",
+          "exit_code": 0,
+          "finalizer_status": "ok",
+          "killed": 0,
+          "remaining": 0,
+          "scope": "D working stack only, user-requested; no C stack launch/stop."
+        },
+        "inventory": {
+          "observed_at": "2026-10-13T08:27:55.8983152+00:00",
+          "since_utc": "2026-10-08T16:09:40.0000000Z",
+          "runtime_processes": 0,
+          "task_owned_previews": 0,
+          "matching_tasks": 0,
+          "running_tasks": 0,
+          "matching_services": 0,
+          "running_services": 0,
+          "checkouts": [
+            {
+              "checkout": "working",
+              "green_live_risk_file_exists": false,
+              "locks": 0,
+              "protected_files": 3763,
+              "changed_by_mtime": 0
+            },
+            {
+              "checkout": "publishing",
+              "green_live_risk_file_exists": false,
+              "locks": 0,
+              "protected_files": 27,
+              "changed_by_mtime": 0
+            }
+          ],
+          "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+        },
+        "sql": {
+          "observed_at": "2026-10-13T08:27:55.985759+00:00",
+          "source": "data/memebotdatabase.db",
+          "runtime_state": [
+            {
+              "bot_id": "main",
+              "process_state": "stopped",
+              "reports_refresh_state": "idle",
+              "retrain_state": "idle",
+              "updated_at": "2026-10-13 08:27:54.015412"
+            }
+          ],
+          "scoped_green_live_groups": 0,
+          "qualification": "Empty scoped green LIVE groups do not prove whole-wallet balance or profit."
+        },
+        "publication_handoff": "Fresh exact commit/remote/source parity and OFF proof must be saved in the private delivery receipt."
+      }
+    },
+    "previous_dex_request_ownership_shutdown_evidence": "VERIFIED_OFF_2026-10-11T08:13:36.9894913+00:00: runtime,owned previews,matching tasks/services and both checkout locks0. D-only user stop08:13:26-28Z exit0,finalizerok,killed0/remaining0. SQL main stopped/idle/idle updated2026-10-11 08:13:28.079741UTC. Protected3763D/27C mtime changes0 sinceOct8 16:09:40Z, not cryptographic historical proof. Empty scoped green LIVE groups not wallet/profit evidence. Post-publication proof retained privately.",
     "dex_request_ownership_suite": {
       "stage": "docs/audits/dex_request_ownership_20261011.json",
       "original_reproduction": {
@@ -1149,7 +1391,7 @@
     "previous_entry_age_working_suite": "4359 passed in854.59s; historical evidence in docs/audits/entry_age_admission_integrity_20261009.json.",
     "previous_research_temporal_working_suite": "4420 passed in822.30s after distinct queue/birth evidence and original research/replay decision clocks. Frozen756 normalized verification-source files remain identical through both complete regressions, preflights and requested D-only stop; no operational bot/provider/wallet or active model/policy activation.",
     "ranking_tie_previous_general_working_suite": "4488 passed in1146.58s after distinct moonshot/shadow and historical clocks. Both757 normalized source fingerprints remain identical through complete regressions, preflights and requested working-only stop; no operational provider/wallet or active model/policy activation.",
-    "final_working_suite": "5691 passed in1444.85s,2 existing pandas FutureWarnings,exit0 on matching frozen791 verification sources SHA2563d79c70836c186c35714e9a27f194efb3a12a8ffadb624ee3f550b05bc98835e. Actual preflight2026-10-11T08:13:14.128521+00:00 and26-module root cold probe pass. Dex ownership/cancellation software, not operational/provider/financial acceptance.",
+    "final_working_suite": "5718 passed in1581.00s with2 existing pandas FutureWarnings,exit0 on matching frozen792 verification sources SHA256153b4ba251dda3650b072c1888aacabb98642db601caf0efac685100e8179d80. JUnit independently includes all5718 and27 new cases,zero failures/errors/skips. Preflight2026-10-13T08:26:43.554331+00:00 and26 current cold root imports pass. Controlled rerun after missing paused handles; not operational/provider or prospective financial acceptance. Post-full test EOF-only cleanup preserves exact AST/no runtime change;27 tests pass again and preflight2026-10-13T08:47:54.855234+00:00 passes. Final792 publication source SHA256d788b787790bc2fb1906a920c37537303bcb021aefdd26877b8f9a77fb5f5e73; full-suite byte freeze remains153b4ba...",
     "previous_sizing_publishing_suite": "1031 passed in 71.96s without personal .env",
     "previous_runner_forward_publishing_suite": "1068 passed in 62.78s without personal .env",
     "previous_uncertainty_publishing_suite": "1097 passed in 74.08s without personal .env using existing working-checkout Python runtime",
@@ -1191,8 +1433,8 @@
     "previous_entry_age_publishing_suite": "4359 passed in833.13s; historical evidence in docs/audits/entry_age_admission_integrity_20261009.json.",
     "previous_research_temporal_publishing_suite": "4420 passed in802.14s on the identical frozen756-source fingerprint, using existing D Python without publishing personal.env/local.venv. First-launch preflight passes; no operational bot/provider/wallet or active model/policy activation.",
     "ranking_tie_previous_general_publishing_suite": "4488 passed in1131.73s on the identical frozen757-source fingerprint using existing working Python without publishing personal.env/local.venv. Preflight passes at04:59:17.123035Z; no operational provider/wallet or active model/policy activation.",
-    "final_publishing_suite": "5691 passed in1424.14s,2 existing pandas FutureWarnings,exit0 on matching frozen791 verification sources SHA2563d79c70836c186c35714e9a27f194efb3a12a8ffadb624ee3f550b05bc98835e using working Python. Actual preflight2026-10-11T08:13:13.104018+00:00 and26-module root cold probe pass. Operator artifacts excluded; not operational/provider/financial acceptance.",
-    "publishing_preflight": "PASS_CURRENT_DEX_OWNERSHIP_STAGE: both completed full5691 suites exit0 precede external-pytest preflights exit0/ok,compile errors0,7 isolated reports/config DRY_RUN=True and externalpytest0. D2026-10-11T08:13:14.128521+00:00/C2026-10-11T08:13:13.104018+00:00. No operational startup or financial acceptance.",
+    "final_publishing_suite": "5718 passed in1562.56s with2 existing pandas FutureWarnings,exit0 using working interpreter on actual matching C sources. Frozen792-source SHA256153b4ba251dda3650b072c1888aacabb98642db601caf0efac685100e8179d80 and durable JUnit all5718/27 new,zero failures/errors/skips verified. Preflight2026-10-13T08:26:42.303402+00:00 and26 current cold imports pass. Operator artifacts remain outside publication; not provider/operational/profit acceptance. Post-full test EOF-only cleanup preserves exact AST/no runtime change;27 tests pass again and preflight2026-10-13T08:47:53.336096+00:00 passes. Final792 publication source SHA256d788b787790bc2fb1906a920c37537303bcb021aefdd26877b8f9a77fb5f5e73; full-suite byte freeze remains153b4ba...",
+    "publishing_preflight": "PASS_CURRENT_ORIGINAL_T0_STAGE: both actual completed5718 full suites and independent durable JUnit coverage are verified before both external-pytest preflights exit0/ok,compile errors0,7 isolated reports,DRY_RUN=True and externalpytest0. D2026-10-13T08:26:43.554331+00:00/C2026-10-13T08:26:42.303402+00:00. No operational startup or financial acceptance. Post-EOF-only cleanup both preflights again exit0/ok atD2026-10-13T08:47:54.855234+00:00/C2026-10-13T08:47:53.336096+00:00, following exact AST equivalence and27 touched tests each. No native/runtime change or claim of another full suite.",
     "publishing_ui_build": "Previously passed with bundle-size warning; UI unchanged in uncertainty, transport, collector, incumbent-successor, composition, independent-monitor, buy-integrity, sell-integrity, paper-archive, runner-intake, net-learning, financial-model and market-freshness stages",
     "focused_runner_and_forward_suite": "147 passed in 59.65s in previous runner stage",
     "focused_learning_and_uncertainty_suite": "75 passed in 18.30s in previous model stage",
@@ -1265,7 +1507,7 @@
     "previous_discovery_burst_shutdown": "VERIFIED_OFF_2026-10-09T07:51:09.6648041Z; historical stage/publication evidence in docs/audits/discovery_burst_20261009.json and its same-turn delivery receipt.",
     "previous_loaded_entry_shutdown": "VERIFIED_OFF_2026-10-09T09:51:32.0807555Z: bot/training/research/API/UI processes, owned previews, tasks/services and both checkout locks all zero. D-only requested stop09:51:19Z reports killed0/remaining0, immediately captured LASTEXITCODE0 and actual finalizer status ok. SQL main stopped/idle/idle updated09:51:19.239267Z. Protected3763D/27C mtimes unchanged since2026-10-08T16:09:40Z, not cryptographic history proof. Repeat post-publication OFF proof is recorded separately.",
     "previous_discovery_profile_final_shutdown": "VERIFIED_OFF_2026-10-09T14:58:29.2519919Z: bot/training/research/API/UI processes, owned previews, matching tasks/services and both checkout locks all zero. D-only requested stop14:57:59-14:58:02Z reports killed0/remaining0, immediately captured LASTEXITCODE0 and actual finalizer status ok. SQL main stopped/idle/idle updated14:58:01.961757Z. Protected3763D/27C mtimes unchanged since2026-10-08T16:09:40Z, not cryptographic history proof. Empty scoped PAPER/green-LIVE groups are not whole-wallet or profit proof. Repeat post-publication proof is recorded in the private same-turn delivery receipt.",
-    "final_shutdown": "VERIFIED_OFF_2026-10-11T08:13:36.9894913+00:00: runtime,owned previews,matching tasks/services and both checkout locks0. D-only user stop08:13:26-28Z exit0,finalizerok,killed0/remaining0. SQL main stopped/idle/idle updated2026-10-11 08:13:28.079741UTC. Protected3763D/27C mtime changes0 sinceOct8 16:09:40Z, not cryptographic historical proof. Empty scoped green LIVE groups not wallet/profit evidence. Post-publication proof retained privately.",
+    "final_shutdown": "VERIFIED_OFF_2026-10-13T08:27:55.8983152+00:00: runtime processes,owned previews,matching tasks/services and both checkout locks0. D-only user stop08:27:51-54Z exit0,finalizerok,killed0/remaining0. SQL main stopped/idle/idle updated2026-10-13 08:27:54.015412UTC. Protected3763D/27C mtime changes0 sinceOct8 16:09:40Z,not cryptographic historical proof. Empty scoped green LIVE groups are not wallet/profit proof. Fresh post-publication evidence belongs in the private delivery receipt.",
     "jupiter_all_router_observation_suite": "97 final focused plus both3365 complete suites and both final preflights PASS. Actual all-router scanner/PAPER/archive, prospective runner/entry-gate research and causal checked net export use synthetic responses and isolated artifacts only. Frozen731 verification-source files (excluding docs/README) match normalized SHA2560bad4bcba67954b7c145dd5b7b75ed251e4c998c84110ca0abdd4b4b6d69c087; original initial snapshot reconstructed with parent README matches23b28a175d4b955d4c04685fc6e45815a699d363783fff1091eea00786134152. No real provider/wallet/order or profitability acceptance.",
     "jupiter_price_evidence_suite": "Both3442 complete regressions pass (D371.37s/C357.51s), both final first-launch preflights pass, and the executed12-case notebook is visually inspected. Final normalized731-source SHA256b6569f7d874bcb95b264a2841c26f9f7ab183917952775df168240126e263cd4 matches both roots before and after the full runs. Pure/parser/actual-budgeted-HTTP/cache/PriceService tests use synthetic data only. No operator/runtime/model/policy/order change or profitability acceptance.",
     "previous_all_router_final_shutdown": "VERIFIED_OFF_2026-10-08T15:07:02.2902551Z",
@@ -1278,7 +1520,7 @@
   "remaining_required_work": [
     "Original declared entry sources plus bounded loaded callable/namespace/alias/closure agreement are checked through prospective enrollment, original cohort/cache and per-entry composition. Compact chained journal references retain the original full source identity without exceeding the native128-case reader ceiling. Legacy operator artifacts are not backfilled. Complete independently scoped actual outer-caller/executed-frame proof, applicable class/default/global/dynamic source/input availability and full-process/financial ownership boundaries. Source hashes and bounded function checks do not authenticate a complete executing process or establish profitability.",
     "Primary/standalone PAPER quote-cash marks, archived peak receipts, paired runner per-arm cash and entry-gate own-cash financial software are implemented. Original primary PAPER entry/fill FX passes through execution/recovery/close/archive/net-learning and typed compatible pending research fill reuse. First-partial runner realized-prefix cash is now independently reconstructed from retained original partial receipts before intake/preparation/terminal/cohort/policy consumption. Complete other applicable original LIVE FX/current-wallet/finality and full-strategy sampling/decision/capital boundaries. The bounded quote budget does not establish exhaustive opportunity/valuation coverage. Resolve historical basis only from authoritative original records, never post-hoc FX or fabricated zero loss. Green LIVE canary risk has durable original-source reconciliation and pre-send reservations; other full-strategy risk and prospective financial acceptance remain independent and incomplete.",
-    "Complete other architecture and evidence boundaries across ingestion, opportunity ranking, scheduling, execution, monitoring, exit paths and learned activation. Actual HotQueue/PumpPortal pending/delivery/overflow/clock contracts and common feature/green/main nullable birth-age consumers, basic filter/requeue, priority and exposure classification are repaired and source-tested. Checked runner-generation replacement now refreshes pending ranking automatically, retaining original waiting/expiry and bounded reconsideration; synthetic nine-head repricing is vectorized. Actual main discovery now uses bounded vectorized admission with cooperative128-row chunks, complete prepared-input identity and shared scalar/bulk feature epoch. Actual main waits for fresh valid age before promotions, while source exposure is not birth/admission proof. Independent supervised serial Dex and HotQueue Pump discovery now avoid native main/other-source pull blocking; one guarded entry owner and drained socket preserve admission/shutdown ownership. Documented latest/recent-update Dex profiles now have source-scoped Solana mint identity, fair collection/cap and nullable UTC diagnostic clocks, without profile birth admission. Native Pair/pool/listing events are now separated from canonical birth through changed providers, sanitizer, entry merge and historical consumers; current Dex token-pairs routing checks native lists/wrappers and explicit Solana base identity. Unknown original mint birth remains unknown, not fabricated youth. Original normalized T0 clock provenance and independently validated obsolete-input successor replacement are implemented in the native learning and inference contracts, including batch transport. This is not provider mint-birth authentication. Primary legacy productive-lane cohort reconstruction still uses historical age before current predictor preparation; current projected Parquet files reconstruct no absent lane, so operational impact is not established. Current documented Birdeye auth/envelope/token/pair identity and explicit provider-reported mint creation contracts are software-tested. Bounded automatic original birth enrichment now runs before native common entry market collection; detached birth receipt survives discovery, retry metadata, HotQueue, fallback market merge and original T0 learning proof without rejuvenating known birth or queue residence. Local budget, LRU, coalescence and repeated-cancellation ownership have native tests; unknown birth remains unknown under absence/degradation/timeout. This is not independently authenticated chain/creator birth or complete opportunity coverage. Shared TTL/LRU cache and Birdeye/Dex/Gecko failure state now have bounded capacity/retention; generic loaders and same-loop normal Birdeye requests coalesce, latest admitted generation atomically controls cache/backoff across loops/threads, and owned cleanup drains repeated cancellation. These software limits do not certify every cache/registry or real wire usage. Actual operator provider access/quotas, cleanup latency/SLA and unit/indexing/valuation consistency remain separate. Gecko public-v2 token/pool identity, independent cap/FDV fields, selected-pool reserve versus aggregate proxy, common-entry extreme signal, shared monotonic rate admission and compatible same-loop async HTTP coalescence are now repaired and natively tested, not operational provider or financial acceptance. Birdeye/Dex/common reported USD cap and FDV are now independent, including canonical zero/unknown, receipt merge and original T0 target-scoped learning; no circulating-supply authentication or operational impact is claimed. The exact preceding managed-primary cap-schema succession gap is now natively reproduced and repaired with complete verified retirement, preserved original fit/selection/target boundaries and independently approved current succession under CAS/OS lock. Other old clock/auxiliary or mixed generations are not universally certified. The configured working primary currently has no managed registry or metadata, so this scoped defect is not established as the previous no-buy cause; the native bootstrap pre-enrichment ordering gap is now repaired by provisional-only continuation and strict post-risk/final checks. The retained Oct4 short smoke has independent overlapping quality failures under different config, without an established historical cause or profitable counterfactual. Other artifact/fallback paths and operational acceptance remain separate. Gecko sync HTTP coalescence, upstream market-asof/cache latency and actual quota, other standalone/history clocks and registries, production-size throughput, independent feed/decision coverage and actual profitable capture remain incomplete Whole native source-only guarded PAPER entry/monitor/close and original net export now pass with optional/no logging after native missing run ownership is repaired without validator relaxation. Exact0.1 SOL and synthetic extreme-tail paths through10001x retain a partial runner; this is not real profitability. Actual native Dex get_pair compatible requests now coalesce within one loop with globally bounded owners/joiners; synchronous admission and atomic latest generation prevent older success/failure poisoning a newer forced cache across loops/threads. Twenty-five new cases and independent native source-only probes validate software cleanup/publication, not actual quota/provider-asof or profitable missed trades. Native ml.train loading separately substitutes absent original decision time with close ts, mint birth, venue listing or now; three wrong-clock rows pass native temporal eligibility in source-only reproduction. This T0 loader defect remains unrepaired; actual retained Parquet timestamps are populated and historical impact is not established.",
+    "Complete other architecture and evidence boundaries across ingestion, opportunity ranking, scheduling, execution, monitoring, exit paths and learned activation. Actual HotQueue/PumpPortal pending/delivery/overflow/clock contracts and common feature/green/main nullable birth-age consumers, basic filter/requeue, priority and exposure classification are repaired and source-tested. Checked runner-generation replacement now refreshes pending ranking automatically, retaining original waiting/expiry and bounded reconsideration; synthetic nine-head repricing is vectorized. Actual main discovery now uses bounded vectorized admission with cooperative128-row chunks, complete prepared-input identity and shared scalar/bulk feature epoch. Actual main waits for fresh valid age before promotions, while source exposure is not birth/admission proof. Independent supervised serial Dex and HotQueue Pump discovery now avoid native main/other-source pull blocking; one guarded entry owner and drained socket preserve admission/shutdown ownership. Documented latest/recent-update Dex profiles now have source-scoped Solana mint identity, fair collection/cap and nullable UTC diagnostic clocks, without profile birth admission. Native Pair/pool/listing events are now separated from canonical birth through changed providers, sanitizer, entry merge and historical consumers; current Dex token-pairs routing checks native lists/wrappers and explicit Solana base identity. Unknown original mint birth remains unknown, not fabricated youth. Original normalized T0 clock provenance and independently validated obsolete-input successor replacement are implemented in the native learning and inference contracts, including batch transport. This is not provider mint-birth authentication. Primary legacy productive-lane cohort reconstruction still uses historical age before current predictor preparation; current projected Parquet files reconstruct no absent lane, so operational impact is not established. Current documented Birdeye auth/envelope/token/pair identity and explicit provider-reported mint creation contracts are software-tested. Bounded automatic original birth enrichment now runs before native common entry market collection; detached birth receipt survives discovery, retry metadata, HotQueue, fallback market merge and original T0 learning proof without rejuvenating known birth or queue residence. Local budget, LRU, coalescence and repeated-cancellation ownership have native tests; unknown birth remains unknown under absence/degradation/timeout. This is not independently authenticated chain/creator birth or complete opportunity coverage. Shared TTL/LRU cache and Birdeye/Dex/Gecko failure state now have bounded capacity/retention; generic loaders and same-loop normal Birdeye requests coalesce, latest admitted generation atomically controls cache/backoff across loops/threads, and owned cleanup drains repeated cancellation. These software limits do not certify every cache/registry or real wire usage. Actual operator provider access/quotas, cleanup latency/SLA and unit/indexing/valuation consistency remain separate. Gecko public-v2 token/pool identity, independent cap/FDV fields, selected-pool reserve versus aggregate proxy, common-entry extreme signal, shared monotonic rate admission and compatible same-loop async HTTP coalescence are now repaired and natively tested, not operational provider or financial acceptance. Birdeye/Dex/common reported USD cap and FDV are now independent, including canonical zero/unknown, receipt merge and original T0 target-scoped learning; no circulating-supply authentication or operational impact is claimed. The exact preceding managed-primary cap-schema succession gap is now natively reproduced and repaired with complete verified retirement, preserved original fit/selection/target boundaries and independently approved current succession under CAS/OS lock. Other old clock/auxiliary or mixed generations are not universally certified. The configured working primary currently has no managed registry or metadata, so this scoped defect is not established as the previous no-buy cause; the native bootstrap pre-enrichment ordering gap is now repaired by provisional-only continuation and strict post-risk/final checks. The retained Oct4 short smoke has independent overlapping quality failures under different config, without an established historical cause or profitable counterfactual. Other artifact/fallback paths and operational acceptance remain separate. Gecko sync HTTP coalescence, upstream market-asof/cache latency and actual quota, other standalone/history clocks and registries, production-size throughput, independent feed/decision coverage and actual profitable capture remain incomplete Whole native source-only guarded PAPER entry/monitor/close and original net export now pass with optional/no logging after native missing run ownership is repaired without validator relaxation. Exact0.1 SOL and synthetic extreme-tail paths through10001x retain a partial runner; this is not real profitability. Actual native Dex get_pair compatible requests now coalesce within one loop with globally bounded owners/joiners; synchronous admission and atomic latest generation prevent older success/failure poisoning a newer forced cache across loops/threads. Twenty-five new cases and independent native source-only probes validate software cleanup/publication, not actual quota/provider-asof or profitable missed trades. Actual native ml.train now preserves absent/invalid original T0 as unknown instead of substituting close persistence, mint birth, venue listing or load time; the nullable historical label parser no longer crashes on NaT. Native CSV/Parquet, writer, mixed partitions, labels and temporal consumers are covered by27 new cases/387 focused and both controlled5718 full suites, with independently verified durable reports after paused handles disappeared. Raw labels remain available for diagnostics, not validated temporal population. Actual retained Parquet T0 timestamps are populated and historical no-buy/profit impact is not established. Other applicable original decision/source timing, obsolete operator artifacts, provider/access and prospective full-strategy opportunity/financial acceptance remain independent and incomplete.",
     "Expected exact-boundary ties, token-mean captured-positive utility and same-cohort paired comparisons respect each original model-fit top-k budget. Current v3/pipeline13 additionally carry original OOS decision times into fixed hourly burst-support checks at two origins; token-only approvals cannot supply this evidence. Complete empirically justified dependence-horizon/longer-regime and original creator checks, rare-runner distribution stability and risk/continuation validation on fresh evidence. Earliest-mint hourly anchoring does not test all later-decision dependence; synthetic5-percent extreme labels and pure diagnostic benchmarks do not certify rare-event generalization, real opportunity/production throughput or net financial profitability.",
     "Complete scanner/feed follow-up and first-launch execution constraints; exact 0.1 SOL paper sizing and frozen runner exits are integrated but trading-policy activation remains separate",
     "Owned buy/sell intents, primary paper JSON/SQL fill recovery, durable closed-trade archival/reentry protection, original first-partial research intake/recovery, managed paper T0/net-label export, checked net-only financial model acceptance and primary fallback/monitor HTTP-receipt freshness are implemented; complete independently checked live wallet/quantity/finality reconciliation, provider market-asof/depth and production response contracts, other research/export error paths, full-strategy forward-source integrity and prospective financial acceptance. No client receipt, submission receipt or green paper test certifies these separate financial integrity boundaries",

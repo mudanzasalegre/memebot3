@@ -1,0 +1,548 @@
+{
+  "schema_version": 1,
+  "stage": "native_training_original_decision_clock",
+  "date": "2026-10-13",
+  "status": "SOFTWARE_VERIFIED_INCOMPLETE_GOAL_RUNTIME_OFF",
+  "goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "publishing_parent": "e372b65c973a16a04298a0248b0e450ebdc95f56",
+  "scope": "Canonical original T0 loading and nullable historical label clocks; actual native code, isolated synthetic CSV/Parquet/writer/folds, no operational startup, operator model activation or LIVE order.",
+  "source_files": [
+    "ml/train.py",
+    "analytics/token_time.py",
+    "tests/test_training_decision_clock.py"
+  ],
+  "diagnosis": {
+    "native_original_loader_reproduction": {
+      "failed": 3,
+      "deselected": 21,
+      "seconds": 2.26,
+      "exit_code": 1,
+      "source": "Actual original unchanged C loader before runtime edits; synthetic temporary Parquet, not historical evidence."
+    },
+    "native_original_nat_reproduction": {
+      "exit_code": 1,
+      "error": "ValueError: NaTType does not support astimezone",
+      "source": "Actual unchanged C analytics.token_time parser."
+    },
+    "initial_expanded_run": {
+      "working": {
+        "failed": 9,
+        "passed": 170,
+        "seconds": 25.37
+      },
+      "publishing": {
+        "failed": 9,
+        "passed": 170,
+        "seconds": 25.25
+      },
+      "cause": "Preserving missing T0 exposed existing native label path's NaT UTC conversion crash; fix parser, do not invent clocks or bypass labels."
+    },
+    "historical_impact": "Actual retained Parquet T0 fields are populated. No occurrence, no-buy cause or profitable missed-trade counterfactual established."
+  },
+  "implementation": {
+    "canonical_timestamp_only": true,
+    "no_close_birth_listing_or_load_time_fallback": true,
+    "unknown_rows_and_existing_labels_retained": true,
+    "unknowns_excluded_from_native_temporal_folds_and_runner_population": true,
+    "native_nullable_datetime_parser_returns_unknown": true,
+    "unrelated_current_risk_strategy_sizing_or_model_activation_changed": false,
+    "operator_files_or_model_weights_changed": false
+  },
+  "authored_cases": 27,
+  "focused_suites": {
+    "working": {
+      "passed": 387,
+      "seconds": 38.64,
+      "exit_code": 0
+    },
+    "publishing": {
+      "passed": 387,
+      "seconds": 38.55,
+      "exit_code": 0
+    }
+  },
+  "full_suites": {
+    "working": {
+      "passed": 5718,
+      "warnings": 2,
+      "seconds": 1581,
+      "exit_code": 0,
+      "finished_at_utc": "2026-10-13T08:24:24.9537807+00:00"
+    },
+    "publishing": {
+      "passed": 5718,
+      "warnings": 2,
+      "seconds": 1562.56,
+      "exit_code": 0,
+      "finished_at_utc": "2026-10-13T08:24:25.2537801+00:00"
+    },
+    "warnings_scope": "Two existing pandas FutureWarnings each at analytics/model_runtime_common.py:487; future dtype compatibility, not failing tests."
+  },
+  "durable_junit": [
+    {
+      "checkout": "D",
+      "tests": 5718,
+      "test_cases": 5718,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "new_t0_cases": 27,
+      "seconds": 1580.899,
+      "sha256": "66d79feaedf1691a77b2febad31af8089a24d5d1d65a722f61efe8f180277fe8",
+      "mtime_utc": "2026-10-13T08:24:21.7036610Z"
+    },
+    {
+      "checkout": "C",
+      "tests": 5718,
+      "test_cases": 5718,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "new_t0_cases": 27,
+      "seconds": 1562.475,
+      "sha256": "6184c88788927f9a60a54c5fa178f44d1ed0c7c3c7ee25935ad253228c194871",
+      "mtime_utc": "2026-10-13T08:24:03.0046584Z"
+    }
+  ],
+  "preflights": {
+    "working": {
+      "exit_code": 0,
+      "ok": true,
+      "generated_at_utc": "2026-10-13T08:26:43.554331+00:00",
+      "compile_errors": 0,
+      "report_builders": 7,
+      "failed_reports": 0,
+      "config_dry_run": "True",
+      "pytest_exit": 0,
+      "feature_files": 2,
+      "scope": "Static config/compile and seven isolated reports after actual completed full QA, not operational first launch."
+    },
+    "publishing": {
+      "exit_code": 0,
+      "ok": true,
+      "generated_at_utc": "2026-10-13T08:26:42.303402+00:00",
+      "compile_errors": 0,
+      "report_builders": 7,
+      "failed_reports": 0,
+      "config_dry_run": "True",
+      "pytest_exit": 0,
+      "feature_files": 0,
+      "scope": "Static config/compile and seven isolated reports after actual completed full QA, not operational first launch."
+    }
+  },
+  "cold_probes": {
+    "working": {
+      "exit_code": 0,
+      "root": "D:\\Dev\\Python\\memebot3",
+      "modules_scoped_each": 26,
+      "clock_generation": "original_mint_birth_not_venue_v2",
+      "advisory_pipeline": 14,
+      "current_original_population_checked": true,
+      "schema_alone_rejected": true,
+      "legacy_nonclock_inputs_preserved": true,
+      "venue_only_birth_unknown": true,
+      "config": {
+        "dry_run": true,
+        "paper_max_trade_amount_sol": 0.1,
+        "paper_bootstrap_amount_sol": 0.1
+      },
+      "paper_exact_trade_size_enabled": true,
+      "paper_exact_trade_size_sol": 0.1,
+      "provider_birth_context_retained": true,
+      "creation_budget_defaults_checked": true,
+      "bootstrap_provisional_continuation_checked": true,
+      "bootstrap_final_missing_checks_rejected": true,
+      "bootstrap_final_complete_exact_size_checked": true,
+      "scope": "Cold native imports/config and synthetic input contract only; no fit, runtime start or provider access."
+    },
+    "publishing": {
+      "exit_code": 0,
+      "root": "C:\\Users\\monmo10\\Documents\\GitHub\\memebot3",
+      "modules_scoped_each": 26,
+      "clock_generation": "original_mint_birth_not_venue_v2",
+      "advisory_pipeline": 14,
+      "current_original_population_checked": true,
+      "schema_alone_rejected": true,
+      "legacy_nonclock_inputs_preserved": true,
+      "venue_only_birth_unknown": true,
+      "config": {
+        "dry_run": true,
+        "paper_max_trade_amount_sol": 0.1,
+        "paper_bootstrap_amount_sol": 0.1
+      },
+      "paper_exact_trade_size_enabled": true,
+      "paper_exact_trade_size_sol": 0.1,
+      "provider_birth_context_retained": true,
+      "creation_budget_defaults_checked": true,
+      "bootstrap_provisional_continuation_checked": true,
+      "bootstrap_final_missing_checks_rejected": true,
+      "bootstrap_final_complete_exact_size_checked": true,
+      "scope": "Cold native imports/config and synthetic input contract only; no fit, runtime start or provider access."
+    }
+  },
+  "source_only_probes": {
+    "working": {
+      "exit_code": 0,
+      "source_files_copied": 477,
+      "observed_at_utc": "2026-10-13T08:04:28.180264+00:00",
+      "cases": [
+        {
+          "case": "original_t0",
+          "loaded_rows": 1,
+          "native_decision_clock": "2026-08-01T12:00:00+00:00",
+          "eligible": true,
+          "original_t0_supplied": true,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 1
+        },
+        {
+          "case": "close_ts_only",
+          "loaded_rows": 1,
+          "native_decision_clock": null,
+          "eligible": false,
+          "original_t0_supplied": false,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 0
+        },
+        {
+          "case": "mint_birth_only",
+          "loaded_rows": 1,
+          "native_decision_clock": null,
+          "eligible": false,
+          "original_t0_supplied": false,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 0
+        },
+        {
+          "case": "venue_listing_only",
+          "loaded_rows": 1,
+          "native_decision_clock": null,
+          "eligible": false,
+          "original_t0_supplied": false,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 0
+        },
+        {
+          "case": "no_decision_clock",
+          "loaded_rows": 1,
+          "native_decision_clock": null,
+          "eligible": false,
+          "original_t0_supplied": false,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 0
+        },
+        {
+          "case": "explicit_null_t0_with_ts",
+          "loaded_rows": 1,
+          "native_decision_clock": null,
+          "eligible": false,
+          "original_t0_supplied": true,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 0
+        },
+        {
+          "case": "invalid_t0_with_ts",
+          "loaded_rows": 1,
+          "native_decision_clock": null,
+          "eligible": false,
+          "original_t0_supplied": true,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 0
+        }
+      ],
+      "external_attempts": [],
+      "operator_model_deserializations": 0,
+      "fit_called": false,
+      "runtime_started": false,
+      "scope": "Actual native loader and temporal validator in source-only root with synthetic Parquet. Not historical occurrence or financial acceptance."
+    },
+    "publishing": {
+      "exit_code": 0,
+      "source_files_copied": 477,
+      "observed_at_utc": "2026-10-13T08:04:27.726683+00:00",
+      "cases": [
+        {
+          "case": "original_t0",
+          "loaded_rows": 1,
+          "native_decision_clock": "2026-08-01T12:00:00+00:00",
+          "eligible": true,
+          "original_t0_supplied": true,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 1
+        },
+        {
+          "case": "close_ts_only",
+          "loaded_rows": 1,
+          "native_decision_clock": null,
+          "eligible": false,
+          "original_t0_supplied": false,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 0
+        },
+        {
+          "case": "mint_birth_only",
+          "loaded_rows": 1,
+          "native_decision_clock": null,
+          "eligible": false,
+          "original_t0_supplied": false,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 0
+        },
+        {
+          "case": "venue_listing_only",
+          "loaded_rows": 1,
+          "native_decision_clock": null,
+          "eligible": false,
+          "original_t0_supplied": false,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 0
+        },
+        {
+          "case": "no_decision_clock",
+          "loaded_rows": 1,
+          "native_decision_clock": null,
+          "eligible": false,
+          "original_t0_supplied": false,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 0
+        },
+        {
+          "case": "explicit_null_t0_with_ts",
+          "loaded_rows": 1,
+          "native_decision_clock": null,
+          "eligible": false,
+          "original_t0_supplied": true,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 0
+        },
+        {
+          "case": "invalid_t0_with_ts",
+          "loaded_rows": 1,
+          "native_decision_clock": null,
+          "eligible": false,
+          "original_t0_supplied": true,
+          "raw_runner_10000_label": 1,
+          "eligible_runner_10000_tokens": 0
+        }
+      ],
+      "external_attempts": [],
+      "operator_model_deserializations": 0,
+      "fit_called": false,
+      "runtime_started": false,
+      "scope": "Actual native loader and temporal validator in source-only root with synthetic Parquet. Not historical occurrence or financial acceptance."
+    }
+  },
+  "source_freeze": {
+    "files_each": 792,
+    "normalized_sha256": "153b4ba251dda3650b072c1888aacabb98642db601caf0efac685100e8179d80",
+    "frozen_before_original_and_controlled_rerun": true,
+    "unchanged_after_both_terminal_suites_and_preflights": true,
+    "final_publication_files_each": 792,
+    "final_publication_normalized_sha256": "d788b787790bc2fb1906a920c37537303bcb021aefdd26877b8f9a77fb5f5e73"
+  },
+  "interrupted_validation": {
+    "original_handles": [
+      31338,
+      10563
+    ],
+    "original_terminal_results": "Unavailable after goal pause/resume; never counted as passed.",
+    "authoritative_resumed_state": "Both old handles missing and no pytest process before rerun on unchanged sources.",
+    "controlled_rerun_started_at": "2026-10-13 07:57:57 UTC",
+    "reports": [
+      "work/validation/training-decision-clock-D-20261013.xml",
+      "work/validation/training-decision-clock-C-20261013.xml"
+    ],
+    "scope": "Private durable reports independently contain5718 cases each, including all27 new cases, zero failures/errors/skips; actual terminal exit0 retrieved."
+  },
+  "historical_data_quality": {
+    "observed_at_utc": "2026-10-11T08:26:43.409605+00:00",
+    "profile_file": "work/training-decision-clock-profile-current.json",
+    "sources": [
+      {
+        "file": "data/features/features_202607.parquet",
+        "sha256": "18edc6f91c13e617e0ba8b9afa96106807353ba7887ac062840ab54cac589ab0",
+        "bytes": 767216,
+        "mtime_utc": "2026-07-15T18:18:25.193220+00:00"
+      },
+      {
+        "file": "data/features/features_202610.parquet",
+        "sha256": "9b5226d4284eedaa8d5e4cc1206128a04b13247f21e80d8ee26de67091a2c84c",
+        "bytes": 23809,
+        "mtime_utc": "2026-10-04T10:43:35.278763+00:00"
+      },
+      {
+        "file": "data/metrics/candidate_outcomes.jsonl",
+        "sha256": "3e6721a861f4bdf012b9a66c410fd17caa53ba29ff726b9b249eba616563c96f",
+        "bytes": 135161377,
+        "mtime_utc": "2026-10-04T10:44:49.141558+00:00"
+      }
+    ],
+    "sources_unchanged_from_preceding_read": true,
+    "eligible_rows": 2147,
+    "distinct_tokens": 2132,
+    "all_nine_target_counts_unchanged": true,
+    "checked_net_rows": 0,
+    "guards": {
+      "attempts": [],
+      "model_deserializations": 0,
+      "fit_or_training_called": false,
+      "runtime_started": false
+    },
+    "qualification": "Recorded native read-only profile from2026-10-11, not a newly queried2026-10-13 population or profitability measurement.",
+    "source_bytes_sha256_rechecked_unchanged_date": "2026-10-13"
+  },
+  "read_only_consumer_trace": {
+    "bounded_targets": [
+      "ev_realized_clipped",
+      "ev_configured_clipped",
+      "ev_peak_adjusted"
+    ],
+    "scope": "Declared clipped estimators, not full realised wealth. No direct predictor call found in the consulted native exit modules.",
+    "predictor_consumers": "Actual main _score_entry_inputs uses configured-clipped predictor; policy/sizing consumers exist. Legacy policy scorer has three runner fields; all nine target labels and ranking workflows remain separate.",
+    "action": "No clipping, policy, risk, sizing, operator weights or training activation changed. No historical loss/no-buy causality or financial counterfactual inferred.",
+    "birth_ordering": "Actual common entry enriches original birth before its missing-age gate; the inspected ordering is not a reproduced circular dependency.",
+    "current_bootstrap_cold_requirement": false,
+    "bootstrap_qualification": "Current native CFG does not require cold-start-only bootstrap; opaque historical counts are not established as current no-buy cause. No quota/gate/config relaxation."
+  },
+  "shutdown": {
+    "requested_stop": {
+      "started_log_utc": "2026-10-13T08:27:51Z",
+      "finished_log_utc": "2026-10-13T08:27:54Z",
+      "exit_code": 0,
+      "finalizer_status": "ok",
+      "killed": 0,
+      "remaining": 0,
+      "scope": "D working stack only, user-requested; no C stack launch/stop."
+    },
+    "inventory": {
+      "observed_at": "2026-10-13T08:27:55.8983152+00:00",
+      "since_utc": "2026-10-08T16:09:40.0000000Z",
+      "runtime_processes": 0,
+      "task_owned_previews": 0,
+      "matching_tasks": 0,
+      "running_tasks": 0,
+      "matching_services": 0,
+      "running_services": 0,
+      "checkouts": [
+        {
+          "checkout": "working",
+          "green_live_risk_file_exists": false,
+          "locks": 0,
+          "protected_files": 3763,
+          "changed_by_mtime": 0
+        },
+        {
+          "checkout": "publishing",
+          "green_live_risk_file_exists": false,
+          "locks": 0,
+          "protected_files": 27,
+          "changed_by_mtime": 0
+        }
+      ],
+      "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+    },
+    "sql": {
+      "observed_at": "2026-10-13T08:27:55.985759+00:00",
+      "source": "data/memebotdatabase.db",
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-13 08:27:54.015412"
+        }
+      ],
+      "scoped_green_live_groups": 0,
+      "qualification": "Empty scoped green LIVE groups do not prove whole-wallet balance or profit."
+    },
+    "publication_handoff": "Fresh exact commit/remote/source parity and OFF proof must be saved in the private delivery receipt."
+  },
+  "objective_acceptance_audit": [
+    {
+      "requirement": "Capture profitable extreme opportunities beyond100/200% as a full scanner/sniper strategy",
+      "status": "INCOMPLETE",
+      "evidence": "Prior native synthetic whole PAPER tail lifecycle and nine threshold targets; no current independent full-market profitable capture proof."
+    },
+    {
+      "requirement": "Auto-adjust learning with minimum intervention and without unjustified vetoes",
+      "status": "INCOMPLETE",
+      "evidence": "Native export/training/selector contracts exist; current T0/NaT repair pending full QA. Retained historical profile has no current checked-net rows; no active operator fit or model promotion performed."
+    },
+    {
+      "requirement": "First launch fully functional and no errors",
+      "status": "NOT_PROVEN",
+      "evidence": "Both actual full5718 suites pass with no skips/failures/errors,27 new native cases and both preflights/current26 cold probes. No operational/provider startup; global100% remains unproven."
+    },
+    {
+      "requirement": "Buy0.1 SOL",
+      "status": "VERIFIED_PAPER_SOFTWARE_ONLY",
+      "evidence": "Current native D/C cold probes enforce exact0.1 and prior complete native PAPER entry/fill tests; not LIVE execution."
+    },
+    {
+      "requirement": "Publish reviewed changes through C Git checkout",
+      "status": "PENDING_CURRENT_STAGE",
+      "evidence": "Prior e372b65 published; current three owned source/test changes uncommitted."
+    },
+    {
+      "requirement": "All bot/API/UI/training/research processes remain stopped at handoff",
+      "status": "CURRENT_OFF_FINAL_RECHECK_PENDING",
+      "evidence": "Fresh process/task/service/lock inventory zero at07:55:41Z; tests only. Recheck and D user stop after completed validation/publication."
+    },
+    {
+      "requirement": "Winning bot and maximum real profits",
+      "status": "NOT_ESTABLISHED",
+      "evidence": "Software and synthetic signals do not establish future profitability; independent fresh complete closed financial evidence remains required."
+    }
+  ],
+  "limits": [
+    "No operational bot/API/UI/training/AutoResearch startup or live order.",
+    "No operator model load, fit or activation in read-only checks; existing suites may fit synthetic temporary fixtures.",
+    "Native T0 handling is not independently authenticated full-process provenance, provider clocks, opportunity coverage or prospective profitability."
+  ],
+  "completion_rule": "This stage completes scoped software verification, not winning strategy, maximum profit, full upstream response/access or operational first-launch acceptance. Ten broad areas still remain incomplete.",
+  "post_full_test_eof_cleanup": {
+    "scope": "Only one empty EOF line removed from the owned new test file after completed full QA. git diff confirms exactly that deletion; no native runtime file or test statement changed.",
+    "ast": {
+      "sha256": "e78200ee27e8d0e28c632d62f51c2724033fa9a4f69dbd3bdb192597bab74c9a",
+      "matching_roots": true,
+      "identical_before_after": true,
+      "scope": "One trailing empty EOF line removed in owned new test only; no executable statement, native runtime source or test case changed."
+    },
+    "post_cleanup_tests": {
+      "working": {
+        "passed": 27,
+        "seconds": 5.05,
+        "exit_code": 0
+      },
+      "publishing": {
+        "passed": 27,
+        "seconds": 4.66,
+        "exit_code": 0
+      }
+    },
+    "post_cleanup_preflights": {
+      "working": {
+        "ok": true,
+        "generated_at_utc": "2026-10-13T08:47:54.855234+00:00",
+        "exit_code": 0,
+        "compile_errors": 0,
+        "report_builders": 7,
+        "failed_reports": 0,
+        "config_dry_run": "True",
+        "pytest_exit": 0
+      },
+      "publishing": {
+        "ok": true,
+        "generated_at_utc": "2026-10-13T08:47:53.336096+00:00",
+        "exit_code": 0,
+        "compile_errors": 0,
+        "report_builders": 7,
+        "failed_reports": 0,
+        "config_dry_run": "True",
+        "pytest_exit": 0
+      }
+    }
+  }
+}

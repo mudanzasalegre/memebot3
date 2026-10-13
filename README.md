@@ -13,6 +13,32 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### T0 original y relojes nulos del aprendizaje (2026-10-13)
+
+El cargador acepta solo la hora original de decision `timestamp`: ni cierre,
+persistencia `ts`, nacimiento, listado ni hora de carga pueden sustituirla.
+Las filas sin T0 conservan sus etiquetas historicas, pero no entran en folds o
+poblaciones temporales validadas. Los relojes pandas `NaT` ahora permanecen
+desconocidos sin romper la generacion nativa de etiquetas.
+
+Veintisiete casos nuevos, el escritor Parquet nativo, CSV, particiones mixtas,
+etiquetas de picos >10.000% y folds quedan cubiertos. Las 387 pruebas focalizadas
+por copia pasan, y ambas suites completas pasan 5.718 pruebas con dos avisos
+existentes de pandas cada una. Los informes JUnit persistentes contienen todas
+las pruebas, sin errores, fallos ni omisiones. Ambos preflight y 26 imports
+nativos por copia pasan; las fuentes verificadas son identicas.
+
+La ejecucion de QA anterior a la pausa no se da por aprobada: se repitio de forma
+controlada al comprobar que sus identificadores ya no existian y no habia
+pytest activo. No se cargan modelos del operador ni se activa entrenamiento,
+AutoResearch o LIVE. Bot/API/UI permanecen apagados, con estado SQL detenido;
+PAPER sigue configurado en compras exactas de 0,1 SOL.
+
+No se ha observado este defecto en los T0 poblados del historico conservado,
+ni queda demostrado como causa del run sin compras. Esta es una correccion de
+integridad, no una prueba de bot ganador, captura real o maxima rentabilidad.
+El objetivo global sigue incompleto. [Auditoria T0](docs/audits/training_decision_clock_20261013.json).
+
 ### Dex: propiedad de peticiones y calidad del aprendizaje (2026-10-11)
 
 Las consultas normales compatibles de Dexscreener comparten una peticion en el
@@ -31,10 +57,9 @@ tokens con pico >=500%, cuatro >=1.000% y ninguno >=2.000%. Los umbrales se
 solapan. Ninguna fila acredita neto bajo el contrato actual; los picos no son
 beneficios ni cobertura del mercado actual. No se activa un modelo por ellos.
 
-Ademas, queda reproducido pero sin reparar en esta etapa que el cargador de
-entrenamiento sustituye un T0 ausente por cierre/nacimiento/listado o ahora.
-No se ha observado ese caso en los Parquet retenidos. El objetivo global sigue
-incompleto. [Auditoria Dex y calidad](docs/audits/dex_request_ownership_20261011.json).
+El defecto T0 que esta etapa dejo reproducido se corrige y valida en la etapa
+posterior documentada arriba; no se ha observado en los Parquet retenidos.
+El objetivo global sigue incompleto. [Auditoria Dex y calidad](docs/audits/dex_request_ownership_20261011.json).
 
 ### Ciclo nativo PAPER completo y aprendizaje sin logging (2026-10-11)
 
