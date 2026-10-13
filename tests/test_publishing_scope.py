@@ -2,10 +2,26 @@ from pathlib import Path
 
 import pytest
 
-from types import SimpleNamespace
+from subprocess import CompletedProcess
 
 from tools import sync_publishing_checkout as sync
 from tools.sync_publishing_checkout import allowed_source
+
+
+def stub_clean_untracked_git(monkeypatch):
+    """Model all Git probes, including check-ignore's nonignored exit code."""
+    calls = []
+
+    def run(command, **kwargs):
+        assert command[:1] == ["git"]
+        probe = command[1]
+        assert probe in {"rev-parse", "status", "ls-files", "check-ignore"}
+        calls.append(command)
+        return CompletedProcess(command, 1 if probe == "check-ignore" else 0,
+                                stdout="", stderr="")
+
+    monkeypatch.setattr(sync.subprocess, "run", run)
+    return calls
 
 
 @pytest.mark.parametrize("path", [".env", "data/paper_portfolio.json", "logs/runtime.json", "work/result.json",
@@ -31,8 +47,12 @@ def test_blank_secret_assignment_does_not_consume_next_config_line(tmp_path, mon
     destination.mkdir()
     (source / ".env.example").write_bytes(line_end.join([
         "COINGECKO_DEMO_API_KEY=", "COINGECKO_SOL_TTL=60", "SOL_PRIVATE_KEY=your-placeholder", ""]).encode())
-    monkeypatch.setattr(sync.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout=""))
-    assert [row["path"] for row in sync.build_plan(source, destination)] == [".env.example"]
+    calls = stub_clean_untracked_git(monkeypatch)
+    plan = sync.build_plan(source, destination)
+    assert [row["path"] for row in plan] == [".env.example"]
+    assert plan[0]["git_tracking_required"] is True
+    assert plan[0]["git_ignored"] is False
+    assert calls[-1] == ["git", "check-ignore", "--quiet", "--", ".env.example"]
 
 
 def test_blank_secret_line_never_hides_real_assignment_on_next_line(tmp_path, monkeypatch):
@@ -40,6 +60,7 @@ def test_blank_secret_line_never_hides_real_assignment_on_next_line(tmp_path, mo
     source.mkdir()
     destination.mkdir()
     (source / ".env.example").write_text("COINGECKO_DEMO_API_KEY=\nSOL_PRIVATE_KEY=synthetic-nonplaceholder\n", encoding="utf-8")
-    monkeypatch.setattr(sync.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout=""))
+    calls = stub_clean_untracked_git(monkeypatch)
     with pytest.raises(ValueError, match="nonplaceholder_secret_assignment:.env.example:SOL_PRIVATE_KEY"):
         sync.build_plan(source, destination)
+    assert not any(command[1] == "check-ignore" for command in calls)
