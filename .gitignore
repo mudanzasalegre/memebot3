@@ -12,6 +12,11 @@ __pycache__/
 .ruff_cache/
 
 data/
+# Static navigation code is not operational data. Keep every other file in
+# this directory ignored unless separately reviewed.
+!ui/src/data/
+ui/src/data/*
+!ui/src/data/routes.ts
 logs/
 backups/
 

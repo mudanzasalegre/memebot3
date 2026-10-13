@@ -53,6 +53,8 @@ def build_plan(source: Path, destination: Path) -> list[dict]:
     dirty = subprocess.run(["git", "status", "--porcelain"], cwd=destination, check=True, capture_output=True, text=True)
     if dirty.stdout.strip():
         raise ValueError("publishing_checkout_has_changes_preserve_them")
+    tracked = set(subprocess.check_output(["git", "ls-files", "-z"], cwd=destination,
+                                         text=True).split("\0"))
     plan = []
     for directory, children, names in os.walk(source):
         relative_dir = Path(directory).relative_to(source)
@@ -67,7 +69,8 @@ def build_plan(source: Path, destination: Path) -> list[dict]:
             if not incoming.resolve().is_relative_to(source) or not target.resolve().is_relative_to(destination):
                 raise ValueError(f"source_or_destination_escapes_root:{relative.as_posix()}")
             content = _content(incoming)
-            if target.exists() and _content(target) == content:
+            same = target.exists() and _content(target) == content
+            if same and relative.as_posix() in tracked:
                 continue
             if incoming.suffix == ".env" or incoming.name == ".env.example":
                 for match in SECRET_ASSIGNMENT.finditer(content.decode("utf-8")):
@@ -75,7 +78,12 @@ def build_plan(source: Path, destination: Path) -> list[dict]:
                     is_flag = "REQUIRE_API_KEY" in match.group(1) and value.lower() in {"true", "false", "0", "1"}
                     if value and not is_flag and not value.startswith(("#", "YOUR_", "your_", "YOUR-", "your-", "<", "REPLACE_", "REDACTED_")):
                         raise ValueError(f"nonplaceholder_secret_assignment:{relative.as_posix()}:{match.group(1)}")
-            plan.append({"path": relative.as_posix(), "action": "update" if target.exists() else "add",
+            ignored = subprocess.run(["git", "check-ignore", "--quiet", "--", relative.as_posix()],
+                cwd=destination, capture_output=True).returncode == 0
+            plan.append({"path": relative.as_posix(),
+                         "action": "track" if same else "update" if target.exists() else "add",
+                         "git_tracking_required": relative.as_posix() not in tracked,
+                         "git_ignored": ignored,
                          "source_sha256": hashlib.sha256(incoming.read_bytes()).hexdigest()})
     return sorted(plan, key=lambda row: row["path"])
 
@@ -87,6 +95,10 @@ def apply_plan(source: Path, destination: Path, plan: list[dict]) -> None:
             raise ValueError(f"source_changed_after_plan:{item['path']}")
         if not target.resolve().is_relative_to(destination.resolve()):
             raise ValueError("destination_escapes_root")
+        if item["action"] == "track":
+            if not target.is_file() or _content(target) != _content(incoming):
+                raise ValueError("untracked_target_changed_after_plan")
+            continue  # Tracking requires explicit Git review/add, never auto-stage.
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(incoming, target)
 
@@ -105,6 +117,8 @@ def main() -> None:
                "actions": dict(Counter(item["action"] for item in plan)),
                "by_scope": dict(Counter(item["path"].split("/")[0] for item in plan)),
                "plan_sha256": hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()}
+    summary["git_tracking_required"] = [row["path"] for row in plan if row["git_tracking_required"]]
+    summary["ignored_source_requires_review"] = [row["path"] for row in plan if row["git_ignored"]]
     if args.show_plan:
         summary["plan"] = plan
     print(json.dumps(summary, indent=2))
