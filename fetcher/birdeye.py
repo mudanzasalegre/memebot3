@@ -43,7 +43,12 @@ def _positive_int_env(name: str, default: int) -> int:
 
 
 _RPM = _positive_int_env("BIRDEYE_RPM", 60)
-_MIN_INTERVAL = 60.0 / _RPM
+try:
+    _MIN_INTERVAL = 60.0 / _RPM
+except OverflowError:
+    # An unrepresentable optional setting must not crash cold imports or
+    # turn pacing off. This fallback is not a provider-plan quota claim.
+    _RPM, _MIN_INTERVAL = 60, 1.0
 _TTL_NIL_SHORT = _positive_int_env("BIRDEYE_TTL_NIL_SHORT", 90)
 _TTL_NIL_MAX = max(_TTL_NIL_SHORT, _positive_int_env("BIRDEYE_TTL_NIL_MAX", 300))
 class _NegativeResponse:
@@ -55,7 +60,8 @@ class _NegativeResponse:
 # failures use generation-bound markers; an unbound old marker is invalidated.
 _SENTINEL_NIL = object()
 _last_call_ts = 0.0
-_lock = asyncio.Lock()
+_last_observed_ts = None
+_lock = threading.RLock()
 _fail_count = BoundedFailureCounter()
 _REQUESTS = OwnedRequests(os.getenv("BIRDEYE_MAX_INFLIGHT", "16"),
     os.getenv("BIRDEYE_MAX_JOINERS", "256"), name="birdeye-http-request")
@@ -99,13 +105,40 @@ def _request_address(value: Any, *, token: bool) -> str | None:
     return None
 
 
+def _throttle_wait() -> float:
+    """Atomically admit or return a wait; no loop-bound lock/future slots.
+
+    All resources, event loops and threads share this monotonic admission
+    clock. Read it inside the lock so thread scheduling cannot manufacture
+    a reversal. A real reversal conservatively starts one new interval.
+    Local admission is not proof of provider quota, billing or wire latency.
+    """
+    global _last_call_ts, _last_observed_ts
+    with _lock:
+        now = time.monotonic()
+        try:
+            valid = (type(now) in (int, float) and math.isfinite(now)
+                     and type(_MIN_INTERVAL) in (int, float)
+                     and math.isfinite(_MIN_INTERVAL) and _MIN_INTERVAL > 0)
+        except (TypeError, ValueError, OverflowError):
+            valid = False
+        if not valid:
+            raise ValueError("Invalid local pacing clock or interval")
+        if _last_observed_ts is not None and now < _last_observed_ts:
+            _last_call_ts = now
+        _last_observed_ts = now
+        wait_for = max(0.0, _MIN_INTERVAL - (now - _last_call_ts))
+        if not wait_for:
+            _last_call_ts = now
+        return wait_for
+
+
 async def _throttle() -> None:
-    global _last_call_ts
-    async with _lock:
-        wait_for = _MIN_INTERVAL - (time.monotonic() - _last_call_ts)
-        if wait_for > 0:
-            await asyncio.sleep(wait_for)
-        _last_call_ts = time.monotonic()
+    # Never hold the synchronous lock across an await. Cancellation while
+    # waiting consumes no future admission; simultaneous/early wakes must
+    # recheck permission instead of all sending after the same sleep.
+    while (wait_for := _throttle_wait()) > 0:
+        await asyncio.sleep(wait_for)
 
 
 def _register_fail(key: str) -> None:

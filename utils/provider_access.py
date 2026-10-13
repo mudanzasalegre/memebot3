@@ -20,7 +20,8 @@ class ResourceAccess:
 
     Ordinary first requests keep existing concurrency. After denial only one
     recovery probe can run across threads/loops. Refresh does not bypass it.
-    Latest admitted resource generation owns health, not other tokens' caches.
+    Latest completed resource generation owns health, not other tokens' caches.
+    Admission alone cannot discard a denial received before a waiting GET.
     A changed in-memory credential invalidates old health and response leases;
     this class never reads or modifies credential files or refreshes them.
     """
@@ -57,7 +58,8 @@ class ResourceAccess:
 
     @staticmethod
     def _state():
-        return {'generation':0, 'denied':False, 'retry_at':None, 'probe':None,
+        return {'generation':0, 'completed_generation':0,
+                'denied':False, 'retry_at':None, 'probe':None,
                 'last_http_status':None, 'last_denied_http_status':None, 'available':False,
                 'recovery_wait':False}
 
@@ -110,7 +112,7 @@ class ResourceAccess:
             return lease.configuration_generation == self._configuration_generation
 
     def wire_allowed(self, lease, credential):
-        """A request waiting in throttle must observe a newer denial before GET."""
+        """A request waiting in throttle must observe a completed denial before GET."""
         with self._lock:
             now = self._sync(credential)
             state = self._states.get(lease.resource)
@@ -122,8 +124,11 @@ class ResourceAccess:
             now = self._sync(self._credential)
             state = self._states.get(lease.resource)
             if (lease.configuration_generation != self._configuration_generation or state is None
-                    or state['generation'] != lease.request_generation):
+                    or lease.request_generation < state['completed_generation']):
                 return False
+            # New work admitted but not yet answered is not success evidence.
+            # Older answers still cannot overwrite a newer completed answer.
+            state['completed_generation'] = lease.request_generation
             state['last_http_status'] = http_status if type(http_status) is int else None
             if state['last_http_status'] in (401, 403):
                 state.update(denied=True, available=False, recovery_wait=False,

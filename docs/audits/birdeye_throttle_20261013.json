@@ -1,0 +1,152 @@
+{
+  "stage_status": "SCOPED_SOFTWARE_VERIFIED_KNOWN_SHARED_CLOCK_GAP_RUNTIME_OFF",
+  "global_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_publishing_commit": "15711d4c7efd8e3aa0808efa5719b927c17c093b",
+  "scope": "Native Birdeye thread/loop-shared monotonic pacing, completed-response access ordering and overflow-safe optional RPM. No operational run, model/policy activation, real account or provider acceptance.",
+  "implemented": [
+    "Replace the loop-bound asyncLock with a synchronous RLock used only for atomic monotonic permission. Clock sampling is inside admission; sleeps release the lock and always recheck permission, preventing multiple early/simultaneous wakes from sharing one slot.",
+    "One interval spans token, pair and creation resources and all event loops/threads. A cancelled waiter owns no future reserved slot. Invalid local clock/interval fails closed; a real reversal waits a conservative full interval. This certifies local admission software, not actual network-start spacing, provider quotas, billing or latency SLA.",
+    "Unrepresentable optional BIRDEYE_RPM falls back to60rpm/1second instead of crashing cold import. Tested environment is explicitly applied after native config loads and before adapter import; the earlier inherited-env-only test limitation remains recorded.",
+    "Fixed-resource health follows the latest completed response generation, not merely newly admitted unsent work. An older completed401/403 blocks newer waiting GETs; a newer completed validated200 can supersede it, while late older success/failure and observed obsolete credentials cannot overwrite newer completed health. Resource-specific cooldown and one recovery probe remain.",
+    "Native compatible coalescence, forced generation ownership, latest cache publication, cancellation draining, valid extreme25000percent observations, original birth context, exact0.1SOL sizing and risk/entry controls remain. No policy loosened, historical data relabeled or operator key/account changed."
+  ],
+  "reproduced_failures": {
+    "original_working_loop": {
+      "failed": 1,
+      "passed": 6,
+      "seconds": 16.17,
+      "qualification": "Initial inherited-environment cold test did not prove RPM override; not accepted as RPM evidence."
+    },
+    "original_working_cold_rpm": {
+      "failed": 1,
+      "passed": 5,
+      "seconds": 16.08,
+      "failure": "OverflowError for400-digit RPM after verified cold adapter environment."
+    },
+    "original_publishing_final_tests": {
+      "failed": 2,
+      "passed": 5,
+      "seconds": 11.38,
+      "failures": [
+        "native second-loop asyncLock binding",
+        "native cold optional RPM overflow"
+      ]
+    },
+    "intermediate_access_order": {
+      "failed": 1,
+      "passed": 31,
+      "seconds": 17.14,
+      "failure": "Completed403 discarded solely because a newer unsent request is admitted; second GET leaks through pacing."
+    }
+  },
+  "completed_focused_evidence": {
+    "new_repository_cases": 36,
+    "working": {
+      "passed": 440,
+      "seconds": 22.77,
+      "exit": 0
+    },
+    "publishing": {
+      "passed": 440,
+      "seconds": 17.77,
+      "exit": 0
+    },
+    "cold_native_imports_each": 27,
+    "scope": "Synthetic native provider/creation/entry/cache integration; no operational PAPER, actual provider access or financial acceptance."
+  },
+  "current_source_epoch": {
+    "files_each": 797,
+    "normalized_sha256": "b14fd1c30aa43332ca62f3e78611e99bd11768ff60bc12c14704ddd8f815cd3a",
+    "frozen_at_utc": "2026-10-13T13:14:29.941564+00:00",
+    "complete_native_runs": "PASSED_ACTUAL_NATIVE_FULL_BOTH_ROOTS",
+    "source_edits_during_runs": false
+  },
+  "collection": {
+    "repository_cases_each": 5826,
+    "working_total": 5827,
+    "publishing_total": 5826,
+    "repository_nodeids_sha256": "04591a17e696ea1ec8079243a3055da00b1fa4ae7f20153641b45530e03e2991",
+    "private_working_case": "Owned preflight deadline fixture"
+  },
+  "complete_native_preflight": {
+    "status": "PASSED_ACTUAL_NATIVE_FULL_BOTH_ROOTS",
+    "actual_command_each": "python -m tools.preflight --run-tests",
+    "external_attestation": false,
+    "working": {
+      "native_exit": 0,
+      "native_ok": true,
+      "pytest_exit": 0,
+      "repository_cases": 5826,
+      "total_passed": 5827,
+      "private_cases": 1,
+      "warnings": 2,
+      "pytest_seconds": 1699.29,
+      "generated_at_utc": "2026-10-13T13:44:46.482820+00:00",
+      "compile_errors": 0,
+      "config_import_exit": 0,
+      "empty_report_builders_passed": 7
+    },
+    "publishing": {
+      "native_exit": 0,
+      "native_ok": true,
+      "pytest_exit": 0,
+      "repository_cases": 5826,
+      "total_passed": 5826,
+      "private_cases": 0,
+      "warnings": 2,
+      "pytest_seconds": 1671.3,
+      "generated_at_utc": "2026-10-13T13:44:20.267753+00:00",
+      "compile_errors": 0,
+      "config_import_exit": 0,
+      "empty_report_builders_passed": 7
+    }
+  },
+  "operator_preservation": {
+    "stage_baseline": "Captured fresh before this repair; prior DB physical-byte warning and coherent snapshot remain separately retained, not erased.",
+    "working_protected": 3766,
+    "publishing_protected": 27,
+    "changes_or_new_paths_at_last_check": 0,
+    "source_proof_still_equal_at_last_check": true,
+    "observed_at_utc": "2026-10-13T13:46:06.573570+00:00",
+    "restores_or_deletions": false,
+    "changes_or_new_paths_after_complete_qa": 0
+  },
+  "runtime": {
+    "operational_processes": 0,
+    "qa_processes": 0,
+    "tasks": 0,
+    "running_tasks": 0,
+    "services": 0,
+    "running_services": 0,
+    "locks_each": 0,
+    "sql_main": "stopped/idle/idle",
+    "sql_updated_at": "2026-10-13 10:43:54.767270",
+    "observed_at_utc": "2026-10-13T13:46:10.8090339+00:00",
+    "qualification": "Post-complete-QA read-only original-root process/task/service/lock census and original SQL state. Scoped no-LIVE green positions are empty; not whole-wallet or profitability proof."
+  },
+  "known_remaining": [
+    "Gecko and generic fixed-window permission helpers sample monotonic time outside their locks. Both native original roots under controlled100/101/101 scheduling admit twice at101 after a delayed sample100 falsely resets the baseline. No HTTP; not evidence of historical occurrence or actual quota/profit impact. Separate repair must preserve the frozen current full-QA epoch.",
+    "Actual Birdeye creation permission/account access remains unverified and the last authenticated evidence is401. No connected Chrome/Edge was available at the latest direct inventory; installing an extension alone is not account/key success.",
+    "Independent provider market-asof, quotas/cleanupSLA, primary activation and full-goal source/financial/opportunity coverage and prospective net profitable capture remain incomplete."
+  ],
+  "publication": {
+    "status": "SOURCE_ACCEPTANCE_GIT_DELIVERY_VERIFIED_SEPARATELY_AFTER_SCOPED_COMMIT",
+    "intended_files": [
+      "fetcher/birdeye.py",
+      "utils/provider_access.py",
+      "tests/test_birdeye_throttle.py",
+      "README.md",
+      "docs/audits/architecture_goal_20261007.json",
+      "docs/audits/birdeye_throttle_20261013.json"
+    ],
+    "unrelated_generated_docs_excluded": 8,
+    "no_private_or_operator_artifacts_in_intended_files": true
+  },
+  "claims_not_made": [
+    "100percent error-free future execution",
+    "Winning strategy or guaranteed maximum profit",
+    "First-run/no-buy historical causality from the reproduced scheduler defects",
+    "Actual provider-plan permission/quota, bank/wallet or financial transaction acceptance"
+  ]
+}

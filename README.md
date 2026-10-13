@@ -13,6 +13,37 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Birdeye: limitador entre bucles/hilos y orden de respuestas (2026-10-13)
+
+El fallo del limitador async de la etapa anterior esta corregido. Los tres
+recursos comparten admision monotonic protegida entre hilos y bucles, sin
+mantener el bloqueo durante una espera ni reservar turnos futuros. Cada
+despertar comprueba de nuevo el permiso; una cancelacion en espera no consume
+otro turno. Un reloj local invalido falla cerrado y un retroceso espera un
+intervalo completo. Un RPM opcional desmesurado ya no impide importar el modulo.
+
+Un 401/403 recibido ahora bloquea las consultas nuevas que todavia esperan,
+aunque ya hayan sido admitidas. El estado sigue la respuesta completada mas
+reciente, no solo la admision: un resultado anterior no pisa otro posterior
+completado. Se mantienen coalescencia, cache actual, recuperacion por recurso,
+recibos originales, controles de riesgo y compras PAPER exactas de 0,1 SOL.
+
+36 casos nuevos y 440 pruebas focalizadas pasan en ambas copias. El preflight
+completo nativo pasa las mismas 5.826 pruebas del repositorio por copia
+(D suma una prueba privada): 1.699,29 s en D y 1.671,30 s en C, con dos avisos
+existentes de pandas. Compilacion, configuracion, 27 imports y siete informes
+vacios por copia quedan verificados sobre las mismas 797 fuentes congeladas.
+Los archivos protegidos permanecen sin cambios respecto al nuevo baseline;
+la alerta historica de bytes de SQLite de la etapa anterior no se borra.
+
+Queda reproducido otro fallo independiente: Gecko y el limitador de ventana
+comun leen el reloj antes del bloqueo, y una suspension controlada puede crear
+un falso retroceso y conceder dos permisos en el mismo instante. Su reparacion,
+el acceso real a creacion de Birdeye y la aceptacion financiera siguen pendientes.
+Estas pruebas no certifican cuota real, latencia de red, ocurrencia historica
+ni beneficios. Bot, QA, LIVE, entrenamiento y AutoResearch quedan apagados.
+[Auditoria del limitador y limites pendientes](docs/audits/birdeye_throttle_20261013.json).
+
 ### Birdeye: acceso por recurso y precision de recibos (2026-10-13)
 
 Los HTTP 401/403 ahora se distinguen de la ausencia de datos de un token.
@@ -35,8 +66,8 @@ La alerta anterior de bytes de SQLite queda documentada: solo se observa una
 columna adicional y retencion de registros en la comparacion disponible; no se
 declara igualdad historica de bytes ni se restaura la base.
 
-Todavia queda un fallo reproducido del limitador al reutilizar bucles async,
-ademas del acceso real a creacion de Birdeye y la aceptacion financiera.
+El fallo del limitador reproducido en esta etapa se corrige en el bloque
+posterior indicado arriba. El acceso real y la aceptacion financiera siguen pendientes.
 No se ha arrancado otro PAPER, LIVE, entrenamiento ni AutoResearch. Todo sigue
 apagado y no se presenta este bloque como prueba de rentabilidad.
 [Auditoria de acceso y limites pendientes](docs/audits/birdeye_resource_access_20261013.json).
