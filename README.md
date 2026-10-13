@@ -13,6 +13,33 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Gecko y limites compartidos: reloj y admision atomica (2026-10-13)
+
+El falso retroceso reproducido en la etapa anterior esta corregido: Gecko y el
+limitador de ventana leen el reloj dentro del mismo bloqueo que decide el
+permiso. Los callers sync/async e hilos mantienen los limites existentes,
+recomprueban permiso al despertar y no reservan turnos futuros al cancelarse.
+La ventana valida tambien el reloj inicial; un NaN ya no puede dejar un
+presupuesto roto despues de recuperar el reloj. No se relajan tasas, filtros,
+recibos de nacimiento, politicas ni compras PAPER exactas de 0,1 SOL.
+
+32 casos nuevos y 482 pruebas focalizadas pasan en ambas copias. El preflight
+completo nativo pasa las mismas 5.858 pruebas del repositorio por copia
+(D incluye una privada): 1.430,70 s en D y 1.405,12 s en C, con dos avisos de
+pandas ya conocidos. Compilacion, configuracion, 27 imports y siete informes
+vacios por copia se verifican sobre 798 fuentes congeladas identicas.
+Los archivos protegidos siguen sin cambios frente al baseline de esta etapa,
+sin borrar la alerta historica de bytes de SQLite. Bot y QA quedan apagados.
+
+La siguiente prioridad es el dato de nacimiento: el parser actual pierde las
+posibles referencias de transaccion y el enriquecimiento tipado depende de
+Birdeye. Una prueba sintetica confirma ese contrato, no la disponibilidad real
+de firmas en el feed. Se estudiara una alternativa RPC que verifique la
+inicializacion del mint exacto; una fecha de bloque o cuenta asociada no basta.
+No esta implementada ni implica permiso de compra. Acceso real, modelo primario,
+cobertura de oportunidades y rendimiento neto siguen sin quedar aceptados.
+[Auditoria de relojes y siguiente limite de datos](docs/audits/shared_pacing_clock_20261013.json).
+
 ### Birdeye: limitador entre bucles/hilos y orden de respuestas (2026-10-13)
 
 El fallo del limitador async de la etapa anterior esta corregido. Los tres
@@ -36,10 +63,9 @@ vacios por copia quedan verificados sobre las mismas 797 fuentes congeladas.
 Los archivos protegidos permanecen sin cambios respecto al nuevo baseline;
 la alerta historica de bytes de SQLite de la etapa anterior no se borra.
 
-Queda reproducido otro fallo independiente: Gecko y el limitador de ventana
-comun leen el reloj antes del bloqueo, y una suspension controlada puede crear
-un falso retroceso y conceder dos permisos en el mismo instante. Su reparacion,
-el acceso real a creacion de Birdeye y la aceptacion financiera siguen pendientes.
+El fallo independiente de Gecko/ventana reproducido en esta etapa se corrige
+en el bloque posterior indicado arriba. El acceso real a creacion de Birdeye
+y la aceptacion financiera siguen pendientes.
 Estas pruebas no certifican cuota real, latencia de red, ocurrencia historica
 ni beneficios. Bot, QA, LIVE, entrenamiento y AutoResearch quedan apagados.
 [Auditoria del limitador y limites pendientes](docs/audits/birdeye_throttle_20261013.json).

@@ -55,8 +55,21 @@ class RateLimiter:
             raise ValueError("Invalid rate window")
         self.max_calls, self.interval = int(max_calls), float(interval)
         self._tokens = self.max_calls
-        self._last_reset = self._last_observed = time.monotonic()
         self._lock = threading.RLock()
+        with self._lock:
+            self._last_reset = self._last_observed = self._now_locked()
+
+    @staticmethod
+    def _now_locked():
+        """Read only under admission lock; invalid clocks cannot mutate state."""
+        now = time.monotonic()
+        try:
+            valid = type(now) in (int, float) and math.isfinite(now)
+        except (TypeError, ValueError, OverflowError):
+            valid = False
+        if not valid:
+            raise ValueError("Invalid local monotonic clock")
+        return now
 
     async def __aenter__(self):
         await self.acquire()
@@ -66,10 +79,10 @@ class RateLimiter:
         return False
 
     def _permission_or_wait(self):
-        now = time.monotonic()
-        if not math.isfinite(now):
-            raise ValueError("Invalid local monotonic clock")
         with self._lock:
+            # Clock read and state update must share the lock across sync/
+            # async callers: delayed pre-lock reads are not real reversals.
+            now = self._now_locked()
             if now < self._last_observed:
                 self._tokens, self._last_reset = 0, now
             self._last_observed = now

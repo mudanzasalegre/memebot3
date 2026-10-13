@@ -1,0 +1,151 @@
+{
+  "stage_status": "SCOPED_SOFTWARE_VERIFIED_RUNTIME_OFF",
+  "global_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_publishing_commit": "e8c63c4281b86790be1af35381b1c4e6d8be6e4c",
+  "scope": "Native Gecko interval and generic fixed-window monotonic admission/initialization; local synthetic source/data-lineage review. No operational bot/training/AutoResearch, actual RPC/provider probe, account/key change or LIVE activation.",
+  "implemented": [
+    "Gecko and generic fixed-window clock sampling now occurs inside the same RLock as admission/state publication, preventing delayed pre-lock reads from manufacturing clock reversal across threads. Original configured interval/window/token limits and sync/async shared admission are preserved.",
+    "Native fixed-window construction validates its initial monotonic clock under its lock. Invalid builtin clock types/nonfinite/overflow values raise ValueError before seeding a broken reset baseline; admission validation likewise leaves state unchanged. Real backwards clocks retain conservative bounded recovery.",
+    "Sleeping sync and async callers recheck permission with no lock or future reservation held; cancellation leaves the existing budget intact. Native cross-thread mixed sync/async, same-clock contention, exact boundaries and early wake cases are tested.",
+    "Existing resource/caches/coalescence/force-generation ownership, original birth and entry/risk/learning rules remain. No rate, exact0.1SOL PAPER sizing, filter or policy is loosened."
+  ],
+  "original_native_failures": {
+    "working": {
+      "failed": 4,
+      "deselected": 22,
+      "seconds": 1.84
+    },
+    "publishing": {
+      "failed": 8,
+      "deselected": 24,
+      "seconds": 1.62
+    },
+    "clock_order": "Preceding original native controlled100/101/101 scheduling in both roots produced two permission grants at101 after a delayed100 sample falsely reset the baseline.",
+    "invalid_initial_clock": "Original native C constructor accepts NaN. After recovery to monotonic100 a1-call/1-second window returns six zero waits with tokens0, not consumed permissions.",
+    "qualification": "Synthetic software inputs/scheduling, not historical startup occurrence, actual quota violations or financial effects."
+  },
+  "focused": {
+    "new_repository_cases": 32,
+    "intermediate_working": {
+      "passed": 266,
+      "seconds": 18.53
+    },
+    "expanded_working": {
+      "passed": 482,
+      "seconds": 23.2,
+      "exit": 0
+    },
+    "expanded_publishing": {
+      "passed": 482,
+      "seconds": 18.2,
+      "exit": 0
+    },
+    "cold_native_imports_each": 27
+  },
+  "current_source_epoch": {
+    "files_each": 798,
+    "normalized_sha256": "9ac3beac97f87f7822da42f9b3b539c444e954e75874b725f90f0826143ed7a2",
+    "frozen_at_utc": "2026-10-13T14:04:13.304480+00:00",
+    "source_edits_during_runs": false
+  },
+  "complete_native_preflight": {
+    "status": "PASSED_ACTUAL_NATIVE_FULL_BOTH_ROOTS",
+    "actual_cli_each": "python -m tools.preflight --run-tests",
+    "external_attestation": false,
+    "repository_cases_each": 5858,
+    "same_repository_nodeids": true,
+    "repository_nodeids_sha256": "556a20e28bc2e39f7305875546ea246730ede6742746b10a23c6a7d942f45a5c",
+    "working": {
+      "native_exit": 0,
+      "native_ok": true,
+      "pytest_exit": 0,
+      "total_passed": 5859,
+      "private_cases": 1,
+      "warnings": 2,
+      "pytest_seconds": 1430.7,
+      "generated_at_utc": "2026-10-13T14:31:40.927164+00:00",
+      "compile_errors": 0,
+      "config_import_exit": 0,
+      "empty_report_builders_passed": 7
+    },
+    "publishing": {
+      "native_exit": 0,
+      "native_ok": true,
+      "pytest_exit": 0,
+      "total_passed": 5858,
+      "private_cases": 0,
+      "warnings": 2,
+      "pytest_seconds": 1405.12,
+      "generated_at_utc": "2026-10-13T14:31:16.172084+00:00",
+      "compile_errors": 0,
+      "config_import_exit": 0,
+      "empty_report_builders_passed": 7
+    }
+  },
+  "operator_preservation": {
+    "working_protected": 3766,
+    "publishing_protected": 27,
+    "changes_or_new_paths": 0,
+    "after_full_check_utc": "2026-10-13T14:34:12.977128+00:00",
+    "qualification": "Fresh shared-stage baseline unchanged; previous DB physical-byte warning, prior baselines and coherent snapshot remain preserved. No original all-history byte-immutability, restore or deletion claim."
+  },
+  "runtime": {
+    "operational_processes": 0,
+    "qa_processes": 0,
+    "tasks": 0,
+    "services": 0,
+    "locks_each": 0,
+    "sql_main": "stopped/idle/idle",
+    "sql_updated_at": "2026-10-13 10:43:54.767270",
+    "observed_at_utc": "2026-10-13T14:34:17.4427225+00:00"
+  },
+  "next_birth_lineage_review": {
+    "native_source_checked_both": true,
+    "synthetic_parser_input": "mint/signature/txType/slot",
+    "observed": "Native parser preserves mint but discards transaction-reference fields and leaves absent birth unknown. Default native enrichment lookup is Birdeye and current typed receipt rejects an RPC source tag.",
+    "raw_feed_reference_prevalence": "NOT_ESTABLISHED",
+    "historical_no_buy_causality": "NOT_ESTABLISHED_BY_THIS_CONTRACT_CHECK",
+    "rpc_alternative": "Candidate only: preserve a bounded untrusted creation reference and verify exact mint initialization via configured read-only RPC, with complete checked receipt/time/version/identity/cancellation/budget lineage. Generic blockTime or account creation alone is not original mint birth.",
+    "implemented": false,
+    "sources": [
+      {
+        "title": "PumpPortal real-time creation subscription",
+        "url": "https://pumpportal.fun/data-api/real-time/"
+      },
+      {
+        "title": "Solana getTransaction",
+        "url": "https://solana.com/docs/rpc/http/gettransaction"
+      },
+      {
+        "title": "Solana mint creation",
+        "url": "https://solana.com/docs/tokens/basics/create-mint"
+      }
+    ],
+    "qualification": "Code/data-contract evidence and official documentation, not an actual provider connection, guaranteed feed schema/coverage, independently authenticated finality or executable profitable opportunity."
+  },
+  "known_remaining": [
+    "Actual provider resource permission, quota/market-asof/depth and cleanup/production latency acceptance remain unverified. No Chrome/Edge account/key mutation or paid upgrade occurred.",
+    "Implement/validate a source-safe alternative to birth enrichment if supported by actual creation-reference evidence; raw reference coverage and other legacy/untyped clocks are not universally certified.",
+    "Managed primary/model activation, independently scoped source/input/financial ownership and full-strategy prospective net profitable capture remain separate and incomplete. Preserve all ten original remaining requirements."
+  ],
+  "publication": {
+    "intended_files": [
+      "fetcher/geckoterminal.py",
+      "utils/rate_limiter.py",
+      "tests/test_shared_pacing_clock.py",
+      "README.md",
+      "docs/audits/architecture_goal_20261007.json",
+      "docs/audits/shared_pacing_clock_20261013.json"
+    ],
+    "operator_generated_docs_excluded": 8,
+    "status": "SOURCE_ACCEPTANCE_GIT_DELIVERY_VERIFIED_SEPARATELY_AFTER_SCOPED_COMMIT"
+  },
+  "claims_not_made": [
+    "100percent error-free future execution",
+    "Winning strategy or guaranteed maximum profit",
+    "Local admission equals actual provider quota/network/billing",
+    "Synthetic contract inputs equal observed live feed coverage",
+    "Receipt/transaction result alone establishes independent mint-birth finality or buy permission"
+  ]
+}

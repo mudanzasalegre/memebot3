@@ -222,10 +222,16 @@ def _decode_response(payload, network, address, received_at):
 
 def _throttle_wait():
     global _last_call_ts, _last_observed_ts
-    now = time.monotonic()
-    if not math.isfinite(now):
-        raise ValueError("Invalid local monotonic clock")
     with _state_lock:
+        # Sampling before this lock can manufacture a backwards clock when
+        # an older thread resumes after a newer thread has already admitted.
+        now = time.monotonic()
+        try:
+            valid = type(now) in (int, float) and math.isfinite(now)
+        except (TypeError, ValueError, OverflowError):
+            valid = False
+        if not valid:
+            raise ValueError("Invalid local monotonic clock")
         if _last_observed_ts is not None and now < _last_observed_ts:
             _last_call_ts = now
         _last_observed_ts = now
