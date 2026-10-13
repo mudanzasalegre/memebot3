@@ -13,6 +13,22 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Preflight: alcance explicito y resultados conservados (2026-10-14)
+
+`ok` acredita comprobaciones auxiliares de software/perfiles/informes,
+no arranque operativo, acceso a proveedores ni rentabilidad. Pytest distingue
+ejecucion real, fallo de lanzamiento, ausencia de ejecucion y la afirmacion
+del lanzador: `--external-pytest-passed` ya no inventa un comando o exit0.
+`--status-path ruta.json` permite resultados atomicos de auditoria sin
+sustituir el estado operativo; el destino habitual no cambia.
+
+Pasan 55 pruebas enfocadas por carpeta, con 12 casos nuevos, y cuatro
+comprobaciones de CLI auxiliar real (sin pytest ni runtime). Se recogen
+6.236 casos. La revision anterior `eb5e5a2` pasa sus 6.209 casos completos
+en Windows y Ubuntu; la CI de esta nueva fuente sigue pendiente. Todo queda
+apagado, con datos/modelos/env y estado de preflight operativo preservados.
+[Auditoria y limites](docs/audits/preflight_acceptance_scope_20261014.json).
+
 ### Aprendizaje: un ciclo compartido y trabajadores supervisados (2026-10-14)
 
 El control del bot y el daemon comparten ahora el ciclo de entrenamiento.

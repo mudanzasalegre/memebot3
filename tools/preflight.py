@@ -145,6 +145,14 @@ PAPER_HOTFIX_EXACT_AMOUNTS_SOL = {
 
 CRITICAL_MODULES = [
     "run_bot.py",
+    "ml/train.py",
+    "ml/retrain.py",
+    "ml/training_daemon.py",
+    "ml/training_lock.py",
+    "ml/runner_advisory_learning.py",
+    "runtime/owned_thread.py",
+    "runtime/hot_queue.py",
+    "runtime/loop_scheduler.py",
     "trader/papertrading.py",
     "analytics/forward_evidence.py",
     "analytics/paper_forward.py",
@@ -448,13 +456,21 @@ def build_preflight_status(*, run_tests: bool = False, external_pytest_passed: b
     }
     if run_tests:
         checks["pytest"] = _run([interpreter, "-m", "pytest", "-q"], timeout=pytest_timeout_seconds)
+        checks["pytest"]["executed"] = "launch_error" not in checks["pytest"]
+        checks["pytest"]["source"] = "native_preflight"
+        pytest_scope = ("launch_failed" if "launch_error" in checks["pytest"] else
+                        "passed" if checks["pytest"]["returncode"] == 0 else "failed")
     elif external_pytest_passed:
         checks["pytest"] = {
-            "cmd": [interpreter, "-m", "pytest", "-q"],
-            "returncode": 0,
-            "stdout_tail": "pytest already passed in startup preflight",
-            "stderr_tail": "",
+            "executed": False,
+            "source": "external_caller",
+            "caller_reported_passed": True,
+            "verified_by_this_preflight": False,
+            "detail": "Caller assertion only; no native pytest command or exit code was observed here",
         }
+        pytest_scope = "caller_reported_passed"
+    else:
+        pytest_scope = "not_run"
     status = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "root": str(ROOT),
@@ -468,6 +484,15 @@ def build_preflight_status(*, run_tests: bool = False, external_pytest_passed: b
             value.get("returncode", 0) == 0 for value in checks.values() if isinstance(value, dict) and "returncode" in value
         ),
         "checks": checks,
+        "validation_scope": {
+            "version": "preflight_supporting_checks_v2",
+            "pytest": pytest_scope,
+            "runtime": "not_tested",
+            "provider_access": "not_tested",
+            "profitability": "not_established",
+            "whole_goal_complete": False,
+            "ok_meaning": "Supporting software/profile/report checks; not operational or financial acceptance",
+        },
     }
     return status
 
@@ -481,16 +506,20 @@ def main() -> int:
     parser.add_argument(
         "--external-pytest-passed",
         action="store_true",
-        help="record pytest as passed because the caller already ran it successfully",
+        help="record the caller's pytest report without claiming a native command or exit code",
     )
+    parser.add_argument("--status-path", type=Path, default=STATUS_PATH,
+                        help="JSON result destination; use an owned audit path to preserve operator status")
     args = parser.parse_args()
+    if args.status_path.suffix.lower() != ".json":
+        parser.error("--status-path must end in .json")
     status = build_preflight_status(
         run_tests=args.run_tests,
         external_pytest_passed=args.external_pytest_passed,
         pytest_timeout_seconds=args.pytest_timeout_seconds,
     )
-    STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATUS_PATH.write_text(json.dumps(status, indent=2, default=str), encoding="utf-8")
+    from utils.atomic_json import write_json_atomic
+    write_json_atomic(args.status_path, status)
     print(json.dumps(status, indent=2, default=str))
     return 0 if status["ok"] else 1
 

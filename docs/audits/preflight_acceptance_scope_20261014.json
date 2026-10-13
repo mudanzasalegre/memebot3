@@ -1,0 +1,209 @@
+{
+  "status": "SCOPED_PREFLIGHT_EVIDENCE_REPAIRED_NATIVE_SUPPORTING_ACCEPTED_CURRENT_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "observed_at_utc": "2026-10-13T23:05:51.176575+00:00",
+  "implementation_parent": "fb9a14dfb04e0b72c3fad8d502a0c20be0e828d9",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 814,
+      "sha256": "a465b165142cbfc2fd48f0307800685d666deedfb84f568761c43fcf624f7386"
+    },
+    {
+      "checkout": "publishing",
+      "files": 814,
+      "sha256": "a465b165142cbfc2fd48f0307800685d666deedfb84f568761c43fcf624f7386"
+    }
+  ],
+  "summary": "Native preflight now distinguishes not-run, caller-reported, genuinely executed passed/failed and failed-launch pytest checks. The legacy external flag stays launcher-compatible but no longer invents a native command/zero exit code. Supporting ok explicitly does not certify runtime/provider access, profitability or whole-goal completion. Eight real new training/scheduling modules join critical syntax checks; --status-path accepts JSON outputs and atomic publication preserves operator status during audits. All4 native baseline regressions fail;12 new cases/55 focused per root pass (D6.76s/C6.59s), no skips. Whole native supporting/external CLI runs pass in both roots, each7 isolated no-data report builders and zero compile errors, with no network/model-load/fit attempts and original operator status untouched. These four CLI checks do not execute pytest or start runtime.6236 cases collected; current full two-OS validation remains pending. Actual preceding eb5e5a2 full6209 succeeds on Ubuntu1594.15s/Windows1708.55s with one warning each, not acceptance of these changes. Both roots match814 source files/SHA256a465b165142cbfc2fd48f0307800685d666deedfb84f568761c43fcf624f7386. Protected files unchanged and local runtime/QA/tasks/services OFF. Financial and activation guards remain unchanged; no profitable strategy or full first-launch/provider acceptance is established.",
+  "acceptance": {
+    "baseline": {
+      "tests": 4,
+      "failures": 4,
+      "errors": 0,
+      "skipped": 0
+    },
+    "focused": {
+      "D": {
+        "tests": 55,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "C": {
+        "tests": 55,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "new_repository_cases": 12,
+    "collected_repository_cases": 6236,
+    "current_complete_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "native_cli": [
+      {
+        "checkout": "D",
+        "mode": "supporting",
+        "native_exit_code": 0,
+        "native_ok": true,
+        "validation_scope": {
+          "version": "preflight_supporting_checks_v2",
+          "pytest": "not_run",
+          "runtime": "not_tested",
+          "provider_access": "not_tested",
+          "profitability": "not_established",
+          "whole_goal_complete": false,
+          "ok_meaning": "Supporting software/profile/report checks; not operational or financial acceptance"
+        },
+        "isolated_report_builders": 7,
+        "compile_errors": 0,
+        "operator_status_unchanged": true,
+        "external_or_fit_attempts": [],
+        "native_subprocess_checks": 2,
+        "native_pytest_executed": false
+      },
+      {
+        "checkout": "D",
+        "mode": "external",
+        "native_exit_code": 0,
+        "native_ok": true,
+        "validation_scope": {
+          "version": "preflight_supporting_checks_v2",
+          "pytest": "caller_reported_passed",
+          "runtime": "not_tested",
+          "provider_access": "not_tested",
+          "profitability": "not_established",
+          "whole_goal_complete": false,
+          "ok_meaning": "Supporting software/profile/report checks; not operational or financial acceptance"
+        },
+        "isolated_report_builders": 7,
+        "compile_errors": 0,
+        "operator_status_unchanged": true,
+        "external_or_fit_attempts": [],
+        "native_subprocess_checks": 2,
+        "native_pytest_executed": false
+      },
+      {
+        "checkout": "C",
+        "mode": "supporting",
+        "native_exit_code": 0,
+        "native_ok": true,
+        "validation_scope": {
+          "version": "preflight_supporting_checks_v2",
+          "pytest": "not_run",
+          "runtime": "not_tested",
+          "provider_access": "not_tested",
+          "profitability": "not_established",
+          "whole_goal_complete": false,
+          "ok_meaning": "Supporting software/profile/report checks; not operational or financial acceptance"
+        },
+        "isolated_report_builders": 7,
+        "compile_errors": 0,
+        "operator_status_unchanged": true,
+        "external_or_fit_attempts": [],
+        "native_subprocess_checks": 2,
+        "native_pytest_executed": false
+      },
+      {
+        "checkout": "C",
+        "mode": "external",
+        "native_exit_code": 0,
+        "native_ok": true,
+        "validation_scope": {
+          "version": "preflight_supporting_checks_v2",
+          "pytest": "caller_reported_passed",
+          "runtime": "not_tested",
+          "provider_access": "not_tested",
+          "profitability": "not_established",
+          "whole_goal_complete": false,
+          "ok_meaning": "Supporting software/profile/report checks; not operational or financial acceptance"
+        },
+        "isolated_report_builders": 7,
+        "compile_errors": 0,
+        "operator_status_unchanged": true,
+        "external_or_fit_attempts": [],
+        "native_subprocess_checks": 2,
+        "native_pytest_executed": false
+      }
+    ]
+  },
+  "preceding_complete_matrix": {
+    "commit": "eb5e5a24647e1c3274f3fddd3a80ed436d63a256",
+    "run": 38476715233,
+    "status": "completed",
+    "conclusion": "success",
+    "pytest_summaries": [
+      "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-13T22:17:59.2334903Z 1 passed in 4.22s",
+      "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-13T22:44:34.1033436Z 6209 passed, 1 warning in 1594.15s (0:26:34)",
+      "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-13T22:19:13.9517290Z 1 passed in 6.66s",
+      "test (windows-2022)\tRun python -m pytest -q\t2026-10-13T22:47:43.6625013Z 6209 passed, 1 warning in 1708.55s (0:28:28)"
+    ]
+  },
+  "preserved_failure": "Initial mistyped test selection found no tests; never counted as acceptance",
+  "contracts": [
+    "Caller-reported pytest does not manufacture a native command or exit code",
+    "Executed pytest result, no-run state and failed process launch remain distinct",
+    "Supporting ok is not runtime/provider/financial acceptance or whole-goal completion",
+    "Critical syntax coverage includes actual shared training/owned-thread and scheduling modules",
+    "Explicit JSON status output allows audit results without overwriting operator status",
+    "Non-JSON output paths are rejected before checks and publication is atomic",
+    "Launcher external-flag compatibility and all runtime/trading/activation constraints are preserved"
+  ],
+  "shutdown": {
+    "observed_at_utc": "2026-10-13T23:05:50.9766118+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately."
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-13T23:05:51.164562+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    }
+  },
+  "limits": [
+    "Current full Windows/Linux matrix remains pending",
+    "Native supporting CLI checks are not the full pytest suite or operational startup",
+    "Caller assertions have no independently verified source/case/result receipt in this preflight",
+    "Even a configured pytest command result needs independent coverage and skip-count review",
+    "No provider, runtime, operator training, model activation, AutoResearch or API/UI was launched",
+    "All original ten whole-goal remaining requirements and no-LIVE boundaries remain in force"
+  ]
+}
