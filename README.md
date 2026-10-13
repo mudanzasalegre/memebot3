@@ -13,7 +13,23 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
-### Gecko: admision asincrona reparada; validacion completa pendiente (2026-10-13)
+### Gecko: consultas sincronas compartidas y acotadas (2026-10-13)
+
+`dafbbf8` repara la duplicacion de consultas sincronas compatibles. El
+propietario trabaja en el hilo del llamante, con limites de 16 propietarios
+y 256 llamadas en espera; una espera agotada no cancela al propietario.
+La capacidad conjunta, la generacion y la invalidacion de cache se reservan
+solo tras admitir la peticion, manteniendo los recibos originales y copias
+independientes. No cambian filtros, importe PAPER ni contratos financieros.
+
+Pasan 305 pruebas enfocadas en ambas carpetas y los tres casos del diagnostico
+original. La version asincrona anterior pasa sus 6.047 pruebas completas en
+Windows/Linux; la suite nueva de 6.085 casos sigue pendiente. Todo el bot,
+entrenamiento, AutoResearch y API/UI permanece apagado, con datos/modelos/env
+intactos. No es evidencia de rentabilidad ni de latencia operativa del proveedor.
+[Auditoria y limites](docs/audits/gecko_sync_ownership_20261013.json).
+
+### Antecedente: primera reparacion asincrona de Gecko (2026-10-13)
 
 Una respuesta antigua podia sustituir la cache nueva si su tarea arrancaba
 mas tarde; ademas, un refresco rechazado por capacidad borraba un recibo
@@ -22,12 +38,12 @@ del propietario, antes de arrancar la tarea, y libera su reserva tras el
 cleanup incluso cuando la tarea nunca llega a iniciarse.
 
 Las 206 pruebas enfocadas pasan en ambas carpetas, con 11 casos nuevos.
-La suite completa actual tiene 6.047 casos y sigue pendiente de CI en ambos
-sistemas. La duplicacion de consultas sincronas esta reproducida y aun no
-reparada. No se han relajado filtros ni contratos financieros, ni arrancado
+En esa etapa la suite de 6.047 casos y la duplicacion sincrona estaban
+pendientes; sus avances posteriores constan en la seccion anterior.
+No se han relajado filtros ni contratos financieros, ni arrancado
 el bot. [Evidencia y limites](docs/audits/gecko_admission_20261013.json).
 
-### Instalacion limpia Windows/Linux: validacion y fallos de CI (2026-10-13)
+### Antecedente: instalacion limpia Windows/Linux y fallos de CI (2026-10-13)
 
 Se conservan los fallos reales de CI y sus reparaciones: ABI PyArrow/NumPy,
 imports de paquetes del proyecto, SDK Solana sincronico, identidad escalar de

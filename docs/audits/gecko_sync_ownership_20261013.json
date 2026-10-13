@@ -1,0 +1,164 @@
+{
+  "status": "SCOPED_SYNC_OWNERSHIP_REPAIRED_CURRENT_FULL_MATRIX_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "scope": "Source-only Gecko synchronous ownership and original request ordering; no operational or financial acceptance.",
+  "implementation_commit": "dafbbf803c3a33ccd00d92dd920dae1961d2c211",
+  "parent_commit": "2341e4d8e7532a9fd77b97ad657a394939a6a51d",
+  "initial_native_diagnosis": {
+    "source_files_each": 808,
+    "source_sha256_each": "e281e85bb94b63beda8364a48ba5994c8b2c87b5d5fa04217247a62404508d5c",
+    "working": {
+      "failed": 1,
+      "passed": 2,
+      "seconds": 1.67
+    },
+    "publishing": {
+      "failed": 1,
+      "passed": 2,
+      "seconds": 1.61
+    },
+    "defect": "Two compatible concurrent sync callers create two HTTP requests; original async repairs already passed."
+  },
+  "implementation": [
+    "SyncOwnedRequests runs the owner's factory inline; no background worker or detached thread is created.",
+    "Only identical normalized token/network, session object and HTTP timeout share an accepted owner. Force always requests a new owner; different sessions/timeouts remain independent.",
+    "Owner/joiner counts have global hard bounds; same-thread recursive joins reject instead of self-waiting. Aggregate pressure exposes no token, session, thread identity or body.",
+    "Both owned capacity and shared sync/async adapter capacity must admit before force cache invalidation and original latest generation change. Rejected work cannot clear a valid receipt.",
+    "Joiners wait at most their configured join timeout and never cancel or release the owner's adapter lease. A factory's own TimeoutError remains an original propagated error, not falsely classified as a join timeout.",
+    "Original response/session cleanup finishes before sharing the result. Each native consumer receives a detached copy, and the admitted caller releases its generation/lease after inline ownership returns.",
+    "Normal rate limiter, cooldown, token identity, receipt timestamps, HTTP timeout, negative failure TTL and strict cleanup-failure behavior remain unchanged."
+  ],
+  "configured_bounds": {
+    "sync_max_owners": 16,
+    "sync_max_joiners": 256,
+    "shared_sync_async_max_active": 16,
+    "join_timeout": "Validated positive finite existing timeout argument, default5seconds.",
+    "qualification": "Join wait is bounded; this is not an end-to-end provider/HTTP/serial-monitor latency SLA or billing/entitlement proof."
+  },
+  "actual_validation": {
+    "new_repository_cases": 38,
+    "repository_cases_collected": 6085,
+    "focused_files": [
+      "tests/test_gecko_sync_ownership.py",
+      "tests/test_gecko_admission_ownership.py",
+      "tests/test_gecko_contract.py",
+      "tests/test_geckoterminal.py",
+      "tests/test_shared_pacing_clock.py",
+      "tests/test_price_service_gecko_timeout.py",
+      "tests/test_dex_request_ownership.py",
+      "tests/test_provider_capacity.py"
+    ],
+    "working": {
+      "passed": 305,
+      "seconds": 4.29,
+      "exit_code": 0
+    },
+    "publishing": {
+      "passed": 305,
+      "seconds": 4.09,
+      "exit_code": 0
+    },
+    "original_three_case_diagnostic": {
+      "working": {
+        "passed": 3,
+        "seconds": 1.93,
+        "exit_code": 0
+      },
+      "publishing": {
+        "passed": 3,
+        "seconds": 1.78,
+        "exit_code": 0
+      }
+    },
+    "strategy": {
+      "commit": "dafbbf803c3a33ccd00d92dd920dae1961d2c211",
+      "run": 38464227624,
+      "passed": 41,
+      "seconds": 4.65,
+      "conclusion": "success"
+    }
+  },
+  "preceding_complete_python_matrix": {
+    "commit": "4aed55931cf2f40ead08f3a4331c762736ab99c4",
+    "run": 38460874988,
+    "platforms": {
+      "ubuntu-24.04": {
+        "passed": 6047,
+        "warnings": 1,
+        "seconds": 1127.58,
+        "conclusion": "success"
+      },
+      "windows-2022": {
+        "passed": 6047,
+        "warnings": 1,
+        "seconds": 1458.96,
+        "conclusion": "success"
+      }
+    },
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38460874988",
+    "qualification": "Before38sync cases. Missing-model status/no-data replay are diagnostic successes, not active-model or profitability evidence."
+  },
+  "current_complete_python_matrix": {
+    "commit": "dafbbf803c3a33ccd00d92dd920dae1961d2c211",
+    "run": 38464227529,
+    "status": "in_progress",
+    "repository_cases_expected": 6085,
+    "platforms": {
+      "ubuntu-24.04": "in_progress",
+      "windows-2022": "in_progress"
+    },
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38464227529",
+    "qualification": "Do not substitute305focused,41strategy or preceding6047 full acceptance for current6085matrix."
+  },
+  "preserved_publication_gate_failure": "Initial explicit staged diff-check exited2 on one extra test EOF blank, preventing commit/push. Remove only the blank, rerun305each and pass the staged gate; no production behavior or guard was changed by that correction.",
+  "preservation": {
+    "source_files_each": 809,
+    "source_sha256_each": "fc32e8619e672182b3e00b10986c95a017c8fd3abcaef7608280fe4531d24964",
+    "working_protected_files": 3766,
+    "publishing_protected_files": 27,
+    "changed": 0,
+    "added": 0,
+    "qualification": "Captured original first-launch protected baseline; prior SQLite physical-byte/schema caveat remains unchanged."
+  },
+  "shutdown": {
+    "observed_at_utc": "2026-10-13T20:39:12.3441837+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately."
+  },
+  "sql_runtime": {
+    "observed_at_utc": "2026-10-13T20:39:12.538802+00:00",
+    "process_state": "stopped",
+    "reports_refresh_state": "idle",
+    "retrain_state": "idle",
+    "qualification": "Read-only SQL and scoped green-risk query, not whole-wallet/finality evidence."
+  },
+  "unchanged": [
+    "All risk/entry/score/admission thresholds and exact0.1SOL PAPER sizing.",
+    "Uncapped extreme signals and original net-financial model/learning proof.",
+    "Operator .env, data, models, registries, policies, runtime activation and dependencies."
+  ],
+  "limitations": [
+    "No current non-test native synchronous consumer was found in the preceding scoped search; neither historical zero-buy causality nor profitable missed opportunities is proven by this source defect.",
+    "Synthetic native results do not establish actual provider coverage, quota/wire billing, market-asof/depth, serial-monitor latency, full-strategy financial capture or optimal profits."
+  ],
+  "remaining": [
+    "Inspect actual terminal6085current Windows/Linux matrix and retain further failures.",
+    "Complete all original ten full-goal boundaries, including actual provider/feed/model and prospective full-strategy financial acceptance with separate authorization as needed.",
+    "Leave all operational services, training, AutoResearch, model activation and LIVE OFF; a fresh PAPER authorization remains pending."
+  ]
+}
