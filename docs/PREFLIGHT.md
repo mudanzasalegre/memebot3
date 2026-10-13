@@ -3,11 +3,28 @@
 Use the project virtual environment, not the global Anaconda Python:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe tools\preflight.py --run-tests
+.\.venv\Scripts\python.exe -m tools.preflight --run-tests
 ```
 
 The preflight writes `data/metrics/preflight_status.json`.
+
+The full-suite subprocess has a default limit of 3,600 seconds. Use
+`--pytest-timeout-seconds N` to set an integer budget from 1 to 86,400 seconds;
+the limit applies to pytest, not the entire preflight command. Invalid budgets
+are rejected before report directories or status files are written.
+
+Timeouts are recorded with `returncode: 124`, `timed_out: true` and bounded
+output tails. OS launch errors use `returncode: 127` and retain only the error
+type. These checks fail the preflight: the native command writes a failed status
+and exits `1`; it does not attest that an interrupted test suite passed.
+Python's subprocess timeout handling kills and waits for the direct child;
+this is not a process-tree cleanup guarantee.
+
+If pytest was already run to successful completion against the same sources,
+`--external-pytest-passed` records that caller attestation without running it
+again. Never use that flag after a skipped, failed or timed-out suite.
+`scripts/start_stack.ps1` already runs pytest directly before its attestation;
+the repaired timeout affected the standalone `--run-tests` path.
 
 Checks covered:
 

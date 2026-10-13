@@ -13,6 +13,27 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Preflight nativo: plazo y fallos verificables (2026-10-13)
+
+El comando independiente `tools.preflight --run-tests` ya dispone de una hora
+para la suite completa, configurable con `--pytest-timeout-seconds`. Un timeout o
+un error al lanzar un subproceso queda registrado como validacion fallida,
+en lugar de impedir la escritura del estado. No se relajan los controles del bot.
+
+Veintiun casos nuevos y 39 pruebas focalizadas por copia pasan. El comando
+nativo completo pasa 5.739 pruebas del repositorio en ambas carpetas: D incluye
+ademas una prueba privada del timeout, con 5.740 aprobadas en total. La
+coleccion independiente confirma identicos casos del repositorio. Hay dos
+avisos existentes de pandas por suite; compilacion, siete informes vacios y
+26 imports nativos por copia pasan sobre fuentes verificadas identicas.
+
+El launcher de stack ya ejecutaba pytest directamente y no tenia este limite
+de cuatro minutos. No se atribuye esta correccion al run sin compras ni se
+presenta como rentabilidad. En esta verificacion todo el runtime permanecio
+apagado; la prueba PAPER de 30 minutos autorizada por el usuario es una
+aceptacion operativa independiente, sin LIVE, entrenamiento ni AutoResearch.
+[Auditoria de preflight](docs/audits/preflight_runtime_20261013.json).
+
 ### T0 original y relojes nulos del aprendizaje (2026-10-13)
 
 El cargador acepta solo la hora original de decision `timestamp`: ni cierre,

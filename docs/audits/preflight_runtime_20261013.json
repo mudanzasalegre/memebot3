@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "stage": "native_preflight_budget_and_failed_timeout_reporting",
+  "status": "VALIDATED_SOFTWARE_STAGE_RUNTIME_OFF_NOT_FINANCIAL_ACCEPTANCE",
+  "date": "2026-10-13",
+  "parent_commit": "c9318378a5c8e32af0249884db09d6008440d21c",
+  "scope": {
+    "roots": [
+      "D:/Dev/Python/memebot3",
+      "C:/Users/monmo10/Documents/GitHub/memebot3"
+    ],
+    "affected_command": "python -m tools.preflight --run-tests",
+    "qualification": "The documented standalone CLI/library path; scripts/start_stack.ps1 already runs pytest directly and then externally attests its completed pass. Not established as the historical no-buy cause."
+  },
+  "diagnosis": {
+    "original_failures": 2,
+    "original_deselected": 19,
+    "original_seconds": 0.21,
+    "hardcoded_old_pytest_timeout_seconds": 240,
+    "prior_measured_complete_suites_seconds": [
+      1581,
+      1562.56
+    ],
+    "uncaught_timeout_prevented_structured_native_status": true
+  },
+  "repair": {
+    "default_pytest_timeout_seconds": 3600,
+    "cli_argument": "--pytest-timeout-seconds",
+    "accepted_integer_range": [
+      1,
+      86400
+    ],
+    "failure_return_codes": {
+      "subprocess_timeout": 124,
+      "subprocess_os_launch_error": 127,
+      "native_main_failed_status": 1
+    },
+    "timeout_output_tail_limit_chars": 4000,
+    "exception_detail_safety": "OS exception type only; messages are not copied",
+    "timeout_cleanup_scope": "subprocess.run kills/waits its direct child; no whole-process-tree cleanup claim"
+  },
+  "focused": {
+    "new_cases": 21,
+    "working": {
+      "passed": 39,
+      "seconds": 7.13,
+      "exit_code": 0
+    },
+    "publishing": {
+      "passed": 39,
+      "seconds": 7.12,
+      "exit_code": 0
+    }
+  },
+  "native_negative_probe": {
+    "source_files_copied": 477,
+    "roots_completed": 2,
+    "native_main_exit": 1,
+    "status_file_written": true,
+    "status_ok": false,
+    "pytest_returncode": 124,
+    "timed_out": true,
+    "pytest_timeout_seconds": 1,
+    "report_builders": 7,
+    "external_attempts": 0,
+    "operator_model_deserializations": 0,
+    "fit_called": false,
+    "runtime_started": false,
+    "qualification": "Intentionally slow owned synthetic test in credential-free source-only roots; wrapper exits0 because the expected failure is correctly reported, not because native preflight is green."
+  },
+  "full_native_suites": {
+    "command": "D:/Dev/Python/memebot3/.venv/Scripts/python.exe -m tools.preflight --run-tests in each actual checkout",
+    "working": {
+      "passed": 5740,
+      "repository_cases": 5739,
+      "private_fixture_cases": 1,
+      "warnings": 2,
+      "pytest_seconds": 1537.28,
+      "native_exit_code": 0,
+      "native_ok": true,
+      "generated_at_utc": "2026-10-13T10:06:27.922008+00:00",
+      "pytest_timeout_seconds": 3600,
+      "compile_errors": 0,
+      "report_builders": 7
+    },
+    "publishing": {
+      "passed": 5739,
+      "repository_cases": 5739,
+      "private_fixture_cases": 0,
+      "warnings": 2,
+      "pytest_seconds": 1510.03,
+      "native_exit_code": 0,
+      "native_ok": true,
+      "generated_at_utc": "2026-10-13T10:05:59.095499+00:00",
+      "pytest_timeout_seconds": 3600,
+      "compile_errors": 0,
+      "report_builders": 7
+    },
+    "collection_parity": {
+      "repository_cases_each": 5739,
+      "repository_case_difference": 0,
+      "repository_nodeids_sha256": "759e214862bb3f74be91e81b69f1e786fe751a5c601264ab1da23dd450c85200",
+      "private_working_only": [
+        "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline"
+      ],
+      "d_generated": "2026-10-13T12:08:13.398902+02:00",
+      "c_generated": "2026-10-13T12:08:11.646005+02:00"
+    },
+    "warnings_scope": "Two existing pandas FutureWarnings at analytics/model_runtime_common.py:487 in each suite; not failing tests.",
+    "durable_native_status": "Actual fresh data/metrics/preflight_status.json each includes the native pytest returncode and captured final summary; not an external-pytest attestation."
+  },
+  "source_freeze": {
+    "files_each": 793,
+    "normalized_sha256": "a0459451bfd7806ecbd65145ed5bfa2a92b6c6d6dadd3681dbadb64e28ffb23f"
+  },
+  "limits": [
+    "No strategy/risk/sizing/price/provider gates relaxed; no operator .env/model weights, policies or historical records rewritten.",
+    "Software checks and synthetic failure fixtures are not profitable capture or all future first-launch/provider/error acceptance.",
+    "The separate 30-minute PAPER authorization was received after full QA began; operational validation will be recorded separately, not counted as this software stage."
+  ],
+  "current_cold_imports": {
+    "modules_each": 26,
+    "roots_scoped": true,
+    "exits_each": 0,
+    "scope": "Native imports/config and synthetic contract only; no fit, operational start or provider access."
+  },
+  "final_software_verification_off": {
+    "observed_at": "2026-10-13T10:08:52.4488399+00:00",
+    "since_utc": "2026-10-08T16:09:40.0000000Z",
+    "runtime_processes": 0,
+    "task_owned_previews": 0,
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "protected_files": 3763,
+        "green_live_risk_file_exists": false,
+        "changed_by_mtime": 0,
+        "locks": 0,
+        "checkout": "working"
+      },
+      {
+        "protected_files": 27,
+        "green_live_risk_file_exists": false,
+        "changed_by_mtime": 0,
+        "locks": 0,
+        "checkout": "publishing"
+      }
+    ],
+    "qualification": "Read-only mtime census, not a cryptographic historical preservation proof. Intended stop SQL/log and preflight metrics are excluded."
+  },
+  "final_software_verification_sql": {
+    "observed_at": "2026-10-13T10:08:52.531468+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 08:52:17.746935"
+      }
+    ]
+  },
+  "goals": {
+    "goal_status": "ACTIVE_INCOMPLETE",
+    "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+    "requested_paper_trade_size_sol": 0.1
+  }
+}

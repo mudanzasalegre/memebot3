@@ -17,6 +17,22 @@ if str(ROOT) not in sys.path:
 from runtime.live_canary_guard import live_flags_declared, validate_live_canary_profile_values
 
 STATUS_PATH = ROOT / "data" / "metrics" / "preflight_status.json"
+DEFAULT_PYTEST_TIMEOUT_SECONDS = 3600
+
+
+def _checked_pytest_timeout(value: int) -> int:
+    if type(value) is not int or not 1 <= value <= 86400:
+        raise ValueError("pytest_timeout_seconds must be an integer between 1 and 86400")
+    return value
+
+
+def _pytest_timeout_argument(value: str) -> int:
+    try:
+        return _checked_pytest_timeout(int(value))
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError("must be an integer between 1 and 86400") from None
+
+
 PAPER_HOTFIX_PROFILE = ROOT / "config" / "profiles" / "paper_hotfix_0707.env"
 LIVE_CANARY_TEMPLATE_NAMES = {"live_canary_safe.env", "sniper_live_canary.env"}
 
@@ -179,9 +195,27 @@ REPORT_BUILDERS = [
 ]
 
 
-def _run(cmd: list[str], *, timeout: int = 120) -> dict[str, object]:
-    proc = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, timeout=timeout)
-    return {"cmd": cmd, "returncode": proc.returncode, "stdout_tail": proc.stdout[-4000:], "stderr_tail": proc.stderr[-4000:]}
+def _output_tail(value: str | bytes | None) -> str:
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    return (value or "")[-4000:]
+
+
+def _run(cmd: list[str], *, timeout: int | float = 120) -> dict[str, object]:
+    try:
+        proc = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        # subprocess.run kills and waits for its direct child before raising.
+        # A timeout is failed validation, never an external-pytest attestation.
+        return {"cmd": cmd, "returncode": 124, "timed_out": True,
+                "timeout_seconds": timeout, "stdout_tail": _output_tail(exc.stdout),
+                "stderr_tail": _output_tail(exc.stderr)}
+    except OSError as exc:
+        # Exception messages may contain paths or credentials; retain type only.
+        return {"cmd": cmd, "returncode": 127, "launch_error": type(exc).__name__,
+                "timeout_seconds": timeout, "stdout_tail": "", "stderr_tail": ""}
+    return {"cmd": cmd, "returncode": proc.returncode, "timeout_seconds": timeout,
+            "stdout_tail": _output_tail(proc.stdout), "stderr_tail": _output_tail(proc.stderr)}
 
 
 def _load_env_file(path: Path) -> dict[str, str]:
@@ -367,7 +401,9 @@ def _report_dry_run_checks() -> list[dict[str, object]]:
     return checks
 
 
-def build_preflight_status(*, run_tests: bool = False, external_pytest_passed: bool = False) -> dict[str, object]:
+def build_preflight_status(*, run_tests: bool = False, external_pytest_passed: bool = False,
+                           pytest_timeout_seconds: int = DEFAULT_PYTEST_TIMEOUT_SECONDS) -> dict[str, object]:
+    pytest_timeout_seconds = _checked_pytest_timeout(pytest_timeout_seconds)
     py = ROOT / ".venv" / "Scripts" / "python.exe"
     interpreter = str(py if py.exists() else Path(sys.executable))
     base_dir_paths = (ROOT / "data" / "metrics", ROOT / "docs")
@@ -405,7 +441,7 @@ def build_preflight_status(*, run_tests: bool = False, external_pytest_passed: b
         "compile_errors": compile_errors,
     }
     if run_tests:
-        checks["pytest"] = _run([interpreter, "-m", "pytest", "-q"], timeout=240)
+        checks["pytest"] = _run([interpreter, "-m", "pytest", "-q"], timeout=pytest_timeout_seconds)
     elif external_pytest_passed:
         checks["pytest"] = {
             "cmd": [interpreter, "-m", "pytest", "-q"],
@@ -433,6 +469,9 @@ def build_preflight_status(*, run_tests: bool = False, external_pytest_passed: b
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run MemeBot3 local preflight checks.")
     parser.add_argument("--run-tests", action="store_true", help="also run the full pytest suite")
+    parser.add_argument("--pytest-timeout-seconds", type=_pytest_timeout_argument,
+                        default=DEFAULT_PYTEST_TIMEOUT_SECONDS,
+                        help="full-suite time limit in seconds (default: 3600; range: 1-86400)")
     parser.add_argument(
         "--external-pytest-passed",
         action="store_true",
@@ -442,6 +481,7 @@ def main() -> int:
     status = build_preflight_status(
         run_tests=args.run_tests,
         external_pytest_passed=args.external_pytest_passed,
+        pytest_timeout_seconds=args.pytest_timeout_seconds,
     )
     STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATUS_PATH.write_text(json.dumps(status, indent=2, default=str), encoding="utf-8")
