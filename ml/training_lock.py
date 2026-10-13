@@ -6,6 +6,7 @@ import errno
 import math
 import time
 from dataclasses import dataclass
+from contextlib import contextmanager
 from pathlib import Path
 import threading
 from typing import BinaryIO
@@ -170,4 +171,23 @@ def release_lock(path: Path = LOCK_PATH) -> None:
         # Never unlink the guard: a stable inode prevents split POSIX owners.
 
 
-__all__ = ["LOCK_PATH", "acquire_lock", "release_lock"]
+@contextmanager
+def training_session(path: Path = LOCK_PATH, *, ttl_s: int = 1800):
+    """Reuse only this actual process/thread's outer owner; never release it."""
+    path, key = _path_key(path)
+    with _gate:
+        owner = _owners.get(key)
+        nested = (owner is not None and owner.pid == os.getpid()
+                  and owner.thread is threading.current_thread() and not owner.handle.closed)
+    if nested:
+        yield True
+        return
+    acquired = acquire_lock(path, ttl_s=ttl_s)
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            release_lock(path)
+
+
+__all__ = ["LOCK_PATH", "acquire_lock", "release_lock", "training_session"]

@@ -1,0 +1,131 @@
+{
+  "status": "SCOPED_TRAINING_INTEGRATION_FOCUSED_ACCEPTED_CURRENT_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "observed_at_utc": "2026-10-13T22:38:33.800721+00:00",
+  "implementation_parent": "eb5e5a24647e1c3274f3fddd3a80ed436d63a256",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 813,
+      "sha256": "5f7c0a427d7fd5bd7296dfa07f3be3c62b5535fadf65dd1106ed9e3197438841"
+    },
+    {
+      "checkout": "publishing",
+      "files": 813,
+      "sha256": "5f7c0a427d7fd5bd7296dfa07f3be3c62b5535fadf65dd1106ed9e3197438841"
+    }
+  ],
+  "summary": "Integrate actual bot controls/scheduler with the daemon whole training cycle instead of a raw primary-only call. Public primary and runner advisory entrypoints now share OS-backed cycle ownership; nested work reuses only the actual acquiring process/thread and cannot release the outer owner. Structured cycle results keep primary promotion separate from advisory updates and preserve errors; advisory-only changes never trigger missing-primary reload or scorecard promotion. Main training/reload/scorecard threads now remain owned through repeated cancellation, and running state/local lock are retained until admitted workers drain. Cancellation then propagates; partial errors remain failed rather than idle success. Removed33 dead lines after the scheduler continue; this was unreachable, not an established active blocking cause. All4 native baseline regressions fail;15 new cases/338 focused per root pass (D229.10s/C227.08s), no skips. 6224 cases collected; both roots match813 source files/SHA2565f7c0a427d7fd5bd7296dfa07f3be3c62b5535fadf65dd1106ed9e3197438841. Actual predecessor52f7560 full6113 succeeds on Ubuntu1607.33s/Windows1804.10s with one warning each; this is not acceptance of the changed source. Current full two-OS validation remains pending. No operator fit, model activation, provider, bot, AutoResearch or API/UI was launched; protected files remain unchanged and local runtime/QA/tasks/services are OFF. Cohort/activation/risk/sizing/financial contracts are not loosened. Software ownership is not forward opportunity capture or profitability.",
+  "confirmed_defects": [
+    "Public primary entrypoint bypassed a foreign native cycle owner",
+    "Public runner advisory entrypoint bypassed a foreign native cycle owner",
+    "Bot control used primary-only retraining rather than the shared structured primary/advisory cycle",
+    "Cancellation released the bot-local retrain lock while its native worker was still running"
+  ],
+  "acceptance": {
+    "baseline": {
+      "tests": 4,
+      "failures": 4,
+      "errors": 0,
+      "skipped": 0
+    },
+    "focused": {
+      "D": {
+        "tests": 338,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "C": {
+        "tests": 338,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "new_repository_cases": 15,
+    "collected_repository_cases": 6224,
+    "current_complete_python_matrix": "PENDING_FOR_THIS_REVISION"
+  },
+  "preceding_complete_matrix": {
+    "commit": "52f7560f4222996f04a6a1811e561a5c02ad1cc1",
+    "run": 38473184854,
+    "status": "completed",
+    "conclusion": "success",
+    "pytest_summaries": [
+      "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-13T21:48:20.6543173Z 1 passed in 4.08s",
+      "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-13T22:15:08.6640396Z 6113 passed, 1 warning in 1607.33s (0:26:47)",
+      "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-13T21:49:32.4259154Z 1 passed in 6.59s",
+      "test (windows-2022)\tRun python -m pytest -q\t2026-10-13T22:19:37.7264100Z 6113 passed, 1 warning in 1804.10s (0:30:04)"
+    ]
+  },
+  "contracts": [
+    "Shared original OS guard owns a complete primary/advisory cycle",
+    "Nested public calls reuse only the real same-process/same-thread owner and never release it",
+    "A foreign owner causes a locked result without loading/fitting or overwriting primary history",
+    "Primary promotion and advisory updates remain separate result/status channels",
+    "Only independently accepted primary promotion triggers primary reload/scorecard refresh",
+    "Admitted native threads drain before caller cancellation propagates or running state clears",
+    "Repeated caller cancellation never detaches the worker; late errors are consumed under cancellation",
+    "Partial cycle errors are reported as failed, not an idle success",
+    "Previous cohort/model/activation/risk/entry/exit/size/financial checks remain unchanged"
+  ],
+  "shutdown": {
+    "observed_at_utc": "2026-10-13T22:38:33.5884211+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately."
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-13T22:38:33.790659+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    }
+  },
+  "limits": [
+    "Current full Windows/Linux matrix remains pending",
+    "Cancellation drains admitted work, not preemptive thread termination or rollback of a completed selector commit",
+    "No production training-duration or shutdown-latency SLA is certified",
+    "Other family training/export/manual writer paths and full-process ownership remain independently scoped",
+    "Synthetic temporary models and source checks do not certify productive learning or profitable capture",
+    "No operator training, model activation or LIVE permission is granted by these wrappers",
+    "All original ten whole-goal remaining requirements and no-LIVE boundaries remain in force"
+  ]
+}

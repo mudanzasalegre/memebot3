@@ -13,6 +13,22 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Aprendizaje: un ciclo compartido y trabajadores supervisados (2026-10-14)
+
+El control del bot y el daemon comparten ahora el ciclo de entrenamiento.
+Las entradas publicas del modelo principal y del ranking respetan el mismo
+bloqueo del sistema operativo, incluido un propietario ajeno. Una mejora
+del ranking no se anuncia como promocion del modelo principal. Al cancelar
+se espera al trabajador admitido antes de liberar el ciclo; no se mata el
+hilo ni se promete una latencia de parada. Las comprobaciones financieras
+y de activacion permanecen intactas, y no se habilita entrenamiento.
+
+Pasan 338 pruebas enfocadas por carpeta, con 15 casos nuevos; se recogen
+6.224 casos. La revision anterior `52f7560` pasa sus 6.113 casos completos
+en Windows y Ubuntu; la CI completa de esta nueva fuente sigue pendiente.
+Todo permanece apagado y datos/modelos/env intactos. No acredita beneficios.
+[Auditoria y limites](docs/audits/training_cycle_integration_20261014.json).
+
 ### Validacion Windows: recuperacion SQL sin SLA artificial (2026-10-14)
 
 La CI anterior `d78b2fe` fallo en Windows porque una entrada prevista como

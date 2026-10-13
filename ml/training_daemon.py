@@ -5,6 +5,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -52,13 +53,21 @@ def _write_status(extra: dict[str, Any], *, preserve_training_status: bool = Fal
         temporary.unlink(missing_ok=True)
 
 
-def train_once() -> bool:
+@dataclass(frozen=True)
+class TrainingCycleResult:
+    primary_promoted: bool = False
+    advisory_updated: bool = False
+    status: str = "not_promoted"
+    errors: dict[str, str] = field(default_factory=dict)
+
+
+def run_training_cycle() -> TrainingCycleResult:
     ttl = int(getattr(CFG, "ML_TRAINING_LOCK_TTL_S", 1800) or 1800)
     if not acquire_lock(ttl_s=ttl):
         # A non-owner must not race the trainer's atomic primary status writer.
         _write_status({"status": "locked", "daemon_status": "locked", "updated": False},
                       daemon_only=True)
-        return False
+        return TrainingCycleResult(status="locked")
     try:
         errors: dict[str, str] = {}
         updated = False
@@ -75,18 +84,28 @@ def train_once() -> bool:
                 errors["runner_advisory"] = type(exc).__name__
                 advisory = {"status": "failed", "updated": False, "error_type": type(exc).__name__}
                 log.exception("Runner advisory training failed; manifest preserved")
+        advisory_updated = advisory.get("updated") is True
+        status = "failed" if errors else "trained" if updated else "advisory_updated" if advisory_updated else "not_promoted"
         _write_status(
-            {"status": "failed" if errors else "trained" if updated else "not_promoted",
-             "updated": bool(updated), "runner_advisory": advisory, "training_errors": errors},
+            {"status": status,
+             "updated": bool(updated), "advisory_updated": advisory_updated,
+             "runner_advisory": advisory, "training_errors": errors},
             preserve_training_status=True,
         )
-        return bool(updated or advisory.get("updated"))
+        return TrainingCycleResult(primary_promoted=updated is True,
+            advisory_updated=advisory_updated, status=status, errors=dict(errors))
     except Exception as exc:
         _write_status({"status": "failed", "daemon_status": "failed", "error": str(exc)},
                       preserve_training_status=True)
         raise
     finally:
         release_lock()
+
+
+def train_once() -> bool:
+    """Legacy any-update API; do not mistake an advisory for primary promotion."""
+    result = run_training_cycle()
+    return result.primary_promoted or result.advisory_updated
 
 
 def run_daemon(*, interval_s: int = 900) -> None:

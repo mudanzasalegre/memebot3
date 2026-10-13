@@ -145,7 +145,22 @@ def _candidate_decision(candidate: dict[str, Any], challenger: dict[str, Any],
 
 def train_runner_advisory(*, root: Path | None = None, frame: pd.DataFrame | None = None,
                           as_of: Any = None, force: bool = False) -> dict[str, Any]:
-    """Called under the training lock; never starts services or sends orders."""
+    """Public advisory entrypoint shares native primary/cycle ownership."""
+    from ml.training_lock import training_session
+    root = Path(root or PROJECT_ROOT)
+    if not bool(getattr(CFG, "ML_RUNNER_ADVISORY_ENABLED", True)):
+        return {"status": "disabled", "updated": False, "role": ROLE}
+    ttl = int(getattr(CFG, "ML_TRAINING_LOCK_TTL_S", 1800) or 1800)
+    with training_session(root / "data/metrics/training.lock", ttl_s=ttl) as owned:
+        if not owned:
+            return {"status": "locked", "updated": False, "role": ROLE,
+                    "buy_permission": False, "automatic_live_activation": False}
+        return _train_runner_advisory_unlocked(root=root, frame=frame, as_of=as_of, force=force)
+
+
+def _train_runner_advisory_unlocked(*, root: Path | None = None, frame: pd.DataFrame | None = None,
+                                   as_of: Any = None, force: bool = False) -> dict[str, Any]:
+    """Owned implementation; never starts services or sends orders."""
     root = Path(root or PROJECT_ROOT)
     if not bool(getattr(CFG, "ML_RUNNER_ADVISORY_ENABLED", True)):
         return {"status": "disabled", "updated": False, "role": ROLE}

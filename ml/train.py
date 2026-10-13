@@ -1558,6 +1558,18 @@ def _promote_trained_candidate(
 
 
 def train_and_save() -> TrainResult:
+    """Public primary entrypoint shares the native whole-cycle ownership."""
+    from ml.training_lock import training_session
+    ttl = int(getattr(CFG, "ML_TRAINING_LOCK_TTL_S", 1800) or 1800)
+    with training_session(TRAIN_STATUS_JSON.parent / "training.lock", ttl_s=ttl) as owned:
+        if not owned:
+            return TrainResult(trained=False, status="locked",
+                dataset_quality=_empty_dataset_quality(["training_cycle_busy"]),
+                selection_metric=None, selection_score=None)
+        return _train_and_save_unlocked()
+
+
+def _train_and_save_unlocked() -> TrainResult:
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
     attempted_at = pd.Timestamp.now(tz="UTC").isoformat()
 

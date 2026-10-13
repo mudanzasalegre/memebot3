@@ -259,7 +259,7 @@ from features.store import (  # noqa: E402
     update_pnl as store_update_pnl,
     export_csv as store_export_csv,
 )
-from ml.retrain import retrain_if_better  # noqa: E402
+from ml.training_daemon import run_training_cycle  # noqa: E402
 
 # ───────── Utils (queue, precio, etc.) ───────────────────────────────────────
 from utils.descubridor_pares import fetch_candidate_pairs  # noqa: E402
@@ -3863,7 +3863,8 @@ async def _reload_model_now() -> dict[str, object]:
     if not status_before.get("model_exists") and not status_before.get("meta_exists"):
         raise RuntimeError("model_artifacts_missing")
 
-    await asyncio.to_thread(reload_model)
+    from runtime.owned_thread import await_owned_thread
+    await await_owned_thread(reload_model)
     threshold_info = _apply_ai_threshold_override()
     status_after = model_runtime_status()
     return {
@@ -3880,6 +3881,7 @@ async def _reload_model_now() -> dict[str, object]:
 
 async def _run_retrain_once(*, source: str, force_requested: bool = False) -> dict[str, object]:
     global _runtime_retrain_state
+    from runtime.owned_thread import await_owned_thread
 
     if _retrain_lock.locked():
         raise RuntimeError("retrain_already_running")
@@ -3888,22 +3890,32 @@ async def _run_retrain_once(*, source: str, force_requested: bool = False) -> di
     async with _retrain_lock:
         _runtime_retrain_state = "running"
         try:
-            trained = bool(await asyncio.to_thread(retrain_if_better))
+            cycle = await await_owned_thread(run_training_cycle)
+            trained = cycle.primary_promoted is True
             reload_result = await _reload_model_now() if trained else None
             scorecard_result = (
-                await asyncio.to_thread(lambda: research_runtime.refresh_scorecard(force=True))
+                await await_owned_thread(lambda: research_runtime.refresh_scorecard(force=True))
                 if trained
                 else None
             )
             if trained:
                 log.info("Retrain completo; modelo recargado en memoria y scorecard refrescado")
-            success = True
+            success = not cycle.errors
+            if cycle.errors:
+                _runtime_retrain_state = "failed"
             return {
                 "trained": trained,
+                "advisory_updated": cycle.advisory_updated is True,
+                "training_status": cycle.status,
+                "training_errors": dict(cycle.errors),
                 "force_requested": bool(force_requested),
                 "reload": reload_result,
                 "scorecard_refreshed": bool(scorecard_result),
             }
+        except asyncio.CancelledError:
+            # The owned helper already drained training/reload/report work.
+            _runtime_retrain_state = "idle"
+            raise
         except Exception as exc:
             _runtime_retrain_state = "failed"
             _note_runtime_error(source, exc)
@@ -9604,39 +9616,6 @@ async def retrain_loop() -> None:
             await asyncio.sleep(3600)
             continue
 
-            try:
-                _runtime_retrain_state = "running"
-                if retrain_if_better():
-                    # 1) Recargar modelo recién guardado
-                    reload_model()
-
-                    # 2) Releer y aplicar override de umbral recomendado en caliente
-                    _thr_override2 = _load_ai_threshold_override()
-                    if _thr_override2 is not None:
-                        global AI_THRESHOLD  # aplicar sobre el gate de IA en ejecución
-                        old = AI_THRESHOLD
-                        if abs(float(_thr_override2) - float(old)) >= float(MIN_THRESHOLD_CHANGE):
-                            AI_THRESHOLD = float(_thr_override2)
-                            log.info(
-                                "🎯 AI_THRESHOLD override aplicado: %.3f (antes=%.3f, Δ=%.3f≥%.3f)",
-                                AI_THRESHOLD, old, AI_THRESHOLD - old, MIN_THRESHOLD_CHANGE
-                            )
-                        else:
-                            log.info(
-                                "🎯 AI_THRESHOLD override ignorado por suavizado: rec=%.3f, actual=%.3f, Δ=%.3f<%.3f",
-                                float(_thr_override2), float(old),
-                                float(_thr_override2) - float(old), float(MIN_THRESHOLD_CHANGE)
-                            )
-
-                    log.info("🐢 Retrain completo; modelo recargado en memoria")
-                _runtime_retrain_state = "idle"
-            except Exception as exc:
-                _runtime_retrain_state = "failed"
-                _note_runtime_error("retrain_loop", exc)
-                log.error("Retrain error: %s", exc)
-
-            # Evitar disparos repetidos dentro de la misma hora
-            await asyncio.sleep(3600)
         else:
             await asyncio.sleep(300)
 
