@@ -13,6 +13,20 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Gecko: admision asincrona reparada; validacion completa pendiente (2026-10-13)
+
+Una respuesta antigua podia sustituir la cache nueva si su tarea arrancaba
+mas tarde; ademas, un refresco rechazado por capacidad borraba un recibo
+valido. `4aed559` vincula generacion, capacidad e invalidacion a la admision
+del propietario, antes de arrancar la tarea, y libera su reserva tras el
+cleanup incluso cuando la tarea nunca llega a iniciarse.
+
+Las 206 pruebas enfocadas pasan en ambas carpetas, con 11 casos nuevos.
+La suite completa actual tiene 6.047 casos y sigue pendiente de CI en ambos
+sistemas. La duplicacion de consultas sincronas esta reproducida y aun no
+reparada. No se han relajado filtros ni contratos financieros, ni arrancado
+el bot. [Evidencia y limites](docs/audits/gecko_admission_20261013.json).
+
 ### Instalacion limpia Windows/Linux: validacion y fallos de CI (2026-10-13)
 
 Se conservan los fallos reales de CI y sus reparaciones: ABI PyArrow/NumPy,

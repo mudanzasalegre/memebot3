@@ -1,0 +1,136 @@
+{
+  "status": "ASYNC_ADMITTED_GENERATION_REPAIRED_SYNC_COUNTERPART_AND_CURRENT_FULL_MATRIX_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "scope": "Native Gecko source-correctness and owned request admission only; not provider, trading or profitability acceptance.",
+  "implementation_commit": "4aed55931cf2f40ead08f3a4331c762736ab99c4",
+  "parent_commit": "2cceef57e9247a2cfecbf4e0b15b5e9532bc2734",
+  "original_diagnosis": {
+    "source_files_each": 807,
+    "source_normalized_sha256_each": "8b2446f8fd69d06c49dbadf864b458c82f8898723295e51f29469174c6799ff1",
+    "working": {
+      "failed": 3,
+      "seconds": 4.1,
+      "exit_code": 1
+    },
+    "publishing": {
+      "failed": 3,
+      "seconds": 4.09,
+      "exit_code": 1
+    },
+    "defects": [
+      "Older admitted async owner whose factory starts late replaces a newer forced price2 receipt with price1.",
+      "Actual owned-capacity rejection of a forced async request clears an existing valid receipt even though no HTTP starts.",
+      "Two compatible concurrent sync callers on identical token/session/timeout start two HTTP requests instead of sharing one."
+    ]
+  },
+  "repairs": [
+    "Reserve original latest generation synchronously in the accepted-owner hook, before child scheduling; an older child cannot regain the latest generation on a delayed start.",
+    "After both owned capacity and shared sync/async capacity accept the owner, invalidate forced cache within the same state lock; rejected owners do not invalidate it.",
+    "The admitted parent releases capacity and generation after OwnedRequests drains the child; joiners do not acquire/release the owner's lease, and pre-start cancellation cannot leak it.",
+    "Cache invalidation errors allocate no adapter lease or event-loop ownership. Preserve exact token identity, own-field HTTP receipts, limiter/cooldown, detached copies, source-specific capacity, failure TTL and cleanup behavior."
+  ],
+  "unchanged": [
+    "Entry/risk/score/admission thresholds and exact0.1SOL PAPER size.",
+    "Uncapped extreme signals and original net-financial learning evidence requirements.",
+    "Provider protocol, authentication, quota assumptions, HTTP timeout and original transport exceptions.",
+    "Operator .env/data/models/registries/policies, activation and all runtime services."
+  ],
+  "actual_validation": {
+    "new_repository_cases": 11,
+    "repository_cases_collected": 6047,
+    "focused_case_files": [
+      "tests/test_gecko_admission_ownership.py",
+      "tests/test_gecko_contract.py",
+      "tests/test_geckoterminal.py",
+      "tests/test_shared_pacing_clock.py",
+      "tests/test_price_service_gecko_timeout.py",
+      "tests/test_dex_request_ownership.py"
+    ],
+    "working": {
+      "passed": 206,
+      "seconds": 3.28,
+      "exit_code": 0
+    },
+    "publishing": {
+      "passed": 206,
+      "seconds": 3.03,
+      "exit_code": 0
+    },
+    "scope": "Synthetic native sessions/responses and isolated ownership state, with real provider constructors blocked. No operational lifecycle or provider billing proof."
+  },
+  "post_repair_original_diagnosis": {
+    "working": {
+      "passed": 2,
+      "failed": 1,
+      "seconds": 1.74,
+      "exit_code": 1
+    },
+    "publishing": {
+      "passed": 2,
+      "failed": 1,
+      "seconds": 1.55,
+      "exit_code": 1
+    },
+    "remaining_failed_case": "Compatible synchronous requests still duplicate HTTP; this diagnostic is not reported as green."
+  },
+  "current_full_matrix": {
+    "commit": "4aed55931cf2f40ead08f3a4331c762736ab99c4",
+    "run": 38460874988,
+    "repository_cases_expected": 6047,
+    "status": "in_progress",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38460874988",
+    "qualification": "Do not substitute206focused or older6036/6031 acceptance for this new source population."
+  },
+  "preceding_validation": {
+    "commit": "5fcb8e588394f72e41405492e8811ea3fb77c4bf",
+    "run": 38458591911,
+    "ubuntu": {
+      "passed": 6036,
+      "warnings": 1,
+      "seconds": 828.48,
+      "conclusion": "success"
+    },
+    "windows": "in_progress_in_recorded_snapshot",
+    "qualification": "Earlier first-launch repair validation, before the11Gecko cases; not current whole-goal acceptance."
+  },
+  "preservation": {
+    "working_protected_files": 3766,
+    "publishing_protected_files": 27,
+    "changed": 0,
+    "added": 0,
+    "source_files_each": 808,
+    "source_normalized_sha256_each": "e281e85bb94b63beda8364a48ba5994c8b2c87b5d5fa04217247a62404508d5c",
+    "qualification": "Original first-launch captured protected baseline; prior SQLite physical-byte/schema caveat is retained."
+  },
+  "shutdown": {
+    "observed_at_utc": "2026-10-13T20:13:31.0738716+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately."
+  },
+  "native_consumer_scope": {
+    "async": "utils/price_service.py::_query_gecko_terminal",
+    "sync": "Exported through fetcher.get_gt_data; no current non-test native synchronous consumer found in the scoped source search.",
+    "qualification": "Neither the historical zero-buy cause nor lost profitable opportunities is established by these source defects."
+  },
+  "remaining": [
+    "Implement and validate bounded synchronous owner/joiner and original admission counterparts; do not treat async repair as sync coverage.",
+    "Inspect actual terminal6047 full Windows/Linux CI and retain any new failure.",
+    "Complete all ten original whole-goal requirements, current provider/feed/model and prospective financial acceptance with separate authorization as applicable."
+  ],
+  "safety": "All bot/runtime/training/AutoResearch/model activation/API/UI/LIVE remain OFF. New PAPER permission has not been received or consumed. No profitability or zero-future-errors guarantee."
+}
