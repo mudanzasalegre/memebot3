@@ -142,7 +142,7 @@ def test_env_files_have_new_flags_once() -> None:
     optional_defaults = {"BIRTH_ENRICHMENT_ENABLED", "BIRTH_ENRICHMENT_RPM",
         "BIRTH_ENRICHMENT_TIMEOUT_S", "BIRTH_ENRICHMENT_CACHE_SIZE", "BIRTH_ENRICHMENT_NEGATIVE_TTL_S",
         "MEMORY_CACHE_MAX_ENTRIES", "PROVIDER_FAILURE_MAX_ENTRIES", "PROVIDER_FAILURE_RETENTION_S",
-        "BIRDEYE_MAX_INFLIGHT", "BIRDEYE_MAX_JOINERS"}
+        "BIRDEYE_MAX_INFLIGHT", "BIRDEYE_MAX_JOINERS", "BIRDEYE_ACCESS_RETRY_S"}
     assert key_sets and all(keys - optional_defaults == key_sets[0] - optional_defaults for keys in key_sets)
 
 

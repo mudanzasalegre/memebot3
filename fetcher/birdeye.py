@@ -26,6 +26,7 @@ from utils.valuation import project_valuation
 from utils.simple_cache import cache_delete, cache_get, cache_set
 from utils.bounded_state import BoundedFailureCounter, increment_failure
 from utils.request_ownership import OwnedRequests
+from utils.provider_access import ResourceAccess
 
 _API_KEY = os.getenv("BIRDEYE_API_KEY")
 _BASE_URL = "https://public-api.birdeye.so"
@@ -45,6 +46,13 @@ _RPM = _positive_int_env("BIRDEYE_RPM", 60)
 _MIN_INTERVAL = 60.0 / _RPM
 _TTL_NIL_SHORT = _positive_int_env("BIRDEYE_TTL_NIL_SHORT", 90)
 _TTL_NIL_MAX = max(_TTL_NIL_SHORT, _positive_int_env("BIRDEYE_TTL_NIL_MAX", 300))
+class _NegativeResponse:
+    __slots__ = ('configuration_generation',)
+    def __init__(self, configuration_generation):
+        self.configuration_generation = configuration_generation
+
+# Legacy integrations may seed this marker before a forced refresh. New native
+# failures use generation-bound markers; an unbound old marker is invalidated.
 _SENTINEL_NIL = object()
 _last_call_ts = 0.0
 _lock = asyncio.Lock()
@@ -53,6 +61,8 @@ _REQUESTS = OwnedRequests(os.getenv("BIRDEYE_MAX_INFLIGHT", "16"),
     os.getenv("BIRDEYE_MAX_JOINERS", "256"), name="birdeye-http-request")
 _latest_request = {}
 _request_state_lock = threading.RLock()
+_RESOURCE_ACCESS = ResourceAccess((_TOKEN_EP, _POOL_EP, _CREATION_EP),
+    os.getenv("BIRDEYE_ACCESS_RETRY_S", "300"))
 log = logging.getLogger("birdeye")
 
 
@@ -61,12 +71,17 @@ def creation_lookup_configured() -> bool:
     return bool(_API_KEY)
 
 
+def creation_resource_status() -> dict:
+    """Safe local access health; never makes a provider call."""
+    return _RESOURCE_ACCESS.status(_CREATION_EP, _API_KEY)
+
+
 def request_runtime_snapshot() -> dict:
     """Aggregate local pressure, no addresses/credentials or wire-cost claim."""
     with _request_state_lock:
         latest = len(_latest_request)
     return {"requests": _REQUESTS.snapshot(), "failure_keys": _fail_count.snapshot(),
-            "latest_generations": latest}
+            "latest_generations": latest, "resource_access": _RESOURCE_ACCESS.snapshot(_API_KEY)}
 
 
 def _request_address(value: Any, *, token: bool) -> str | None:
@@ -96,7 +111,8 @@ async def _throttle() -> None:
 def _register_fail(key: str) -> None:
     fails = increment_failure(_fail_count, key)
     ttl = _TTL_NIL_MAX if fails >= 4 else _TTL_NIL_SHORT
-    cache_set(key, _SENTINEL_NIL, ttl=ttl)
+    generation = _RESOURCE_ACCESS.status(_TOKEN_EP, _API_KEY)['configuration_generation']
+    cache_set(key, _NegativeResponse(generation), ttl=ttl)
     log.debug("[birdeye] %s unavailable (TTL=%ss, capped_backoff_level=%d)", key, ttl, fails)
 
 
@@ -129,25 +145,29 @@ async def _fetch(endpoint: str, cache_key: str, *, address: str,
                  ttl: int = 60, validator: Callable[[dict], bool] | None = None) -> dict | None:
     if not _API_KEY:
         return None
+    credential = _API_KEY
+    access = _RESOURCE_ACCESS.status(endpoint, credential)
     if force_refresh:
         cache_delete(cache_key)
     hit = None if force_refresh else cache_get(cache_key)
     if hit is not None:
-        if hit is _SENTINEL_NIL:
-            return None
+        if isinstance(hit, _NegativeResponse):
+            if hit.configuration_generation == access['configuration_generation']:
+                return None
+            cache_delete(cache_key)
         if (isinstance(hit, dict) and _identity_matches(hit, address, identity_field)
                 and (validator is None or validator(hit))):
             return deepcopy(hit)
         cache_delete(cache_key)
     async def request():
         return await _fetch_uncached(endpoint, cache_key, address=address,
-            identity_field=identity_field, ttl=ttl, validator=validator)
-    data = await _REQUESTS.run((endpoint, cache_key, address, identity_field), request,
+            identity_field=identity_field, ttl=ttl, validator=validator, credential=credential)
+    data = await _REQUESTS.run((endpoint, cache_key, address, identity_field, access['configuration_generation']), request,
                               force_refresh=force_refresh)
-    return deepcopy(data) if data is not None else None
+    return deepcopy(data) if data is not None and credential == _API_KEY else None
 
 
-async def _fetch_uncached(endpoint, cache_key, *, address, identity_field, ttl, validator):
+async def _fetch_uncached(endpoint, cache_key, *, address, identity_field, ttl, validator, credential):
     # A newer request, especially force_refresh, supersedes an older success or
     # failure. No late response may overwrite the latest cache/backoff state.
     generation = object()
@@ -155,7 +175,7 @@ async def _fetch_uncached(endpoint, cache_key, *, address, identity_field, ttl, 
         _latest_request[cache_key] = generation
     def publish(data):
         with _request_state_lock:
-            if _latest_request.get(cache_key) is not generation: return
+            if _latest_request.get(cache_key) is not generation or credential != _API_KEY: return
             if data is None: _register_fail(cache_key)
             else:
                 _fail_count.pop(cache_key, None)
@@ -163,19 +183,38 @@ async def _fetch_uncached(endpoint, cache_key, *, address, identity_field, ttl, 
     try:
         return await _request_http(endpoint, cache_key, address=address,
             identity_field=identity_field, ttl=ttl, validator=validator,
-            publish=publish)
+            publish=publish, credential=credential)
     finally:
         with _request_state_lock:
             if _latest_request.get(cache_key) is generation: _latest_request.pop(cache_key, None)
 
 
-async def _request_http(endpoint, cache_key, *, address, identity_field, ttl, validator, publish):
-    await _throttle()
+async def _request_http(endpoint, cache_key, *, address, identity_field, ttl, validator, publish, credential):
+    # Capacity/coalescence admission precedes this resource lease. No refresh
+    # can turn a known credential denial into a request for every new mint.
+    if credential != _API_KEY:
+        return None
+    lease = _RESOURCE_ACCESS.admit(endpoint, credential)
+    if lease is None:
+        return None
+    http_status = None
     try:
+        await _throttle()
+        if not _RESOURCE_ACCESS.wire_allowed(lease, _API_KEY):
+            return None
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as session:
             async with session.get(_BASE_URL + endpoint, params={"address": address},
-                    headers={"X-API-KEY": _API_KEY, "x-chain": "solana", "Accept": "application/json"},
+                    headers={"X-API-KEY": credential, "x-chain": "solana", "Accept": "application/json"},
                     allow_redirects=False) as response:
+                http_status = response.status
+                if not _RESOURCE_ACCESS.is_current(lease, _API_KEY):
+                    return None
+                if http_status in (401, 403):
+                    if _RESOURCE_ACCESS.finish(lease, http_status):
+                        log.warning("[birdeye] access denied for %s (HTTP %s); retry cooldown=%ss; check resource permissions", endpoint, http_status, _RESOURCE_ACCESS.cooldown_s)
+                    # Authorization is resource-scoped, not a negative token
+                    # observation. Do not poison token caches or birth facts.
+                    return None
                 if response.status == 200:
                     payload = await response.json()
                     data = payload.get("data") if isinstance(payload, dict) and payload.get("success") is True else None
@@ -184,6 +223,11 @@ async def _request_http(endpoint, cache_key, *, address, identity_field, ttl, va
                         data = deepcopy(data)
                         # Overwrite any provider-supplied local receipt marker.
                         data["_market_received_at"] = time.time()
+                        if not _RESOURCE_ACCESS.is_current(lease, _API_KEY):
+                            return None
+                        recovered = _RESOURCE_ACCESS.finish(lease, http_status, valid_response=True)
+                        if recovered and lease.recovery_probe:
+                            log.info("[birdeye] access recovered for %s (validated HTTP 200 response)", endpoint)
                         publish(data)
                         return data
                 log.debug("[birdeye] %s HTTP/contract unavailable (HTTP %s)", endpoint, response.status)
@@ -192,7 +236,12 @@ async def _request_http(endpoint, cache_key, *, address, identity_field, ttl, va
     except Exception as exc:
         # Exceptions can contain headers/URLs: log only their type.
         log.debug("[birdeye] %s request error (%s)", endpoint, type(exc).__name__)
-    publish(None)
+    finally:
+        _RESOURCE_ACCESS.release(lease)
+    if _RESOURCE_ACCESS.is_current(lease, _API_KEY):
+        _RESOURCE_ACCESS.finish(lease, http_status)
+        if not lease.recovery_probe:
+            publish(None)
     return None
 
 
@@ -314,4 +363,4 @@ async def get_token_creation_info(address: str, *, force_refresh: bool = False) 
     }}
 
 
-__all__ = ["get_token_info", "get_pool_info", "get_token_creation_info"]
+__all__ = ["get_token_info", "get_pool_info", "get_token_creation_info", "creation_resource_status"]

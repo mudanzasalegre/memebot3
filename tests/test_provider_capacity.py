@@ -14,6 +14,8 @@ MINT = "So11111111111111111111111111111111111111112"
 
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch):
+    from utils.provider_access import ResourceAccess
+    monkeypatch.setattr(be, "_RESOURCE_ACCESS", ResourceAccess((be._TOKEN_EP, be._POOL_EP, be._CREATION_EP)))
     cache._CACHE.clear()
     be._fail_count.clear()
     gt._fail_count.clear()

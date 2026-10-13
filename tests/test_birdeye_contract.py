@@ -40,6 +40,8 @@ class Session:
 
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch):
+    from utils.provider_access import ResourceAccess
+    monkeypatch.setattr(be, "_RESOURCE_ACCESS", ResourceAccess((be._TOKEN_EP, be._POOL_EP, be._CREATION_EP)))
     monkeypatch.setattr(be, "_API_KEY", "synthetic-not-a-credential")
     async def throttle(): pass
     monkeypatch.setattr(be, "_throttle", throttle)

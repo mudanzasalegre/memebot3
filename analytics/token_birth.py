@@ -42,7 +42,11 @@ def checked_token_birth(raw, address, *, now=None):
         return None
     received = raw["received_at"]
     try:
-        valid = math.isfinite(received) and 0 < received <= stamp.timestamp() and born.timestamp() <= received
+        # A numeric seconds clock retains sub-microsecond float precision.
+        # Converting it through datetime can round DOWN (reject equal receipt)
+        # or UP (accept a strictly future receipt). No tolerance is introduced.
+        limit = (float(now) if type(now) in (int, float) and 0 < now < 1e11 else stamp.timestamp())
+        valid = math.isfinite(received) and 0 < received <= limit and born.timestamp() <= received
     except (ValueError, TypeError, OverflowError):
         valid = False
     if not valid:
@@ -80,7 +84,7 @@ def merge_birth_context(primary, secondary, *, now=None):
     limit = _to_datetime(now) if now is not None else dt.datetime.now(dt.timezone.utc)
     if incoming is None or limit is None or incoming > limit:
         return out
-    proof = checked_token_birth(secondary.get(FIELD), out.get("address"), now=limit)
+    proof = checked_token_birth(secondary.get(FIELD), out.get("address"), now=now if now is not None else limit)
     if FIELD in secondary and (proof is None or _to_datetime(proof["created_at"]) != incoming):
         return out
     if any((value := _to_datetime(secondary.get(name))) is not None and value != incoming for name in BIRTH_CLOCK_FIELDS):

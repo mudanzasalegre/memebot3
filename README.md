@@ -13,6 +13,34 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Birdeye: acceso por recurso y precision de recibos (2026-10-13)
+
+Los HTTP 401/403 ahora se distinguen de la ausencia de datos de un token.
+El recurso denegado entra en espera y admite una sola prueba de recuperacion;
+el refresh no salta ese limite y los recursos sanos siguen independientes.
+El estado y el plazo aparecen en las metricas nativas, sin claves ni cuerpos de
+respuesta. El nuevo ajuste opcional `BIRDEYE_ACCESS_RETRY_S` vale 300 segundos
+por defecto, limitado a 1-3.600. No se modifica tu `.env` ni el plan de la cuenta.
+
+El reloj numerico original en segundos ya no pierde precision al validar un
+recibo de nacimiento: igualdad exacta pasa y una fecha futura sigue fallando,
+sin tolerancia anadida ni edades fabricadas. Los recibos positivos originales,
+presupuestos de creacion, controles de compra y PAPER exacto de 0,1 SOL permanecen.
+
+Tras corregir incompatibilidades detectadas en la primera regresion completa,
+el preflight nativo pasa las mismas 5.790 pruebas del repositorio por copia
+(D incluye ademas una prueba privada), con dos avisos existentes de pandas.
+Las fuentes finales, 27 imports y siete informes vacios por copia se verifican.
+La alerta anterior de bytes de SQLite queda documentada: solo se observa una
+columna adicional y retencion de registros en la comparacion disponible; no se
+declara igualdad historica de bytes ni se restaura la base.
+
+Todavia queda un fallo reproducido del limitador al reutilizar bucles async,
+ademas del acceso real a creacion de Birdeye y la aceptacion financiera.
+No se ha arrancado otro PAPER, LIVE, entrenamiento ni AutoResearch. Todo sigue
+apagado y no se presenta este bloque como prueba de rentabilidad.
+[Auditoria de acceso y limites pendientes](docs/audits/birdeye_resource_access_20261013.json).
+
 ### PAPER autorizado: aceptacion operativa fallida (2026-10-13)
 
 La prueba nativa de 30 minutos, con compras simuladas exactas de 0,1 SOL, termino

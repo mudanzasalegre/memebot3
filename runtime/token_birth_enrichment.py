@@ -33,8 +33,10 @@ class TokenBirthResolver:
     """
     def __init__(self, *, lookup=None, configured=None, degraded=None, rpm=12,
                  timeout_s=3., cache_size=2048, max_inflight=2, negative_ttl_s=30.,
-                 clock=time.monotonic, wall=time.time):
+                 clock=time.monotonic, wall=time.time, resource_access=None):
+        native_lookup = lookup is None or lookup is birdeye.get_token_creation_info
         self.lookup = lookup or birdeye.get_token_creation_info
+        self.resource_access = resource_access or (birdeye.creation_resource_status if native_lookup else lambda: {})
         self.configured = configured or birdeye.creation_lookup_configured
         self.degraded = degraded or (lambda: provider_status("birdeye")["degraded"])
         self.rpm = _number(rpm, 12, 1, 60, integer=True)
@@ -53,12 +55,27 @@ class TokenBirthResolver:
         return {"cache_size": len(self._cache), "inflight": len(self._inflight),
                 "lookup_reservations": dict(self._counts), "creation_lookup_rpm": self.rpm,
                 "max_creation_cu_per_minute": self.rpm * 35, "timeout_s": self.timeout_s,
-                "basis": "local_creation_only_upper_bound_not_total_provider_budget_or_entitlement"}
+                "basis": "local_creation_only_upper_bound_not_total_provider_budget_or_entitlement",
+                "resource_access": self._access()}
+
+    def _access(self):
+        try:
+            value = self.resource_access()
+            return {key: value[key] for key in ('status','last_http_status','last_denied_http_status',
+                    'retry_after_s','configuration_generation','basis') if key in value} if isinstance(value, dict) else {}
+        except Exception:
+            return {"status":"access_state_unavailable"}
+
+    @staticmethod
+    def _access_block(access):
+        status = access.get('status')
+        return status if status in {'access_denied','access_recovery_wait','access_probe_inflight',
+                                     'clock_unavailable','access_state_unavailable'} else None
 
     def _finish(self, token, receipt, status):
         out = merge_birth_context(token, receipt or {}, now=self.wall())
         out["token_birth_enrichment"] = {"status": status, "source": "birdeye",
-            "basis": "bounded_creation_lookup_not_buy_permission"}
+            "basis": "bounded_creation_lookup_not_buy_permission", "resource_access": self._access()}
         self._counts[status] = self._counts.get(status, 0) + 1
         return out
 
@@ -68,7 +85,7 @@ class TokenBirthResolver:
                if receipt is not None else self.negative_ttl_s)
         if ttl <= 0:
             return
-        self._cache[address] = (now + ttl, deepcopy(receipt))
+        self._cache[address] = (now + ttl, deepcopy(receipt), self._access().get('configuration_generation'))
         self._cache.move_to_end(address)
         while len(self._cache) > self.cache_size:
             self._cache.popitem(last=False)
@@ -110,21 +127,33 @@ class TokenBirthResolver:
         if any(token.get(name) is not None for name in BIRTH_CLOCK_FIELDS):
             return self._finish(token, None, "invalid_existing_clock")
         now = self.clock()
-        for key, (expiry, _) in list(self._cache.items()):
+        for key, (expiry, _, _) in list(self._cache.items()):
             if expiry <= now:
                 self._cache.pop(key, None)
         if cached := self._cache.get(address):
-            _, receipt = cached
-            self._cache.move_to_end(address)
-            return self._finish(token, receipt, "cache_hit" if receipt is not None else "negative_cache")
+            _, receipt, generation = cached
+            access = self._access()
+            if receipt is not None:
+                self._cache.move_to_end(address)
+                return self._finish(token, receipt, "cache_hit")
+            if blocked := self._access_block(access):
+                return self._finish(token, None, blocked)
+            if generation == access.get('configuration_generation'):
+                self._cache.move_to_end(address)
+                return self._finish(token, None, "negative_cache")
+            self._cache.pop(address, None)
         if future := self._inflight.get(address):
             try:
                 receipt = await asyncio.wait_for(asyncio.shield(future), timeout=self.timeout_s)
-                return self._finish(token, receipt, "coalesced" if receipt is not None else "coalesced_unavailable")
+                return self._finish(token, receipt, "coalesced" if receipt is not None else
+                                    self._access_block(self._access()) or "coalesced_unavailable")
             except asyncio.TimeoutError:
                 return self._finish(token, None, "coalesced_timeout")
         if not self.configured():
             return self._finish(token, None, "not_configured")
+        access = self._access()
+        if blocked := self._access_block(access):
+            return self._finish(token, None, blocked)
         if self.degraded():
             return self._finish(token, None, "provider_degraded")
         if len(self._inflight) >= self.max_inflight:
@@ -145,12 +174,20 @@ class TokenBirthResolver:
                 if receipt is not None and FIELD not in receipt:
                     receipt = None
                 status = "resolved" if receipt is not None else "unavailable"
+                if receipt is None:
+                    after_access = self._access()
+                    if access.get('configuration_generation') != after_access.get('configuration_generation'):
+                        status = "configuration_changed"
+                    else:
+                        status = self._access_block(after_access) or status
             except asyncio.TimeoutError:
                 receipt, status = None, "timeout"
             except Exception:
                 # Do not expose provider exception strings or secrets.
                 receipt, status = None, "provider_error"
-            self._remember(address, receipt)
+            if status not in {'access_denied','access_recovery_wait','access_probe_inflight',
+                              'clock_unavailable','access_state_unavailable','configuration_changed'}:
+                self._remember(address, receipt)
             future.set_result(deepcopy(receipt))
             return self._finish(token, receipt, status)
         finally:

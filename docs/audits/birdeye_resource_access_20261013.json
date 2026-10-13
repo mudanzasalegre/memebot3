@@ -1,0 +1,157 @@
+{
+  "stage_status": "SCOPED_SOFTWARE_VERIFIED_KNOWN_THROTTLE_GAP_RUNTIME_OFF",
+  "global_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_publishing_commit": "a3e907655219f171975bdeb11a26c2079a2a7a57",
+  "scope": "Native Birdeye resource-specific access denial, bounded recovery and precise original builtin numeric seconds clocks. No actual provider, account mutation, operational bot/training/AutoResearch start or LIVE authorization.",
+  "implemented": [
+    "Fixed three-resource local access state: 401/403 are separate from token unavailability. Resource-scoped cooldown defaults300s, bounded1-3600s, and force refresh cannot bypass it. Initial ordinary HTTP concurrency remains owned and bounded; this is not a one-request wire-cost or whole-provider entitlement guarantee.",
+    "Only one post-denial recovery probe is admitted across threads/loops by the access-state guard. Validated HTTP200 clears the local denial; malformed/unavailable/error/cancelled recovery remains bounded and does not fabricate birth or poison token-negative caches. Other resources and retained original positive birth context remain independent.",
+    "Safe WARNING on accepted401/403 and INFO on validated recovery. Native main's existing provider-pressure and birth-resolver snapshots carry detached status/HTTP/retry/configuration-generation fields, with no API key, response body, token address or actual-billing claim.",
+    "Observed in-memory credential generation separates new coalescence and negative-cache contexts from older requests. Obsolete observed-context responses cannot set health/cache; headers use the captured credential. No credential is read from or written to an account/file by this change, and no automatic .env hot reload is claimed.",
+    "Native birth enrichment reports denial/recovery/probe/clock states before additional creation reservations. Authorization failures are not cached as token-specific missing birth. Known original birth, queue residence, per-minute spacing and all existing entry/risk/size guards remain intact.",
+    "Builtin numeric seconds now is compared at its original precision, not rounded through datetime. Exact equal receipt can pass, strictly future receipt fails, and nested birth merge retains the original numeric limit. Datetime/string/millisecond compatibility remains; no future tolerance, history relabeling or operational-profit effect is claimed.",
+    "A plain slots negative marker preserves unregistered-spec cold import. The legacy sentinel name is retained for existing integrations, but new failures use context-bound markers and unbound markers invalidate. Only the new optional-default env key is added to strict existing parity exclusions; personal .env/mandatory Prime flags/duplicate checks are not relaxed or rewritten."
+  ],
+  "reproduced_failures": {
+    "original_native_access": "2 failed in2.08s: denied resource repeats HTTP on a different mint and403 enrichment reports unavailable.",
+    "original_birth_clock": "3 failed,10 passed in0.20s: round-down rejects equal numeric receipt/nested merge; round-up accepts a strictly future receipt. A native recovery integration recorded0.476837us discrepancy.",
+    "intermediate_regressions": "New dataclass negative marker failed a cold import under an unregistered module spec; replaced with a plain slots marker. The native recovery case exposed the independent numeric-clock defect, repaired without validator tolerance.",
+    "first_full_native_runs": {
+      "working": {
+        "failed": 2,
+        "passed": 5789,
+        "warnings": 2,
+        "seconds": 1697.42,
+        "native_exit": 1,
+        "ok": false
+      },
+      "publishing": {
+        "failed": 1,
+        "passed": 5789,
+        "warnings": 2,
+        "seconds": 1667.51,
+        "native_exit": 1,
+        "ok": false
+      },
+      "scope": "Actual whole native preflight --run-tests, not external attestation. Legacy sentinel reference and D personal-env/template optional-key parity failed and are retained in private actual preflight archives; these results are not accepted green suites."
+    }
+  },
+  "completed_focused_evidence": {
+    "new_native_cases": 51,
+    "initial_access_precision_related": {
+      "passed": 243,
+      "seconds": 5.07
+    },
+    "preceding_expanded_each": {
+      "passed": 564,
+      "warnings": 2,
+      "working_seconds": 26.99,
+      "publishing_seconds": 26.81,
+      "scope": "Preceding source epoch before the complete-suite compatibility repairs, not final-source full acceptance."
+    },
+    "preceding_native_isolated_paper_each": {
+      "passed": 14,
+      "working_seconds": 106.21,
+      "publishing_seconds": 104.69,
+      "scope": "Actual source-only guarded PAPER entry/monitor/close/export with fake providers and temporary artifacts. Includes exact0.1 SOL and uncapped extreme signals/runner paths; no operational run or profitability acceptance."
+    },
+    "preceding_cold_imports_each": 27,
+    "post_full_failure_repairs_working": {
+      "passed": 315,
+      "seconds": 7.09,
+      "exit": 0
+    },
+    "post_full_failure_repairs_publishing": {
+      "passed": 315,
+      "seconds": 5.06,
+      "exit": 0
+    }
+  },
+  "current_source_epoch": {
+    "files_each": 796,
+    "normalized_sha256": "ffc84b331d74fabca78249834491b576bb359e72d3a8be74f777926b9d16c744",
+    "frozen_at_utc": "2026-10-13T12:18:59.660829+00:00",
+    "complete_native_runs": "PASSED_ACTUAL_NATIVE_FULL_PREFLIGHT_BOTH_ROOTS",
+    "source_edits_during_runs": false
+  },
+  "collection": {
+    "repository_cases_each": 5790,
+    "working_total": 5791,
+    "publishing_total": 5790,
+    "repository_differences": 0,
+    "repository_nodeids_sha256": "aeb1ea2cf904ee5faee5d36c46ee6765b12249185dc6685ec6a5d6e9a5505471",
+    "working_only": "One private owned preflight deadline fixture under work/, not an extra repository test."
+  },
+  "operator_preservation_warning": {
+    "original_byte_hash_changed": "data/memebotdatabase.db",
+    "physical_file_mtime_utc": "2026-10-13T11:28:27.519763+00:00",
+    "comparison": "All seven table row sets were compared with the available pre-PAPER backup. Every non-runtime table has identical sorted row hashes; both positions tables are empty. Only the main runtime row differs consistently with the authorized PAPER; current SQL remains stopped/idle/idle updated10:43:54.767270UTC.",
+    "schema": "Only nullable runner_trailing_policy TEXT was added to positions; no column was removed or changed. This column is already in native conditional migration db/database.py:153. Integrity_check returnsok. Physical main-file hashes do not identify when the logical migration happened or which caller/checkpoint wrote it; neither is independently established here.",
+    "limit": "The backup precedes PAPER, not the software-QA baseline. This establishes broader-window non-runtime record retention, not original byte-level DB immutability or a complete before-QA logical snapshot.",
+    "preserved_other_working_protected_hashes": 3765,
+    "preserved_publishing_protected_hashes": 27,
+    "coherent_private_snapshot_retained": true,
+    "restore_or_delete_performed": false,
+    "revised_baseline": "Separate baseline2 captures the current physical DB while retaining the original baseline/warning and all independent evidence. It does not relabel the original changed DB as unchanged."
+  },
+  "known_independent_throttle_gap": {
+    "native_source": "fetcher/birdeye.py:_throttle",
+    "reproduction": "Three concurrent native throttles pass in the first disposable asyncio loop; two of three fail with RuntimeError bound to a different event loop in the second. Both original roots reproduce using a short synthetic5ms interval and no HTTP.",
+    "qualification": "Access-state probe ownership is thread/loop-safe, but the separate legacy native async throttle still has a loop-binding gap. This is not established as the prior no-buy or first-run cause, and real global quota/production throughput are not proven.",
+    "required_next_stage": "Repair native wire-admission timing/ownership across reused loops/threads, validate cancellation and first-launch/failure behavior, then complete separate actual provider/resource access acceptance. Do not claim current full cross-loop transport or strategy profitability."
+  },
+  "runtime_requirement": "Keep bot, training, AutoResearch, API and UI OFF. Complete source QA and publication from C; no new PAPER authorization exists and actual account/resource access remains unresolved.",
+  "final_verification": {
+    "native_full_working": {
+      "native_exit": 0,
+      "ok": true,
+      "repository_cases": 5790,
+      "total_passed": 5791,
+      "private_cases": 1,
+      "warnings": 2,
+      "pytest_seconds": 1441.85,
+      "generated_at_utc": "2026-10-13T12:43:48.556919+00:00",
+      "external_attestation": false
+    },
+    "native_full_publishing": {
+      "native_exit": 0,
+      "ok": true,
+      "repository_cases": 5790,
+      "total_passed": 5790,
+      "private_cases": 0,
+      "warnings": 2,
+      "pytest_seconds": 1413.38,
+      "generated_at_utc": "2026-10-13T12:43:31.030332+00:00",
+      "external_attestation": false
+    },
+    "native_imports_each": 27,
+    "final_source_config": {
+      "dry_run": true,
+      "paper_exact_trade_size_enabled": true,
+      "paper_exact_trade_size_sol": 0.1
+    },
+    "compile_errors_each": 0,
+    "empty_report_builders_each": 7,
+    "empty_report_builders_all_ok": true,
+    "protected_post_revision_sha_check": "PASS: all3766D/27C protected original entries identical to the separately declared revised baseline; no new paths. The first DB-byte/schema warning remains recorded, not erased.",
+    "source_fingerprint_post_full_utc": "2026-10-13T12:45:08.062989+00:00",
+    "final_source_unchanged": true,
+    "runtime_processes": 0,
+    "verification_python_processes": 0,
+    "running_tasks": 0,
+    "running_services": 0,
+    "runtime_locks": 0,
+    "runtime_off_process_census_utc": "2026-10-13T12:45:12.3070360+00:00",
+    "runtime_off_task_service_lock_census_utc": "2026-10-13T12:46:09.5280727+00:00",
+    "sql_state": "stopped/idle/idle",
+    "sql_updated_utc": "2026-10-13T10:43:54.767270",
+    "qualification": "These full software results include current native tests with synthetic providers/temporary artifacts, not a new operational PAPER or winning-strategy acceptance. The separate native cross-loop throttle gap is reproduced and remains incomplete."
+  },
+  "account_access": {
+    "chrome_connected": false,
+    "observed_browser_inventory": "Only Codex In-app Browser and MCP Apps; no Chrome/Edge. No credentials entered, account read or changed, key created, paid upgrade, or additional provider request.",
+    "key_file_written": false,
+    "successful_creation_resource_access_verified": false
+  }
+}
