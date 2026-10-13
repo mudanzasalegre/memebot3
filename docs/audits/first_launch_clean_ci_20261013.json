@@ -1,7 +1,14 @@
 {
-  "status": "LINUX_PYTHON_AND_TWO_OS_UI_VALIDATED_CURRENT_FULL_PYTHON_MATRIX_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "status": "PRECEDING_PYTHON_WINDOWS_LINUX_ACCEPTED_CURRENT_FIXTURE_REPAIR_MATRIX_PENDING_WHOLE_GOAL_INCOMPLETE",
   "scope": "First-launch dependency compatibility, model-fit cohort identity, guarded native integration, clean Git source publication and UI provisioning. No operational/financial acceptance.",
-  "implementation_commits": ["7642037c8b916a54ce07290650544f845c3b6640","b9f1487977ce7e6ad06c72d3fda1b8388da17197","52f20d66441d6600ddea0c0f6f761143837d2e75","9f59015788cdbd7e77818a4bb81b562006809032","574ac59619170fa75e7d72c7f7c6e90fbc769c56"],
+  "implementation_commits": [
+    "7642037c8b916a54ce07290650544f845c3b6640",
+    "b9f1487977ce7e6ad06c72d3fda1b8388da17197",
+    "52f20d66441d6600ddea0c0f6f761143837d2e75",
+    "9f59015788cdbd7e77818a4bb81b562006809032",
+    "574ac59619170fa75e7d72c7f7c6e90fbc769c56",
+    "5fcb8e588394f72e41405492e8811ea3fb77c4bf"
+  ],
   "repairs": [
     "PyArrow26 requires NumPy2 but the project uses NumPy1.x. Pin native-tested PyArrow20; preserve existing NumPy/Numba/SHAP ABI contracts.",
     "Use python-m-pytest to retain the repository root on sys.path; no collection exclusions.",
@@ -10,29 +17,236 @@
     "Retain original Arrow null and rejected legacy receipt checks while accepting Pandas missing-value representations; inspect read-only API registration through public OpenAPI and require an actual PowerShell executable on either OS.",
     "The same no-network/no-child audit blocks NumPy testing's optional CPU probe during an explicit dependency bootstrap. Record only the exact denied probe separately; unexpected/repeated actions remain hard failures. Native imports and lifecycle retain the zero-attempt guard; add7 cases.",
     "Repair only3 missing optional/peer @emnapi lock entries; no existing package version, package.json or operator node_modules/dist change. Add actual clean-install/build CI on Windows and Linux.",
-    "Publish previously ignored static ui/src/data/routes.ts through a narrow route-only Git exception. Runtime data and all other UI data remain ignored. Source sync now reports byte-identical untracked/ignored sources and never auto-stages or overwrites changed owner files; add5 fixture cases."
+    "Publish previously ignored static ui/src/data/routes.ts through a narrow route-only Git exception. Runtime data and all other UI data remain ignored. Source sync now reports byte-identical untracked/ignored sources and never auto-stages or overwrites changed owner files; add5 fixture cases.",
+    "Update existing secret-publication test doubles to return a complete Git process result, including check-ignore's exit code. Assert that a blank key cannot consume the next line, safe placeholders remain nonignored/untracked, and a real assignment is rejected before ignore probing. No production code, secret guard or tracking rule is relaxed."
   ],
   "preserved_failures": [
-    {"commit":"410d80e4e7f447ad93637a031654214d5b7ac57f","run":38438953948,"result":"107 collection errors,2 skipped; console pytest import path","url":"https://github.com/mudanzasalegre/memebot3/actions/runs/38438953948"},
-    {"commit":"410d80e4e7f447ad93637a031654214d5b7ac57f","run":38438954093,"result":"PyArrow26/NumPy1.26.4 native import failure","url":"https://github.com/mudanzasalegre/memebot3/actions/runs/38438954093"},
-    {"commit":"7642037c8b916a54ce07290650544f845c3b6640","run":38442228399,"result":"5607passed22failed383errors in798.06s; all383errors are removed solana.rpc.api. Other failures:18 native dependency probe guards and one each API introspection, null representation, cohort container and PowerShell executable.","url":"https://github.com/mudanzasalegre/memebot3/actions/runs/38442228399"},
-    {"commit":"b9f1487977ce7e6ad06c72d3fda1b8388da17197","run":38446178199,"result":"Early native smoke failed on the denied NumPy lscpu probe; guard was not relaxed.","url":"https://github.com/mudanzasalegre/memebot3/actions/runs/38446178199"},
-    {"scope":"stage-owned local UI copy","result":"npm-ci exit1:3missing lock entries. Existing UI dependencies and source were untouched by that attempt."},
-    {"commit":"9f59015788cdbd7e77818a4bb81b562006809032","run":38452644052,"result":"Both clean UI builds failed because the static route module existed locally but was absent from Git. Local byte equality/build was not clean-clone proof.","url":"https://github.com/mudanzasalegre/memebot3/actions/runs/38452644052"},
-    {"scope":"local fixture repairs","result":"Initial NumPy bootstrap repair failed18 native cases each due Windows executable=None; exact command-line decoding repaired it. Initial tracking fixtures failed3cases each because staged baselines were dirty; explicit fixture-only unsigned/no-hook commits repaired them without weakening the clean-checkout guard."}
+    {
+      "commit": "410d80e4e7f447ad93637a031654214d5b7ac57f",
+      "run": 38438953948,
+      "result": "107 collection errors,2 skipped; console pytest import path",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38438953948"
+    },
+    {
+      "commit": "410d80e4e7f447ad93637a031654214d5b7ac57f",
+      "run": 38438954093,
+      "result": "PyArrow26/NumPy1.26.4 native import failure",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38438954093"
+    },
+    {
+      "commit": "7642037c8b916a54ce07290650544f845c3b6640",
+      "run": 38442228399,
+      "result": "5607passed22failed383errors in798.06s; all383errors are removed solana.rpc.api. Other failures:18 native dependency probe guards and one each API introspection, null representation, cohort container and PowerShell executable.",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38442228399"
+    },
+    {
+      "commit": "b9f1487977ce7e6ad06c72d3fda1b8388da17197",
+      "run": 38446178199,
+      "result": "Early native smoke failed on the denied NumPy lscpu probe; guard was not relaxed.",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38446178199"
+    },
+    {
+      "scope": "stage-owned local UI copy",
+      "result": "npm-ci exit1:3missing lock entries. Existing UI dependencies and source were untouched by that attempt."
+    },
+    {
+      "commit": "9f59015788cdbd7e77818a4bb81b562006809032",
+      "run": 38452644052,
+      "result": "Both clean UI builds failed because the static route module existed locally but was absent from Git. Local byte equality/build was not clean-clone proof.",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38452644052"
+    },
+    {
+      "scope": "local fixture repairs",
+      "result": "Initial NumPy bootstrap repair failed18 native cases each due Windows executable=None; exact command-line decoding repaired it. Initial tracking fixtures failed3cases each because staged baselines were dirty; explicit fixture-only unsigned/no-hook commits repaired them without weakening the clean-checkout guard."
+    },
+    {
+      "commit": "574ac59619170fa75e7d72c7f7c6e90fbc769c56",
+      "run": 38454700120,
+      "job": 115494300164,
+      "platform": "ubuntu-24.04",
+      "result": "2 failed,6034 passed,1 warning in1516.63s. Both existing publishing-scope fixtures returned SimpleNamespace without returncode after the new Git ignore probe; the production guard was unchanged. Windows was still running at this observation.",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38454700120/job/115494300164"
+    },
+    {
+      "commit": "574ac59619170fa75e7d72c7f7c6e90fbc769c56",
+      "run": 38454700120,
+      "result": "Terminal aggregate failure on both OS; each2failed6034passed1warning. Identical two incomplete Git-process fixtures, Ubuntu1516.63s/Windows1802.00s. All preceding dependency, signing SDK and guarded lifecycle import/smoke steps succeeded; missing-model/no-data follow-up steps were skipped after pytest failure.",
+      "platforms": {
+        "ubuntu-24.04": {
+          "failed": 2,
+          "passed": 6034,
+          "warnings": 1,
+          "seconds": 1516.63
+        },
+        "windows-2022": {
+          "failed": 2,
+          "passed": 6034,
+          "warnings": 1,
+          "seconds": 1802
+        }
+      },
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38454700120"
+    }
   ],
   "actual_completed_validation": {
-    "clean_linux_python": {"commit":"52f20d66441d6600ddea0c0f6f761143837d2e75","run":38447734405,"python":"3.12.15","passed":6031,"warnings":1,"seconds":1322.93,"conclusion":"success","url":"https://github.com/mudanzasalegre/memebot3/actions/runs/38447734405","data_imports":{"numpy":"1.26.4","pandas":"3.0.6","pyarrow":"20.0.0"},"ml_status":"No active model; command succeeds with --no-fail-if-missing-model","backtest":"no_data; not profitability evidence"},
-    "preceding_runtime_focused_windows": {"source_files_each":805,"source_sha256_each":"9ada35ad68d14e1bc9bf2c88908283ef15343565dde5a8b35bd06e57b312b0a3","working":{"passed":191,"seconds":203.41},"publishing":{"passed":191,"seconds":203.23}},
-    "current_tracking_cases": {"passed_each":5,"working_seconds":1.00,"publishing_seconds":1.02},
-    "isolated_ui_build": {"node":"24.19.0","npm":"10.9.8","npm_ci_exit_code":0,"typescript_and_vite_exit_code":0,"vite":"8.0.3","package_install_and_build_only":true},
-    "current_clean_ui": {"commit":"574ac59619170fa75e7d72c7f7c6e90fbc769c56","run":38454700067,"platforms":{"ubuntu-24.04":"success","windows-2022":"success"},"url":"https://github.com/mudanzasalegre/memebot3/actions/runs/38454700067"},
-    "current_strategy_regression": {"commit":"574ac59619170fa75e7d72c7f7c6e90fbc769c56","run":38454700151,"passed":41,"seconds":4.53,"conclusion":"success","url":"https://github.com/mudanzasalegre/memebot3/actions/runs/38454700151"}
+    "clean_linux_python": {
+      "commit": "52f20d66441d6600ddea0c0f6f761143837d2e75",
+      "run": 38447734405,
+      "python": "3.12.15",
+      "passed": 6031,
+      "warnings": 1,
+      "seconds": 1322.93,
+      "conclusion": "success",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38447734405",
+      "data_imports": {
+        "numpy": "1.26.4",
+        "pandas": "3.0.6",
+        "pyarrow": "20.0.0"
+      },
+      "ml_status": "No active model; command succeeds with --no-fail-if-missing-model",
+      "backtest": "no_data; not profitability evidence"
+    },
+    "preceding_runtime_focused_windows": {
+      "source_files_each": 805,
+      "source_sha256_each": "9ada35ad68d14e1bc9bf2c88908283ef15343565dde5a8b35bd06e57b312b0a3",
+      "working": {
+        "passed": 191,
+        "seconds": 203.41
+      },
+      "publishing": {
+        "passed": 191,
+        "seconds": 203.23
+      }
+    },
+    "current_tracking_cases": {
+      "passed_each": 5,
+      "working_seconds": 1,
+      "publishing_seconds": 1.02
+    },
+    "isolated_ui_build": {
+      "node": "24.19.0",
+      "npm": "10.9.8",
+      "npm_ci_exit_code": 0,
+      "typescript_and_vite_exit_code": 0,
+      "vite": "8.0.3",
+      "package_install_and_build_only": true
+    },
+    "current_clean_ui": {
+      "commit": "574ac59619170fa75e7d72c7f7c6e90fbc769c56",
+      "run": 38454700067,
+      "platforms": {
+        "ubuntu-24.04": "success",
+        "windows-2022": "success"
+      },
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38454700067"
+    },
+    "current_strategy_regression": {
+      "commit": "5fcb8e588394f72e41405492e8811ea3fb77c4bf",
+      "run": 38458591712,
+      "passed": 41,
+      "seconds": 2.44,
+      "conclusion": "success",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38458591712"
+    },
+    "preceding_clean_python_matrix": {
+      "commit": "9f59015788cdbd7e77818a4bb81b562006809032",
+      "run": 38452644163,
+      "platforms": {
+        "ubuntu-24.04": {
+          "passed": 6031,
+          "warnings": 1,
+          "seconds": 1574.08,
+          "conclusion": "success"
+        },
+        "windows-2022": {
+          "passed": 6031,
+          "warnings": 1,
+          "seconds": 1800.59,
+          "conclusion": "success"
+        }
+      },
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38452644163",
+      "qualification": "Actual fresh full Python acceptance before five publication-tracking cases; not acceptance of the newer6036 population."
+    },
+    "git_probe_fixture_repair": {
+      "commit": "5fcb8e588394f72e41405492e8811ea3fb77c4bf",
+      "files": [
+        "tests/test_publishing_scope.py",
+        "tests/test_sync_publication_tracking.py"
+      ],
+      "working": {
+        "passed": 30,
+        "seconds": 1.17,
+        "exit_code": 0
+      },
+      "publishing": {
+        "passed": 30,
+        "seconds": 1.18,
+        "exit_code": 0
+      },
+      "qualification": "Includes the preceding five tracking cases; overlapping populations are not summed."
+    }
   },
-  "current_full_python_matrix": {"commit":"574ac59619170fa75e7d72c7f7c6e90fbc769c56","run":38454700120,"repository_cases_expected":6036,"platforms":{"ubuntu-24.04":"in_progress","windows-2022":"in_progress"},"url":"https://github.com/mudanzasalegre/memebot3/actions/runs/38454700120","qualification":"Do not treat preceding6031Linux or focused tests as completed current full matrix."},
-  "warnings": ["One clean Python warning: Starlette's httpx TestClient transport is deprecated; not a failed test.","UI minified JS chunk is approximately524.83KB and exceeds the500KB warning threshold; no warning suppression or visual/performance acceptance claim.","Existing checkout/setup-python actions emit the hosted Node20-to24 deprecation notice; completed runs are recorded, not a claim of future-version compatibility."],
-  "preservation": {"working_protected_files":3766,"publishing_protected_files":27,"changed":0,"added":0,"source_files_each":807,"source_normalized_sha256_each":"08cd9d504c9d935d2aeb83265325f771a756146aa88cea452a3985a7de9bf5f9","qualification":"Against the captured stage baseline; earlier SQLite physical-byte/migration caveat remains unchanged."},
-  "shutdown": {"observed_at_utc":"2026-10-13T19:27:28.3864997Z","operational_processes":0,"local_qa_processes":0,"matching_tasks_services_and_locks":0,"sql_main":{"process_state":"stopped","reports_refresh_state":"idle","retrain_state":"idle"},"remote_ci":"Non-operational QA still running; no bot, training, AutoResearch, API/UI server or provider call."},
-  "remaining": ["Inspect actual terminal full Python matrix on both supported platforms and retain any further failures.","Complete current operational provider/feed/model/whole-strategy acceptance with separately authorized evidence; the previous PAPER30 permission was consumed and a new request is pending.","No operational model fit/activation, live trading, real transaction or profitability/zero-future-errors claim. Preserve original whole-goal requirements rather than redefining completion as green CI."],
-  "official_sources": ["https://docs.pytest.org/en/stable/how-to/usage.html","https://michaelhly.com/solana-py/rpc/api/","https://pandas.pydata.org/docs/user_guide/migration-3-strings.html","https://fastapi.tiangolo.com/release-notes/","https://docs.npmjs.com/cli/v10/commands/npm-ci/","https://github.com/actions/setup-node"]
+  "current_full_python_matrix": {
+    "commit": "5fcb8e588394f72e41405492e8811ea3fb77c4bf",
+    "run": 38458591911,
+    "repository_cases_expected": 6036,
+    "platforms": {
+      "ubuntu-24.04": "in_progress",
+      "windows-2022": "in_progress"
+    },
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38458591911",
+    "qualification": "New code-repair push launched its own CI; preceding workflows were not restarted or canceled. Actual current collection remains6036; full acceptance is pending."
+  },
+  "warnings": [
+    "One clean Python warning: Starlette's httpx TestClient transport is deprecated; not a failed test.",
+    "UI minified JS chunk is approximately524.83KB and exceeds the500KB warning threshold; no warning suppression or visual/performance acceptance claim.",
+    "Existing checkout/setup-python actions emit the hosted Node20-to24 deprecation notice; completed runs are recorded, not a claim of future-version compatibility."
+  ],
+  "preservation": {
+    "working_protected_files": 3766,
+    "publishing_protected_files": 27,
+    "changed": 0,
+    "added": 0,
+    "source_files_each": 807,
+    "source_normalized_sha256_each": "8b2446f8fd69d06c49dbadf864b458c82f8898723295e51f29469174c6799ff1",
+    "qualification": "Against the captured stage baseline; earlier SQLite physical-byte/migration caveat remains unchanged."
+  },
+  "shutdown": {
+    "observed_at_utc": "2026-10-13T19:52:13.4959458Z",
+    "operational_processes": 0,
+    "local_qa_processes": 0,
+    "matching_tasks_services_and_locks": 0,
+    "sql_main": {
+      "process_state": "stopped",
+      "reports_refresh_state": "idle",
+      "retrain_state": "idle"
+    },
+    "remote_ci": "Non-operational QA still running; no bot, training, AutoResearch, API/UI server or provider call.",
+    "sql_observed_at_utc": "2026-10-13T19:53:58.876442Z"
+  },
+  "remaining": [
+    "Inspect actual terminal full Python matrix on both supported platforms and retain any further failures.",
+    "Complete current operational provider/feed/model/whole-strategy acceptance with separately authorized evidence; the previous PAPER30 permission was consumed and a new request is pending.",
+    "No operational model fit/activation, live trading, real transaction or profitability/zero-future-errors claim. Preserve original whole-goal requirements rather than redefining completion as green CI."
+  ],
+  "official_sources": [
+    "https://docs.pytest.org/en/stable/how-to/usage.html",
+    "https://michaelhly.com/solana-py/rpc/api/",
+    "https://pandas.pydata.org/docs/user_guide/migration-3-strings.html",
+    "https://fastapi.tiangolo.com/release-notes/",
+    "https://docs.npmjs.com/cli/v10/commands/npm-ci/",
+    "https://github.com/actions/setup-node"
+  ],
+  "preceding_full_python_matrix": {
+    "commit": "574ac59619170fa75e7d72c7f7c6e90fbc769c56",
+    "run": 38454700120,
+    "repository_cases_expected": 6036,
+    "platforms": {
+      "ubuntu-24.04": "failure",
+      "windows-2022": "failure"
+    },
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38454700120",
+    "qualification": "Actual terminal aggregate and both jobs failed on the same two incomplete Git-process test fixtures; each6034passed2failed. Original partial observation remains preserved separately."
+  }
 }

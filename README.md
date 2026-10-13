@@ -13,7 +13,7 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
-### Instalacion limpia y publicacion: Python Linux y UI Windows/Linux (2026-10-13)
+### Instalacion limpia Windows/Linux: validacion y fallos de CI (2026-10-13)
 
 Se conservan los fallos reales de CI y sus reparaciones: ABI PyArrow/NumPy,
 imports de paquetes del proyecto, SDK Solana sincronico, identidad escalar de
@@ -23,16 +23,21 @@ sonda CPU bloqueada; no permite ejecutar subprocesos ni acceder a red externa.
 Los filtros de entrada/riesgo, las compras PAPER exactas de 0,1 SOL y los
 contratos financieros no se han relajado.
 
-Una instalacion limpia real de Python 3.12.15 en Linux pasa 6.031 pruebas
-(commit `52f20d6`, un aviso de transporte Starlette). La UI instala y compila
+Una instalacion limpia real de Python 3.12.15 pasa 6.031 pruebas en ambos
+sistemas (commit `9f59015`: Linux 1.574,08 s; Windows 1.800,59 s; un aviso
+Starlette por sistema). La UI instala y compila
 en Windows 2022 y Ubuntu 24.04 sobre `574ac59`: el lockfile incorpora solo tres
 entradas faltantes y el modulo estatico de rutas ya pertenece a Git. Antes
 existia localmente pero estaba ignorado, por lo que el build local no probaba
 que un clon nuevo funcionara. El sincronizador ahora avisa de fuentes sin
 tracking, sin auto-staging ni sobrescritura de cambios del propietario.
 
-La matriz completa actual de Python para Windows/Linux, con 6.036 casos
-esperados, sigue en ejecucion: no se presenta como aprobada. El build conserva
+La matriz posterior de 6.036 casos detecto dos pruebas antiguas con una
+simulacion incompleta de Git (ambos sistemas: 6.034 aprobadas, dos fallidas). La
+correccion `5fcb8e5` conserva los controles reales de secretos y tracking;
+sus 30 pruebas afectadas pasan en ambas carpetas y la regresion de estrategia
+pasa 41. La nueva matriz completa Windows/Linux sigue ejecutandose y no se
+presenta como aprobada. El build conserva
 un aviso de chunk JavaScript de aproximadamente 524,83 KB; no acredita
 validacion visual, acceso a proveedores, modelo operativo ni rentabilidad.
 Bot, entrenamiento operativo, AutoResearch, API/UI y QA local permanecen
