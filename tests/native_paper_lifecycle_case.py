@@ -14,6 +14,18 @@ if options.get('log'):
     sys.argv.append('--log')
 case = options['case']
 attempts = []
+
+def checked_numpy_bootstrap_attempts(items):
+    # Nothing is allowed to execute. NumPy1.26's test utilities catch the
+    # PermissionError from their optional CPU probe during dependency setup.
+    # Preserve that denied attempt separately; never clear an unknown action.
+    assert len(items) <= 1, items
+    assert all(isinstance(item, dict) and item.get('event') == 'subprocess.Popen'
+        and item.get('program') == 'lscpu' and item.get('numpy_testing_probe') is True
+        for item in items), items
+    return [{'program':'lscpu','source':'numpy.testing._private.utils.check_support_sve',
+        'blocked':True} for item in items]
+
 def audit(event, args):
     if event in {'socket.getaddrinfo', 'socket.connect'}:
         address = args[0] if event == 'socket.getaddrinfo' else args[1][0]
@@ -21,11 +33,29 @@ def audit(event, args):
             attempts.append(event)
             raise PermissionError('External network forbidden in isolated integration')
     if event == 'subprocess.Popen':
-        attempts.append({'event':event,'program':Path(str(args[0])).name,
+        frame = sys._getframe()
+        numpy_testing_probe = False
+        while frame is not None:
+            if (frame.f_code.co_name == 'check_support_sve'
+                    and frame.f_globals.get('__name__') == 'numpy.testing._private.utils'):
+                numpy_testing_probe = True
+            frame = frame.f_back
+        # Windows exposes executable=None and the normalized command line;
+        # POSIX exposes executable='lscpu'. Recognize only the exact probe.
+        program = Path(args[0]).name if isinstance(args[0], str) else None
+        if args[0] is None and args[1] == 'lscpu':
+            program = 'lscpu'
+        attempts.append({'event':event,'program':program,
+            'numpy_testing_probe':numpy_testing_probe,
             'callers':[{'file':Path(frame.filename).name,'function':frame.name}
                        for frame in traceback.extract_stack(limit=8)]})
         raise PermissionError('Child process forbidden in isolated integration')
 sys.addaudithook(audit)
+# Bootstrap only the installed scientific testing dependency under the SAME
+# no-network/no-child guard. No native project module has executed yet.
+import numpy.testing
+dependency_probes = checked_numpy_bootstrap_attempts(attempts)
+attempts.clear()
 from config.config import CFG, PROJECT_ROOT
 assert PROJECT_ROOT.resolve() == expected and CFG.DRY_RUN is True
 assert not (expected / '.env').exists()
@@ -239,7 +269,8 @@ print(json.dumps({**report,'native_complete_entry':True,'boundary_calls':calls,
     'events':[{'event':e.get('event_type') or e.get('event'),'reason':e.get('reason'),
         'stage':e.get('stage'),'hard_failures':e.get('hard_failures')} for e in events],
     'stats':run_bot._stats,'external_attempts':attempts,
+    'blocked_dependency_probes':dependency_probes,
     'isolated_native_import':True,'scoped_modules':len(scoped),
     'operator_files_copied':0,'outbound_network_attempts':len(attempts),
     'dry_run':CFG.DRY_RUN,'exact_paper_size':CFG.PAPER_EXACT_TRADE_SIZE_SOL,
-    'scope':'Native source-only PAPER lifecycle; no operational main loop, wallet or providers.'}))
+    'scope':'Native source-only PAPER lifecycle; no operational main loop, wallet or providers. Scientific testing bootstrap probes are separately recorded and blocked; the native phase permits no child process or external network.'}))

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import ast
 import json
 import os
 import re
@@ -81,11 +82,42 @@ def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log
     row = rows[0]
     assert row['dry_run'] is True and row['exact_paper_size']==.1
     assert row['operator_files_copied']==0 and row['external_attempts']==[]
+    assert row['blocked_dependency_probes'] in ([], [{'program':'lscpu',
+        'source':'numpy.testing._private.utils.check_support_sve','blocked':True}])
     assert row['scoped_modules']>=160
     assert 'Unclosed client session' not in result.stderr
     row['copied_sources'] = copied
     row['runtime_source_sha256'] = hashlib.sha256((SOURCE/'run_bot.py').read_bytes()).hexdigest()
     return row
+
+
+@pytest.mark.parametrize('items', [[], [{'event':'subprocess.Popen','program':'lscpu',
+    'numpy_testing_probe':True}]])
+def test_only_the_denied_numpy_dependency_probe_is_separately_reported(items):
+    source = ast.parse((HERE/'native_paper_lifecycle_case.py').read_text(encoding='utf-8'))
+    function = next(node for node in source.body if isinstance(node, ast.FunctionDef)
+        and node.name == 'checked_numpy_bootstrap_attempts')
+    namespace = {}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), '<native-bootstrap-contract>', 'exec'), namespace)
+    result = namespace['checked_numpy_bootstrap_attempts'](items)
+    assert len(result) == len(items) and all(item['blocked'] is True for item in result)
+
+
+@pytest.mark.parametrize('items', [
+    ['socket.connect'],
+    [{'event':'subprocess.Popen','program':'python','numpy_testing_probe':True}],
+    [{'event':'subprocess.Popen','program':'lscpu','numpy_testing_probe':False}],
+    [{'event':'subprocess.Popen','program':'lscpu'}],
+    [{'event':'subprocess.Popen','program':'lscpu','numpy_testing_probe':True}] * 2,
+])
+def test_unknown_or_repeated_bootstrap_action_remains_a_hard_failure(items):
+    source = ast.parse((HERE/'native_paper_lifecycle_case.py').read_text(encoding='utf-8'))
+    function = next(node for node in source.body if isinstance(node, ast.FunctionDef)
+        and node.name == 'checked_numpy_bootstrap_attempts')
+    namespace = {}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), '<native-bootstrap-contract>', 'exec'), namespace)
+    with pytest.raises(AssertionError):
+        namespace['checked_numpy_bootstrap_attempts'](items)
 
 
 @pytest.mark.parametrize('momentum',[500.,25000.,1000000.])
