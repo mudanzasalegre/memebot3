@@ -13,6 +13,22 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Scanner: nacimiento nuevo y caducidad coherente (2026-10-14)
+
+La cola prioritaria reconoce ahora los mismos alias y unidades de nacimiento
+que la entrada comun, incluido `token_age_min`. Un nacimiento o referencia
+de creacion nuevo puede volver a evaluarse tras el intervalo existente,
+aunque el precio no cambie. La recepcion tardia de la misma referencia no
+basta para saltarse la deduplicacion. Se conservan la espera original, los
+limites y los filtros finales; una referencia no se convierte en nacimiento
+ni permiso de compra, y un nacimiento conocido no se rejuvenece.
+
+Pasan 604 pruebas enfocadas en ambas carpetas, con 95 casos nuevos. Se
+recogen 6.208 casos; la CI completa de esta version sigue pendiente. Los
+procesos permanecen apagados y los datos/modelos/env intactos. No se ha
+demostrado que este defecto causara las compras ausentes ni rentabilidad.
+[Auditoria y limites](docs/audits/hot_queue_birth_reconsideration_20261014.json).
+
 ### Autoentrenamiento: propiedad del ciclo y estado historico (2026-10-13)
 
 El ciclo del daemon usa ahora un bloqueo del sistema operativo: el TTL no

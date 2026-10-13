@@ -290,7 +290,7 @@ class HotQueue:
         address = str(token.get("address") or token.get("mint") or "").strip()
         # Internal clocks and learned cache identities are queue-owned.
         token = deepcopy({k: v for k, v in token.items() if not k.startswith("_hot_queue_") and k != "learned_runner_priority"})
-        incoming_has_age = any(_valid_age(token.get(key)) for key in ("age_minutes", "age_min"))
+        incoming_has_age = any(_valid_age(token.get(key)) for key in ("age_minutes", "age_min", "token_age_min"))
         birth = merge_birth_context({**(previous if previous is not None else token), "address": address},
                                    {**token, "address": address}, now=now)
         reference = merge_reference({**(previous if previous is not None else token), 'address': address},
@@ -428,25 +428,17 @@ def _valid_age(value: Any) -> bool:
 
 def _age_minutes(token: dict[str, Any], now: dt.datetime) -> float:
     waited = max(0.0, (now.timestamp() - float(token.get("_hot_queue_enqueued_at", now.timestamp()))) / 60)
-    created = token.get("created_at") or token.get("createdAt")
-    if isinstance(created, str):
-        try:
-            created = dt.datetime.fromisoformat(created.replace("Z", "+00:00"))
-        except Exception:
-            created = None
-    if isinstance(created, dt.datetime):
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=dt.timezone.utc)
-        return max(waited, (now - created).total_seconds() / 60.0)
-    for key in ("age_minutes", "age_min"):
-        try:
-            if token.get(key) is not None:
-                age = float(token[key])
-                observed = float(token.get("_hot_queue_observed_at", now.timestamp()))
-                if _valid_age(token[key]):
-                    return max(waited, age + max(0.0, now.timestamp() - observed) / 60)
-        except Exception:
-            continue
+    # Queue expiry must recognize the same original clocks/units and measured
+    # aliases as priority and common entry; residence is never a birth clock.
+    birth_view = {key: value for key, value in token.items()
+                  if key not in ("age_minutes", "age_min", "token_age_min")}
+    birth_age = compute_age_minutes(birth_view, now=now)
+    if birth_age is not None:
+        return max(waited, birth_age)
+    measured = compute_age_minutes(token, now=now)
+    if measured is not None:
+        observed = float(token.get("_hot_queue_observed_at", now.timestamp()))
+        return max(waited, measured + max(0.0, now.timestamp() - observed) / 60)
     return waited
 
 
@@ -469,7 +461,26 @@ def _market_signal(token: dict[str, Any]) -> tuple[Any, ...]:
             numeric("liquidity_usd", logarithmic=True), numeric("market_cap_usd", logarithmic=True),
             _normalize_score(rank, -1.0),
             str(token.get("has_jupiter_route", "unknown")).lower(),
-            str(token.get("dex_id") or token.get("dexId") or "").lower(), _learning_signal(token))
+            str(token.get("dex_id") or token.get("dexId") or "").lower(), _learning_signal(token), _birth_signal(token))
+
+
+def _birth_signal(token: dict[str, Any]) -> str:
+    """New original birth context is an input change, not automatic eligibility.
+
+    Preserve coarse momentum dedup and do not turn each advancing measured
+    age into a new evaluation. A first usable measurement or changed original
+    receipt can unblock the common entry path after its existing cooldown.
+    """
+    fields = (*BIRTH_CLOCK_FIELDS, BIRTH_FIELD, CREATION_REFERENCE_FIELD)
+    context = {key: token[key] for key in fields if key in token}
+    if isinstance(context.get(CREATION_REFERENCE_FIELD), dict):
+        # A reconnect can report the same original transaction later. Its
+        # arrival clock is not new lookup evidence and must not defeat dedup.
+        context[CREATION_REFERENCE_FIELD] = {key: value
+            for key, value in context[CREATION_REFERENCE_FIELD].items() if key != "received_at"}
+    context["measured_age_available"] = any(_valid_age(token.get(key))
+        for key in ("age_minutes", "age_min", "token_age_min"))
+    return json.dumps(context, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _learning_signal(token: dict[str, Any]) -> str:

@@ -1,0 +1,126 @@
+{
+  "status": "SCOPED_QUEUE_BIRTH_RECONSIDERATION_FOCUSED_ACCEPTED_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "observed_at_utc": "2026-10-13T22:02:36.498286+00:00",
+  "local_stage_date": "2026-10-14 Europe/Madrid",
+  "implementation_parent": "52f7560f4222996f04a6a1811e561a5c02ad1cc1",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 811,
+      "sha256": "71b87b5e7487fe1cfd5329d1b79363e00115ec99709b049f555b32a3c112ce83"
+    },
+    {
+      "checkout": "publishing",
+      "files": 811,
+      "sha256": "71b87b5e7487fe1cfd5329d1b79363e00115ec99709b049f555b32a3c112ce83"
+    }
+  ],
+  "summary": "Actual HotQueue expiry now uses the common original mint-birth parser and all3 measured-age aliases. Four original birth aliases and8 supported clock encodings expire at their original age; token_age_min advances from its queue-owned measurement observation. New original birth, first usable measured age, checked birth receipt or original creation-reference context can be reconsidered after the existing cooldown without a fabricated price movement. Advancing known measured age alone retains original momentum dedup; reconnect arrival time alone does not change an original creation transaction identity. Existing immutable birth merge, original waiting order, expiry, coarse market buckets, TTL, sizing and final entry/risk guards are unchanged. Native baseline12 cases yield10failed2passed; an intermediate reference-clock regression yields 1failed1passed and is repaired before publication.95 new cases and604 focused integrations pass in both roots (D21.99s/C22.08s), no skips;6208 cases collected. Full two-OS CI for this new source remains pending. Both roots match811 files/SHA25671b87b5e7487fe1cfd5329d1b79363e00115ec99709b049f555b32a3c112ce83. Operator files remain unchanged and local runtime/QA/tasks/services are OFF. This is conditional scheduling/source evidence, not the established historical no-buy cause, independent mint-birth authentication, full opportunity coverage or profitability.",
+  "confirmed_defects": [
+    "Queue expiry ignored original created/createdAtUtc aliases and non-string encodings",
+    "Queue expiry and measurement observation ignored token_age_min",
+    "Evaluated unknown-age candidates suppressed new original birth/measured availability under unchanged market buckets"
+  ],
+  "acceptance": {
+    "original_baseline": {
+      "tests": 12,
+      "failures": 10,
+      "errors": 0,
+      "skipped": 0
+    },
+    "intermediate_reference_clock_regression": {
+      "tests": 2,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0
+    },
+    "focused": {
+      "D": {
+        "tests": 604,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "C": {
+        "tests": 604,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "new_repository_cases": 95,
+    "collected_repository_cases": 6208,
+    "current_complete_python_matrix": "PENDING_FOR_THIS_REVISION"
+  },
+  "contracts": [
+    "Use one common interpretation of original birth clocks/units for priority, expiry and entry",
+    "Queue residence remains queue residence and never grants a fabricated zero token age",
+    "Advance a measured age from its original queue-owned observation, including token_age_min",
+    "New original input context can schedule reconsideration only under original recheck/capacity/expiry rules",
+    "An advancing known measured age alone is not a new market signal",
+    "A later arrival of the same creation transaction alone does not defeat evaluated dedup",
+    "Venue/listing/discovery clocks are not minted birth availability",
+    "Known original birth cannot be rejuvenated through another alias",
+    "New creation references remain untrusted references and never become birth or buy permission",
+    "Scalar and native bulk admission share the same underlying clock and dedup behavior",
+    "Original entry fresh-market, age, calibrated learning, financial and risk checks are unchanged"
+  ],
+  "shutdown": {
+    "observed_at_utc": "2026-10-13T22:02:36.2846458+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately."
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-13T22:02:36.488229+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    }
+  },
+  "limits": [
+    "Full current Windows/Linux matrix is not yet terminal",
+    "No provider, bot, operational training, activation, AutoResearch or API/UI was launched",
+    "Native synthetic scanner and guarded integration cases are not forward-market acceptance",
+    "This scheduling gap is not established as the retained previous-run no-buy cause",
+    "Provider access/quotas, independently authenticated mint creation and original financial receipts remain separate",
+    "All original ten whole-goal remaining requirements and no-LIVE boundaries remain in force"
+  ]
+}
