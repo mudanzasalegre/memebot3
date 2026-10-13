@@ -287,12 +287,18 @@ def _reset_fail(key):
     _fail_count.pop(key, None)
 
 
-def _begin_request(key):
+class _RequestCapacityUnavailable(Exception):
+    """Shared adapter capacity rejected before any child or cache mutation."""
+
+
+def _begin_request(key, *, force_refresh=False):
     global _active_requests
     with _state_lock:
         if _active_requests >= _MAX_ACTIVE:
             _diagnostics["capacity_rejected"] += 1
             return None
+        if force_refresh:
+            cache_delete(key)
         generation = object()
         _active_requests += 1
         _latest_request[key] = generation
@@ -397,10 +403,7 @@ def get_token_data(network, address, session=None, timeout=5, *, force_refresh=F
     return deepcopy(result)
 
 
-async def _fetch_async(network, address, key, session, timeout):
-    generation = _begin_request(key)
-    if generation is None:
-        return None
+async def _fetch_async(network, address, key, session, timeout, generation):
     client = None
     result = None
     try:
@@ -437,8 +440,6 @@ async def _fetch_async(network, address, key, session, timeout):
         _record_outcome("request_error")
         _publish(key, generation, None)
         return None
-    finally:
-        _end_request(key, generation)
 
 
 async def get_token_data_async(network, address, session=None, timeout=5, *, force_refresh=False):
@@ -448,17 +449,35 @@ async def get_token_data_async(network, address, session=None, timeout=5, *, for
         return None
     network, address = context
     key = f"gt:{_CONTRACT}:{network}:{address}"
-    if force_refresh:
-        cache_delete(key)
-    else:
+    if not force_refresh:
         found, hit = _cached(key, address)
         if found:
             return hit
     # Injected callers share work only when they own the same session object.
     ownership_key = (key, id(session), deadline)
-    result = await _REQUESTS.run(ownership_key,
-        lambda:_fetch_async(network, address, key, session, deadline), force_refresh=force_refresh)
-    return deepcopy(result)
+    generation = None
+
+    def admitted():
+        nonlocal generation
+        # OwnedRequests calls this synchronously only for accepted owners,
+        # before scheduling. Shared sync/async capacity and force invalidation
+        # belong to the same original admission, not child execution order.
+        generation = _begin_request(key, force_refresh=force_refresh)
+        if generation is None:
+            raise _RequestCapacityUnavailable
+
+    try:
+        result = await _REQUESTS.run(ownership_key,
+            lambda:_fetch_async(network, address, key, session, deadline, generation),
+            force_refresh=force_refresh, on_admit=admitted)
+        return deepcopy(result)
+    except _RequestCapacityUnavailable:
+        return None
+    finally:
+        # A canceled child can fail to start, so only its admitted caller can
+        # reliably release the lease. OwnedRequests drains child cleanup first.
+        if generation is not None:
+            _end_request(key, generation)
 
 
 def request_runtime_snapshot():
