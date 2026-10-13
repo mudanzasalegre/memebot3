@@ -24,7 +24,7 @@ from utils.bounded_state import BoundedFailureCounter, bounded_int, increment_fa
 from utils.data_utils import sanitize_token_data
 from utils.market_observation import MARKET_FIELDS, market_number, stamp_market_observation
 from utils.rate_limiter import GECKO_LIMITER
-from utils.request_ownership import OwnedRequests
+from utils.request_ownership import OwnedRequests, SyncOwnedRequests
 from utils.simple_cache import cache_get, cache_set, cache_delete
 
 logger = logging.getLogger("fetcher.geckoterminal")
@@ -37,6 +37,7 @@ _TTL_NIL_MAX = max(_TTL_NIL_SHORT, bounded_int(os.getenv("GECKO_TTL_NIL_MAX", "6
 _SENTINEL_NIL = object()
 _fail_count = BoundedFailureCounter()
 _REQUESTS = OwnedRequests(name="gecko-http-request")
+_SYNC_REQUESTS = SyncOwnedRequests(name="gecko-sync-http-request")
 _state_lock = threading.RLock()
 _latest_request = {}
 _active_requests = 0
@@ -350,15 +351,31 @@ def get_token_data(network, address, session=None, timeout=5, *, force_refresh=F
         return None
     network, address = context
     key = f"gt:{_CONTRACT}:{network}:{address}"
-    if force_refresh:
-        cache_delete(key)
-    else:
+    if not force_refresh:
         found, hit = _cached(key, address)
         if found:
             return hit
-    generation = _begin_request(key)
-    if generation is None:
+    generation = None
+
+    def admitted():
+        nonlocal generation
+        generation = _begin_request(key, force_refresh=force_refresh)
+        if generation is None:
+            raise _RequestCapacityUnavailable
+
+    try:
+        result = _SYNC_REQUESTS.run((key, id(session), deadline),
+            lambda:_fetch_sync(network, address, key, session, deadline, generation),
+            force_refresh=force_refresh, on_admit=admitted, join_timeout=deadline)
+        return deepcopy(result)
+    except _RequestCapacityUnavailable:
         return None
+    finally:
+        if generation is not None:
+            _end_request(key, generation)
+
+
+def _fetch_sync(network, address, key, session, deadline, generation):
     client, response = None, None
     result = None
     try:
@@ -396,11 +413,8 @@ def get_token_data(network, address, session=None, timeout=5, *, force_refresh=F
                 _record_outcome("cleanup_failed")
                 result = None
             finally:
-                try:
-                    _publish(key, generation, result)
-                finally:
-                    _end_request(key, generation)
-    return deepcopy(result)
+                _publish(key, generation, result)
+    return result
 
 
 async def _fetch_async(network, address, key, session, timeout, generation):
@@ -484,7 +498,8 @@ def request_runtime_snapshot():
     with _state_lock:
         state = {"active_requests":_active_requests, "max_active":_MAX_ACTIVE,
             "latest_generations":len(_latest_request), "diagnostic_outcomes":dict(_diagnostics)}
-    return {**state, "requests":_REQUESTS.snapshot(), "failure_keys":_fail_count.snapshot(),
+    return {**state, "requests":_REQUESTS.snapshot(), "sync_requests":_SYNC_REQUESTS.snapshot(),
+        "failure_keys":_fail_count.snapshot(),
         "public_max_calls_per_minute":min(10, GECKO_LIMITER.max_calls),
         "basis":"local_admission_not_actual_provider_quota_or_wire_billing"}
 
