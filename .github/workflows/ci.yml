@@ -26,6 +26,9 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements.txt
+      - run: python -m pip check
+      - name: Native dependency and source import smoke
+        run: python -c "import numpy, pandas, pyarrow; import features.builder; print('native_data_imports=ok', numpy.__version__, pandas.__version__, pyarrow.__version__)"
       - name: Strategy regression pytest suite
         run: >
           python -m pytest -q
