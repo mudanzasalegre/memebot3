@@ -100,6 +100,7 @@ if case.startswith('rpc_birth'):
     from fetcher.mint_initialization import get_mint_initialization
     from utils import solana_execution as rpc
     result, TOKEN, signature, reference_received = fixture(cpi=True,lookup=True)
+    if options.get('failure') == 'rpc_unavailable': result = None
     if case == 'rpc_birth_unknown': result = None
     elif case == 'rpc_birth_failed': result['meta']['err'] = {'InstructionError':[0,'InvalidArgument']}
     elif case == 'rpc_birth_future': result['blockTime'] = int(time.time()) + 3600
@@ -198,7 +199,22 @@ async def exercise():
             await run_bot._evaluate_and_buy_guarded(entry_token,ses,source='dex')
             positions = (await ses.execute(select(Position))).scalars().all()
             if case in {'positive','rpc_birth'}:
-                assert len(positions)==1 and positions[0].buy_amount_sol==.1 and positions[0].dry_run is True
+                if not (len(positions)==1 and positions[0].buy_amount_sol==.1 and positions[0].dry_run is True):
+                    events_path = expected/'data/metrics/runtime_events.jsonl'
+                    events = [json.loads(line) for line in events_path.read_text(encoding='utf-8-sig').splitlines()] if events_path.exists() else []
+                    from runtime.token_birth_enrichment import token_birth_enrichment_snapshot
+                    diagnostic = {'case':case,'position_count':len(positions),
+                        'external_attempts':attempts,'operator_files_copied':0,
+                        'dry_run':CFG.DRY_RUN,'exact_paper_size':CFG.PAPER_EXACT_TRADE_SIZE_SOL,
+                        'position_amounts':[p.buy_amount_sol for p in positions],
+                        'position_dry_run':[p.dry_run for p in positions],
+                        'boundary_calls':calls,'stats':run_bot._stats,
+                        'runtime_last_error':run_bot._runtime_last_error,
+                        'birth_enrichment':token_birth_enrichment_snapshot(),
+                        'decisions':[{'event':e.get('event_type') or e.get('event'),
+                            'reason':e.get('reason'),'stage':e.get('stage'),
+                            'hard_failures':e.get('hard_failures')} for e in events[-30:]]}
+                    raise AssertionError('native_paper_entry_diagnostic='+json.dumps(diagnostic,default=str))
                 p = positions[0]
                 from trader import papertrading
                 primary = papertrading._PORTFOLIO[TOKEN]

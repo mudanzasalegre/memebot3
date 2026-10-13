@@ -21,7 +21,8 @@ SOURCE = Path(os.environ.get('MEMEBOT_TEST_SOURCE_ROOT', str(HERE.parent))).reso
 SUPPORT = {'tests/quote_fixtures.py', 'tests/native_paper_lifecycle_case.py'}
 
 
-def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log=False, run_id=None):
+def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log=False, run_id=None,
+                expected_failure=None):
     assert (SOURCE/'run_bot.py').is_file() and (SOURCE/'config/config.py').is_file()
     isolated = (tmp_path/'owned-source-only').resolve()
     assert isolated.is_relative_to(tmp_path.resolve()) and isolated != SOURCE
@@ -72,10 +73,21 @@ def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log
         env['PUMP_EARLY_EXECUTION_MODE'] = case
     if case == 'whitelist':
         env['DEX_WHITELIST'] = 'raydium,orca,meteora'
-    options = dict(case=case,momentum=momentum,monitor=monitor,log=log)
+    if expected_failure not in {None,'rpc_unavailable'}:
+        raise ValueError('Unknown isolated native failure injection')
+    options = dict(case=case,momentum=momentum,monitor=monitor,log=log,failure=expected_failure)
     result = subprocess.run([sys.executable,str(isolated/'tests/native_paper_lifecycle_case.py'),
         str(isolated),json.dumps(options)],cwd=isolated,env=env,
         capture_output=True,text=True,timeout=90)
+    if expected_failure is not None:
+        assert result.returncode==1, 'Expected a retained native assertion failure, not a successful buy'
+        marker='native_paper_entry_diagnostic='
+        diagnostics=[json.loads(line.split(marker,1)[1]) for line in result.stderr.splitlines()
+                     if line.startswith('AssertionError: '+marker)]
+        assert len(diagnostics)==1, result.stdout+'\n'+result.stderr
+        assert diagnostics[0]['external_attempts']==[] and diagnostics[0]['operator_files_copied']==0
+        assert diagnostics[0]['dry_run'] is True and diagnostics[0]['exact_paper_size']==.1
+        return {'native_failure':True,'exit_code':result.returncode,'diagnostic':diagnostics[0]}
     assert result.returncode==0, result.stdout+'\n'+result.stderr
     rows = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
     assert len(rows)==1, result.stdout
@@ -167,6 +179,17 @@ def test_full_native_rpc_birth_exact_paper_entry_runner_close_and_T0_net_export(
     assert row['boundary_calls'].count('creation_rpc') == 1
     assert row['boundary_calls'].index('creation_rpc') < row['boundary_calls'].index('snapshot')
     assert row['pending_buys'] == row['pending_sells'] == 0
+
+
+def test_native_rpc_entry_failure_retains_missing_birth_decision_evidence(tmp_path):
+    row=native_case(tmp_path,case='rpc_birth',momentum=1000000.,expected_failure='rpc_unavailable')
+    assert row['native_failure'] is True and row['exit_code']==1
+    diagnostic=row['diagnostic']
+    assert diagnostic['position_count']==0 and diagnostic['position_amounts']==[]
+    assert diagnostic['boundary_calls']==['creation_rpc','snapshot']
+    counts=diagnostic['birth_enrichment']['rpc_initialization']['lookup_reservations']
+    assert counts['unavailable']==1
+    assert any(event['reason']=='entry_observation:missing_age' for event in diagnostic['decisions'])
 
 
 @pytest.mark.parametrize('case',['rpc_birth_unknown','rpc_birth_failed','rpc_birth_future'])

@@ -1,0 +1,112 @@
+{
+  "status": "NATIVE_RPC_PAPER_DIAGNOSTICS_VERIFIED_ORIGINAL_CAUSE_UNRESOLVED_CURRENT_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "observed_at_utc": "2026-10-13T23:23:49.749669+00:00",
+  "implementation_parent": "e750e361b5ac45877e44c8b35a981adad95ee79f",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "change_type": "TEST_DIAGNOSTICS_ONLY_PRODUCTION_UNCHANGED",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 814,
+      "sha256": "141aad8d28c37caa53504f075b3a5b417d5a43b07cd6ce2a19ddb02e922134ce"
+    },
+    {
+      "checkout": "publishing",
+      "files": 814,
+      "sha256": "141aad8d28c37caa53504f075b3a5b417d5a43b07cd6ce2a19ddb02e922134ce"
+    }
+  ],
+  "summary": "Retain native PAPER entry failure evidence without modifying production or relaxing its positive assertion. Actual fb9a14d full CI records Ubuntu6224passed/Windows1failed6223passed, failing the RPC birth exact0.1SOL entry/runner/close/net-export case; original output did not establish position count, decision reason or cause. The case now emits position amounts/modes, boundary calls, counters, last error, original resolver status and recent decision reasons before raising the same strict failure. A controlled unavailable-RPC injection must remain an actual failed native entry with zero positions, unavailable birth and entry_observation:missing_age; its negative reader still requires DRY_RUN/exact0.1, no operator files copied and no external attempts. Eight separate local positive repeats pass; they do not establish or repair the prior CI cause. One new repository case/291 focused per root pass, no skips.6237 repository cases collected; both roots match 814 source files/SHA256141aad8d28c37caa53504f075b3a5b417d5a43b07cd6ce2a19ddb02e922134ce. Current full two-OS validation remains pending. Production execution, birth, financial, activation and sizing checks remain unchanged. Protected files remain unchanged and runtime/QA/tasks/services are OFF. The original Windows failure stays open, not relabeled a transient environment issue or a repaired/profitable execution.",
+  "prior_failure": {
+    "commit": "fb9a14dfb04e0b72c3fad8d502a0c20be0e828d9",
+    "run": 38479300678,
+    "status": "completed",
+    "conclusion": "failure",
+    "pytest_summaries": [
+      "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-13T22:42:07.7792063Z 1 passed in 4.32s",
+      "test (windows-2022)\tRun python -m pytest -q\t2026-10-13T22:58:00.1907791Z 1 failed, 6223 passed, 1 warning in 951.55s (0:15:51)",
+      "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-13T22:40:50.0547339Z 1 passed in 2.67s",
+      "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-13T22:54:38.6979280Z 6224 passed, 1 warning in 827.89s (0:13:47)"
+    ],
+    "case": "test_full_native_rpc_birth_exact_paper_entry_runner_close_and_T0_net_export",
+    "cause": "UNRESOLVED_NOT_REPRODUCED_IN_EIGHT_LOCAL_POSITIVE_REPEATS"
+  },
+  "acceptance": {
+    "focused": {
+      "D": {
+        "tests": 291,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "C": {
+        "tests": 291,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "new_repository_cases": 1,
+    "local_separate_positive_repeats": 8,
+    "controlled_failure": "Native assertion failure retained with unavailable birth/missing-age decision and0positions",
+    "collected_repository_cases": 6237,
+    "current_complete_python_matrix": "PENDING_FOR_THIS_REVISION"
+  },
+  "shutdown": {
+    "observed_at_utc": "2026-10-13T23:23:49.5526002+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately."
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-13T23:23:49.739626+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    }
+  },
+  "limits": [
+    "Original Windows CI failure cause remains unresolved",
+    "Positive repeats and controlled negative evidence are not repair or full current CI acceptance",
+    "No production guard, deadline, source clock or0.1SOL sizing rule was relaxed",
+    "No operator runtime, provider, model fit/activation, AutoResearch or API/UI was started",
+    "Synthetic native receipt/runner/net export checks are not real profitability or whole-wallet acceptance",
+    "All original ten whole-goal remaining requirements and no-LIVE boundaries remain in force"
+  ]
+}

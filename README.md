@@ -13,6 +13,21 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### PAPER nativo: fallo Windows conservado y diagnosticos (2026-10-14)
+
+La CI `fb9a14d` fallo en una prueba de nacimiento RPC/entrada de 0,1 SOL en
+Windows (6.223 correctas y una fallida); Ubuntu paso 6.224. La causa no esta
+demostrada: ocho repeticiones locales pasan y no se consideran una reparacion.
+El fallo ahora conserva cantidades, llamadas, estado RPC y motivos de decision.
+Una inyeccion de RPC no disponible exige fallo real, cero posiciones y
+`entry_observation:missing_age`, sin aflojar la asercion positiva ni los filtros.
+
+Pasan 291 comprobaciones enfocadas por carpeta y se recogen 6.237 casos; la
+CI completa de esta nueva revision sigue pendiente. El cambio es de
+diagnosticos/pruebas, no reparacion de la causa ni evidencia de beneficios.
+Todo permanece apagado y los datos/modelos/env estan preservados.
+[Auditoria y limites](docs/audits/native_rpc_paper_diagnostics_20261014.json).
+
 ### Preflight: alcance explicito y resultados conservados (2026-10-14)
 
 `ok` acredita comprobaciones auxiliares de software/perfiles/informes,
