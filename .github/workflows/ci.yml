@@ -6,7 +6,7 @@ on:
 
 jobs:
   strategy-regression:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       DRY_RUN: "1"
       STRATEGY_OPTIMIZATION_LOCK: "true"
