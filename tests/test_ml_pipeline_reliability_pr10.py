@@ -82,7 +82,8 @@ def test_training_daemon_lock_status_keeps_feature_snapshot(monkeypatch: pytest.
 
     updated = training_daemon.train_once()
 
-    payload = json.loads(status_path.read_text(encoding="utf-8"))
+    payload = json.loads(status_path.with_name("training_daemon_status.json").read_text(encoding="utf-8"))
+    assert not status_path.exists(), "a lock loser cannot publish primary training state"
     assert updated is False
     assert payload["status"] == "locked"
     assert payload["daemon_status"] == "locked"

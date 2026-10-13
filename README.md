@@ -13,6 +13,22 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Autoentrenamiento: propiedad del ciclo y estado historico (2026-10-13)
+
+El ciclo del daemon usa ahora un bloqueo del sistema operativo: el TTL no
+puede desplazar un entrenamiento activo y un llamante ajeno no puede liberarlo.
+Una caida libera el bloqueo; el archivo `.training.lock.guard` se conserva como
+ancla estable, no como prueba de un proceso activo. Los recibos antiguos
+desconocidos se preservan. Un intento bloqueado escribe su diagnostico en
+`training_daemon_status.json`, sin sustituir el estado del entrenador activo.
+
+Se reproducen cuatro fallos antes de reparar; pasan 198 pruebas enfocadas
+en ambas carpetas, incluidos 28 casos nuevos. Se recogen 6.113 casos; la CI
+completa de esta nueva version sigue pendiente. No se ha entrenado ni activado
+ningun modelo operativo, ni consultado proveedores. Esta reparacion no
+demuestra rentabilidad ni completa el objetivo financiero.
+[Auditoria y limites](docs/audits/training_cycle_ownership_20261013.json).
+
 ### Gecko: consultas sincronas compartidas y acotadas (2026-10-13)
 
 `dafbbf8` repara la duplicacion de consultas sincronas compatibles. El

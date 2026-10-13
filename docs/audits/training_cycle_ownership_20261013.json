@@ -1,0 +1,121 @@
+{
+  "status": "SCOPED_TRAINING_OWNERSHIP_FOCUSED_ACCEPTED_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "observed_at_utc": "2026-10-13T21:44:59.956016+00:00",
+  "implementation_parent": "d78b2fe3351e68ec60b582e9fc7b2a325bb12957",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 810,
+      "sha256": "2f781565c9df5bc363baffc2aeff025821396211998a0f9f3a479a2f5775ba25"
+    },
+    {
+      "checkout": "publishing",
+      "files": 810,
+      "sha256": "2f781565c9df5bc363baffc2aeff025821396211998a0f9f3a479a2f5775ba25"
+    }
+  ],
+  "summary": "Training cycle ownership is now nonblocking and OS-owned across threads/processes; diagnostic TTL cannot steal an active owner, foreign callers cannot release it, and an OS-released crash owner can be reclaimed without replaying a training attempt. A stable guard inode and uniquely-created atomic diagnostic receipt avoid shared temporary-file races. Legacy live/unknown ownership is preserved, not assumed stopped. Busy cycles publish only a separate training_daemon_status.json diagnostic and cannot race primary train_status.json; owner-cycle failures preserve the original training attempt. All4 original regressions fail before repair. 28 new repository cases and198 focused checks pass in both roots (D116.09s/C114.21s), no skips. 6113 cases collected; complete new-revision two-OS CI remains pending. No operator fit, model activation, provider request or trading was launched. This is source/QA concurrency acceptance, not financial profitability or full-strategy acceptance.",
+  "confirmed_defects": [
+    "Live TTL takeover",
+    "Foreign-thread release",
+    "Busy cycle erased historical training attempt",
+    "Cycle infrastructure failure erased historical training attempt"
+  ],
+  "acceptance": {
+    "baseline": {
+      "tests": 4,
+      "failures": 4,
+      "errors": 0,
+      "skipped": 0
+    },
+    "focused": {
+      "D": {
+        "tests": 198,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "C": {
+        "tests": 198,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "new_repository_cases": 28,
+    "collected_repository_cases": 6113,
+    "current_complete_python_matrix": "PENDING_FOR_THIS_REVISION"
+  },
+  "preserved_failures": {
+    "initial_fixture_edit": "2 failed, 28 passed; incorrect status read updated in a different fixture; corrected before final verification",
+    "mistyped_test_selection": "No tests ran; never counted as acceptance"
+  },
+  "contracts": [
+    "TTL is diagnostic only, not authority to steal an active OS lock",
+    "Acquiring process and original Thread object alone may release the owner",
+    "The stable .training.lock.guard file is never unlinked and does not alone indicate an active process",
+    "Process exit releases the OS lock; the diagnostic JSON is reclaimable only under a fresh OS lock",
+    "A live or inaccessible legacy PID remains busy regardless of elapsed TTL",
+    "Malformed or unsupported legacy lock receipts are preserved for diagnosis, not silently deleted",
+    "Busy-cycle state is separate from authoritative primary training status",
+    "Existing candidate/activation/financial acceptance contracts are unchanged"
+  ],
+  "shutdown": {
+    "observed_at_utc": "2026-10-13T21:44:59.7517419+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately."
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-13T21:44:59.935859+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    }
+  },
+  "limits": [
+    "Current full Windows/Linux CI is not yet acceptance for these changes",
+    "Synthetic temporary model fixtures are software QA, not operator training or profitability",
+    "The lock API protects the native daemon cycle, not every possible direct standalone model writer",
+    "No timeout or automatic termination of a legitimately long-running training owner is introduced",
+    "Corrupt legacy ownership requires diagnosis rather than fabricated recovery",
+    "All original ten remaining whole-goal requirements and no-LIVE boundaries remain in force"
+  ]
+}

@@ -29,7 +29,8 @@ def _read_status() -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _write_status(extra: dict[str, Any], *, preserve_training_status: bool = False) -> None:
+def _write_status(extra: dict[str, Any], *, preserve_training_status: bool = False,
+                  daemon_only: bool = False) -> None:
     existing = _read_status() if preserve_training_status else {}
     status = extra.get("status")
     payload = {
@@ -41,11 +42,12 @@ def _write_status(extra: dict[str, Any], *, preserve_training_status: bool = Fal
     if preserve_training_status and existing and status is not None:
         payload["daemon_status"] = status
         payload["status"] = existing.get("status", status)
-    STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temporary = STATUS_PATH.with_name(f".{STATUS_PATH.name}.{uuid4().hex}.tmp")
+    destination = STATUS_PATH.with_name("training_daemon_status.json") if daemon_only else STATUS_PATH
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
     try:
         temporary.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-        os.replace(temporary, STATUS_PATH)
+        os.replace(temporary, destination)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -53,7 +55,9 @@ def _write_status(extra: dict[str, Any], *, preserve_training_status: bool = Fal
 def train_once() -> bool:
     ttl = int(getattr(CFG, "ML_TRAINING_LOCK_TTL_S", 1800) or 1800)
     if not acquire_lock(ttl_s=ttl):
-        _write_status({"status": "locked", "daemon_status": "locked", "updated": False})
+        # A non-owner must not race the trainer's atomic primary status writer.
+        _write_status({"status": "locked", "daemon_status": "locked", "updated": False},
+                      daemon_only=True)
         return False
     try:
         errors: dict[str, str] = {}
@@ -78,7 +82,8 @@ def train_once() -> bool:
         )
         return bool(updated or advisory.get("updated"))
     except Exception as exc:
-        _write_status({"status": "failed", "daemon_status": "failed", "error": str(exc)})
+        _write_status({"status": "failed", "daemon_status": "failed", "error": str(exc)},
+                      preserve_training_status=True)
         raise
     finally:
         release_lock()
