@@ -12,6 +12,7 @@ import pandas as pd
 from config.config import CFG
 from ml.activation_policy import build_recommended_thresholds_by_lane
 from ml.data_contract import apply_data_contract
+from ml.feature_sources import feature_partition_files
 from ml.tune_threshold import tune_from_frame
 
 METRICS_DIR = CFG.FEATURES_DIR.parent / "metrics"
@@ -52,9 +53,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 def load_feature_history(features_dir: Path | None = None) -> pd.DataFrame:
     features_dir = features_dir or CFG.FEATURES_DIR
     frames: list[pd.DataFrame] = []
-    parquet_files = sorted(features_dir.glob("features_*.parquet"))
-    csv_files = sorted(features_dir.glob("features_*.csv"))
-    for path in parquet_files or csv_files:
+    for path in feature_partition_files(features_dir):
         try:
             frames.append(pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path))
         except Exception:

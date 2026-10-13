@@ -13,6 +13,25 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Aprendizaje: particiones CSV/Parquet completas (2026-10-14)
+
+La existencia de un Parquet ya no oculta los CSV de otros meses. Entrenamiento,
+estado de frescura, informes de segmentos, preflight y recibos de auditoria
+comparten una seleccion por particion: Parquet prevalece sobre su replica CSV
+del mismo nombre, sin duplicar filas ni mezclar versiones de una misma particion.
+No se inventan horas de decision ni se aceptan etiquetas financieras nuevas.
+
+El fallo se reproduce con seis pruebas fallidas antes de corregirlo. Pasan
+181 comprobaciones enfocadas por carpeta, con 15 casos nuevos; se recogen
+6.252 casos de repositorio (mas una fixture privada solo en la carpeta de trabajo).
+Tambien pasan las 26 pruebas del ciclo PAPER nativo aislado en ambas carpetas;
+son datos sinteticos, sin proveedores ni operaciones reales.
+La CI completa de esta nueva fuente sigue pendiente. En los datos actuales no
+hay una particion CSV distinta perdida; este fallo no demuestra la causa del
+anterior run sin compras. El modelo primario sigue ausente y la rentabilidad
+no esta acreditada. Todo permanece apagado y los datos/modelos/env intactos.
+[Auditoria y limites](docs/audits/feature_partition_selection_20261014.json).
+
 ### PAPER nativo: fallo Windows conservado y diagnosticos (2026-10-14)
 
 La CI `fb9a14d` fallo en una prueba de nacimiento RPC/entrada de 0,1 SOL en

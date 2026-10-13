@@ -272,7 +272,8 @@ def _resolve_repo_path(raw: str | None, default: Path) -> Path:
 
 def _feature_dataset_status() -> dict[str, object]:
     features_dir = _resolve_repo_path(os.getenv("FEATURES_DIR"), ROOT / "data" / "features")
-    files = sorted(features_dir.glob("features_*.parquet")) or sorted(features_dir.glob("features_*.csv"))
+    from ml.feature_sources import feature_partition_files
+    files = feature_partition_files(features_dir)
     latest = max(files, key=lambda path: path.stat().st_mtime) if files else None
     latest_mtime = datetime.fromtimestamp(latest.stat().st_mtime, timezone.utc).isoformat() if latest else None
     return {

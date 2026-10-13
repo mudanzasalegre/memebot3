@@ -1,0 +1,151 @@
+{
+  "status": "MIXED_PARTITION_SOURCE_REPAIR_VERIFIED_FOCUSED_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "e872777871b40f9a01a35aa505f9b65b4701b620",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "change_type": "NATIVE_FEATURE_SOURCE_SELECTION_NOT_TRADING_POLICY_ACTIVATION",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 816,
+      "sha256": "87d4623a49b818d59973e874b1c2d875912e56425c2777a146bd673665df0f66"
+    },
+    {
+      "checkout": "publishing",
+      "files": 816,
+      "sha256": "87d4623a49b818d59973e874b1c2d875912e56425c2777a146bd673665df0f66"
+    }
+  ],
+  "summary": "Native feature discovery previously discarded every CSV whenever any Parquet existed, including different partitions. Shared per-stem selection now retains CSV-only partitions and prefers native Parquet over its same-stem CSV export. Primary loading, inherited family/advisory loading, freshness snapshots, segment history, preflight diagnostics and runner audit source receipts use the same selector. No cross-format row union or arbitrary primary-key deduplication is performed. Original T0, financial labels, training ownership, model acceptance, activation and trading/sizing guards are unchanged. Native baseline records6failed2passed;15 new cases and181 focused integrations pass per root with no skips.6252 repository cases collected, plus one preexisting private D-only deadline fixture. Full current two-OS CI remains pending. This is future mixed-partition ingestion correctness, not the historical no-buy cause, profitable model readiness or forward opportunity capture.",
+  "acceptance": {
+    "native_baseline": {
+      "tests": 8,
+      "failures": 6,
+      "passed": 2
+    },
+    "focused": {
+      "working": {
+        "tests": 181,
+        "passed": 181,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "pytest_seconds": 27.44
+      },
+      "publishing": {
+        "tests": 181,
+        "passed": 181,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "pytest_seconds": 28.14
+      }
+    },
+    "new_repository_cases": 15,
+    "repository_cases": 6252,
+    "working_collected_cases": 6253,
+    "working_only_case": "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline",
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "unchanged_strict_primary_read_failure": "Corrupt selected Parquet raises ArrowInvalid; its CSV replica is not a silent fallback",
+    "bounded_scope": "Source selection only; preflight usability/freshness are not row-quality, feature-clock or financial acceptance",
+    "native_source_only_paper": {
+      "working": {
+        "tests": 26,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 91.76
+      },
+      "publishing": {
+        "tests": 26,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 91.735
+      }
+    },
+    "native_source_only_paper_scope": "Actual native entry/monitor/close/export with synthetic callbacks and isolated temporary files; no real provider, operator artifacts or operational PAPER launch"
+  },
+  "current_operator_learning_readiness": {
+    "observed_at_utc": "2026-10-13T23:32:51.679585+00:00",
+    "scope": "Offline JSON metadata and selected source columns; no model deserialization or fit",
+    "configured_primary_model_exists": false,
+    "configured_primary_metadata_exists": false,
+    "managed_primary_registry_exists": false,
+    "gate_mode": "shadow",
+    "main_loop_retrain_enabled": false,
+    "model_auto_promote_enabled": false,
+    "lane_auto_promote_enabled": false,
+    "declared_financial_source_rows": 0,
+    "native_checked_net_source_rows": 0,
+    "operator_source_scope": "Current two Parquet partitions remain selected; the retained CSV is a same-stem replica, not a distinct missing partition",
+    "qualification": "No primary-model absence, mixed-format defect or historical shadow label is established as the prior operational no-buy cause. Auto-promote flags alone do not describe all native promotion contracts."
+  },
+  "shutdown": {
+    "observed_at_utc": "2026-10-13T23:45:03.0180559+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml_entrypoint_processes": 0,
+    "actual_ml_entrypoint_observed_at_utc": "2026-10-13T23:45:03.4921303+00:00"
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-13T23:45:03.674468+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed_each": [],
+    "added_each": []
+  },
+  "limits": [
+    "Same-stem CSV is treated as a derived replica, never merged by guessed row identity or mtime",
+    "Segment report's preexisting read-error continuation is unchanged; strict training read rejection is separately tested",
+    "Existing operator data contains no distinct CSV-only partition omitted by the old selector",
+    "Original fb9a14d Windows RPC PAPER failure remains unresolved; this independent repair is not its diagnosis",
+    "Current full-suite CI, actual provider/model/run acceptance and prospective financial evidence remain incomplete",
+    "No operator fit, model activation, new operational PAPER, AutoResearch, API/UI service, wallet transaction or LIVE action was started",
+    "Profitability and zero future errors are not guaranteed; the original full goal remains active"
+  ],
+  "preceding_preflight_complete_ci": {
+    "headSha": "e750e361b5ac45877e44c8b35a981adad95ee79f",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38482212596",
+    "pytest_summaries": [
+      "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-13T23:09:08.5329338Z 1 passed in 6.23s",
+      "test (windows-2022)\tRun python -m pytest -q\t2026-10-13T23:38:25.1511665Z 6236 passed, 1 warning in 1755.53s (0:29:15)",
+      "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-13T23:07:43.6352724Z 1 passed in 2.98s",
+      "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-13T23:21:45.3456062Z 6236 passed, 1 warning in 840.96s (0:14:00)"
+    ],
+    "scope": "Previous source acceptance, not the changed feature selector or a cause repair of original Windows RPC failure"
+  },
+  "observed_at_utc": "2026-10-13T23:45:07.260731+00:00"
+}

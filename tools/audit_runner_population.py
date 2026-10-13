@@ -73,7 +73,8 @@ def profile_runner_population(frame: pd.DataFrame, *, as_of: Any) -> dict[str, A
 
 
 def runner_population_sources(root: Path) -> list[dict[str, Any]]:
-    paths = sorted((root / "data" / "features").glob("features_*.parquet"))
+    from ml.feature_sources import feature_partition_files
+    paths = feature_partition_files(root / "data" / "features")
     paths.append(root / "data" / "metrics" / "candidate_outcomes.jsonl")
     sources = []
     for path in paths:

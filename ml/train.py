@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import glob
 import hashlib
 import json
 import pathlib
@@ -27,6 +26,7 @@ from ml.data_contract import (
     normalize_sample_type,
 )
 from ml.feature_matrix import coerce_feature_frame
+from ml.feature_sources import feature_partition_files
 from features.auxiliary_semantics import prepare_training_frame, population_proof, semantics_schema, PROOF_COLUMN
 from features.strategy_context import population_proof as strategy_population_proof
 from features.token_clock_semantics import population_proof as clock_population_proof, PROOF_COLUMN as CLOCK_PROOF_COLUMN
@@ -217,7 +217,7 @@ def _write_json(path: pathlib.Path, payload: dict[str, Any]) -> None:
 
 def _feature_files(data_dir: pathlib.Path | None = None) -> list[pathlib.Path]:
     resolved = pathlib.Path(data_dir) if data_dir is not None else DATA_DIR
-    return sorted(resolved.glob("features_*.parquet")) or sorted(resolved.glob("features_*.csv"))
+    return feature_partition_files(resolved)
 
 
 def feature_dataset_snapshot(
@@ -298,9 +298,7 @@ def _load_one(path: str) -> pd.DataFrame:
 
 
 def _load_dataset() -> pd.DataFrame:
-    parquet_files = sorted(glob.glob(str(DATA_DIR / "features_*.parquet")))
-    csv_files = sorted(glob.glob(str(DATA_DIR / "features_*.csv")))
-    files = parquet_files if parquet_files else csv_files
+    files = _feature_files()
     if not files:
         resolved = pathlib.Path(DATA_DIR).resolve()
         raise FileNotFoundError(
@@ -309,7 +307,7 @@ def _load_dataset() -> pd.DataFrame:
             f"{_missing_dataset_action()}"
         )
 
-    df = pd.concat([_load_one(f) for f in files], ignore_index=True)
+    df = pd.concat([_load_one(str(f)) for f in files], ignore_index=True)
 
     for col in (
         "cluster_bad",

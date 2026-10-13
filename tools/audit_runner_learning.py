@@ -16,6 +16,7 @@ import pandas as pd
 
 from ml.family_training import load_training_frame, train_classifier_family, train_regressor_family
 from ml.label_builder import RUNNER_THRESHOLDS
+from ml.feature_sources import feature_partition_files
 
 
 def audit_runner_learning(root: Path = ROOT, *, output_dir: Path | None = None) -> dict:
@@ -30,7 +31,7 @@ def audit_runner_learning(root: Path = ROOT, *, output_dir: Path | None = None) 
         frame=frame, output_dir=output_dir / "ev",
     )
     sources = []
-    for path in [*(root / "data" / "features").glob("features_*.parquet"), root / "data" / "metrics" / "candidate_outcomes.jsonl"]:
+    for path in [*feature_partition_files(root / "data" / "features"), root / "data" / "metrics" / "candidate_outcomes.jsonl"]:
         if path.exists():
             sources.append({"file": path.relative_to(root).as_posix(), "sha256": sha256(path.read_bytes()).hexdigest(),
                             "mtime_utc": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()})
