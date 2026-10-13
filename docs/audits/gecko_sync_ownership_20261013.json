@@ -1,5 +1,5 @@
 {
-  "status": "SCOPED_SYNC_OWNERSHIP_REPAIRED_CURRENT_FULL_MATRIX_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "status": "SCOPED_SYNC_SOURCE_FULL_WINDOWS_LINUX_CI_ACCEPTED_WHOLE_GOAL_INCOMPLETE",
   "scope": "Source-only Gecko synchronous ownership and original request ordering; no operational or financial acceptance.",
   "implementation_commit": "dafbbf803c3a33ccd00d92dd920dae1961d2c211",
   "parent_commit": "2341e4d8e7532a9fd77b97ad657a394939a6a51d",
@@ -100,14 +100,26 @@
   "current_complete_python_matrix": {
     "commit": "dafbbf803c3a33ccd00d92dd920dae1961d2c211",
     "run": 38464227529,
-    "status": "in_progress",
+    "status": "completed",
     "repository_cases_expected": 6085,
     "platforms": {
-      "ubuntu-24.04": "in_progress",
-      "windows-2022": "in_progress"
+      "ubuntu-24.04": {
+        "passed": 6085,
+        "warnings": 1,
+        "seconds": 1571.73,
+        "conclusion": "success"
+      },
+      "windows-2022": {
+        "passed": 6085,
+        "warnings": 1,
+        "seconds": 1822.98,
+        "conclusion": "success"
+      }
     },
     "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38464227529",
-    "qualification": "Do not substitute305focused,41strategy or preceding6047 full acceptance for current6085matrix."
+    "qualification": "Actual full native clean-install CI on the implementation commit, both supported OS. Model-status command is allowed to succeed with missing model and replay with no data; neither operational/model/financial acceptance nor zero future errors is established.",
+    "conclusion": "success",
+    "repository_cases_each": 6085
   },
   "preserved_publication_gate_failure": "Initial explicit staged diff-check exited2 on one extra test EOF blank, preventing commit/push. Remove only the blank, rerun305each and pass the staged gate; no production behavior or guard was changed by that correction.",
   "preservation": {
@@ -157,8 +169,20 @@
     "Synthetic native results do not establish actual provider coverage, quota/wire billing, market-asof/depth, serial-monitor latency, full-strategy financial capture or optimal profits."
   ],
   "remaining": [
-    "Inspect actual terminal6085current Windows/Linux matrix and retain further failures.",
     "Complete all original ten full-goal boundaries, including actual provider/feed/model and prospective full-strategy financial acceptance with separate authorization as needed.",
     "Leave all operational services, training, AutoResearch, model activation and LIVE OFF; a fresh PAPER authorization remains pending."
-  ]
+  ],
+  "previous_pending_matrix_observation": {
+    "commit": "dafbbf803c3a33ccd00d92dd920dae1961d2c211",
+    "run": 38464227529,
+    "status": "in_progress",
+    "repository_cases_expected": 6085,
+    "platforms": {
+      "ubuntu-24.04": "in_progress",
+      "windows-2022": "in_progress"
+    },
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38464227529",
+    "qualification": "Do not substitute305focused,41strategy or preceding6047 full acceptance for current6085matrix."
+  },
+  "analysis_companion_scope": "A private read-only Data Analytics quality companion rechecks configured primary and selected training-source evidence without fit, model deserialization, activation, source edits or provider requests. Operator records, figures and notebook remain private; public CI evidence is not their financial validation."
 }

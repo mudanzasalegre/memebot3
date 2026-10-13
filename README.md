@@ -23,8 +23,11 @@ solo tras admitir la peticion, manteniendo los recibos originales y copias
 independientes. No cambian filtros, importe PAPER ni contratos financieros.
 
 Pasan 305 pruebas enfocadas en ambas carpetas y los tres casos del diagnostico
-original. La version asincrona anterior pasa sus 6.047 pruebas completas en
-Windows/Linux; la suite nueva de 6.085 casos sigue pendiente. Todo el bot,
+original. La version asincrona anterior pasa sus 6.047 pruebas completas;
+la suite actual de 6.085 casos tambien pasa en ambos sistemas sobre `dafbbf8`
+(Ubuntu: 1.571,73 s; Windows: 1.822,98 s; un aviso Starlette por sistema).
+Los comandos de modelo ausente y replay sin datos son diagnosticos permitidos,
+no aceptacion de un modelo operativo ni rentabilidad. Todo el bot,
 entrenamiento, AutoResearch y API/UI permanece apagado, con datos/modelos/env
 intactos. No es evidencia de rentabilidad ni de latencia operativa del proveedor.
 [Auditoria y limites](docs/audits/gecko_sync_ownership_20261013.json).
