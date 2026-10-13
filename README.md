@@ -13,6 +13,27 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### PAPER autorizado: aceptacion operativa fallida (2026-10-13)
+
+La prueba nativa de 30 minutos, con compras simuladas exactas de 0,1 SOL, termino
+sin intentos de compra ni posiciones nuevas. De 242 eventos deduplicados de
+bloqueo, 221 fueron por edad desconocida y 21 por snapshot ausente. Estos eventos
+no cuentan tokens unicos ni oportunidades rentables demostradas.
+
+Una consulta nativa muestreada a `/defi/token_creation_info` devolvio HTTP 401
+por permisos insuficientes. No se ha verificado el plan de la cuenta ni creado
+otra clave. El adaptador todavia agrupa acceso denegado con otros fallos como
+`unavailable`; distinguirlos y comprobar acceso real sigue pendiente. El primario
+esta en sombra sin modelo cargado, pero las entradas se bloquearon antes de ML.
+
+El cierre automatico requirio parada forzada del arbol de procesos verificado;
+el finalizador SQL y el censo posterior confirman todo apagado. El watchdog
+conservo una alerta de hash y salida 1: solo se anadio la fecha de generacion a
+un informe de replay; sus valores previos, `.env`, pesos y registros no cambiaron.
+No hubo LIVE, entrenamiento ni AutoResearch. No se reiniciara PAPER sin otra
+autorizacion. Esta prueba no demuestra rentabilidad ni completa el objetivo.
+[Aceptacion PAPER y limites](docs/audits/paper_acceptance_20261013.json).
+
 ### Preflight nativo: plazo y fallos verificables (2026-10-13)
 
 El comando independiente `tools.preflight --run-tests` ya dispone de una hora

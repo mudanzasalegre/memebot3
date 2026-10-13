@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "stage_status": "OPERATIONAL_PAPER_COMPLETED_ACCEPTANCE_FAILED_RUNTIME_OFF",
+  "global_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_published_commit": "007e0df7bc91baa491c3626b17b601f4a1d4dc2b",
+  "authorization": {
+    "scope": "One 30-minute D-checkout native PAPER run, exact simulated 0.1 SOL buys, provider quota disclosed, stop at deadline.",
+    "live_orders": false,
+    "training": false,
+    "autoresearch": false,
+    "automatic_restart_or_extension": false,
+    "account_changes_or_paid_upgrades": false
+  },
+  "execution": {
+    "native_command": "run_bot.py --dry-run --log",
+    "run_id": "20261013-1",
+    "start_utc": "2026-10-13T10:13:48.889153+00:00",
+    "last_event_utc": "2026-10-13T10:43:49.386393+00:00",
+    "finish_utc": "2026-10-13T10:43:55.382628+00:00",
+    "elapsed_with_shutdown_seconds": 1806.5,
+    "termination_reason": "authorized_30_minute_deadline",
+    "native_provider_entry_monitor_and_execution_not_replaced": true,
+    "overlay_scope": "Safety-only flags loaded after unchanged operator configuration; entry/exit thresholds and model paths were unchanged.",
+    "exact_paper_size_sol": 0.1,
+    "native_stop_exit_code": 0,
+    "graceful_stop_succeeded": false,
+    "verified_owned_process_tree_force_stop_succeeded": true,
+    "runtime_finalizer": "ok"
+  },
+  "authoritative_sources": {
+    "runtime_events": "Original data/metrics/runtime_events.jsonl delta beginning at byte 176951554, not retrospective/test events.",
+    "sql": "Original data/memebotdatabase.db read-only main runtime row, positions after prior maximum ID 0 and control commands within the authorized window.",
+    "provider_probe": "One sampled actual rejected candidate through the native Birdeye mint-creation getter, separately recorded safe HTTP result.",
+    "account_screenshot": "User-supplied Image2003.png. Only aggregate status values and the displayed selector/date were retained; account identifier, IP and full pixels are not published.",
+    "private_companion": "work/paper30-20261013/paper30-acceptance.ipynb. Executes original source reads and assertions without provider calls, bot imports, model fitting or source mutation. Operator datasets/logs/credentials are not included in publication."
+  },
+  "results": {
+    "entry_evaluation_invocations": 302,
+    "native_queue_add_events": 287,
+    "deduplicated_blocked_before_buy_events": 242,
+    "blocked_missing_age": 221,
+    "blocked_snapshot_unavailable": 21,
+    "actual_paper_buy_attempts": 0,
+    "actual_paper_buys": 0,
+    "new_positions": 0,
+    "closed_trades": 0,
+    "control_commands_this_window": 0,
+    "last_error": null,
+    "birth_reservations": {"creation_budget": 94, "timeout": 11, "unavailable": 197},
+    "resolved_births_recorded": 0,
+    "grain_qualification": "raw_discovered increments in _evaluate_and_buy, not for all offered feed rows or distinct tokens. blocked_before_buy deduplicates address/stage/action/reason; different reasons may overlap by token. These counters are not a unique-token conversion funnel and do not count proven profitable missed trades."
+  },
+  "blocked_events_by_five_minute_interval": [
+    {"minutes_from_start": "00-05", "missing_age": 45, "snapshot_unavailable": 5},
+    {"minutes_from_start": "05-10", "missing_age": 49, "snapshot_unavailable": 2},
+    {"minutes_from_start": "10-15", "missing_age": 37, "snapshot_unavailable": 5},
+    {"minutes_from_start": "15-20", "missing_age": 30, "snapshot_unavailable": 3},
+    {"minutes_from_start": "20-25", "missing_age": 30, "snapshot_unavailable": 2},
+    {"minutes_from_start": "25-30-plus-shutdown", "missing_age": 30, "snapshot_unavailable": 4}
+  ],
+  "event_quality": {
+    "event_rows": 1598,
+    "bad_json_rows": 0,
+    "exact_duplicate_lines": 0,
+    "missing_run_id_rows": 0,
+    "test_event_rows": 0,
+    "event_timestamps_within_start_and_finish": true,
+    "delta_sha256": "ac665106e2067e30662e5d891ed18cdbe7677c5aa6f397e90c1cb86774fb0015",
+    "sql_event_blocked_and_queue_add_reconciliation": true
+  },
+  "provider_access": {
+    "sampled_endpoint": "/defi/token_creation_info",
+    "sampled_request_finished_utc": "2026-10-13T10:18:01.838786+00:00",
+    "real_get_requests_in_separate_probe": 1,
+    "http_status": 401,
+    "provider_message": "Your API key lacks sufficient permissions to access this resource.",
+    "native_receipt_accepted": false,
+    "provided_key_matches_existing_configuration": true,
+    "configuration_written": false,
+    "account_plan_verified": false,
+    "new_key_created": false,
+    "credentials_submitted_to_browser": false,
+    "interpretation": "Resource access was denied for the sampled candidate. This does not establish the user's plan, permissions of every endpoint, all historical failures, or that another key automatically fixes entitlement.",
+    "source_protocol": [
+      "https://data.birdeye.so/docs/authentication",
+      "https://data.birdeye.so/docs/data-api/creation-trending/get-defi-token-creation-info"
+    ]
+  },
+  "separate_account_screenshot": {
+    "displayed_range_selector": "30D",
+    "visible_bucket_date": "13/10",
+    "http_200": 204,
+    "http_401": 131,
+    "requests_sum": 335,
+    "qualification": "Not independently verified as today's entire usage or this PAPER-only cohort. Endpoint bars are not exact tabular endpoint/status counts. Capture timestamp and account plan are not inferred."
+  },
+  "primary_model_state": {
+    "mode": "shadow",
+    "model_exists": false,
+    "model_loaded": false,
+    "meta_exists": false,
+    "features_count": 0,
+    "activation_ready": false,
+    "enforced": false,
+    "eligible_rows": 2147,
+    "eligible_positives": 86,
+    "last_train_status": "trained",
+    "last_train_attempt_utc": "2026-10-04T10:42:21.815222+00:00",
+    "qualification": "Historical trained status is not a new fit in this run. No configured primary model is loaded, but missing-age/snapshot guards blocked entries before model evaluation; this is not evidence that ML caused these rejections."
+  },
+  "preservation": {
+    "pre_run_backup_files": 3943,
+    "pre_run_backup_bytes": 2855003200,
+    "original_env_weights_registries_other_protected_hashes_unchanged": true,
+    "new_protected_paths": [],
+    "watchdog_exit_code": 1,
+    "byte_hash_warning": "data/metrics/policy_replay.json",
+    "semantic_reconciliation": "Existing top-level replay values were identical to the backup. Only generated_at_utc was added by normal core-report generation; no strategy parameter or model promotion changed. The watchdog's exact-byte warning and exit 1 remain recorded, not relabelled as a green safety run.",
+    "generated_metadata_utc": "2026-10-13T10:14:04.086299+00:00"
+  },
+  "verification": {
+    "analysis_notebook": "15 cells, 7 code cells executed top-to-bottom; nbformat validation passed. Exact read-only SQL and parameters retained. A Windows zmq selector-thread compatibility warning occurred, without notebook failure.",
+    "figure_inspection": "Both static notebook figures visually inspected through actual PNG pixels: labels/values/axes readable without clipping. Different markers distinguish series.",
+    "unverified_presentation": "Whole notebook HTML and native inline-chart interaction were not browser-inspected because no functioning browser binding was available. Static figure inspection is not whole notebook or host-runtime acceptance.",
+    "sources_each": 793,
+    "normalized_source_sha256": "a0459451bfd7806ecbd65145ed5bfa2a92b6c6d6dadd3681dbadb64e28ffb23f",
+    "bot_source_or_tests_changed_after_full_preflight": false,
+    "preceding_software_qa": "Actual native full preflight passed the same 5739 repository tests in each checkout on this unchanged source. D additionally collected one private timeout fixture, 5740 total. No complete suite was rerun for this documentation-only acceptance stage.",
+    "runtime_off_census_utc": "2026-10-13T11:01:25.2310332+00:00",
+    "runtime_processes": 0,
+    "running_scheduled_tasks": 0,
+    "running_services": 0,
+    "runtime_locks": 0,
+    "sql_process_state": "stopped",
+    "sql_reports_refresh_state": "idle",
+    "sql_retrain_state": "idle"
+  },
+  "next_required_work": [
+    "Verify actual Birdeye account/resource access via the explicitly authorized connected browser. No paid upgrade is authorized and creating another key is not presumed to resolve access.",
+    "Distinguish native 401/403 access outcomes from generic per-token unavailable/timeout in safe runtime health and birth enrichment; implement bounded resource-specific handling with recovery without blocking other healthy endpoints or exposing credentials.",
+    "Verify successful original mint-birth and market snapshots before assessing entry ranking or loosening safety. Do not replace unknown original birth with listing, first-seen or queue time.",
+    "Complete independently supported primary-model successor and fresh full-strategy opportunity/capital/closed-cash acceptance after the relevant access and authority are available. No synthetic extreme-tail test or empty PAPER result proves future profit.",
+    "Obtain separate authorization before another PAPER runtime, training/AutoResearch activation or any LIVE operation. Keep all runtime OFF."
+  ]
+}
