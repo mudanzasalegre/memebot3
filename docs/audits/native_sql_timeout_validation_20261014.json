@@ -1,0 +1,125 @@
+{
+  "status": "SCOPED_NATIVE_SQL_FIXTURE_ACCEPTED_FOCUSED_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "observed_at_utc": "2026-10-13T22:16:14.978152+00:00",
+  "implementation_parent": "ebce089288fcf79850e82659ebe8ff9f370b9a35",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "change_type": "TEST_ONLY_PRODUCTION_CONTRACT_UNCHANGED",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 811,
+      "sha256": "53e86fe9e2e25e12c4250ab8f7f961c402a6591e518d3a0ee7f14e5c63d0f1cf"
+    },
+    {
+      "checkout": "publishing",
+      "files": 811,
+      "sha256": "53e86fe9e2e25e12c4250ab8f7f961c402a6591e518d3a0ee7f14e5c63d0f1cf"
+    }
+  ],
+  "summary": "Repair the native SQL recovery test contract, not the production entry timeout. Actual d78b2fe full CI retains Ubuntu6085passed/Windows1failed6084passed: the supposedly successful third entry also timed out under the fixture0.1s deadline. Controlled native reproduction with0/0.2s scheduling delay yields1failed1passed. The preserved test now uses isolated2s intentional-timeout/10s healthy-work budgets, retains real asyncio.wait_for and native temporary SQLite, and additionally requires all3SQL inserts to have completed, actual cancellation of the suspended second transaction, no residual transaction after each owned session, exactly one original ValueError/one original timeout, three distinct sessions and only the final id2 row committed. No assertions or cases were removed; one delay variant is added.409 focused checks pass in each root (D111.34s/C112.68s), no skips; 6209 cases collected. Production run_bot.py/config are byte-equivalent to the parent after newline normalization; no bot timeout, risk/entry/sizing policy or financial acceptance is changed. Both roots match811 source files/SHA25653e86fe9e2e25e12c4250ab8f7f961c402a6591e518d3a0ee7f14e5c63d0f1cf. Full new-revision Windows/Linux CI remains pending. Operator data/models/env are unchanged and local runtime/QA/tasks/services are OFF. This validates a software transaction fixture, not production IO latency, provider execution, financial fills or profitability.",
+  "preceding_actual_failure": {
+    "commit": "d78b2fe3351e68ec60b582e9fc7b2a325bb12957",
+    "run": 38470190538,
+    "status": "completed",
+    "conclusion": "failure",
+    "pytest_summaries": [
+      "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-13T21:26:01.9953470Z 1 passed in 5.78s",
+      "test (windows-2022)\tRun python -m pytest -q\t2026-10-13T21:52:14.1480364Z 1 failed, 6084 passed, 1 warning in 1571.11s (0:26:11)",
+      "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-13T21:24:09.2687795Z 1 passed in 4.25s",
+      "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-13T21:50:16.0588981Z 6085 passed, 1 warning in 1566.09s (0:26:06)"
+    ],
+    "failed_case": "tests/test_main_loop_position_monitor.py::test_owned_entry_sessions_rollback_exception_timeout_and_allow_next_commit"
+  },
+  "acceptance": {
+    "controlled_baseline": {
+      "tests": 2,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0
+    },
+    "focused": {
+      "D": {
+        "tests": 409,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "C": {
+        "tests": 409,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "added_repository_cases": 1,
+    "original_named_case_preserved": true,
+    "collected_repository_cases": 6209,
+    "current_complete_python_matrix": "PENDING_FOR_THIS_REVISION"
+  },
+  "stronger_contract": [
+    "All3 native SQL inserts must have actually completed before their branch outcomes",
+    "The suspended second transaction must receive CancelledError from the real configured asyncio.wait_for",
+    "Exactly one original exception and one timeout must be recorded, not extra timeouts treated as success",
+    "Each invocation owns a distinct session and leaves no active transaction after its context exits",
+    "Failed and timeout inserts must be absent and only the later successful id2 persists",
+    "The existing immediate case and an additional200ms scheduling-delay case both remain required",
+    "Only fixture budgets are changed; production timeout configuration and source are untouched"
+  ],
+  "shutdown": {
+    "observed_at_utc": "2026-10-13T22:16:14.7792664+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately."
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-13T22:16:14.968119+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    }
+  },
+  "limits": [
+    "Actual prior CI failure remains retained, not rewritten as a success",
+    "Full current Windows/Linux acceptance remains pending",
+    "Isolated fixture budgets do not certify a production transaction/provider latency SLA",
+    "Native temporary SQLite recovery is not original wallet/finality/financial fill acceptance",
+    "No operator fit, activation, provider, bot, AutoResearch or API/UI was launched",
+    "All original ten whole-goal remaining requirements and no-LIVE boundaries remain in force"
+  ]
+}

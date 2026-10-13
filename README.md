@@ -13,6 +13,21 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Validacion Windows: recuperacion SQL sin SLA artificial (2026-10-14)
+
+La CI anterior `d78b2fe` fallo en Windows porque una entrada prevista como
+correcta agoto los 100ms de una prueba SQLite. Ese fallo sigue conservado.
+La prueba usa ahora plazos aislados para la transaccion suspendida y el
+trabajo correcto, y exige inserciones reales, cancelacion, rollback,
+sesiones independientes y que solo persista la entrada posterior. Se añade
+una variante con pausa de 200ms; no se modifica el timeout del bot.
+
+Pasan 409 comprobaciones enfocadas en ambas carpetas y se recogen 6.209
+casos. La CI completa de esta nueva version sigue pendiente. Todo permanece
+apagado, con datos/modelos/env intactos. No es prueba de latencia productiva,
+fills reales ni rentabilidad.
+[Auditoria y limites](docs/audits/native_sql_timeout_validation_20261014.json).
+
 ### Scanner: nacimiento nuevo y caducidad coherente (2026-10-14)
 
 La cola prioritaria reconoce ahora los mismos alias y unidades de nacimiento

@@ -213,7 +213,8 @@ async def test_prefetch_rejects_nonfinite_zero_boolean_and_out_of_request_prices
 
 
 @pytest.mark.asyncio
-async def test_owned_entry_sessions_rollback_exception_timeout_and_allow_next_commit(tmp_path):
+@pytest.mark.parametrize("io_delay", [0., .2])
+async def test_owned_entry_sessions_rollback_exception_timeout_and_allow_next_commit(tmp_path, io_delay):
     from runtime.buy_recovery import BuyRecoveryStore
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
@@ -221,27 +222,47 @@ async def test_owned_entry_sessions_rollback_exception_timeout_and_allow_next_co
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as connection:
         await connection.exec_driver_sql("CREATE TABLE entry_fixture (id INTEGER PRIMARY KEY)")
-    calls, errors = [], []
+    calls, errors, inserted_modes, cancelled_sessions = [], [], [], []
     async def evaluate(token, session):
         calls.append(session)
         if token["mode"] == "failed":
             await session.execute(text("INSERT INTO entry_fixture VALUES (1)"))
+            inserted_modes.append("failed")
             raise ValueError("synthetic entry failure")
         if token["mode"] == "timeout":
             await session.execute(text("INSERT INTO entry_fixture VALUES (3)"))
-            await asyncio.Event().wait()
+            inserted_modes.append("timeout")
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled_sessions.append(session)
+                raise
+        # Exercise native SQL completion after an ordinary scheduling stall;
+        # this is not a100ms disk/transaction performance contract.
+        if io_delay:
+            await asyncio.sleep(io_delay)
         assert await session.scalar(text("SELECT COUNT(*) FROM entry_fixture")) == 0
         await session.execute(text("INSERT INTO entry_fixture VALUES (2)"))
+        inserted_modes.append("ok")
         await session.commit()
     namespace = {"asyncio": asyncio, "CFG": SimpleNamespace(DRY_RUN=True), "PROJECT_ROOT": tmp_path,
-        "SessionLocal": sessions, "EVALUATE_TOKEN_TIMEOUT_S": .1, "_evaluate_and_buy": evaluate,
+        "SessionLocal": sessions, "EVALUATE_TOKEN_TIMEOUT_S": 10., "_evaluate_and_buy": evaluate,
         "_BUY_RECOVERY": BuyRecoveryStore(tmp_path / "buy_journal"),
         "_note_runtime_error": lambda *args: errors.append(args), "log": SimpleNamespace(error=lambda *args: None)}
     exec(compile(ast.Module(body=[_function("_evaluate_and_buy_guarded")], type_ignores=[]), "run_bot.py", "exec"), namespace)
     try:
         for mode in ("failed", "timeout", "ok"):
+            # The intentional suspended transaction has a real native deadline;
+            # healthy filesystem/SQL work does not inherit a100ms latency SLA.
+            # These are isolated fixture budgets, not production configuration.
+            namespace["EVALUATE_TOKEN_TIMEOUT_S"] = 2. if mode == "timeout" else 10.
             await namespace["_evaluate_and_buy_guarded"]({"address": "synthetic", "mode": mode}, None, source="test")
+            assert calls[-1].in_transaction() is False
         assert len({id(session) for session in calls}) == 3 and len(errors) == 2
+        assert inserted_modes == ["failed", "timeout", "ok"]
+        assert cancelled_sessions == [calls[1]]
+        assert isinstance(errors[0][1], ValueError)
+        assert errors[1] == ("eval_timeout:test[syntheti]", ">2s")
         async with sessions() as session:
             assert (await session.execute(text("SELECT id FROM entry_fixture"))).scalars().all() == [2]
     finally:
