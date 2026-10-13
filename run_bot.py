@@ -181,7 +181,7 @@ from analytics import filters, requeue_policy  # noqa: E402
 from analytics.token_time import compute_age_minutes  # noqa: E402
 from analytics.token_birth import FIELD as BIRTH_FIELD, merge_birth_context  # noqa: E402
 from analytics.token_time import BIRTH_CLOCK_FIELDS  # noqa: E402
-from runtime.token_birth_enrichment import enrich_token_birth, GLOBAL_TOKEN_BIRTH_RESOLVER  # noqa: E402
+from runtime.token_birth_enrichment import enrich_token_birth, token_birth_enrichment_snapshot  # noqa: E402
 import analytics.api_budget as api_budget  # noqa: E402
 import analytics.sizing as entry_sizing  # noqa: E402
 import analytics.exit_policy as exit_policy  # noqa: E402
@@ -1042,6 +1042,10 @@ def _remember_queue_context(addr: str, token: dict | None = None) -> None:
     if meta is None:
         return
     birth_context = merge_birth_context({**meta, "address": addr}, token)
+    from analytics.mint_creation_reference import FIELD as reference_field, merge_reference
+    reference_context = merge_reference({**meta, 'address': addr}, token)
+    if reference_field in reference_context:
+        meta[reference_field] = reference_context[reference_field]
     for key in (*BIRTH_CLOCK_FIELDS, BIRTH_FIELD):
         if birth_context.get(key) is not None:
             meta[key] = birth_context[key]
@@ -3760,7 +3764,7 @@ async def _build_runtime_state_snapshot() -> RuntimeStateSnapshot:
     }
     stats_payload = {
         **_stats,
-        "token_birth_enrichment": GLOBAL_TOKEN_BIRTH_RESOLVER.snapshot(),
+        "token_birth_enrichment": token_birth_enrichment_snapshot(),
         "provider_capacity": {"shared_cache": cache_snapshot(), "birdeye": birdeye_pressure_snapshot(), "gecko": gecko_pressure_snapshot()},
         "last_buy_at": _last_buy_at,
         "last_sell_at": _last_sell_at,

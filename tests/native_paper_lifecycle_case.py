@@ -57,6 +57,46 @@ born = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=3)
 birth = {'version':'birdeye_mint_creation_receipt_v1','source':'birdeye','chain':'solana',
     'address':TOKEN,'created_at':born.isoformat(),'slot':123,'tx_hash':'1'*64,
     'received_at':time.time()-.01,'basis':'provider_reported_mint_creation_not_independent_chain_verification'}
+entry_token = {'address':TOKEN,'chain':'solana','created_at':born,
+    FIELD:birth,'discovered_via':'dex','dex_id':'pumpswap'}
+if case.startswith('rpc_birth'):
+    from test_rpc_mint_initialization import fixture
+    from fetcher import pumpfun
+    from runtime import token_birth_enrichment
+    from runtime.rpc_token_birth import RpcTokenBirthResolver
+    from fetcher.mint_initialization import get_mint_initialization
+    from utils import solana_execution as rpc
+    result, TOKEN, signature, reference_received = fixture(cpi=True,lookup=True)
+    if case == 'rpc_birth_unknown': result = None
+    elif case == 'rpc_birth_failed': result['meta']['err'] = {'InstructionError':[0,'InvalidArgument']}
+    elif case == 'rpc_birth_future': result['blockTime'] = int(time.time()) + 3600
+    entry_token = pumpfun._parse_event({'mint':TOKEN,'signature':signature,'txType':'create','slot':123})
+    # Keep the discovered reference, use the existing fresh Pumpswap route.
+    entry_token.update(dex_id='pumpswap')
+    class CreationStream:
+        def __init__(self, value): self.raw = value
+        async def read(self,bound):
+            chunk,self.raw = self.raw[:bound],self.raw[bound:]
+            return chunk
+    class CreationReply:
+        status = 200
+        def __init__(self,payload):
+            self.content = CreationStream(json.dumps({'jsonrpc':'2.0','id':payload['id'],'result':result}).encode())
+        async def __aenter__(self): return self
+        async def __aexit__(self,*args): pass
+    class CreationSession:
+        def __init__(self,**kwargs): assert kwargs['timeout'].total == 3
+        async def __aenter__(self): return self
+        async def __aexit__(self,*args): pass
+        def post(self,url,**kwargs):
+            calls.append('creation_rpc')
+            payload = kwargs['json']
+            assert url == 'https://synthetic-node.example.test' and kwargs['allow_redirects'] is False
+            assert payload['method'] == 'getTransaction' and payload['params'][0] == signature
+            return CreationReply(payload)
+    rpc.aiohttp.ClientSession = CreationSession
+    token_birth_enrichment.GLOBAL_RPC_TOKEN_BIRTH_RESOLVER = RpcTokenBirthResolver(
+        lookup=get_mint_initialization,endpoint=lambda:'https://synthetic-node.example.test',degraded=lambda:False)
 async def snapshot(address, **kwargs):
     calls.append('snapshot')
     return stamp_market_observation({'address':address,'chain':'solana','symbol':'SYNTHETIC',
@@ -122,10 +162,9 @@ async def exercise():
     report = {'progression':[]}
     try:
         async with run_bot.SessionLocal() as ses:
-            await run_bot._evaluate_and_buy_guarded({'address':TOKEN,'chain':'solana','created_at':born,
-                FIELD:birth,'discovered_via':'dex','dex_id':'pumpswap'},ses,source='dex')
+            await run_bot._evaluate_and_buy_guarded(entry_token,ses,source='dex')
             positions = (await ses.execute(select(Position))).scalars().all()
-            if case == 'positive':
+            if case in {'positive','rpc_birth'}:
                 assert len(positions)==1 and positions[0].buy_amount_sol==.1 and positions[0].dry_run is True
                 p = positions[0]
                 from trader import papertrading
@@ -134,11 +173,21 @@ async def exercise():
                 report['entry_signal'] = p.buy_price_pct_5m
                 report['entry_run_id'] = p.run_id
                 report['entry_identity_matches'] = p.source_position_key=='buy:'+primary['entry_intent_id']
+                if case == 'rpc_birth':
+                    from analytics.token_birth import checked_token_birth
+                    from utils.atomic_json import read_json_strict
+                    from runtime.buy_recovery import BuyRecoveryStore
+                    journals = [expected/'data/metrics/buy_recovery'/sub/(primary['entry_intent_id']+'.json')
+                        for sub in ('','resolved')]
+                    available = [path for path in journals if path.exists()]
+                    assert len(available) == 1
+                    journal = read_json_strict(available[0])
+                    BuyRecoveryStore._validate_row(journal)
+                    original_birth = journal['entry_features']['token_clock'][FIELD]
+                    report['rpc_birth_initializer_checked'] = checked_token_birth(original_birth,TOKEN) is not None
                 assert not run_bot._BUY_RECOVERY.pending_addresses
                 # A duplicate actual dispatch cannot submit or persist another fill.
-                await run_bot._evaluate_and_buy_guarded({'address':TOKEN,'chain':'solana',
-                    'created_at':born,FIELD:birth,'discovered_via':'dex','dex_id':'pumpswap'},
-                    ses,source='dex')
+                await run_bot._evaluate_and_buy_guarded(entry_token,ses,source='dex')
                 if options.get('monitor'):
                     for factor in (3., 6., 11., 51., 101., 1001., 10001., 1001.):
                         await run_bot._check_positions(ses)
@@ -165,6 +214,9 @@ async def exercise():
                     assert len(exported)==1 and exported[0]['outcome_trade_id']==identity
                     assert exported[0]['price_pct_5m']==options.get('momentum',5000.)
                     assert abs(exported[0]['target_total_pnl_pct']-report['net_label_pct'])<.001
+                    if case == 'rpc_birth':
+                        from features.token_clock_semantics import checked_row_clock
+                        report['rpc_birth_retained_in_export'] = checked_row_clock(exported[0])[FIELD] == original_birth
                     fills = (await ses.execute(select(TradeEvent).where(TradeEvent.position_id==p.id))).scalars().all()
                     report['sql_events'] = [{'event':event.event_type,'qty':event.qty} for event in fills]
                     assert sum(event.qty for event in fills)==p.entry_qty

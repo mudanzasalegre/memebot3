@@ -4,8 +4,10 @@ from __future__ import annotations
 from copy import deepcopy
 import datetime as dt
 import math
+import time
 
 from analytics.token_time import BIRTH_CLOCK_FIELDS, _to_datetime
+from analytics.rpc_mint_initialization import VERSION as RPC_VERSION, BASIS as RPC_BASIS
 
 FIELD = "token_birth_observation"
 VERSION = "birdeye_mint_creation_receipt_v1"
@@ -29,10 +31,14 @@ def base58_size(value, size):
 
 def checked_token_birth(raw, address, *, now=None):
     """Immutable old creation may be cached; identity/causality never expire away."""
+    if now is None:
+        now = time.time()  # Keep the original numeric clock precision here too.
+    rpc = isinstance(raw, dict) and raw.get("version") == RPC_VERSION
+    keys = _KEYS | {"reference", "evidence", "rpc_source_sha256", "rpc_evidence_sha256"} if rpc else _KEYS
     stamp = _to_datetime(now) if now is not None else dt.datetime.now(dt.timezone.utc)
     born = _to_datetime(raw.get("created_at")) if isinstance(raw, dict) else None
-    if (not isinstance(raw, dict) or set(raw) != _KEYS or raw.get("version") != VERSION
-            or raw.get("basis") != BASIS or raw.get("source") != "birdeye"
+    if (not isinstance(raw, dict) or set(raw) != keys or raw.get("version") != (RPC_VERSION if rpc else VERSION)
+            or raw.get("basis") != (RPC_BASIS if rpc else BASIS) or raw.get("source") != ("solana_rpc" if rpc else "birdeye")
             or raw.get("chain") != "solana" or raw.get("address") != address
             or not base58_size(address, 32) or not base58_size(raw.get("tx_hash"), 64)
             or type(raw.get("slot")) is not int or raw["slot"] < 0
@@ -51,6 +57,24 @@ def checked_token_birth(raw, address, *, now=None):
         valid = False
     if not valid:
         return None
+    if rpc:
+        # A source tag/hash is not a proof. Reconstruct the original signed
+        # packet and the recorded initializer on every receipt acceptance.
+        from analytics.mint_creation_reference import checked_reference
+        from analytics.rpc_mint_initialization import inspect_initialization
+        reference = checked_reference(raw["reference"], address, now=received)
+        if (reference is None or reference["tx_hash"] != raw["tx_hash"]
+                or not all(isinstance(raw[name], str) and len(raw[name]) == 64
+                    and all(char in "0123456789abcdef" for char in raw[name])
+                    for name in ("rpc_source_sha256", "rpc_evidence_sha256"))):
+            return None
+        try:
+            evidence = inspect_initialization(raw["evidence"], address, raw["tx_hash"],
+                reference_slot=reference["slot"], reference_received_at=reference["received_at"])
+            if (any(raw[name] != evidence[name] for name in ("created_at", "slot", "tx_hash", "evidence", "rpc_evidence_sha256"))):
+                return None
+        except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
+            return None
     return deepcopy(raw)
 
 
@@ -66,7 +90,7 @@ def merge_birth_context(primary, secondary, *, now=None):
     """Move a birth and its receipt atomically; never rejuvenate a known mint.
 
     Existing untyped original clocks remain legacy-normalised inputs. Only a
-    checked typed receipt can add new Birdeye creation context. Venue aliases,
+    checked typed receipt can add provider creation/initialization context. Venue aliases,
     discovery/queue clocks and generic event timestamps are not considered.
     """
     out = deepcopy(primary)

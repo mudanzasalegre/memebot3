@@ -19,12 +19,14 @@ from analytics.social_signal import (
 from utils.auxiliary_observation import KINDS, checked_auxiliary_observation, auxiliary_scalar, clock_after
 from analytics.token_time import BIRTH_CLOCK_FIELDS
 from analytics.token_birth import FIELD as BIRTH_FIELD, merge_birth_context, token_birth_problem
+from analytics.mint_creation_reference import FIELD as CREATION_REFERENCE_FIELD, checked_reference
 
 # Queue items carry discovery identity, not reusable decisions/model inputs.
 _DISCOVERY_FIELDS = (
     "address", "symbol", "name", "creator", "source", "discovered_via",
     "discovered_at", "first_seen", "first_seen_at", "created_at", "createdAt",
     "token_birth_observation", "token_birth_enrichment",
+    "mint_creation_reference",
     "pumpportal_event_at", "pumpportal_created_at_basis",
     "created", "createdAtUtc", "pairCreatedAt", "pair_created_at",
     "pairCreatedAtMs", "listedAt", "dex_id", "dexId", "pair_address",
@@ -43,6 +45,8 @@ _PROXY_BASIS = "configured_paper_proxy_not_observed_liquidity_v1"
 def discovery_candidate(queued: Mapping[str, Any]) -> dict:
     """Detach stable discovery context and discard prior lanes/scores/features."""
     out = {key: deepcopy(queued[key]) for key in _DISCOVERY_FIELDS if key in queued}
+    if CREATION_REFERENCE_FIELD in out and checked_reference(out[CREATION_REFERENCE_FIELD], out.get('address')) is None:
+        out.pop(CREATION_REFERENCE_FIELD)
     # Only _evaluate_and_buy_guarded supplies this checked immutable snapshot.
     if "paper_entry_policy" in queued:
         out["paper_entry_policy"] = deepcopy(queued["paper_entry_policy"])
@@ -58,7 +62,7 @@ def prepare_entry_candidate(queued: Mapping[str, Any], snapshot: dict | None) ->
     if clean is None or fresh_market_value(clean, "price_usd") is None:
         return None
     for key in _DISCOVERY_FIELDS + _SNAPSHOT_FIELDS + MARKET_FIELDS + ("market_observation", "social_signal"):
-        if key not in (*BIRTH_CLOCK_FIELDS, BIRTH_FIELD) and key in clean and clean[key] is not None:
+        if key not in (*BIRTH_CLOCK_FIELDS, BIRTH_FIELD, CREATION_REFERENCE_FIELD) and key in clean and clean[key] is not None:
             out[key] = deepcopy(clean[key])
     out = merge_birth_context(out, clean)
     # Explicit absence prevents default/alias resurrection in later enrichers.

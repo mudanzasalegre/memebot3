@@ -1,0 +1,240 @@
+{
+  "status": "SCOPED_RPC_BIRTH_VALIDATED_WHOLE_GOAL_INCOMPLETE",
+  "scope": "Native discovery reference, bounded read-only RPC initialization, common entry, queue and original T0 lineage. No operational launch.",
+  "parent_published_commit": "7f0ec9aef6edbd3cf4de8351f9e0d0ab1c3fb302",
+  "source_freeze": {
+    "files_each": 805,
+    "sha256": "478d15c25c1494b5bc51795d62d8714723582a1bc45c8cd260176579d02b20b3",
+    "observed_at_utc": "2026-10-13T16:49:38.583798+00:00"
+  },
+  "repository_inventory": {
+    "cases_each": 6012,
+    "nodeids_sha256": "2cb7ed916740cf653b85806306fa010923e986076ee7d85f6117506e4e2787ce",
+    "working_private_deadline_fixture": 1,
+    "publishing_private_fixtures": 0
+  },
+  "reproductions": [
+    {
+      "scope": "Original parser/entry reference loss, prior foundations",
+      "working_failed": 2,
+      "working_passed": 6,
+      "publishing_failed": 2,
+      "publishing_passed": 6
+    },
+    {
+      "scope": "Default typed receipt and native router rejected RPC route",
+      "working_failed": 2,
+      "working_passed": 0,
+      "elapsed_s": 1.72
+    },
+    {
+      "scope": "Signed structurally invalid transaction accepted before native sanitize",
+      "working_failed": 1,
+      "working_passed": 0,
+      "elapsed_s": 0.19
+    },
+    {
+      "scope": "Repeated cancellation following timeout retained negative cache before repair",
+      "working_failed": 1,
+      "working_passed": 75,
+      "elapsed_s": 3.14
+    }
+  ],
+  "implemented": [
+    "Preserve bounded syntactic original creation references from PumpPortal without creating birth/age from event or receipt time.",
+    "Resolve exact mint initialization through one strict non-redirecting getTransaction base64 confirmed v0-capable query; no retries, signing or broadcasts.",
+    "Reconstruct and natively sanitize/verify original legacy/v0 transaction signatures, first signature, writable mint, standard Token/Token2022 initializer, lookup-table counts and bounded recorded CPI.",
+    "Revalidate retained compact binary/RPC evidence and hashes whenever accepting typed RPC birth context.",
+    "Global local RPM/spacing, owner/joiner capacity and monotonic lock admission across threads/event loops; detached bounded positive/negative cache tied to original receipts and exact references/nodes.",
+    "Cancel and drain provider ownership under timeout/repeated cancellation; stopped work cannot leave fabricated birth or negative cache.",
+    "RPC-first native enrichment independent of USE_BIRDEYE, fallback preserving both diagnostics; master switch still disables both routes.",
+    "Atomic original birth/reference preservation through queue/current-market entry/pre-buy guard/T0 model metadata and native costed close export without adding predictors or altering operator models.",
+    "Aggregate-only operational pressure and complete preflight compile inclusion for new modules; no endpoint/credential/mint data in pressure snapshot."
+  ],
+  "focused_validation": {
+    "pre_sanitize_working": {
+      "passed": 416,
+      "warnings": 2,
+      "elapsed_s": 107.54
+    },
+    "pre_sanitize_publishing": {
+      "passed": 437,
+      "warnings": 2,
+      "elapsed_s": 111.02
+    },
+    "final_sanitized": {
+      "working": {
+        "passed": 438,
+        "warnings": 2,
+        "elapsed_s": 115.85,
+        "exit_code": 0
+      },
+      "publishing": {
+        "passed": 438,
+        "warnings": 2,
+        "elapsed_s": 115.83,
+        "exit_code": 0
+      }
+    },
+    "optional_env_repair_direct": {
+      "passed": 95,
+      "elapsed_s": 3.22,
+      "exit_code": 0
+    },
+    "final_repaired": {
+      "working": {
+        "passed": 450,
+        "warnings": 2,
+        "elapsed_s": 114.02,
+        "exit_code": 0
+      },
+      "publishing": {
+        "passed": 450,
+        "warnings": 2,
+        "elapsed_s": 114,
+        "exit_code": 0
+      }
+    }
+  },
+  "native_paper_lifecycle": {
+    "isolated_source_only": true,
+    "external_network_forbidden": true,
+    "operator_files_copied": 0,
+    "cases": 4,
+    "passed": 4,
+    "elapsed_s": 19.16,
+    "exact_simulated_buy_sol": 0.1,
+    "synthetic_runner_peak_gt_pct": 900000,
+    "preserves_original_rpc_birth_in_T0_and_net_export": true,
+    "unproved_birth_cases": [
+      "unknown",
+      "failed",
+      "future"
+    ]
+  },
+  "complete_native_preflight": {
+    "working": {
+      "status": "PASSED_ACTUAL_NATIVE_FULL",
+      "passed": 6013,
+      "repository_passed": 6012,
+      "private_deadline_fixture_passed": 1,
+      "warnings": 2,
+      "pytest_seconds": 1462.89,
+      "native_exit_code": 0,
+      "pytest_exit_code": 0,
+      "started_at_utc": "2026-10-13T16:56:39.534781+00:00",
+      "finished_at_utc": "2026-10-13T17:21:07.636746+00:00"
+    },
+    "publishing": {
+      "status": "PASSED_ACTUAL_NATIVE_FULL",
+      "passed": 6012,
+      "repository_passed": 6012,
+      "private_deadline_fixture_passed": 0,
+      "warnings": 2,
+      "pytest_seconds": 1442.31,
+      "native_exit_code": 0,
+      "pytest_exit_code": 0,
+      "started_at_utc": "2026-10-13T16:56:39.529219+00:00",
+      "finished_at_utc": "2026-10-13T17:20:47.793167+00:00"
+    }
+  },
+  "protected_operator_state": {
+    "working_files": 3766,
+    "publishing_files": 27,
+    "changed": 0,
+    "added": 0,
+    "basis": "Current stage hash census against fresh operator baseline; not retroactive byte immutability of earlier runs.",
+    "observed_at_utc": "2026-10-13T17:21:56.634892+00:00"
+  },
+  "constraints": [
+    "No real RPC/Birdeye/provider request, bot main loop, operational PAPER restart, LIVE, wallet signing, transaction broadcast, operational training, AutoResearch or model activation. Isolated test fixtures do not authorize operational learning or trading.",
+    "RPC-reported block time/slot/CPI/loaded addresses are not independent chain inclusion/finality or archive-first lifetime proof, including Token2022 address reuse.",
+    "Missing/invalid/conflicting evidence remains unknown; a verified initializer is not buy permission or token/rug safety.",
+    "Actual PumpPortal signature coverage, provider access/entitlement, quota, production latency/throughput and fresh profitable capture remain unproved.",
+    "Synthetic extreme-tail PAPER results are software evidence only, not financial profitability or optimal exits."
+  ],
+  "primary_sources": [
+    "https://solana.com/docs/rpc/http/gettransaction",
+    "https://solana.com/docs/tokens/basics/create-mint",
+    "https://pumpportal.fun/data-api/real-time/"
+  ],
+  "whole_goal_status": "ACTIVE_INCOMPLETE; preserve all original architecture/learning/opportunity/financial/publication requirements.",
+  "initial_complete_native_preflight": {
+    "working": {
+      "ok": false,
+      "exit_code": 1,
+      "summary": "1 failed, 6009 passed, 2 warnings",
+      "elapsed_pytest_s": 1458.42,
+      "failed_case": "tests/test_pumpswap_prime_strict.py::test_env_files_have_new_flags_once",
+      "ended_at_utc": "2026-10-13T16:32:50.960803+00:00"
+    },
+    "publishing": {
+      "ok": true,
+      "exit_code": 0,
+      "summary": "6009 passed, 2 warnings",
+      "elapsed_pytest_s": 1439.27,
+      "ended_at_utc": "2026-10-13T16:32:32.625468+00:00"
+    }
+  },
+  "repair_scope": "Updated only the exact documented optional RPC flag compatibility list; preserved required Prime flags, duplicates and unrelated key parity, added mandatory template declaration and native missing-env default coverage. No personal .env or production policy changed.",
+  "first_launch_environment": {
+    "python": "3.12.3",
+    "pip_check_exit_code": 0,
+    "scope": "Current installed environment only; not clean-install/other-version certification"
+  },
+  "cold_and_structural_validation": {
+    "base_scoped_imports_each": 27,
+    "explicit_rpc_scoped_module_checks_each": 6,
+    "compile_errors_each": 0,
+    "config_import_exit_codes": [
+      0,
+      0
+    ],
+    "empty_report_builders_passed_each": 7,
+    "pip_check_exit_code": 0,
+    "scope": "Current installed Python 3.12.3 only; not clean-install/provider/financial acceptance."
+  },
+  "final_runtime_census": {
+    "observed_at_utc": "2026-10-13T17:21:56.1639990+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "tasks": 0,
+    "services": 0,
+    "locks_each": 0,
+    "sql_main": {
+      "process_state": "stopped",
+      "reports_refresh_state": "idle",
+      "retrain_state": "idle",
+      "updated_at_utc": "2026-10-13T10:43:54.767270+00:00"
+    }
+  },
+  "publication": {
+    "status": "REVIEWED_SCOPED_INPUTS_FOR_NONFORCE_PUBLICATION",
+    "basis": "Software/source evidence prepared before commit; actual published revision is obtained from Git, not a self-referential audit hash.",
+    "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
+    "parent_commit": "7f0ec9aef6edbd3cf4de8351f9e0d0ab1c3fb302",
+    "reviewed_files": [
+      ".env.example",
+      "analytics/mint_creation_reference.py",
+      "analytics/rpc_mint_initialization.py",
+      "analytics/token_birth.py",
+      "fetcher/mint_initialization.py",
+      "fetcher/pumpfun.py",
+      "run_bot.py",
+      "runtime/entry_observation.py",
+      "runtime/hot_queue.py",
+      "runtime/rpc_token_birth.py",
+      "runtime/token_birth_enrichment.py",
+      "tests/native_paper_lifecycle_case.py",
+      "tests/test_mint_creation_reference.py",
+      "tests/test_native_paper_lifecycle.py",
+      "tests/test_rpc_birth_enrichment.py",
+      "tests/test_rpc_mint_initialization.py",
+      "tools/preflight.py",
+      "tests/test_pumpswap_prime_strict.py",
+      "README.md",
+      "docs/audits/rpc_mint_birth_20261013.json",
+      "docs/audits/architecture_goal_20261007.json"
+    ]
+  }
+}

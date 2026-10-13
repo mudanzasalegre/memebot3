@@ -13,6 +13,40 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Creacion de mint por RPC: validacion nativa completa (2026-10-13)
+
+La referencia original de creacion PumpPortal ya llega a la entrada comun y
+puede resolverse por una consulta RPC de la transaccion exacta, antes del
+fallback a Birdeye. La firma sola no basta: se comprueban la estructura nativa,
+firmas, identidad y escritura del mint, inicializacion Token/Token2022 y los
+datos de instrucciones internas/cuentas cargadas reportados por el nodo.
+Los recibos se reconstruyen al aceptarlos y mantienen presupuesto/cache
+acotados, cancelacion con limpieza y nacimiento original hasta la exportacion
+T0/neto, sin anadir predictores, relajar filtros ni modificar el `.env` personal.
+
+154 casos nuevos y450 pruebas focalizadas pasan en cada copia. La primera
+bateria completa paso6.009 casos en C y fallo una comprobacion de paridad de
+claves opcionales de `.env` en D; se conserva ese resultado fallido. La
+comprobacion ahora reconoce exactamente los ajustes RPC documentados con
+defaults nativos, sin cambiar secretos, omitir duplicados, flags obligatorios
+o diferencias ajenas a RPC. La nueva bateria nativa pasa los mismos6.012 casos
+del repositorio por copia (D suma una prueba privada), en1.462,89 s en D y
+1.442,31 s en C, con los dos avisos de pandas conocidos. Compilacion,
+configuracion,27 imports base mas6 modulos RPC verificados y siete informes
+vacios por copia pasan sobre805 fuentes congeladas identicas. El entorno
+instalado Python3.12.3 pasa `pip check`. Los archivos protegidos siguen sin
+cambios frente al baseline de esta etapa; no se borra la alerta historica de
+bytes de SQLite. Bot y QA quedan apagados. No se declara terminado el objetivo.
+La ruta PAPER
+completa aislada compra
+0,1 SOL y conserva el runner y el recibo hasta el cierre/exportacion; las rutas
+con nacimiento ausente, fallido o futuro no compran. Son datos sinteticos, sin
+red externa ni operaciones reales. El bot, LIVE, entrenamiento operativo y
+AutoResearch y QA quedan apagados.
+Acceso real, cobertura de firmas/oportunidades, modelo primario y rendimiento
+neto siguen sin quedar aceptados.
+[Auditoria RPC y estado verificable](docs/audits/rpc_mint_birth_20261013.json).
+
 ### Gecko y limites compartidos: reloj y admision atomica (2026-10-13)
 
 El falso retroceso reproducido en la etapa anterior esta corregido: Gecko y el
@@ -31,13 +65,13 @@ vacios por copia se verifican sobre 798 fuentes congeladas identicas.
 Los archivos protegidos siguen sin cambios frente al baseline de esta etapa,
 sin borrar la alerta historica de bytes de SQLite. Bot y QA quedan apagados.
 
-La siguiente prioridad es el dato de nacimiento: el parser actual pierde las
-posibles referencias de transaccion y el enriquecimiento tipado depende de
-Birdeye. Una prueba sintetica confirma ese contrato, no la disponibilidad real
-de firmas en el feed. Se estudiara una alternativa RPC que verifique la
-inicializacion del mint exacto; una fecha de bloque o cuenta asociada no basta.
-No esta implementada ni implica permiso de compra. Acceso real, modelo primario,
-cobertura de oportunidades y rendimiento neto siguen sin quedar aceptados.
+Al cerrar esta etapa anterior, el parser perdia las posibles referencias de
+transaccion y el enriquecimiento tipado dependia de Birdeye. Una prueba
+sintetica confirmo ese contrato, no la disponibilidad real de firmas en el
+feed. Ese limite se aborda en la implementacion RPC posterior indicada arriba:
+una fecha de bloque o cuenta asociada no basta y no implica permiso de compra.
+Acceso real, modelo primario, cobertura de oportunidades y rendimiento neto
+siguen sin quedar aceptados.
 [Auditoria de relojes y siguiente limite de datos](docs/audits/shared_pacing_clock_20261013.json).
 
 ### Birdeye: limitador entre bucles/hilos y orden de respuestas (2026-10-13)
@@ -529,6 +563,27 @@ la residencia original en cola. Los porcentajes extremos siguen sin recorte;
 esto no certifica oportunidades ejecutadas ni beneficio neto.
 Ver `docs/audits/token_birth_enrichment_20261011.json`.
 
+La ruta de creacion tambien puede usar la firma original del evento PumpPortal
+para consultar una sola transaccion confirmada por RPC, antes del fallback a
+Birdeye. La referencia del feed no se convierte por si sola en nacimiento: se
+reconstruyen el mensaje binario, su estructura/firma, las cuentas cargadas y la
+inicializacion exacta `InitializeMint`/`InitializeMint2` de Token o Token2022,
+incluidas las instrucciones internas registradas. Se conserva evidencia
+acotada a64 KiB y su recibo original fuera de los predictores del modelo.
+El RPC sigue siendo la fuente de fecha/slot, cuentas cargadas e instrucciones
+internas; no es una verificacion independiente de inclusion/finalidad ni del
+primer ciclo de vida historico de una direccion. No se rejuvenece un nacimiento
+ya conocido ni se convierte una transaccion ausente/fallida en edad cero.
+Los siete ajustes `BIRTH_RPC_ENRICHMENT_*` de `.env.example` acotan esta ruta
+por proceso a12 consultas/minuto por defecto,2 propietarios y256 seguidores,
+timeout de3 segundos y2048 entradas de cache, con negativos de5 segundos.
+El presupuesto no se reinicia por mint, cambio de nodo, hilo o event loop.
+`USE_BIRDEYE=false` no desactiva RPC; `BIRTH_ENRICHMENT_ENABLED=false` desactiva
+ambas rutas. No se modifica el `.env` personal. No firma ni envia transacciones
+y no activa entrenamiento, modelos ni LIVE. Ver
+`docs/audits/rpc_mint_birth_20261013.json` para el estado real de la validacion;
+no certifica acceso/cuotas reales, oportunidades ejecutadas ni rentabilidad.
+
 La cache compartida en memoria usa ahora TTL/LRU con8192 entradas por defecto,
 barrido de expirados no consultados e indice de expiracion acotado. Los
 contadores recientes de Birdeye/Dex/Gecko tambien tienen8192 claves por
@@ -716,19 +771,27 @@ Analytics, API, UI, AutoResearch
 
 | Requisito | Notas |
 | --- | --- |
-| Python | 3.10+, probado aqui con Python 3.12. |
+| Python | Usar 3.12, rama de CI y del entorno validado. 3.10 no soportado; el codigo requiere APIs async disponibles desde 3.11. Otras ramas no quedan certificadas aqui. |
 | Node.js + npm | Necesario para la UI. |
 | PowerShell | Los scripts de arranque son Windows-first. |
 | Solana RPC | Helius u otro RPC fiable si se usa live o enriquecimiento avanzado. |
 | Credenciales externas | Opcionales segun provider y modo. Paper puede arrancar con menos. |
 
-Instalar dependencias Python:
+Instalar dependencias Python. Comprueba que `python --version` selecciona
+Python 3.12 antes de crear el entorno; no reutilices un `.venv` de otra rama.
+Los controles async utilizan `Task.cancelling()` y `asyncio.timeout()`,
+[introducidos en Python 3.11](https://docs.python.org/3/library/asyncio-task.html#asyncio.timeout).
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip check
 ```
+
+El entorno instalado actual (Python 3.12.3) pasa `pip check`; esto no acredita
+una instalacion limpia con futuras versiones de todos los paquetes ni acceso
+efectivo a proveedores. No arranques LIVE para comprobar dependencias.
 
 Instalar UI:
 

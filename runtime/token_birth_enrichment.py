@@ -12,6 +12,8 @@ from analytics.api_budget import provider_status
 from analytics.token_birth import FIELD, base58_size, birth_clock, checked_token_birth, merge_birth_context
 from analytics.token_time import BIRTH_CLOCK_FIELDS
 from fetcher import birdeye
+from runtime.rpc_token_birth import RpcTokenBirthResolver
+from analytics.mint_creation_reference import FIELD as REFERENCE_FIELD, checked_reference
 
 
 def _number(value, default, low, high, *, integer=False):
@@ -203,9 +205,38 @@ GLOBAL_TOKEN_BIRTH_RESOLVER = TokenBirthResolver(
     negative_ttl_s=os.getenv("BIRTH_ENRICHMENT_NEGATIVE_TTL_S", "30"),
 )
 
+GLOBAL_RPC_TOKEN_BIRTH_RESOLVER = RpcTokenBirthResolver(
+    rpm=os.getenv("BIRTH_RPC_ENRICHMENT_RPM", "12"),
+    timeout_s=os.getenv("BIRTH_RPC_ENRICHMENT_TIMEOUT_S", "3"),
+    cache_size=os.getenv("BIRTH_RPC_ENRICHMENT_CACHE_SIZE", "2048"),
+    max_inflight=os.getenv("BIRTH_RPC_ENRICHMENT_MAX_INFLIGHT", "2"),
+    max_joiners=os.getenv("BIRTH_RPC_ENRICHMENT_MAX_JOINERS", "256"),
+    negative_ttl_s=os.getenv("BIRTH_RPC_ENRICHMENT_NEGATIVE_TTL_S", "5"),
+)
+
+
+def token_birth_enrichment_snapshot():
+    # Preserve existing Birdeye aggregate fields for operational consumers.
+    return {**GLOBAL_TOKEN_BIRTH_RESOLVER.snapshot(),
+            "rpc_initialization":GLOBAL_RPC_TOKEN_BIRTH_RESOLVER.snapshot()}
+
+
+def _enabled(name):
+    return os.getenv(name, "true").strip().lower() in {"true", "1", "yes", "on"}
+
 
 async def enrich_token_birth(token):
-    if (os.getenv("BIRTH_ENRICHMENT_ENABLED", "true").strip().lower() not in {"true", "1", "yes", "on"}
-            or os.getenv("USE_BIRDEYE", "true").strip().lower() not in {"true", "1", "yes", "on"}):
+    if not _enabled("BIRTH_ENRICHMENT_ENABLED"):
         return deepcopy(token)
-    return await GLOBAL_TOKEN_BIRTH_RESOLVER.enrich(token)
+    out = deepcopy(token)
+    if (_enabled("BIRTH_RPC_ENRICHMENT_ENABLED")
+            and checked_reference(out.get(REFERENCE_FIELD), out.get('address')) is not None):
+        out = await GLOBAL_RPC_TOKEN_BIRTH_RESOLVER.enrich(out)
+        if birth_clock(out) is not None:
+            return out
+    if _enabled("USE_BIRDEYE"):
+        rpc_state = deepcopy(out.get('token_birth_enrichment'))
+        out = await GLOBAL_TOKEN_BIRTH_RESOLVER.enrich(out)
+        if rpc_state is not None and rpc_state.get('source') == 'solana_rpc':
+            out['token_birth_enrichment']['rpc_initialization'] = rpc_state
+    return out

@@ -46,6 +46,12 @@ def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log
         target = isolated/relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(HERE.parent/relative, target)
+    if case.startswith('rpc_birth'):
+        # The signed dummy packet helper is explicit and contains no operator
+        # key, real blockhash, data, wallet or provider configuration.
+        relative = 'tests/test_rpc_mint_initialization.py'
+        target = isolated/relative
+        shutil.copy2(HERE.parent/relative, target)
     keep = {'PATH','SYSTEMROOT','WINDIR','TEMP','TMP','USERPROFILE','LOCALAPPDATA',
         'APPDATA','HOMEDRIVE','HOMEPATH','PROGRAMDATA','PROGRAMFILES','COMSPEC',
         'PATHEXT','NUMBER_OF_PROCESSORS','PROCESSOR_ARCHITECTURE'}
@@ -58,6 +64,8 @@ def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log
         MPLCONFIGDIR=str(isolated/'cache/matplotlib'))
     if run_id is not None:
         env['MEMEBOT_RUN_ID'] = run_id
+    if case.startswith('rpc_birth'):
+        env.update(BIRTH_ENRICHMENT_ENABLED='true',BIRTH_RPC_ENRICHMENT_ENABLED='true',USE_BIRDEYE='false')
     if case in {'shadow','off'}:
         env['PAPER_SNIPER_MODE'] = 'false'
         env['PUMP_EARLY_EXECUTION_MODE'] = case
@@ -116,6 +124,25 @@ def test_full_native_extreme_runner_close_and_idempotent_net_learning(tmp_path,l
 def test_native_no_log_preserves_an_explicit_launcher_identity(tmp_path):
     row = native_case(tmp_path,run_id='synthetic-owned-fixture')
     assert row['entry_run_id']=='synthetic-owned-fixture'
+
+
+def test_full_native_rpc_birth_exact_paper_entry_runner_close_and_T0_net_export(tmp_path):
+    row = native_case(tmp_path,case='rpc_birth',momentum=1000000.,monitor=True)
+    assert len(row['positions']) == 1 and row['positions'][0]['amount_sol'] == .1
+    assert row['positions'][0]['closed'] is True and row['export_rows'] == 1
+    assert row['progression'][-2]['peak'] > 900000 and row['progression'][-2]['qty'] > 0
+    assert row['rpc_birth_retained_in_export'] is True and row['rpc_birth_initializer_checked'] is True
+    assert row['boundary_calls'].count('creation_rpc') == 1
+    assert row['boundary_calls'].index('creation_rpc') < row['boundary_calls'].index('snapshot')
+    assert row['pending_buys'] == row['pending_sells'] == 0
+
+
+@pytest.mark.parametrize('case',['rpc_birth_unknown','rpc_birth_failed','rpc_birth_future'])
+def test_full_native_unproved_rpc_birth_never_opens_a_paper_position(tmp_path,case):
+    row = native_case(tmp_path,case=case,momentum=1000000.)
+    assert row['positions'] == [] and row['stats']['actual_paper_buys'] == 0
+    assert row['boundary_calls'].count('creation_rpc') == 1
+    assert row['pending_buys'] == row['pending_sells'] == 0
 
 
 @pytest.mark.parametrize('case',['missing_route','missing_cluster','bad_cluster','stale_price',

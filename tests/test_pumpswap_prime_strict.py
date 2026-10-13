@@ -142,26 +142,37 @@ def test_env_files_have_new_flags_once() -> None:
     optional_defaults = {"BIRTH_ENRICHMENT_ENABLED", "BIRTH_ENRICHMENT_RPM",
         "BIRTH_ENRICHMENT_TIMEOUT_S", "BIRTH_ENRICHMENT_CACHE_SIZE", "BIRTH_ENRICHMENT_NEGATIVE_TTL_S",
         "MEMORY_CACHE_MAX_ENTRIES", "PROVIDER_FAILURE_MAX_ENTRIES", "PROVIDER_FAILURE_RETENTION_S",
-        "BIRDEYE_MAX_INFLIGHT", "BIRDEYE_MAX_JOINERS", "BIRDEYE_ACCESS_RETRY_S"}
+        "BIRDEYE_MAX_INFLIGHT", "BIRDEYE_MAX_JOINERS", "BIRDEYE_ACCESS_RETRY_S",
+        "BIRTH_RPC_ENRICHMENT_ENABLED", "BIRTH_RPC_ENRICHMENT_RPM", "BIRTH_RPC_ENRICHMENT_TIMEOUT_S",
+        "BIRTH_RPC_ENRICHMENT_CACHE_SIZE", "BIRTH_RPC_ENRICHMENT_MAX_INFLIGHT",
+        "BIRTH_RPC_ENRICHMENT_MAX_JOINERS", "BIRTH_RPC_ENRICHMENT_NEGATIVE_TTL_S"}
+    # Every exemption must remain explicitly documented in the template. No
+    # prefix wildcard or exception for unrelated/required settings is allowed.
+    assert optional_defaults <= key_sets[-1]
     assert key_sets and all(keys - optional_defaults == key_sets[0] - optional_defaults for keys in key_sets)
 
 
-@pytest.mark.parametrize("change", ["optional_omitted", "duplicate", "missing_required"])
+@pytest.mark.parametrize("change", ["optional_omitted", "duplicate", "missing_required", "unrelated_mismatch", "missing_optional_documentation"])
 def test_new_optional_defaults_preserve_private_env_contract(tmp_path, monkeypatch, change):
     required = ["PUMPSWAP_PRIME_STRICT_ENABLED", "PUMPSWAP_PRIME_MIN_TXNS_5M",
         "PUMPSWAP_PRIME_MIN_LIQUIDITY_USD", "PUMPSWAP_PRIME_REQUIRE_REAL_LIQUIDITY",
         "PUMPSWAP_PRIME_REQUIRE_ROUTE", "PUMPSWAP_PRIME_MAX_PRICE_IMPACT_PCT",
         "PUMPSWAP_PRIME_SHADOW_IF_NOT_STRICT"]
-    original = "\n".join(f"{key}=1" for key in required) + "\n"
+    original = "\n".join(f"{key}=1" for key in required) + "\nEXISTING_NONOPTIONAL_FLAG=1\n"
     personal = original
     if change == "duplicate": personal += f"{required[0]}=1\n"
     elif change == "missing_required": personal = "\n".join(original.splitlines()[1:]) + "\n"
+    elif change == "unrelated_mismatch": personal = personal.replace("EXISTING_NONOPTIONAL_FLAG=1\n", "")
     (tmp_path / ".env").write_text(personal, encoding="utf-8")
-    (tmp_path / ".env.example").write_text(original + "BIRTH_ENRICHMENT_ENABLED=true\nBIRTH_ENRICHMENT_RPM=12\n"
+    template = (original + "BIRTH_ENRICHMENT_ENABLED=true\nBIRTH_ENRICHMENT_RPM=12\n"
         "BIRTH_ENRICHMENT_TIMEOUT_S=3\nBIRTH_ENRICHMENT_CACHE_SIZE=2048\nBIRTH_ENRICHMENT_NEGATIVE_TTL_S=30\n"
         "MEMORY_CACHE_MAX_ENTRIES=8192\nPROVIDER_FAILURE_MAX_ENTRIES=8192\nPROVIDER_FAILURE_RETENTION_S=3600\n"
-        "BIRDEYE_MAX_INFLIGHT=16\nBIRDEYE_MAX_JOINERS=256\n",
-        encoding="utf-8")
+        "BIRDEYE_MAX_INFLIGHT=16\nBIRDEYE_MAX_JOINERS=256\nBIRDEYE_ACCESS_RETRY_S=300\n"
+        "BIRTH_RPC_ENRICHMENT_ENABLED=true\nBIRTH_RPC_ENRICHMENT_RPM=12\nBIRTH_RPC_ENRICHMENT_TIMEOUT_S=3\n"
+        "BIRTH_RPC_ENRICHMENT_CACHE_SIZE=2048\nBIRTH_RPC_ENRICHMENT_MAX_INFLIGHT=2\n"
+        "BIRTH_RPC_ENRICHMENT_MAX_JOINERS=256\nBIRTH_RPC_ENRICHMENT_NEGATIVE_TTL_S=5\n")
+    if change == "missing_optional_documentation": template = template.replace("BIRTH_RPC_ENRICHMENT_RPM=12\n", "")
+    (tmp_path / ".env.example").write_text(template, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     if change == "optional_omitted": test_env_files_have_new_flags_once()
     else:

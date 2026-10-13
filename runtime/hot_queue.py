@@ -16,6 +16,7 @@ from analytics.inference_scope import inference_scope
 from analytics.token_time import compute_age_minutes
 from analytics.token_time import BIRTH_CLOCK_FIELDS
 from analytics.token_birth import FIELD as BIRTH_FIELD, merge_birth_context
+from analytics.mint_creation_reference import FIELD as CREATION_REFERENCE_FIELD, merge_reference
 from utils.runtime_telemetry import record_runtime_event
 
 
@@ -292,7 +293,12 @@ class HotQueue:
         incoming_has_age = any(_valid_age(token.get(key)) for key in ("age_minutes", "age_min"))
         birth = merge_birth_context({**(previous if previous is not None else token), "address": address},
                                    {**token, "address": address}, now=now)
+        reference = merge_reference({**(previous if previous is not None else token), 'address': address},
+                                    {**token, 'address': address}, now=now)
         token = {**(previous or {}), **token}
+        token.pop(CREATION_REFERENCE_FIELD, None)
+        if CREATION_REFERENCE_FIELD in reference:
+            token[CREATION_REFERENCE_FIELD] = reference[CREATION_REFERENCE_FIELD]
         for key in (*BIRTH_CLOCK_FIELDS, BIRTH_FIELD):
             token.pop(key, None)
             if key in birth:

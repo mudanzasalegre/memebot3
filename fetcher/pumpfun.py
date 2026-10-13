@@ -35,6 +35,7 @@ import aiohttp
 from utils.data_utils import sanitize_token_data
 from utils.time import utc_now, parse_iso_utc
 from utils.solana_addr import normalize_mint
+from analytics.mint_creation_reference import FIELD as CREATION_REFERENCE_FIELD, reference_from_event
 
 log = logging.getLogger("pumpfun")
 
@@ -344,6 +345,9 @@ def _parse_event(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         # Keep the age at the original client receipt, not a second sanitizer
         # clock. Generic event timestamps and receipt time are never birth.
         clean["age_minutes"] = clean["age_min"] = age_minutes
+        reference = reference_from_event(msg, mint, now.timestamp())
+        if reference is not None:
+            clean[CREATION_REFERENCE_FIELD] = reference
         return clean
     except Exception as exc:  # pragma: no cover
         log.debug("[PumpFun] evento mal formado: %s", exc)
