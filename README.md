@@ -13,6 +13,33 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Instalacion limpia y publicacion: Python Linux y UI Windows/Linux (2026-10-13)
+
+Se conservan los fallos reales de CI y sus reparaciones: ABI PyArrow/NumPy,
+imports de paquetes del proyecto, SDK Solana sincronico, identidad escalar de
+cohortes, nulos de Pandas y comprobaciones portables de API/PowerShell. El
+bootstrap de las utilidades de pruebas de NumPy registra por separado su
+sonda CPU bloqueada; no permite ejecutar subprocesos ni acceder a red externa.
+Los filtros de entrada/riesgo, las compras PAPER exactas de 0,1 SOL y los
+contratos financieros no se han relajado.
+
+Una instalacion limpia real de Python 3.12.15 en Linux pasa 6.031 pruebas
+(commit `52f20d6`, un aviso de transporte Starlette). La UI instala y compila
+en Windows 2022 y Ubuntu 24.04 sobre `574ac59`: el lockfile incorpora solo tres
+entradas faltantes y el modulo estatico de rutas ya pertenece a Git. Antes
+existia localmente pero estaba ignorado, por lo que el build local no probaba
+que un clon nuevo funcionara. El sincronizador ahora avisa de fuentes sin
+tracking, sin auto-staging ni sobrescritura de cambios del propietario.
+
+La matriz completa actual de Python para Windows/Linux, con 6.036 casos
+esperados, sigue en ejecucion: no se presenta como aprobada. El build conserva
+un aviso de chunk JavaScript de aproximadamente 524,83 KB; no acredita
+validacion visual, acceso a proveedores, modelo operativo ni rentabilidad.
+Bot, entrenamiento operativo, AutoResearch, API/UI y QA local permanecen
+apagados; datos, modelos y `.env` siguen intactos frente al baseline de esta
+etapa. El objetivo completo y la aceptacion financiera siguen abiertos.
+[Auditoria de primer arranque y fallos preservados](docs/audits/first_launch_clean_ci_20261013.json).
+
 ### Creacion de mint por RPC: validacion nativa completa (2026-10-13)
 
 La referencia original de creacion PumpPortal ya llega a la entrada comun y
@@ -797,9 +824,16 @@ Instalar UI:
 
 ```powershell
 cd ui
-npm install
+node --version
+npm ci
+npm run build
 cd ..
 ```
+
+La instalacion limpia se verifica con Node 24 en CI (Windows/Linux); la prueba
+local aislada usa Node 24.19.0 y npm 10.9.8. No reutilices `node_modules` de
+otra rama como prueba de que el lockfile instala correctamente. `npm run build`
+no arranca la UI ni sustituye una comprobacion visual/autenticada del sistema.
 
 ## Configuracion Y Secretos
 
