@@ -115,6 +115,18 @@ def test_partial_or_missing_fit_cohort_identity_never_certifies(cohorts):
     assert ranking_across_score_cohorts([0, 1] * 30, [0, 1] * 30, cohorts)["precision"] is None
 
 
+@pytest.mark.parametrize("infer_string", [False, True])
+@pytest.mark.parametrize("identity", [[1], (1,), {"fit": 1}, {1}, np.array([1]), np.array(1)])
+def test_container_cohort_cannot_be_certified_by_string_coercion(identity, infer_string):
+    cohorts = [1] * 59 + [identity]
+    with pd.option_context("future.infer_string", infer_string):
+        metric = ranking_across_score_cohorts([0, 1] * 30, [0, 1] * 30, cohorts)
+        skill = ranking_token_skill([0, 1] * 30, [0, 1] * 30,
+            [f"mint{i}" for i in range(60)], score_cohorts=cohorts)
+    assert metric["precision"] is None and metric["score_cohorts"] == []
+    assert not ranking_token_skill_ready(skill)
+
+
 def test_single_cohort_keeps_original_tie_and_capacity_rules():
     truth = [0, 1] * 30
     scores = [0, 1] * 30

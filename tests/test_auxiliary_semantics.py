@@ -150,7 +150,11 @@ def test_store_upgrade_and_cold_reload_keep_old_rows_unknown_and_current_proof_o
     vector = current_vector(monkeypatch, 1)
     assert store.append(vector, 1, strict=True)
     loaded = pq.read_table(path).to_pandas()
-    assert loaded[sem.PROOF_COLUMN].iat[0] is None
+    # Arrow must retain a real null. Pandas 3's default string dtype exposes
+    # that missing value as NaN rather than the object-dtype None of pandas 2.
+    assert pq.read_table(path)[sem.PROOF_COLUMN][0].as_py() is None
+    assert pd.isna(loaded[sem.PROOF_COLUMN].iat[0])
+    assert sem.checked_row_receipt(loaded.iloc[0].to_dict()) is None
     assert loaded[sem.PROOF_COLUMN].iat[1] == vector.attrs[sem.PROOF_COLUMN]
     assert sem.checked_row_receipt(loaded.iloc[1].to_dict()) is not None
     restored = sem.checked_model_frame(loaded.iloc[1:2], ["trend"])

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import subprocess
+import shutil
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,12 +88,14 @@ def test_start_bot_prepares_policy_preflight_status_when_missing() -> None:
 
 
 def test_start_stack_fails_fast_before_ui_when_api_is_unreachable() -> None:
+    launcher = shutil.which("powershell.exe") or shutil.which("pwsh")
+    assert launcher is not None, "PowerShell is required for the native fail-fast startup test"
     env = os.environ.copy()
     env["CONFIG_PROFILE"] = "paper_hotfix_0707"
     env["CONFIG_PROFILE_PATH"] = str(ROOT / "stale-profile-that-must-not-win.env")
     result = subprocess.run(
         [
-            "powershell.exe",
+            launcher,
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",

@@ -25,8 +25,8 @@ scikit-learn>=1.4        # métricas + split
 joblib>=1.4              # persistencia modelos
 
 # ─── Solana signing ───────────────────────────────────────────
-solders>=0.15            # keypair & tx bindings (Rust)
-solana>=0.32
+solders==0.26.0          # pareja SDK nativa validada; no actualizar una mitad sola
+solana==0.36.7           # Client síncrono usado por el signer; eliminado en versiones recientes
 base58>=2.1
 
 # ─── Networking / utilidades varias ───────────────────────────

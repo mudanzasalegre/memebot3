@@ -230,10 +230,14 @@ def test_research_current_best_includes_needs_paper_candidate(tmp_path: Path) ->
 
 def test_research_router_registers_read_only_get_endpoints() -> None:
     app = create_app()
+    # The public schema retains included paths across FastAPI's old cloned
+    # routers and newer lazy include_router representation.
+    paths = app.openapi()["paths"]
+    http_methods = {"get", "post", "put", "patch", "delete", "options", "head", "trace"}
     route_methods = {
-        route.path: route.methods
-        for route in app.routes
-        if getattr(route, "path", "").startswith("/api/v1/research/")
+        path: set(operations) & http_methods
+        for path, operations in paths.items()
+        if path.startswith("/api/v1/research/")
     }
 
     expected = {
@@ -245,12 +249,12 @@ def test_research_router_registers_read_only_get_endpoints() -> None:
         "/api/v1/research/paper-forward",
     }
     assert expected <= set(route_methods)
-    assert all(methods == {"GET"} for path, methods in route_methods.items() if path in expected)
+    assert all(methods == {"get"} for path, methods in route_methods.items() if path in expected)
 
     alias_paths = {
-        route.path: route.methods
-        for route in app.routes
-        if getattr(route, "path", "").startswith("/api/research/")
+        path: set(operations) & http_methods
+        for path, operations in paths.items()
+        if path.startswith("/api/research/")
     }
     assert {
         "/api/research/scoreboard",
@@ -260,4 +264,4 @@ def test_research_router_registers_read_only_get_endpoints() -> None:
         "/api/research/moonshot-progress",
         "/api/research/paper-forward",
     } <= set(alias_paths)
-    assert all(methods == {"GET"} for methods in alias_paths.values())
+    assert all(methods == {"get"} for methods in alias_paths.values())

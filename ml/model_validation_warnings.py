@@ -82,7 +82,13 @@ def _score_cohort_selection(y_true, scores, score_cohorts, *, k_pct):
     if (y.ndim != 1 or pred.shape != y.shape or not len(y)
             or not np.isin(y, [0, 1]).all() or not np.isfinite(pred).all()):
         raise ValueError("Incomplete cohort ranking values")
-    cohorts = pd.Series(["0"] * len(y) if score_cohorts is None else score_cohorts,
+    raw_cohorts = ["0"] * len(y) if score_cohorts is None else list(score_cohorts)
+    # Validate identities before string conversion. Pandas backends/versions
+    # may stringify a list/array as a seemingly valid fit ID; that cannot
+    # certify an original model-fit cohort or its independent top-k budget.
+    if any(not pd.api.types.is_scalar(value) for value in raw_cohorts):
+        raise ValueError("Score fit cohort identities must be scalar")
+    cohorts = pd.Series(raw_cohorts,
                         dtype="string").reset_index(drop=True).str.strip()
     if len(cohorts) != len(y) or cohorts.isna().any() or cohorts.eq("").any():
         raise ValueError("Incomplete score fit cohorts")

@@ -24,6 +24,10 @@ jobs:
       - run: python -m pip check
       - name: Native dependency and source import smoke
         run: python -c "import numpy, pandas, pyarrow; import features.builder; print('native_data_imports=ok', numpy.__version__, pandas.__version__, pyarrow.__version__)"
+      - name: Native signing SDK import smoke
+        run: python -c "from solana.rpc.api import Client; from solana.rpc.types import TxOpts; from solders.transaction import VersionedTransaction; print('native_sdk_imports=ok')"
+      - name: Guarded source-only PAPER lifecycle smoke
+        run: python -m pytest -q tests/test_native_paper_lifecycle.py::test_native_no_log_preserves_an_explicit_launcher_identity
       - run: python -m pytest -q
       - run: python tools/ml_status.py --no-fail-if-missing-model
       - run: python backtest/replay.py --policy rules_only --no-fail-if-no-data

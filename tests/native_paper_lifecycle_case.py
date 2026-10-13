@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import sys
 import time
+import traceback
 from pathlib import Path
 expected = Path(sys.argv.pop(1)).resolve()
 options = json.loads(sys.argv.pop(1))
@@ -20,7 +21,9 @@ def audit(event, args):
             attempts.append(event)
             raise PermissionError('External network forbidden in isolated integration')
     if event == 'subprocess.Popen':
-        attempts.append(event)
+        attempts.append({'event':event,'program':Path(str(args[0])).name,
+            'callers':[{'file':Path(frame.filename).name,'function':frame.name}
+                       for frame in traceback.extract_stack(limit=8)]})
         raise PermissionError('Child process forbidden in isolated integration')
 sys.addaudithook(audit)
 from config.config import CFG, PROJECT_ROOT
