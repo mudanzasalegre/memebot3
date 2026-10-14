@@ -1,0 +1,194 @@
+{
+  "status": "PROSPECTIVE_SHADOW_STATE_RECOVERY_NATIVE_FOCUSED_VERIFIED_CURRENT_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "efaad5b5801eb874733eb05ecba371aa82286adc",
+  "implementation_revision": "Commit containing this audit; normalized source identity is recorded after verification",
+  "summary": "New nonfinancial shadows now durably checkpoint the original feature vector and its three original proof attrs, opening reference/time, fixed runner profile, context, observed peak and original one-partial prefix. The address-owned state slot carries an instance, checksum and checked generation; updates cannot replace an original entry, frozen close, newer instance or newer generation. Original opening/partial events have stable nonfinancial IDs and clocks, acknowledged only after confirmed native journal/portfolio effects. Prospective shadow-opening ledger writes are idempotent under a stable OS guard; legacy diagnostic ledger conventions remain unchanged. The independent serial shadow actor restores saved states with a bounded rotating cursor, retries pending effects before price work, retains missingness and retires only an identical completed close outbox. A lost retirement acknowledgement restores the frozen close without refetching or leaving stale opening context. No legacy portfolio or historical feature/outcome/model data is reconstructed or relabelled. Three actual native-wrapper restart probes failed before implementation; new source checks and broader validation are recorded separately. Durability begins only after atomic publication, not before admission or as a hardware guarantee. Original birth/risk/quote/sizing/training/activation contracts are unchanged; this is neither financial-fill recovery nor proof of profitable capture. All operational runtime, training, AutoResearch, API/UI and LIVE processes remain off. The original whole goal and independent provider/full-strategy/financial acceptance remain incomplete.",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 829,
+      "sha256": "a675d2897fddd930e7957a069260912468e35a5c049e659262b028165f281328"
+    },
+    {
+      "checkout": "publishing",
+      "files": 829,
+      "sha256": "a675d2897fddd930e7957a069260912468e35a5c049e659262b028165f281328"
+    }
+  ],
+  "acceptance": {
+    "baseline": {
+      "tests": 3,
+      "failures": 3,
+      "passed": 0,
+      "seconds": 2.46,
+      "exit_code": 1
+    },
+    "secondary_prototype_reproduction": {
+      "tests": 2,
+      "failures": 2,
+      "passed": 0,
+      "seconds": 1.73,
+      "exit_code": 1,
+      "scope": "Original vector could mutate during slow lookup; initial state envelope budget could not carry both an admitted large vector and its frozen close. Reproduced and repaired before publication."
+    },
+    "new_repository_cases": 35,
+    "intermediate_focused": {
+      "tests": 138,
+      "failures": 0,
+      "passed": 138,
+      "seconds": 13.9,
+      "exit_code": 0,
+      "scope": "Earlier prototype; final broader source validation supersedes this observation"
+    },
+    "focused": {
+      "working": {
+        "tests": 633,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 182.253
+      },
+      "publishing": {
+        "tests": 633,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 178.808
+      }
+    },
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "repository_cases": 6498,
+    "working_collected_cases": 6499,
+    "working_only_case": "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline"
+  },
+  "state_contract": {
+    "scope": "Prospectively saved nonfinancial shadow tracking only; no buy/sell or financial outcome authority",
+    "entry": "Original feature values and proof attrs, opened_at, buy reference, fixed profile and context cannot drift between generations",
+    "async_input_boundary": "Detach original vector/proof attrs and rank metadata before the first price lookup yields",
+    "size_boundary": "Active admission retains the original 1 MiB bound; a closing checkpoint accounts for both the original state and separately bounded native 1 MiB close instead of rejecting an already admitted large vector",
+    "ownership": "One hashed address slot, stable OS guard, 32-hex instance, checksum and checked generation; another instance or stale generation is rejected",
+    "partial": "Single original simulated partial event, its fraction and price-return prefix are consistent with retained quantity and realized ratio",
+    "events": "Saved opening/partial ID and observed_at survive retries; strict True acknowledges publication, not None/1/False",
+    "close": "Saved original frozen close cannot be replaced; retire only after exact native completed outbox identity and checksum match",
+    "recovery": "At most 32 active files per normal monitor tick, validated configurable budget up to 256 and rotating cursor; corrupt records do not starve later states",
+    "historical": "Missing legacy full state remains missing; no inferred original vector, opening price, partial prefix or decision clock",
+    "cancellation": "Native IO owner drains repeated cancellation; a saved-but-unacknowledged opening is recovered instead of silently abandoned",
+    "import": "Cold module import starts no disk state, workers, provider request or child process"
+  },
+  "limits": [
+    "Atomic fsync/replace protects admitted records from partial process writes, not every filesystem or hardware power-loss scenario",
+    "A crash before confirmed state admission can lose an unacknowledged observation; no earlier durability is claimed",
+    "Checksums and retained feature attrs do not independently authenticate the complete executing process, source availability or provider market-asof",
+    "Only the existing one-partial shadow policy is recovered; the separate real/PAPER trade execution and multi-step runner contracts are unchanged",
+    "Corrupt or conflicting records remain pending and are not auto-repaired or silently removed",
+    "The original journal and decision ledger are scanned for idempotence; production-size IO latency/SLA and all failure-tail files remain unmeasured",
+    "Legacy diagnostic ledger errors remain best effort and are not profitable-strategy evidence",
+    "The historical isolated Windows model/birth consistency failure cause remains unresolved despite later passing revisions",
+    "Current-revision full two-OS CI and actual provider/full-strategy/prospective net-profit acceptance remain separate and incomplete"
+  ],
+  "preceding_ci_observation": {
+    "observed_at_utc": "2026-10-14T04:29:10.415976+00:00",
+    "commit": "efaad5b5801eb874733eb05ecba371aa82286adc",
+    "runs": {
+      "tests": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38508770893",
+        "pytest_summaries": [
+          "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T03:57:47.1365163Z 1 passed in 6.30s",
+          "test (windows-2022)\tRun python -m pytest -q\t2026-10-14T04:28:37.1653657Z 6463 passed, 1 warning in 1848.85s (0:30:48)",
+          "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T03:56:49.5855969Z 1 passed in 4.75s",
+          "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-14T04:23:33.4907099Z 6463 passed, 1 warning in 1603.16s (0:26:43)"
+        ]
+      },
+      "ci": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38508770871",
+        "pytest_summaries": [
+          "strategy-regression\tStrategy regression pytest suite\t2026-10-14T03:56:31.8287225Z 41 passed in 2.69s"
+        ]
+      }
+    },
+    "scope": "Actual dated parent observation, not acceptance of this changed revision"
+  },
+  "preceding_shadow_peak_ci_terminal": {
+    "observed_at_utc": "2026-10-14T04:13:50.919550+00:00",
+    "commit": "591da6db09cbd9959a3ae67ea9ebc747ba51eb82",
+    "runs": {
+      "tests": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38506805965",
+        "pytest_summaries": [
+          "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T03:33:54.1574394Z 1 passed in 4.44s",
+          "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-14T03:58:07.3692827Z 6426 passed, 1 warning in 1452.38s (0:24:12)",
+          "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T03:34:35.6416533Z 1 passed in 5.10s",
+          "test (windows-2022)\tRun python -m pytest -q\t2026-10-14T03:55:18.0667061Z 6426 passed, 1 warning in 1241.64s (0:20:41)"
+        ]
+      },
+      "ci": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38506805975",
+        "pytest_summaries": [
+          "strategy-regression\tStrategy regression pytest suite\t2026-10-14T03:33:32.4520081Z 41 passed in 2.49s"
+        ]
+      }
+    },
+    "qualification": "6426 full tests pass on each OS; no reproduction or cause determination of the earlier c771 Windows failure"
+  },
+  "observed_at_utc": "2026-10-14T04:39:51.854003+00:00",
+  "shutdown": {
+    "observed_at_utc": "2026-10-14T04:39:51.1537457+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml_entrypoint_processes": 0,
+    "actual_ml_entrypoint_observed_at_utc": "2026-10-14T04:39:51.6503569+00:00"
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-14T04:39:51.837914+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "additional_restored_ledger_sha256": "afbcb9a90a254e16d41df52749a1dfcc880b7a51c95045fed144229ed6532cb5"
+  }
+}

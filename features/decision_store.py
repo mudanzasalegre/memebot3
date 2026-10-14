@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
 from config.config import PROJECT_ROOT
 from ml.data_contract import normalize_candidate_event_row, normalize_decision
+from utils.file_ownership import exclusive_file_guard
 
 DECISION_LEDGER_PATH = PROJECT_ROOT / "data" / "metrics" / "decision_ledger.jsonl"
 _LOCK = threading.Lock()
@@ -52,7 +56,8 @@ def normalize_decision_action(value: Any, row: Mapping[str, Any] | None = None) 
     return normalize_decision(value, row)
 
 
-def append_decision(row: Mapping[str, Any], *, path: Path | None = None) -> dict[str, Any]:
+def append_decision(row: Mapping[str, Any], *, path: Path | None = None,
+                    idempotency_key: str | None = None) -> dict[str, Any]:
     target = path or DECISION_LEDGER_PATH
     normalized = normalize_candidate_event_row(row)
     timestamp = str(normalized.get("timestamp") or normalized.get("ts_utc") or datetime.now(timezone.utc).isoformat())
@@ -94,10 +99,30 @@ def append_decision(row: Mapping[str, Any], *, path: Path | None = None) -> dict
         "config_hash": normalized.get("config_hash"),
     }
     payload.update({k: _json_safe(v) for k, v in normalized.items() if k not in payload and k not in {"features_snapshot", "feature_snapshot"}})
+    if idempotency_key is not None:
+        if (not isinstance(idempotency_key, str)
+                or not re.fullmatch(r'shadow_state_[0-9a-f]{32}_opening', idempotency_key)
+                or payload.get('shadow_state_observation_id') != idempotency_key):
+            raise ValueError('Invalid prospective shadow decision identity')
     target.parent.mkdir(parents=True, exist_ok=True)
-    with _LOCK:
+    guard = target.with_name(target.name + '.guard')
+    with _LOCK, exclusive_file_guard(guard, deadline=time.monotonic() + 30., poll_seconds=.05):
+        if idempotency_key is not None and target.exists():
+            matches = []
+            with target.open('r', encoding='utf-8') as handle:
+                for line in handle:
+                    saved = json.loads(line)
+                    if saved.get('shadow_state_observation_id') == idempotency_key: matches.append(saved)
+            if matches:
+                if len(matches) != 1 or matches[0] != payload:
+                    raise ValueError('Conflicting or duplicated shadow decision identity')
+                with target.open('r+b') as handle: os.fsync(handle.fileno())
+                return payload
         with target.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(_json_safe(payload), ensure_ascii=True, sort_keys=True) + "\n")
+            if idempotency_key is not None:
+                handle.flush()
+                os.fsync(handle.fileno())
     return payload
 
 

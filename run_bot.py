@@ -4258,6 +4258,10 @@ async def _open_shadow(
         if addr in _shadow_positions:
             return
         _pending_ai_vectors.pop(addr, None)
+        from runtime.shadow_state import snapshot_vector
+        from copy import deepcopy
+        vec = snapshot_vector(vec)
+        rank_info = deepcopy(rank_info)
         from runtime.shadow_closes import positive_price
         price = positive_price(price_hint)
         if price is None:
@@ -4270,6 +4274,9 @@ async def _open_shadow(
                 tok = await price_service.get_price(addr, use_gt=True, price_only=True)
                 price = positive_price(tok.get("price_usd")) if tok else None
         opened_at = utc_now()
+        # A competing opener may have arrived while the price lookup yielded.
+        if addr in _shadow_positions:
+            return
         token_ctx = dict(vec)
         token_ctx.setdefault("address", addr)
         token_ctx.setdefault("entry_regime", regime or "dex_mature")
@@ -4306,9 +4313,7 @@ async def _open_shadow(
         _shadow_positions[addr] = shadow_payload
         open_rank_info = rank_info or research_runtime.score_candidate(token_ctx, proba=proba, threshold=threshold)
         from runtime.owned_thread import await_owned_thread
-        await await_owned_thread(research_runtime.record_shadow_open,
-            addr,
-            payload={
+        open_payload = {
                 **open_rank_info,
                 "regime": regime or "dex_mature",
                 "opened_at": opened_at,
@@ -4336,11 +4341,26 @@ async def _open_shadow(
                 "profit_gate_reject_reasons": token_ctx.get("profit_gate_reject_reasons"),
                 "runner_exit_profile": runner_exit_profile,
                 "shadow_instance_id": shadow_payload["shadow_instance_id"],
-            },
-            shadow_kind=shadow_kind,
-        )
+            }
+        from runtime.shadow_state import checkpoint, publish_pending
+        from utils.runtime_context import runtime_context_payload
+        open_payload = {**runtime_context_payload(), **open_payload}
+        shadow_payload['_shadow_state'] = await await_owned_thread(checkpoint, PROJECT_ROOT, addr,
+            shadow_payload, context={**runtime_context_payload(), **open_payload},
+            opening={'id': f"shadow_state_{shadow_payload['shadow_instance_id']}_opening",
+                'observed_at': opened_at, 'payload': open_payload, 'shadow_kind': shadow_kind})
+        # The original vector is detached, including its original proof attrs.
+        from copy import deepcopy
+        shadow_payload['vec'] = deepcopy(shadow_payload['_shadow_state']['record']['state']['vec'])
+        shadow_payload['_shadow_state'] = await await_owned_thread(publish_pending, PROJECT_ROOT,
+            shadow_payload['_shadow_state'], research=research_runtime)
         log.info("👻 Shadow %s creada: %s (buy_price_usd=%s)", shadow_kind, addr[:6], _fmt(price))
-    except Exception as exc:
+    except BaseException as exc:
+        if shadow_payload is not None and '_shadow_state' not in shadow_payload:
+            if _shadow_positions.get(addr) is shadow_payload:
+                _shadow_positions.pop(addr, None)
+        if not isinstance(exc, Exception):
+            raise
         log.debug("open_shadow %s → %s", addr[:6], exc)
     finally:
         # The serial shadow actor must not close before its opening IO owner
@@ -4355,14 +4375,23 @@ async def _tick_shadows() -> None:
     now = utc_now()
     from runtime.owned_thread import await_owned_thread
     from runtime.shadow_closes import freeze_observation, persist_observation, positive_price
+    from runtime.shadow_state import checkpoint, publish_pending, retire
     from utils.runtime_context import runtime_context_payload
     import uuid as shadow_uuid
     to_delete = []
 
     async def publish(address, original):
         try:
+            handle = original.get('_shadow_state')
+            if handle is None or handle['record']['state'].get('close_observation') != original['close_observation']:
+                frozen_state = dict(original)
+                frozen_state['vec'] = (original['close_observation']['features']
+                    if original['close_observation']['has_features'] else None)
+                original['_shadow_state'] = await await_owned_thread(checkpoint, PROJECT_ROOT,
+                    address, frozen_state, context=original['close_observation']['context'])
             await await_owned_thread(persist_observation, PROJECT_ROOT, original["close_observation"],
                 feature_writer=store_append, journal_writer=research_runtime.record_shadow_close)
+            await await_owned_thread(retire, PROJECT_ROOT, original['_shadow_state'], research=research_runtime)
         except Exception as exc:
             log.debug("shadow close remains pending %s -> %s", address[:6], type(exc).__name__)
             return False
@@ -4381,6 +4410,14 @@ async def _tick_shadows() -> None:
         opened = sd.get("opened_at")
         if not opened:
             to_delete.append((addr, sd))
+            continue
+        try:
+            sd['_shadow_state'] = await await_owned_thread(checkpoint, PROJECT_ROOT, addr, sd,
+                context={**runtime_context_payload(), **dict(getattr(research_runtime, '_OPEN_SHADOWS', {}).get(addr, {}))})
+            sd['_shadow_state'] = await await_owned_thread(publish_pending, PROJECT_ROOT,
+                sd['_shadow_state'], research=research_runtime)
+        except Exception as exc:
+            log.debug('shadow state remains pending %s -> %s', addr[:6], type(exc).__name__)
             continue
         regime = str(sd.get("entry_regime") or "dex_mature")
         shadow_policy = exit_policy.effective_exit_policy(sd)
@@ -4447,6 +4484,7 @@ async def _tick_shadows() -> None:
             runner_exit_profile=sd.get("runner_exit_profile"),
         )
 
+        partial_event = None
         if buy_price and close_price and exit_policy.should_take_partial(subject, float(pnl_pct_live or 0.0)):
             fraction = float(exit_policy.partial_fraction(subject))
             remaining_before = float(sd.get("remaining_fraction") or 1.0)
@@ -4464,12 +4502,21 @@ async def _tick_shadows() -> None:
                     float(sd.get("peak_after_partial_pct") or 0.0),
                     float(pnl_ratio_partial * 100.0),
                 )
-                await await_owned_thread(research_runtime.record_shadow_partial,
-                    addr,
-                    pnl_pct=float(pnl_ratio_partial * 100.0),
-                    fraction_sold=float(sell_fraction),
-                )
+                partial_event = {'id': f"shadow_state_{sd['shadow_instance_id']}_partial",
+                    'observed_at': now, 'pnl_pct': float(pnl_ratio_partial * 100.0),
+                    'fraction_sold': float(sell_fraction)}
+                sd['_shadow_pending_partial'] = partial_event
                 subject.partial_taken = True
+
+        try:
+            sd['_shadow_state'] = await await_owned_thread(checkpoint, PROJECT_ROOT, addr, sd,
+                partial=partial_event)
+            sd.pop('_shadow_pending_partial', None)
+            sd['_shadow_state'] = await await_owned_thread(publish_pending, PROJECT_ROOT,
+                sd['_shadow_state'], research=research_runtime)
+        except Exception as exc:
+            log.debug('shadow checkpoint remains pending %s -> %s', addr[:6], type(exc).__name__)
+            continue
 
         exit_reason = exit_policy.should_exit(
             subject,
@@ -9709,8 +9756,19 @@ async def _shadow_monitor_loop(ready: asyncio.Event) -> None:
     from runtime.loop_scheduler import poll_discovery
     from runtime.owned_thread import await_owned_thread
     from runtime.shadow_closes import replay_pending
+    from runtime.shadow_state import restore
+    restore_cursor = None
 
     async def tick():
+        nonlocal restore_cursor
+        states = await await_owned_thread(restore, PROJECT_ROOT,
+            exclude_addresses=tuple(_shadow_positions), after=restore_cursor)
+        restore_cursor = states['cursor']
+        for address, state in states['positions'].items():
+            # Entry can yield while restoration owns IO; never replace its slot.
+            _shadow_positions.setdefault(address, state)
+        if states['failed']:
+            log.warning('Shadow state recovery remains pending (%d errors)', len(states['failed']))
         recovered = await await_owned_thread(replay_pending, PROJECT_ROOT)
         if recovered["failed"]:
             log.warning("Shadow close recovery remains pending (%d errors)", recovered["failed"])

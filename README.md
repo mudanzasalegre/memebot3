@@ -13,6 +13,22 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Reinicios: sombras abiertas y parciales con estado durable (2026-10-14)
+
+Las nuevas sombras guardan su vector original y sus proof attrs, referencia de
+entrada, perfil de salida, contexto, pico y prefijo del parcial. Cada direccion
+tiene un slot con identidad de instancia, checksum y generacion; una escritura
+vieja no puede reemplazar una nueva ni cambiar la entrada o un cierre congelado.
+
+El monitor recupera estas muestras con presupuesto y cursor antes de seguirlas.
+Los eventos pendientes conservan su identidad y hora original, y un cierre ya
+completado se retira sin consultar otro precio ni dejar abierto su contexto.
+El portfolio historico incompleto no se transforma en un estado inventado.
+La durabilidad empieza despues de la escritura atomica confirmada, no antes;
+archivos corruptos quedan pendientes para diagnostico. Es seguimiento de sombras
+no financieras, no recuperacion de fills LIVE ni prueba de rentabilidad.
+[Evidencia y limites](docs/audits/shadow_state_recovery_20261014.json).
+
 ### Aprendizaje: captura desconocida no significa captura del 0% (2026-10-14)
 
 `capture_ratio` conserva un valor desconocido cuando falta el retorno, falta

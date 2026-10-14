@@ -30,7 +30,8 @@ def tick_namespace(tmp_path, writer):
             get_price_usd=AsyncMock(return_value=None)),
         "store_append": writer, "_stats": {"appended_shadow": 0},
         "log": SimpleNamespace(debug=Mock()),
-        "research_runtime": SimpleNamespace(record_shadow_close=Mock(), record_shadow_partial=Mock())}
+        "research_runtime": SimpleNamespace(record_shadow_close=Mock(), record_shadow_partial=Mock(return_value=True),
+            restore_shadow_context=Mock(), finish_shadow_context=Mock())}
     tree = ast.parse(Path("run_bot.py").read_text(encoding="utf-8"))
     node = next(item for item in tree.body if isinstance(item, ast.AsyncFunctionDef) and item.name == "_tick_shadows")
     exec(compile(ast.Module(body=[node], type_ignores=[]), "run_bot.py", "exec"), ns)
@@ -320,7 +321,7 @@ async def test_actual_shadow_monitor_waits_for_bootstrap_and_does_not_block_entr
     async def tick():
         received.set()
         await release.wait()
-    namespace = {'asyncio': asyncio, 'PROJECT_ROOT': tmp_path, 'SLEEP_SECONDS': 3,
+    namespace = {'asyncio': asyncio, 'PROJECT_ROOT': tmp_path, 'SLEEP_SECONDS': 3, '_shadow_positions': {},
         '_tick_shadows': tick, '_note_runtime_error': lambda *args: pytest.fail(str(args)),
         'log': SimpleNamespace(debug=Mock(), warning=Mock())}
     node = next(item for item in ast.parse(Path('run_bot.py').read_text(encoding='utf-8')).body

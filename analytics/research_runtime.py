@@ -162,13 +162,14 @@ def _persist_event_row(row: dict[str, Any]) -> dict[str, Any]:
     line = json.dumps(row, ensure_ascii=True)
     guard = RESEARCH_EVENTS_PATH.with_name(RESEARCH_EVENTS_PATH.name + ".guard")
     with _LOCK, exclusive_file_guard(guard, deadline=time.monotonic() + 30., poll_seconds=.05):
-        identity = row.get("outcome_observation_id")
+        identity_field = "outcome_observation_id" if row.get("outcome_observation_id") else "shadow_state_observation_id"
+        identity = row.get(identity_field)
         if identity and RESEARCH_EVENTS_PATH.exists():
             matches = []
             with RESEARCH_EVENTS_PATH.open("r", encoding="utf-8") as fh:
                 for saved in fh:
                     existing = json.loads(saved)
-                    if existing.get("outcome_observation_id") == identity:
+                    if existing.get(identity_field) == identity:
                         matches.append(existing)
             if matches:
                 if len(matches) != 1 or matches[0] != row:
@@ -797,12 +798,17 @@ def record_shadow_open(
     *,
     payload: dict[str, Any],
     shadow_kind: str,
-) -> None:
+    observed_at: datetime | None = None,
+    shadow_state_observation_id: str | None = None,
+    shadow_instance_id: str | None = None,
+) -> bool | None:
     address = str(address or "").strip()
     if not address:
         return
     data = dict(payload)
     data["shadow_kind"] = str(shadow_kind)
+    if shadow_instance_id is not None:
+        data["shadow_instance_id"] = shadow_instance_id
     _OPEN_SHADOWS[address] = data
 
     portfolio = _load_portfolio()
@@ -812,6 +818,8 @@ def record_shadow_open(
     event_row = _write_event(
         "candidate_decision",
         address,
+        observed_at=observed_at,
+        **({"shadow_state_observation_id": shadow_state_observation_id} if shadow_state_observation_id else {}),
         decision_action="research_shadow_open",
         reason=str(data.get("reason") or "shadow"),
         stage=str(data.get("stage") or "decision"),
@@ -830,10 +838,12 @@ def record_shadow_open(
                 "feature_snapshot": event_row.get("feature_snapshot") or {},
                 "features_snapshot": event_row.get("feature_snapshot") or {},
                 "policy_version": "research_runtime_v1",
-            }
+            },
+            **({'idempotency_key': shadow_state_observation_id} if shadow_state_observation_id else {}),
         )
     except Exception as exc:
         log.debug("decision ledger shadow append %s -> %s", address[:6], exc)
+    return True
 
 
 @_owned_shadow_io
@@ -842,19 +852,43 @@ def record_shadow_partial(
     *,
     pnl_pct: float,
     fraction_sold: float,
-) -> None:
+    observed_at: datetime | None = None,
+    shadow_state_observation_id: str | None = None,
+    shadow_instance_id: str | None = None,
+    context_snapshot: dict[str, Any] | None = None,
+) -> bool | None:
     address = str(address or "").strip()
     if not address:
         return
-    if address in _OPEN_SHADOWS:
+    if address in _OPEN_SHADOWS and (shadow_instance_id is None
+            or _OPEN_SHADOWS[address].get("shadow_instance_id") == shadow_instance_id):
         _OPEN_SHADOWS[address]["partial_taken"] = True
 
     _write_event(
         "candidate_partial",
         address,
+        observed_at=observed_at,
+        **{key: value for key, value in (context_snapshot or {}).items()
+            if key not in {'address', 'event_type', 'ts_utc', 'pnl_pct', 'fraction_sold', 'shadow_state_observation_id'}},
+        **({"shadow_state_observation_id": shadow_state_observation_id} if shadow_state_observation_id else {}),
         pnl_pct=float(pnl_pct),
         fraction_sold=float(fraction_sold),
     )
+    return True
+
+
+@_owned_shadow_io
+def restore_shadow_context(address: str, *, context: dict[str, Any]) -> None:
+    """Restore the prospectively saved context, not a new opening event."""
+    _OPEN_SHADOWS[address] = dict(context)
+
+
+def finish_shadow_context(address: str, *, shadow_instance_id: str) -> None:
+    """A retired original instance cannot remove a newer address context."""
+    with _LOCK:
+        original = _OPEN_SHADOWS.get(address)
+        if original is not None and original.get('shadow_instance_id') == shadow_instance_id:
+            _OPEN_SHADOWS.pop(address, None)
 
 
 @_owned_shadow_io

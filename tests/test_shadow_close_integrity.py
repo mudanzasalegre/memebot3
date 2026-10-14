@@ -96,7 +96,8 @@ async def test_actual_shadow_tick_sends_unknown_label_to_features_and_journal(tm
             should_take_partial=lambda *args: False, should_exit=lambda *args, **kw: None),
         "price_service": SimpleNamespace(get_price=AsyncMock(return_value=None), get_price_usd=AsyncMock(return_value=None)),
         "store_append": feature, "_stats": {"appended_shadow": 0}, "log": SimpleNamespace(debug=Mock()),
-        "research_runtime": SimpleNamespace(record_shadow_close=journal, record_shadow_partial=Mock())}
+        "research_runtime": SimpleNamespace(record_shadow_close=journal, record_shadow_partial=Mock(return_value=True),
+            restore_shadow_context=Mock(), finish_shadow_context=Mock())}
     tree = ast.parse(Path("run_bot.py").read_text(encoding="utf-8"))
     node = next(item for item in tree.body if isinstance(item, ast.AsyncFunctionDef) and item.name == "_tick_shadows")
     exec(compile(ast.Module(body=[node], type_ignores=[]), "run_bot.py", "exec"), ns)
