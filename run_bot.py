@@ -4258,16 +4258,17 @@ async def _open_shadow(
         if addr in _shadow_positions:
             return
         _pending_ai_vectors.pop(addr, None)
-        price = price_hint
+        from runtime.shadow_closes import positive_price
+        price = positive_price(price_hint)
         if price is None:
             # Jupiter primero; si falla, fallback a Dex/GT “solo precio”
             try:
-                price = await price_service.get_price_usd(addr)
+                price = positive_price(await price_service.get_price_usd(addr))
             except Exception:
                 price = None
             if price is None:
                 tok = await price_service.get_price(addr, use_gt=True, price_only=True)
-                price = float(tok.get("price_usd")) if tok and tok.get("price_usd") else None
+                price = positive_price(tok.get("price_usd")) if tok else None
         opened_at = utc_now()
         token_ctx = dict(vec)
         token_ctx.setdefault("address", addr)
@@ -4281,8 +4282,8 @@ async def _open_shadow(
             "opened_at": opened_at,
             "buy_price_usd": float(price) if price is not None else None,
             "entry_regime": regime or "dex_mature",
-            "highest_pnl_pct": 0.0,
-            "max_pnl_pct_seen": 0.0,
+            "highest_pnl_pct": 0.0 if price is not None else None,
+            "max_pnl_pct_seen": 0.0 if price is not None else None,
             "peak_price_usd": float(price) if price is not None else None,
             "partial_taken": False,
             "remaining_fraction": 1.0,
@@ -4353,7 +4354,7 @@ async def _tick_shadows() -> None:
         return
     now = utc_now()
     from runtime.owned_thread import await_owned_thread
-    from runtime.shadow_closes import freeze_observation, persist_observation
+    from runtime.shadow_closes import freeze_observation, persist_observation, positive_price
     from utils.runtime_context import runtime_context_payload
     import uuid as shadow_uuid
     to_delete = []
@@ -4383,7 +4384,16 @@ async def _tick_shadows() -> None:
             continue
         regime = str(sd.get("entry_regime") or "dex_mature")
         shadow_policy = exit_policy.effective_exit_policy(sd)
-        buy_price = _to_float(sd.get("buy_price_usd"))
+        buy_price = positive_price(sd.get("buy_price_usd"))
+        if buy_price is None:
+            # Without an original denominator a return/peak is not observable.
+            # This applies only to active state, never rewrites archived rows.
+            sd['max_pnl_pct_seen'] = None
+            sd['highest_pnl_pct'] = None
+            sd['peak_price_usd'] = None
+            sd['time_to_peak_sec'] = None
+            sd['peak_after_partial_pct'] = None
+            sd['exit_from_peak_giveback_pct'] = None
 
         tok = None
         try:
@@ -4394,11 +4404,11 @@ async def _tick_shadows() -> None:
         close_price = None
         liq_now = None
         if tok:
-            close_price = _to_float(tok.get("price_usd"))
+            close_price = positive_price(tok.get("price_usd"))
             liq_now = _to_float(tok.get("liquidity_usd"))
         if close_price is None:
             try:
-                close_price = await price_service.get_price_usd(addr, use_gt=_RESEARCH_SHADOW_USE_GECKO)
+                close_price = positive_price(await price_service.get_price_usd(addr, use_gt=_RESEARCH_SHADOW_USE_GECKO))
             except Exception:
                 close_price = None
 

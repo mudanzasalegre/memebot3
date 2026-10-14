@@ -13,6 +13,20 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Aprendizaje: ausencia de precio no es un pico observado de cero (2026-10-14)
+
+Una sombra sin referencia de entrada positiva y finita conserva su pico como
+desconocido, no como 0%. Precios cero, negativos, infinitos y booleanos no se
+usan para calcular retornos. Si llega una referencia positiva por el fallback
+existente, se conserva el cero inicial real; no se rejuvenece una entrada al
+cerrarla con un precio posterior.
+
+Una referencia valida conserva sus picos conocidos aunque el precio final
+falte, incluidos picos superiores al 10.000%. Se verifica apertura, cierre,
+outbox, Parquet y etiquetas de runner: la ausencia sigue siendo ausencia.
+No se reescriben datasets, modelos ni observaciones cerradas historicas.
+[Evidencia y limites](docs/audits/shadow_peak_observation_20261014.json).
+
 ### Entrada: stages y decisiones con escritor propio (2026-10-14)
 
 Los registros de investigacion de candidatos ya se preparan en la entrada y

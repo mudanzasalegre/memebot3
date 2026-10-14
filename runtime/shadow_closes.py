@@ -24,6 +24,13 @@ VERSION = 1
 MAX_BYTES = 1024 * 1024
 
 
+def positive_price(value):
+    """Scalar reference validity only, not provider freshness/execution proof."""
+    from utils.market_observation import market_number
+    price = market_number(value, 'price_usd')
+    return price if price is not None and price > 0 else None
+
+
 def _freeze(value: Any, depth=0):
     if depth > 16:
         raise ValueError("Shadow snapshot nesting exceeds limit")

@@ -1,0 +1,138 @@
+{
+  "status": "UNKNOWN_SHADOW_PEAKS_WITHOUT_ENTRY_REFERENCE_NATIVE_CHAIN_VERIFIED_FOCUSED_CURRENT_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "9c56a39cf6c4482d67d79fd1c5329ee28720dfae",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 826,
+      "sha256": "b5b34e0bb3341be6a0e96b258837dd5e5663623033d55f89a4c218c7fc3ec6db"
+    },
+    {
+      "checkout": "publishing",
+      "files": 826,
+      "sha256": "b5b34e0bb3341be6a0e96b258837dd5e5663623033d55f89a4c218c7fc3ec6db"
+    }
+  ],
+  "summary": "Actual shadow creation no longer treats absent/zero/negative/nonfinite/Boolean entry prices as usable references or asserts an unobserved zero peak. The native market scalar validator normalizes every hint and existing fallback; a positive finite fallback can supply an actual initial reference without a future close-time rebase. Only a valid reference establishes the0-percent entry baseline. Active shadow tracking without an original denominator clears uncertifiable return/peak-derived targets, while known peaks with a valid reference survive an unknown/invalid terminal price and remain uncapped. Existing already-frozen outbox/closed historical observations and operator datasets/models are not rewritten. Native opening/tick/outbox/temporary Parquet/label-builder chain shows unknown final return and peak yield unlabelled runner50-through10000 targets rather than invented negatives; actual known25000/100000000-percent peaks are retained, not claimed executable or profitable. Baseline6failed3passed;19 new cases and current broader acceptance are recorded separately. Source sizing/risk/birth/activation controls and original financial close paths are unchanged. No operational PAPER, provider request, operator fit/activation, AutoResearch, API/UI or LIVE was started. Original full goal and independent real financial/provider/source acceptance remain incomplete.",
+  "acceptance": {
+    "baseline": {
+      "tests": 9,
+      "failures": 6,
+      "passed": 3
+    },
+    "new_repository_cases": 19,
+    "repository_cases": 6426,
+    "working_collected_cases": 6427,
+    "working_only_case": "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline",
+    "focused": {
+      "working": {
+        "tests": 491,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 160.08
+      },
+      "publishing": {
+        "tests": 491,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 157.969
+      }
+    },
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "additional_native_checks": "83 target integrity/recovery/runner checks pass locally; final broader evidence below",
+    "clock_diagnostics": "Separate synthetic96 clock representation cases and8 independent native RPC processes pass without reproducing the retained Windows failure; not its causal resolution"
+  },
+  "observation_contract": {
+    "entry_reference": "Native valid scalar price_usd, positive/finite/non-Boolean; not independent provider freshness or executable-price proof",
+    "missing_reference": "No observable percentage peak or final return; active-state derived targets remain unknown",
+    "valid_initial_reference": "Observed entry-time zero baseline is retained",
+    "valid_reference_missing_final_price": "Keep original known peak, leave terminal return/label unknown",
+    "historical_scope": "No dataset/model/closed-outbox correction or re-labeling; historical quality remains separately auditable",
+    "financial_scope": "Nonfinancial shadow sample only; no costed return/fill or profitable trading assertion"
+  },
+  "limits": [
+    "Valid numeric price is not a successful provider/access/market-asof/depth or financial execution contract",
+    "No historical closed observation was altered; earlier synthetic zeros in retained datasets remain a separate data-quality question",
+    "Already frozen pending/complete outbox snapshots retain original identity and payload instead of being silently rewritten",
+    "Other label conventions such as diagnostic capture_ratio fallback and open/partial crash recovery remain separate",
+    "Parent Windows RPC/model-birth consistency failure cause remains unestablished; local repeat success is not its repair",
+    "Full new-revision two-OS CI and prospective full-strategy opportunity/net-return acceptance remain unproven",
+    "All runtime/training/AutoResearch/API/UI/LIVE processes remain off; no future profit or absence of all future errors is guaranteed"
+  ],
+  "preceding_ci_observation": {
+    "observed_at_utc": "2026-10-14T03:27:27.568197+00:00",
+    "tests": {
+      "headSha": "9c56a39cf6c4482d67d79fd1c5329ee28720dfae",
+      "status": "in_progress",
+      "conclusion": "",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38504440708",
+      "pytest_summaries": null
+    },
+    "strategy": {
+      "headSha": "9c56a39cf6c4482d67d79fd1c5329ee28720dfae",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38504440656",
+      "pytest_summaries": [
+        "strategy-regression\tStrategy regression pytest suite\t2026-10-14T03:06:17.1489942Z 41 passed in 2.40s"
+      ]
+    },
+    "scope": "Dated parent-revision observation, not changed-source or financial acceptance"
+  },
+  "observed_at_utc": "2026-10-14T03:31:46.843849+00:00",
+  "shutdown": {
+    "observed_at_utc": "2026-10-14T03:31:46.1620776+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml_entrypoint_processes": 0,
+    "actual_ml_entrypoint_observed_at_utc": "2026-10-14T03:31:46.6388917+00:00"
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-14T03:31:46.833284+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "additional_restored_ledger_sha256": "afbcb9a90a254e16d41df52749a1dfcc880b7a51c95045fed144229ed6532cb5"
+  }
+}
