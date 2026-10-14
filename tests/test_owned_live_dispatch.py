@@ -390,6 +390,7 @@ async def test_actual_runner_cannot_publish_stopped_while_execution_thread_is_li
         "_position_monitor_loop": monitor, "control_command_loop": fault,
         "_periodic_labeler": forever, "runtime_state_loop": forever, "_background_tasks": set(),
         "_publish_runtime_state_once": publish, "_note_runtime_error": Mock(),
+        "store_append": Mock(return_value=True), "_policy_feature_write_result": Mock(),
         "log": SimpleNamespace(info=Mock(), error=Mock())}
     tree = ast.parse(Path("run_bot.py").read_text(encoding="utf-8"))
     node = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef) and node.name == "_runner")

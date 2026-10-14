@@ -1,0 +1,154 @@
+{
+  "status": "BOUNDED_POLICY_PERSISTENCE_INTEGRATED_FOCUSED_ACCEPTED_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "78b3c60b25b4dc177cc5572a7e2ab7f7e0a856e4",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 820,
+      "sha256": "ee5db3539fd3fca90309d091ebc63f297ad0abd178486a8b44c44fb0b8505ec0"
+    },
+    {
+      "checkout": "publishing",
+      "files": 820,
+      "sha256": "ee5db3539fd3fca90309d091ebc63f297ad0abd178486a8b44c44fb0b8505ec0"
+    }
+  ],
+  "summary": "Native policy rejection persistence no longer calls the disk writer inline from the candidate path. Actual runtime starts one bounded owned policy queue after startup reconciliation; its dedicated single-thread executor serializes strict native writes and is joined before stopped publication. Original feature T0, missingness and auxiliary/clock/valuation proof snapshots are detached at admission; admission time pins partition selection while store ts remains persistence time. The128-work budget includes the active row; estimated64KiB snapshot budget includes bounded context, nesting, collection/string and integer-size checks. Saturation/invalid/unmanaged samples remain explicit diagnostic drops, never successful persistence or financial outcomes. Failed or unadmitted samples do not poison original retry dedup, and a late failure cannot clear a newer observation. Financial close identifiers are rejected by the policy queue; original trade-close/archive/net-export path and0.1SOL/entry/risk/activation guards are unchanged. Whole runtime cleanup now remains owned through repeated parent cancellation and policy jobs drain before stopped. Native baseline2failed;37 new cases/357 focused per root pass without skips;6327 repository cases plus one original private D fixture. Actual preceding6290 two-OS CI succeeds, not acceptance of this changed source. Other synchronous IO, real wire/production-size latency, source/financial completeness and profitability remain independent and incomplete.",
+  "acceptance": {
+    "baseline": {
+      "tests": 2,
+      "failures": 2
+    },
+    "focused": {
+      "working": {
+        "tests": 357,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "pytest_seconds": 123.22
+      },
+      "publishing": {
+        "tests": 357,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "pytest_seconds": 121.36
+      }
+    },
+    "new_repository_cases": 37,
+    "repository_cases": 6327,
+    "working_collected_cases": 6328,
+    "working_only_case": "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline",
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "latency_evidence": "Actual native writer thread held on a barrier while the owner loop advances and admits another candidate; no hard milliseconds, production throughput or provider SLA claimed",
+    "durability_evidence": "Actual temporary Parquet receives original and unknown T0 policy rows with label0/sample_type policy_reject; no financial close identity/proof is created",
+    "shutdown_evidence": "Actual runner source cannot publish stopped before its held policy writer drains; repeated cancellation preserves final cleanup and propagation",
+    "intermediate_failures_retained": [
+      "Initial integration3failed132passed because two original AST namespace fixtures lacked new writer symbols; fixtures updated with explicit mocks without removing assertions",
+      "Initial new collection fails on pytest rendering a600000-digit synthetic integer; explicit bounded test IDs repair collection without changing the interpreter integer-string safety limit"
+    ]
+  },
+  "policy_queue_contract": {
+    "capacity_including_active": 128,
+    "max_estimated_row_and_context_bytes": 65536,
+    "worker_threads": 1,
+    "overflow": "Reject new diagnostic sample, count dropped, leave retry dedup unclaimed",
+    "snapshot": "Native feature columns plus original prioritized auxiliary/clock/valuation attrs; no late feature lookup or T0 rejuvenation",
+    "label_role": "Policy rejection heuristic0, never actual win/loss or costed trade outcome",
+    "financial_close_identifiers": "Not admitted",
+    "unmanaged_call": "No worker start, disk write or successful admission",
+    "process_crash": "Pending memory-only diagnostic samples can be lost; this is not financial durability",
+    "active_io_stop": "Drain owned native IO; no forced thread termination or cleanup latency SLA"
+  },
+  "metric_definitions": {
+    "filtered_immediate_0": "Deduplicated policy samples admitted, not confirmed persisted rows",
+    "feature_policy_reject_admitted": "Queued original policy snapshots",
+    "feature_policy_reject_persisted": "Strict native writer returned True",
+    "feature_policy_reject_failed": "Admitted job failed or did not confirm persistence",
+    "feature_policy_reject_dropped": "Native policy submission not admitted",
+    "feature_policy_reject_pending": "Admitted minus terminal written/failed results"
+  },
+  "reference_contracts": [
+    "https://docs.python.org/3.12/library/asyncio-task.html#shielding-from-cancellation",
+    "https://docs.python.org/3.12/library/concurrent.futures.html#concurrent.futures.Executor.shutdown"
+  ],
+  "operational_changes": {
+    "bot_started": false,
+    "operator_fit_or_activation": false,
+    "live_or_provider_request": false
+  },
+  "limits": [
+    "Bounded estimated payload size is not an exact total RSS limit; source columns/count and admitted work are bounded",
+    "Memory-only nonfinancial rejection diagnostics are intentionally best effort; financial close exports retain their separate durable contract",
+    "Freeze CPU cost, full source/authenticity, disk latency and future model validity are not certified by queue admission",
+    "Shadow close persistence, hourly CSV export and other telemetry/research IO remain separate synchronous latency gaps",
+    "No new operational PAPER, training, activation, AutoResearch, API/UI service or LIVE action was started",
+    "Real opportunity capture, full-strategy financial acceptance and future profitability remain unestablished; original full goal remains active"
+  ],
+  "preceding_complete_ci": {
+    "headSha": "78b3c60b25b4dc177cc5572a7e2ab7f7e0a856e4",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38489854475",
+    "pytest_summaries": [
+      "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T00:25:08.3495451Z 1 passed in 6.02s",
+      "test (windows-2022)\tRun python -m pytest -q\t2026-10-14T00:54:19.8607235Z 6290 passed, 1 warning in 1750.43s (0:29:10)",
+      "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T00:24:06.3150475Z 1 passed in 3.31s",
+      "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-14T00:43:17.3307566Z 6290 passed, 1 warning in 1150.36s (0:19:10)"
+    ],
+    "scope": "Previous source6290 acceptance, not the new policy queue or financial profitability"
+  },
+  "observed_at_utc": "2026-10-14T01:05:07.183965+00:00",
+  "shutdown": {
+    "observed_at_utc": "2026-10-14T01:05:06.4955615+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml_entrypoint_processes": 0,
+    "actual_ml_entrypoint_observed_at_utc": "2026-10-14T01:05:06.9954145+00:00"
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-14T01:05:07.173900+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    }
+  }
+}

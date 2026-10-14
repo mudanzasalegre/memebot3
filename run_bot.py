@@ -841,6 +841,11 @@ _stats = {
     "actual_paper_buys": 0,
     "shadow_only": 0,
     "blocked_before_buy": 0,
+    "feature_policy_reject_admitted": 0,
+    "feature_policy_reject_persisted": 0,
+    "feature_policy_reject_failed": 0,
+    "feature_policy_reject_dropped": 0,
+    "feature_policy_reject_pending": 0,
 }
 _blocked_before_buy_seen: set[str] = set()
 _last_stats_print: float = time.monotonic()
@@ -878,6 +883,7 @@ _reports_refresh_lock = asyncio.Lock()
 _autoresearch_lock = asyncio.Lock()
 _core_reports_regen_lock = asyncio.Lock()
 _background_tasks: set[asyncio.Task[object]] = set()
+_POLICY_FEATURE_WRITER = None  # Started only by the actual owned runtime.
 _initial_paper_wallet_refresh_task: Optional[asyncio.Task[object]] = None
 _last_core_reports_regen_at: Optional[dt.datetime] = None
 _last_core_reports_regen_sold: int = 0
@@ -3291,10 +3297,29 @@ def _store_policy_reject(
         last = _policy_reject_seen.get(dedup_key, 0.0)
         if (now - last) < _POLICY_REJECT_DEDUP_TTL_S:
             return
-        _policy_reject_seen[dedup_key] = now
     vec = sample if already_vector else build_feature_vector(sample)
-    store_append(vec, 0, sample_type="policy_reject")
+    writer = _POLICY_FEATURE_WRITER
+    admitted_at = time.monotonic()
+    if writer is None or not writer.submit(vec, context=(dedup_key, admitted_at)):
+        _stats["feature_policy_reject_dropped"] = _stats.get("feature_policy_reject_dropped", 0) + 1
+        return
+    if dedup_key and _POLICY_REJECT_DEDUP_TTL_S > 0:
+        _policy_reject_seen[dedup_key] = admitted_at
+    _stats["feature_policy_reject_admitted"] = _stats.get("feature_policy_reject_admitted", 0) + 1
+    _stats["feature_policy_reject_pending"] = _stats.get("feature_policy_reject_pending", 0) + 1
     _stats["filtered_immediate_0"] += 1
+
+
+def _policy_feature_write_result(context, written, error):
+    key = "feature_policy_reject_persisted" if written else "feature_policy_reject_failed"
+    _stats[key] = _stats.get(key, 0) + 1
+    _stats["feature_policy_reject_pending"] = max(0, _stats.get("feature_policy_reject_pending", 0) - 1)
+    if not written:
+        dedup_key, admitted_at = context
+        if _policy_reject_seen.get(dedup_key) == admitted_at:
+            _policy_reject_seen.pop(dedup_key, None)
+        _note_runtime_error("policy_feature_write", error or "unconfirmed policy persistence")
+        log.warning("Policy feature persistence failed: %s", type(error).__name__)
 
 
 def _research_stage(
@@ -10076,8 +10101,9 @@ async def main_loop(*, positions_ready: asyncio.Event | None = None,
 
 # ╭─────────────────────── Entrypoint ───────────────────────────────────────╮
 async def _runner() -> None:
-    global _runtime_process_state
+    global _runtime_process_state, _POLICY_FEATURE_WRITER
     _runtime_process_state = "starting"
+    policy_writer = None
     try:
         from runtime.owned_dispatch import open_dispatch
         open_dispatch()
@@ -10092,6 +10118,10 @@ async def _runner() -> None:
                 await _refresh_green_live_risk(recovery_session, initialize=True)
         if DRY_RUN:
             await _repair_paper_archive_evidence(force=True)
+        from features.policy_write_queue import PolicyWriteQueue
+        policy_writer = PolicyWriteQueue(store_append, on_result=_policy_feature_write_result)
+        policy_writer.start()
+        _POLICY_FEATURE_WRITER = policy_writer
         from runtime.loop_scheduler import supervise
         positions_ready = asyncio.Event()
         hot_queue_enabled = bool(getattr(CFG, "HOT_QUEUE_ENABLED", True))
@@ -10127,25 +10157,41 @@ async def _runner() -> None:
         # Normal cancellation/KeyboardInterrupt must clear the persisted state
         # just like an exception; otherwise the API can retain a stale
         # ``running`` row after the process has already exited.
-        pending = list(_background_tasks)
-        for task in pending:
-            task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
-        # The feed pull owners above are already drained. Its independently
-        # owned socket must also finish cleanup before stopped state is visible.
-        await pumpfun.stop_background_tasks()
-        from runtime.social_enrichment_queue import stop_background_tasks as stop_social_tasks
-        await stop_social_tasks()
-        from research_loop.entry_gate_forward import stop_background_tasks
-        await stop_background_tasks()
-        from runtime.owned_dispatch import drain_dispatch
-        await drain_dispatch()
-        _runtime_process_state = "stopped"
-        try:
-            await _publish_runtime_state_once()
-        except Exception as publish_exc:
-            log.error("runtime state final publish → %s", publish_exc)
+        async def finish_shutdown():
+            global _runtime_process_state, _POLICY_FEATURE_WRITER
+            pending = list(_background_tasks)
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            if policy_writer is not None:
+                await policy_writer.close()
+                _POLICY_FEATURE_WRITER = None
+            # Feed owners above are drained; sockets and execution owners must
+            # also finish before stopped state is visible.
+            await pumpfun.stop_background_tasks()
+            from runtime.social_enrichment_queue import stop_background_tasks as stop_social_tasks
+            await stop_social_tasks()
+            from research_loop.entry_gate_forward import stop_background_tasks
+            await stop_background_tasks()
+            from runtime.owned_dispatch import drain_dispatch
+            await drain_dispatch()
+            _runtime_process_state = "stopped"
+            try:
+                await _publish_runtime_state_once()
+            except Exception as publish_exc:
+                log.error("runtime state final publish → %s", publish_exc)
+        cleanup = asyncio.create_task(finish_shutdown(), name="owned-runtime-shutdown")
+        cancelled = None
+        while not cleanup.done():
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError as exc:
+                if asyncio.current_task().cancelling():
+                    cancelled = exc
+        cleanup.result()
+        if cancelled is not None:
+            raise cancelled
 
 if __name__ == "__main__":
     try:

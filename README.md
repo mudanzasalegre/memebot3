@@ -13,6 +13,27 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Scanner: rechazos sin escritura de disco en la entrada (2026-10-14)
+
+Las muestras de rechazo de politica pasan ahora por una cola propia limitada
+a 128 trabajos pendientes, incluido el activo, y un unico escritor fuera del
+bucle de eventos. Se congela la feature original antes de devolver el control.
+Los cierres financieros y sus etiquetas netas no pasan por esta cola.
+
+Admision, persistencia confirmada, fallo, pendiente y muestra descartada tienen
+contadores separados. La saturacion descarta muestras diagnosticas nuevas, no
+las presenta como guardadas; tampoco bloquea su reintento en la deduplicacion.
+La parada cierra admisiones, drena los trabajos y el executor antes de publicar
+`stopped`, incluso ante cancelaciones repetidas. Es una cola en memoria, no un
+outbox durable contra una caida completa del proceso.
+
+Pasan 357 pruebas enfocadas por carpeta, con 37 casos nuevos; se recogen
+6.327 casos de repositorio. La revision anterior pasa 6.290 pruebas completas
+en Windows y Linux; la CI completa de este nuevo codigo sigue pendiente.
+Todo queda apagado y los datos/modelos/env intactos. Otros IO sincronos,
+latencia bajo carga real y rentabilidad siguen pendientes.
+[Auditoria y limites](docs/audits/policy_feature_persistence_20261014.json).
+
 ### Datos de aprendizaje: escritura con propiedad del SO (2026-10-14)
 
 El almacen Parquet ya no decide que un escritor ha terminado por la antiguedad
