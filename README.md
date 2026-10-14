@@ -13,6 +13,25 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Datos de aprendizaje: escritura con propiedad del SO (2026-10-14)
+
+El almacen Parquet ya no decide que un escritor ha terminado por la antiguedad
+de su archivo de bloqueo. Un guard estable del sistema operativo cubre lectura,
+modificacion, publicacion y limpieza; su existencia no significa que siga activo.
+Los marcadores antiguos con propietario vivo o desconocido se conservan. Una
+caida libera la propiedad del SO y permite recuperar el marcador nativo; no se
+borran recibos ajenos durante la liberacion. No se cambia la politica de trading.
+
+Tambien se desacopla la importacion de utilidades: el guard y el bootstrap del
+entorno no cargan mercado/ML antes de necesitarlos; se conservan sus exportaciones.
+Pasan 232 pruebas enfocadas por carpeta, con 38 casos nuevos, y se recogen
+6.290 casos de repositorio. La CI completa de esta fuente sigue pendiente.
+La revision anterior de diagnosticos RPC `e872777` pasa 6.237 pruebas completas
+en ambos sistemas; no explica ni borra el fallo historico de Windows.
+Bot, entrenamiento y servicios quedan apagados, con datos/modelos/env intactos.
+La latencia de escritura en la ruta de entrada y la rentabilidad siguen pendientes.
+[Auditoria y limites](docs/audits/feature_writer_ownership_20261014.json).
+
 ### Aprendizaje: particiones CSV/Parquet completas (2026-10-14)
 
 La existencia de un Parquet ya no oculta los CSV de otros meses. Entrenamiento,

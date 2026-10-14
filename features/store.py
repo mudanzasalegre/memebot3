@@ -27,6 +27,7 @@ from __future__ import annotations
 import datetime as dt
 import errno
 import logging
+import math
 import os
 import tempfile
 import time
@@ -34,12 +35,14 @@ from collections import OrderedDict
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Mapping
+from uuid import uuid4
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from config.config import CFG
+from utils.file_ownership import exclusive_file_guard, process_is_running
 from features.builder import COLUMNS as _FEAT_COLS
 from features.auxiliary_semantics import PROOF_COLUMN
 from features.token_clock_semantics import PROOF_COLUMN as CLOCK_PROOF_COLUMN
@@ -230,8 +233,39 @@ _ROW_COUNT = 0  # se incrementa en cada append()
 
 _LOCK_TIMEOUT_SECONDS = 30.0
 _LOCK_STALE_SECONDS = 300.0
+# Retained compatibility/diagnostic constant; age no longer authorizes takeover.
 _LOCK_POLL_SECONDS = 0.05
 _REPLACE_TIMEOUT_SECONDS = 10.0
+_LOCK_VERSION = "os_owned_parquet_writer_v1"
+
+
+def _marker_reclaimable(path: Path) -> bool:
+    """An acquired OS guard releases native markers; legacy PID needs proof."""
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(513)
+        if len(raw) > 512:
+            return False
+        fields = [item.split("=", 1) for item in raw.decode("ascii").split()]
+        if any(len(item) != 2 for item in fields):
+            return False
+        record = dict(fields)
+        if len(record) != len(fields):
+            return False
+        pid, created = int(record["pid"]), float(record["created_at"])
+        if not 0 < pid < 2**32 or not math.isfinite(created) or created <= 0:
+            return False
+        if set(record) == {"pid", "created_at", "owner_id", "version"}:
+            owner = record["owner_id"]
+            return (record["version"] == _LOCK_VERSION and len(owner) == 32
+                    and all(char in "0123456789abcdef" for char in owner))
+        if set(record) != {"pid", "created_at"}:
+            return False
+        return not process_is_running(pid)
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError, KeyError, UnicodeError):
+        return False
 
 
 def _is_windows_lock_contention(error: PermissionError) -> bool:
@@ -243,49 +277,58 @@ def _is_windows_lock_contention(error: PermissionError) -> bool:
 
 @contextmanager
 def _exclusive_parquet_lock(path: Path) -> Iterator[None]:
-    """Serializa read-modify-write entre procesos sin dependencias externas."""
+    """Own the complete native read-modify-write, not an expiring marker lease."""
+    path = Path(path).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_name(f"{path.name}.lock")
     deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
-    fd: int | None = None
-
-    while fd is None:
-        try:
-            fd = os.open(
-                lock_path,
-                os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0),
-            )
-        except FileExistsError:
+    guard_path = lock_path.with_name(f".{lock_path.name}.guard")
+    with exclusive_file_guard(guard_path, deadline=deadline, poll_seconds=_LOCK_POLL_SECONDS):
+        fd: int | None = None
+        while fd is None:
             try:
-                lock_age = max(0.0, time.time() - lock_path.stat().st_mtime)
-                if lock_age >= _LOCK_STALE_SECONDS:
-                    lock_path.unlink()
+                fd = os.open(lock_path,
+                    os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0))
+            except FileExistsError:
+                try:
+                    # Retain the original stat/access retry contract. Age itself
+                    # never authorizes deleting a marker with a live owner.
+                    lock_path.stat()
+                    if _marker_reclaimable(lock_path):
+                        lock_path.unlink()
+                        continue
+                except FileNotFoundError:
                     continue
-            except FileNotFoundError:
-                continue
+                except PermissionError as error:
+                    if not _is_windows_lock_contention(error) or time.monotonic() >= deadline:
+                        raise
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Timed out waiting for parquet lock: {lock_path}")
+                time.sleep(_LOCK_POLL_SECONDS)
             except PermissionError as error:
                 if not _is_windows_lock_contention(error) or time.monotonic() >= deadline:
                     raise
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"Timed out waiting for parquet lock: {lock_path}")
-            time.sleep(_LOCK_POLL_SECONDS)
-        except PermissionError as error:
-            # Windows puede devolver EACCES mientras el lock anterior se borra.
-            # Solo un nuevo O_EXCL exitoso permite entrar; el mismo plazo limita
-            # también un permiso denegado persistente, que conserva su error.
-            if not _is_windows_lock_contention(error) or time.monotonic() >= deadline:
-                raise
-            time.sleep(_LOCK_POLL_SECONDS)
-
-    try:
-        os.write(fd, f"pid={os.getpid()} created_at={time.time()}\n".encode("ascii"))
-        yield
-    finally:
-        os.close(fd)
+                time.sleep(_LOCK_POLL_SECONDS)
+        identity = None
+        record = (f"pid={os.getpid()} created_at={time.time()} "
+            f"owner_id={uuid4().hex} version={_LOCK_VERSION}\n").encode("ascii")
+        published = False
         try:
-            lock_path.unlink()
-        except FileNotFoundError:
-            pass
+            identity = os.fstat(fd)
+            published = os.write(fd, record) == len(record)
+            if not published:
+                raise OSError(errno.EIO, "Incomplete parquet owner record")
+            yield
+        finally:
+            os.close(fd)
+            try:
+                current = lock_path.stat()
+                if (identity is not None and (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino)
+                        and (not published or lock_path.read_bytes() == record)):
+                    lock_path.unlink()
+            except FileNotFoundError:
+                pass
+            # The stable OS guard remains locked through diagnostic cleanup.
 
 
 def _replace_with_retry(source: Path, target: Path) -> None:

@@ -11,7 +11,17 @@ from typing import Dict
 _modules = ("lista_pares", "descubridor_pares", "logger")
 
 globals_: Dict[str, ModuleType] = globals()
-for _m in _modules:
-    globals_[_m] = import_module(f"{__name__}.{_m}")
+
+
+def __getattr__(name: str) -> ModuleType:
+    if name not in _modules:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = import_module(f"{__name__}.{name}")
+    globals_[name] = module
+    return module
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals_) | set(_modules))
 
 __all__ = list(_modules)

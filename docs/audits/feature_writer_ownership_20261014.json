@@ -1,0 +1,153 @@
+{
+  "status": "NATIVE_WRITER_OS_OWNERSHIP_VERIFIED_FOCUSED_CURRENT_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "ab4a3e24bf2b5617880091b9436cc4ccb3ead1d5",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 818,
+      "sha256": "7911220a5139f6829e1b27aefb1ae98baeeac1dfaee8ba6ad85a410252402f7d"
+    },
+    {
+      "checkout": "publishing",
+      "files": 818,
+      "sha256": "7911220a5139f6829e1b27aefb1ae98baeeac1dfaee8ba6ad85a410252402f7d"
+    }
+  ],
+  "summary": "Native Parquet read-modify-write now retains a stable OS-owned guard through publication and marker cleanup. Marker age can no longer steal active ownership. Actual Windows baseline records1failed1passed: aged active-owner contention leaks PermissionError rather than the expected bounded TimeoutError; the concurrent-row case already passes on Windows because open-marker sharing prevents deletion. POSIX age-authorized unlink carries an inferred overlap/lost-update risk, not observed local operator data loss. New source tests protect the same invariant on both CI platforms. Legacy live/inaccessible or unproved markers remain fail-closed; a proved dead legacy PID or released current OS guard supports recovery. Owner inode/content checks preserve replaced or modified diagnostics. Native thread/process tests, crash recovery, interrupted/error publication and OS cleanup, malformed/oversized records, stable inode and timing-domain checks pass.38 new cases/232 focused integrations pass per root without skips;6290 repository cases collected plus one preexisting private D-only fixture. Original schema/T0/net-label/idempotence/training/activation/buy sizing guards are unchanged. Current full two-OS CI, entry IO latency and prospective financial acceptance remain incomplete. Native cold-import regression additionally reproduces2failed1passed: utils eagerly loaded market/config and ML dependencies before a guard or venv bootstrap could be used. Declared utility module exports now load lazily and cache the same module attributes/__all__/dir interface. Guard and venv bootstrap cold imports succeed with site packages disabled. Direct eager globals-dictionary population is intentionally not retained. Three extra cases are included in the final frozen232 population; interim229 receipts are preserved, not acceptance of these final bytes.",
+  "acceptance": {
+    "windows_native_baseline": {
+      "tests": 2,
+      "failures": 1,
+      "passed": 1,
+      "failure": "Aged live marker yields original WinError32 PermissionError instead of bounded TimeoutError"
+    },
+    "focused": {
+      "working": {
+        "tests": 232,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "pytest_seconds": 187.53
+      },
+      "publishing": {
+        "tests": 232,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "pytest_seconds": 184.05
+      }
+    },
+    "new_repository_cases": 38,
+    "repository_cases": 6290,
+    "working_collected_cases": 6291,
+    "working_only_case": "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline",
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "native_process_proof": "Spawned native and legacy owners remain protected while alive; forced isolated crash releases ownership and original row plus recovered row persist without forbidden peer row",
+    "temporary_guard_presence": "Persistent guard inode is not evidence of an active writer",
+    "qa_setup_errors_retained": [
+      "Private verifier first addressed relative to publishing checkout, where it does not exist; no protection acceptance from that attempt",
+      "Before-sync source parity assertion fails as expected for differing roots; accepted protection receipt captured only after scoped synchronization",
+      "Initial publishing pytest launch precedes synchronization and collects zero tests; rejected as validation and retained separately from successful focused-publishing-02 rerun"
+    ],
+    "lazy_utils_native_baseline": {
+      "tests": 3,
+      "failures": 2,
+      "passed": 1
+    },
+    "cold_guard_and_bootstrap_without_site_packages": "PASS_NATIVE_PYTHON_I_S",
+    "interim_229_population": "PRESERVED_SUPERSEDED_BY_FINAL_232_FROZEN_SOURCE"
+  },
+  "operational_changes": {
+    "bot_started": false,
+    "operator_model_fit": false,
+    "model_activation": false,
+    "provider_or_wallet_request": false,
+    "live_trading": false,
+    "sizing_or_financial_label_change": false
+  },
+  "next_source_gap": {
+    "source": "run_bot.py::_store_policy_reject and async _evaluate_and_buy",
+    "finding": "Policy rejection persistence remains synchronous on the native candidate path; this ownership repair does not move it off the event loop or establish production-size latency",
+    "severity": "UNBENCHMARKED_POTENTIAL_SCANNER_LATENCY",
+    "historical_no_buy_causation": "NOT_ESTABLISHED"
+  },
+  "reference_contracts": [
+    "https://docs.python.org/3.12/library/msvcrt.html#msvcrt.locking",
+    "https://docs.python.org/3.12/library/fcntl.html#fcntl.flock",
+    "https://docs.python.org/3.12/reference/datamodel.html#customizing-module-attribute-access"
+  ],
+  "limits": [
+    "Local cooperating current writers are protected; arbitrary legacy writers that still steal expired markers, direct external file replacement, network filesystems and inherited-fork descriptor lifecycles are not universally certified",
+    "Original RPC PAPER failure remains unresolved even though the later6237 two-OS full suite succeeds; this independent writer repair is not its diagnosis",
+    "No operator data loss, profitable counterfactual or actual provider/financial opportunity capture is established",
+    "Current full-suite CI and prospective operational/model/financial acceptance remain incomplete",
+    "No operational PAPER, AutoResearch, API/UI server, model fit/activation or LIVE process was started",
+    "Future profitability and zero errors cannot be guaranteed; original full goal remains active"
+  ],
+  "observed_at_utc": "2026-10-14T00:19:53.190184+00:00",
+  "shutdown": {
+    "observed_at_utc": "2026-10-14T00:19:52.5184058+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml_entrypoint_processes": 0,
+    "actual_ml_entrypoint_observed_at_utc": "2026-10-14T00:19:52.9926353+00:00"
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-14T00:19:53.186171+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    }
+  },
+  "preceding_native_rpc_complete_ci": {
+    "headSha": "e872777871b40f9a01a35aa505f9b65b4701b620",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38483991893",
+    "pytest_summaries": [
+      "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-13T23:26:26.7067783Z 1 passed in 15.49s",
+      "test (windows-2022)\tRun python -m pytest -q\t2026-10-13T23:58:23.0064598Z 6237 passed, 1 warning in 1915.06s (0:31:55)",
+      "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-13T23:25:05.7265324Z 1 passed in 4.98s",
+      "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-13T23:52:26.9420695Z 6237 passed, 1 warning in 1640.47s (0:27:20)"
+    ],
+    "scope": "Historical source6237 acceptance, not this new writer or a repair of the original Windows failure cause"
+  }
+}
