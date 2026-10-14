@@ -75,8 +75,10 @@ def build_labels(frame: pd.DataFrame, *, capture_factor: float = 0.35) -> pd.Dat
     out["ev_realized"] = _clip(realized)
     out["ev_realized_clipped"] = out["ev_realized"]
     out["ev_peak_adjusted"] = _clip(peak * float(capture_factor))
+    # An absent outcome or nonpositive peak has no defined capture ratio.
+    # Keep that missingness separate from an observed zero realised return.
     out["capture_ratio"] = realized / peak.where(peak > 0)
-    out["capture_ratio"] = out["capture_ratio"].replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    out["capture_ratio"] = out["capture_ratio"].replace([np.inf, -np.inf], np.nan)
     moonshot = build_moonshot_labels(frame)
     for column in MOONSHOT_BINARY_LABELS:
         if column in moonshot.columns:
@@ -121,7 +123,7 @@ LABEL_DOCUMENTATION: dict[str, str] = {
     "continuation_1m/3m": "post-seen peak continuation over the horizon",
     "ev_realized": "clipped realized return",
     "ev_peak_adjusted": "clipped peak return times capture factor",
-    "capture_ratio": "realized return divided by peak return when peak is positive",
+    "capture_ratio": "finite realized return divided by finite positive peak return; missing or undefined ratios remain unobserved, while observed zero realized returns retain zero",
     "executable_moonshot": "moonshot micro row passes paper executable viability checks",
     "theoretical_moonshot": "row has moonshot markers or later moonshot-size peak",
     "executable_moonshot_peak100/500": "executable moonshot row whose later peak reached the threshold",

@@ -81,6 +81,7 @@ async def test_actual_unpriced_open_close_parquet_and_labels_preserve_unknown(tm
     labels = attach_labels(frame)
     assert all(labels[f'runner_{threshold}'].isna().all() for threshold in RUNNER_THRESHOLDS)
     assert labels.ev_peak_adjusted.isna().all() and labels.ev_realized_clipped.isna().all()
+    assert labels.capture_ratio.isna().all()
     event = json.loads(research.RESEARCH_EVENTS_PATH.read_text().splitlines()[0])
     assert event['max_pnl_pct_seen'] is None and event['pnl_pct'] is None and event['label'] is None
     assert not tick['_shadow_positions'] and tick['_stats']['appended_shadow'] == 1

@@ -13,6 +13,20 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Aprendizaje: captura desconocida no significa captura del 0% (2026-10-14)
+
+`capture_ratio` conserva un valor desconocido cuando falta el retorno, falta
+un pico positivo finito o la division no es finita. Un retorno realmente
+observado de cero con pico positivo sigue dando cero; los retornos con signo
+y las magnitudes extremas no se recortan en esta etiqueta. La validacion neta
+financiera existente sigue teniendo prioridad sobre aliases brutos.
+
+Se verifican el constructor de etiquetas, la carga de familias sin fit, los
+roundtrips CSV/Parquet y la cadena nativa de cierre de sombras. No se corrigen
+datos historicos ni se activan modelos. No hay evidencia de que esta etiqueta
+fuera la causa de las cero compras ni de rentabilidad real.
+[Evidencia y limites](docs/audits/capture_ratio_observation_20261014.json).
+
 ### Aprendizaje: ausencia de precio no es un pico observado de cero (2026-10-14)
 
 Una sombra sin referencia de entrada positiva y finita conserva su pico como

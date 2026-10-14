@@ -1,0 +1,181 @@
+{
+  "status": "CAPTURE_RATIO_MISSINGNESS_REPAIRED_NATIVE_FOCUSED_VERIFIED_CURRENT_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "591da6db09cbd9959a3ae67ea9ebc747ba51eb82",
+  "implementation_revision": "Commit containing this audit; normalized source identity is recorded after validation",
+  "summary": "The actual ML label builder no longer replaces missing or undefined capture ratios with zero. A ratio requires an observed finite realized return and a finite positive peak; nonfinite arithmetic remains unknown. An actual zero realized return retains numeric zero, signed returns and extreme finite ratios remain uncapped, and existing alias precedence and checked-net financial restoration are unchanged. Native family loading without fit, checked synthetic net receipts, temporary CSV/Parquet roundtrips and actual shadow open/tick/outbox/Parquet/label chain verify the definition. No historical datasets, frozen observations, models, registry, policies or operator artifacts are rewritten. No named current ML target or predictor references capture_ratio in the inspected code, and the separate AutoResearch runner_capture_ratio is not claimed to consume this label. This repair is not established as the historical no-buy cause or as profitable trading evidence. Original scope, real provider/full-strategy/financial acceptance and the retained earlier Windows birth-clock failure cause remain incomplete. All operational runtime, training, activation, AutoResearch, API/UI and LIVE processes remain off.",
+  "grain": "One supplied outcome row at its original index and T0; no sample aggregation or new trade identity",
+  "quality_question": "Can an absent numerator or undefined peak denominator be mistaken for an observed zero capture?",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 827,
+      "sha256": "0d57a5ee257b6f71f1559a4774fe9511cfd6dca08c93309eb121918ebeee8bb8"
+    },
+    {
+      "checkout": "publishing",
+      "files": 827,
+      "sha256": "0d57a5ee257b6f71f1559a4774fe9511cfd6dca08c93309eb121918ebeee8bb8"
+    }
+  ],
+  "acceptance": {
+    "baseline": {
+      "tests": 56,
+      "failures": 26,
+      "passed": 30,
+      "seconds": 6.66,
+      "exit_code": 1
+    },
+    "new_repository_cases": 37,
+    "definition_focused": {
+      "tests": 56,
+      "failures": 0,
+      "passed": 56,
+      "seconds": 5.83,
+      "exit_code": 0
+    },
+    "focused": {
+      "working": {
+        "tests": 583,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 178.241
+      },
+      "publishing": {
+        "tests": 583,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 175.724
+      }
+    },
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "repository_cases": 6463,
+    "working_collected_cases": 6464,
+    "working_only_case": "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline"
+  },
+  "observation_contract": {
+    "ratio": "Finite realized return divided by finite positive peak; the resulting arithmetic must be finite",
+    "undefined": "Absent or invalid numerator, absent/invalid/nonpositive peak, or nonfinite division remains NaN rather than zero",
+    "observed_zero": "Zero realized return with a positive finite peak is a genuine numeric zero",
+    "signed_and_tail": "Valid signed numeric ratios are not clipped; a ratio is not an independently executable return or optimal exit",
+    "precedence": "Original realized/total/pnl/target aliases and peak aliases are unchanged; valid zero is not replaced by a later alias",
+    "financial": "Original checked net return overrides mutable gross aliases; a broken declared financial proof remains rejected",
+    "history": "No operator or frozen historical data relabeling; old missingness sentinels require separately scoped original evidence",
+    "downstream": "The current family loader attaches this label. No named model target or predictor referencing capture_ratio was found in the inspected ML source; AutoResearch runner_capture_ratio has a separate source definition"
+  },
+  "scoped_data_quality": {
+    "workflow": "Data Analytics scoped companion missingness and definition check",
+    "severity": "Medium for the observed derived-label defect; operational trade impact is unestablished",
+    "confidence": "Direct native baseline/fixed behavior; no inferred business causality",
+    "data": "Synthetic fixtures and temporary native persistence only; not an audit of the historical prevalence of this defect",
+    "remediation": "Preserve absent/undefined ratios and maintain regression tests; no imputation of historical financial outcomes"
+  },
+  "limits": [
+    "This stage does not establish actual signal quality, profitable capture, provider permissions, market freshness, depth or execution",
+    "The separate report/replay capture metrics are not redefined by this ML-label repair",
+    "A green later CI does not explain the retained earlier Windows entry_observation:changed_model_birth_inputs failure",
+    "The current revision needs its own full two-OS CI; the unchanged original goal remains incomplete",
+    "No operational PAPER, real-provider quota use, operator model fit/activation, AutoResearch, API/UI or LIVE start is authorized or performed by this source-validation stage"
+  ],
+  "preceding_ci_observation": {
+    "observed_at_utc": "2026-10-14T03:44:16.918827+00:00",
+    "commit": "591da6db09cbd9959a3ae67ea9ebc747ba51eb82",
+    "runs": {
+      "tests": {
+        "status": "in_progress",
+        "conclusion": "",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38506805965",
+        "pytest_summaries": null
+      },
+      "ci": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38506805975",
+        "pytest_summaries": [
+          "strategy-regression\tStrategy regression pytest suite\t2026-10-14T03:33:32.4520081Z 41 passed in 2.49s"
+        ]
+      }
+    },
+    "scope": "Actual dated parent observation, not acceptance of this changed revision"
+  },
+  "preceding_candidate_ci_terminal": {
+    "observed_at_utc": "2026-10-14T03:44:16.918827+00:00",
+    "commit": "9c56a39cf6c4482d67d79fd1c5329ee28720dfae",
+    "runs": {
+      "tests": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38504440708",
+        "pytest_summaries": [
+          "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T03:07:28.6521365Z 1 passed in 7.17s",
+          "test (windows-2022)\tRun python -m pytest -q\t2026-10-14T03:37:24.9448925Z 6407 passed, 1 warning in 1795.18s (0:29:55)",
+          "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T03:06:29.1874637Z 1 passed in 3.59s",
+          "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-14T03:27:06.0906636Z 6407 passed, 1 warning in 1236.31s (0:20:36)"
+        ]
+      },
+      "ci": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38504440656",
+        "pytest_summaries": [
+          "strategy-regression\tStrategy regression pytest suite\t2026-10-14T03:06:17.1489942Z 41 passed in 2.40s"
+        ]
+      }
+    },
+    "qualification": "6407 full tests pass on each OS; no reproduction or cause determination of the earlier c771 Windows failure"
+  },
+  "observed_at_utc": "2026-10-14T03:55:09.206553+00:00",
+  "shutdown": {
+    "observed_at_utc": "2026-10-14T03:55:08.5576901+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml_entrypoint_processes": 0,
+    "actual_ml_entrypoint_observed_at_utc": "2026-10-14T03:55:09.0027412+00:00"
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-14T03:55:09.189908+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "additional_restored_ledger_sha256": "afbcb9a90a254e16d41df52749a1dfcc880b7a51c95045fed144229ed6532cb5"
+  }
+}
