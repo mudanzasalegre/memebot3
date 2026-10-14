@@ -29,6 +29,7 @@ import errno
 import logging
 import math
 import os
+import re
 import tempfile
 import time
 from collections import OrderedDict
@@ -62,7 +63,8 @@ DATA_DIR: Path = CFG.FEATURES_DIR
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 _OUTCOME_COLS = ["max_pnl_pct_seen", "outcome_closed_at", "outcome_trade_id", "outcome_source_sha256",
-                 "outcome_return_basis", "outcome_gross_pnl_pct", "outcome_execution_proof"]
+                 "outcome_return_basis", "outcome_gross_pnl_pct", "outcome_execution_proof",
+                 "outcome_observation_id", "outcome_observation_sha256"]
 _PARQUET_COLS = _FEAT_COLS + [PROOF_COLUMN, CLOCK_PROOF_COLUMN, VALUATION_PROOF_COLUMN, "label", "target_total_pnl_pct", "sample_type", "ts"] + _OUTCOME_COLS
 
 # —— esquema fijo ——————————————————————————————
@@ -169,6 +171,8 @@ _COL_TYPES = OrderedDict(
         ("outcome_return_basis", pa.string()),
         ("outcome_gross_pnl_pct", pa.float64()),
         ("outcome_execution_proof", pa.string()),
+        ("outcome_observation_id", pa.string()),
+        ("outcome_observation_sha256", pa.string()),
     ]
 )
 
@@ -371,12 +375,33 @@ def _atomic_write_table(table: pa.Table, path: Path) -> None:
             pass
 
 # ───────────────────── low-level IO ───────────────────────────
-def _write(table: pa.Table, path: Path) -> bool:
+def _write(table: pa.Table, path: Path) -> bool | None:
     table = _enforce_schema(table)
+    observed = table.column("outcome_observation_id").to_pylist()
+    if any(observed):
+        if table.num_rows != 1:
+            raise ValueError("Shadow observation requires one causal row")
+        row = table.to_pylist()[0]
+        if (not re.fullmatch(r"shadow_[0-9a-f]{32}", str(observed[0]))
+                or not re.fullmatch(r"[0-9a-f]{64}", str(row["outcome_observation_sha256"]))
+                or row["sample_type"] != "shadow_close"
+                or any(row.get(key) is not None for key in ("outcome_trade_id", "outcome_source_sha256",
+                    "outcome_return_basis", "outcome_gross_pnl_pct", "outcome_execution_proof"))):
+            raise ValueError("Invalid nonfinancial shadow observation")
 
     with _exclusive_parquet_lock(path):
         if path.exists():
             existing = _enforce_schema(pq.read_table(path))
+            if any(observed):
+                matches = [i for i, identity in enumerate(existing.column("outcome_observation_id").to_pylist())
+                           if identity == observed[0]]
+                if matches:
+                    if len(matches) != 1:
+                        raise ValueError("Duplicate shadow observation already exists")
+                    prior, current = existing.slice(matches[0], 1).to_pylist()[0], table.to_pylist()[0]
+                    if any(prior[key] != current[key] for key in _PARQUET_COLS if key != "ts"):
+                        raise ValueError("Conflicting shadow observation")
+                    return None  # Confirmed existing, not an unconfirmed False or new write.
             incoming = table.column("outcome_trade_id").to_pylist()
             if any(incoming):
                 if table.num_rows != 1 or not incoming[0]:
@@ -460,6 +485,8 @@ def append(
 
     try:
         written = _write(pa_table, _file_for_now(partition_at))
+        if written is None and row.get("outcome_observation_id"):
+            return True
         if not written:
             return False
         _ROW_COUNT += 1

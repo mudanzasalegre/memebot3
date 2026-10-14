@@ -141,10 +141,12 @@ def test_live_rank_gate_uses_supported_alternative_when_picked_is_sparse(monkeyp
 
 
 def test_record_shadow_open_ignores_duplicate_context_keys(monkeypatch, tmp_path: Path) -> None:
+    from features.decision_store import append_decision
     events_path = tmp_path / "candidate_outcomes.jsonl"
     portfolio_path = tmp_path / "research_portfolio.json"
     monkeypatch.setattr(research_runtime, "RESEARCH_EVENTS_PATH", events_path)
     monkeypatch.setattr(research_runtime, "RESEARCH_PORTFOLIO_PATH", portfolio_path)
+    monkeypatch.setattr(research_runtime, "append_decision", lambda row: append_decision(row, path=tmp_path / "decision_ledger.jsonl"))
     research_runtime._OPEN_SHADOWS.clear()
 
     research_runtime.record_shadow_open(
@@ -162,6 +164,7 @@ def test_record_shadow_open_ignores_duplicate_context_keys(monkeypatch, tmp_path
     row = json.loads(events_path.read_text(encoding="utf-8").splitlines()[0])
     assert row["decision_action"] == "research_shadow_open"
     assert row["shadow_kind"] == "research"
+    assert json.loads((tmp_path / "decision_ledger.jsonl").read_text().splitlines()[0])["address"] == "addr-1"
 
 
 def test_event_dedup_does_not_drop_first_event_on_low_uptime(monkeypatch) -> None:

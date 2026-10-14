@@ -1,0 +1,164 @@
+{
+  "status": "FROZEN_DURABLE_SHADOW_CLOSES_NATIVE_REPLAY_AND_SERIAL_OWNER_FOCUSED_ACCEPTED_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "35e96e62b634092e495a50d8ccac1d0c9104bb2e",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 823,
+      "sha256": "8abd38092c4d36d03772747f4941cf982b596d8e9be010a0d05149a1ca1db36b"
+    },
+    {
+      "checkout": "publishing",
+      "files": 823,
+      "sha256": "8abd38092c4d36d03772747f4941cf982b596d8e9be010a0d05149a1ca1db36b"
+    }
+  ],
+  "summary": "Actual shadow price/recovery work has one independently supervised serial owner after startup readiness, rather than being awaited in candidate main_loop. Shadow open/partial/close IO uses owned threads and cancellation drains admitted work. A close freezes original features/proofs, result, context and post-lookup local availability time; failed publication retains this exact close rather than refetching a later price. An atomic/fsync-before-replace nonfinancial outbox admits the snapshot before native Parquet/journal publication, then retains a completed archive. New observation identity/checksum fields are separate from all financial trade/return/proof fields. Native schema-cast Parquet dedup confirms an identical retry without another row or write count; conflicts fail. Research events retain original close time and deduplicate exact observations under OS ownership; portfolio updates are atomic and preserve newer opening identity in memory and on disk across restart. Actual False/error feature failure now neither increments appended_shadow nor discards the shadow; confirmed managed closures increment once, including a drained cancellation followed by original acknowledgement.28 new cases include six native partial-publication fault windows, a real new-process replay, concurrent publishers, nullable results, frozen retries, receipt-time causality, opening-IO interlock and owner/cancellation behavior. Current focused/full-CI results are separately recorded below. This does not certify complete nonblocking scanner IO, open/partial crash recovery, provider market-asof/execution or profitable full strategy. Original sizing/risk/model activation contracts remain unchanged and all operational processes remain off.",
+  "acceptance": {
+    "valid_native_baseline": {
+      "tests": 2,
+      "failures": 2,
+      "causes": [
+        "False feature write increments success counter",
+        "Feature IO error still removes the shadow"
+      ]
+    },
+    "new_repository_cases": 28,
+    "repository_cases": 6375,
+    "working_collected_cases": 6376,
+    "working_only_case": "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline",
+    "focused": {
+      "working": {
+        "tests": 440,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 155.374
+      },
+      "publishing": {
+        "tests": 440,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 152.909
+      }
+    },
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "intermediate_checks": [
+      "Initial baseline fixture missed _seconds_from_opened_at; two NameErrors were fixture failures, not the accepted bug reproduction",
+      "Initial integration156passed1failed3warnings because an original AST runner fixture supplied a zero-argument coroutine for the new ready-aware owner; explicit adapter repaired the fixture without removing its assertions",
+      "Initial native integration49passed1failed on old JSON bool-as-int coercion; actual serializer now preserves bool type",
+      "Intermediate398 checks pass in each root but precede the added durable latest-opening identity check; not final-byte acceptance",
+      "Current95 targeted checks include native recovery and existing preflight acceptance scopes; complete current broader checks recorded separately"
+    ]
+  },
+  "outbox_contract": {
+    "path": "data/research/shadow_close_outbox",
+    "admission": "Original frozen observation atomically published in pending before either downstream sink",
+    "complete": "Moved to retained complete only after native feature and research publication confirmation",
+    "replay": "At most32 pending attempts per serial monitor tick; conflicts/corruption remain pending and emit identity/error-class diagnostics",
+    "identity": "shadow_<owned uuid>, canonical payload SHA256; idempotence integrity, not independent financial authentication",
+    "feature_confirmation": "True only; new native duplicate status confirms exact original schema-cast row without incrementing physical-write counter",
+    "appended_shadow": "Original managed shadow closure with features fully confirmed; not every attempted write or a claim of captured profit",
+    "durability_start": "After successful atomic outbox admission, not before that write or before observing a price",
+    "power_loss": "No universal hardware/filesystem or directory-sync power-loss guarantee"
+  },
+  "fixture_data_incident": {
+    "own_test_rows_appended_to_operator_ledger": 3,
+    "own_exact_last_rows_removed": 3,
+    "all_prior_bytes_preserved": true,
+    "restored_prefix_sha256": "afbcb9a90a254e16d41df52749a1dfcc880b7a51c95045fed144229ed6532cb5",
+    "fix": "Existing shadow-open unit fixture now routes actual decision writer to a temporary ledger; native lifecycle fixture explicitly isolates its separate decision boundary",
+    "scope": "Only proven current-stage rows restored; older/operator rows are untouched. Full private receipt and own removed suffix retained locally, not published"
+  },
+  "limits": [
+    "Original shadow tracking and open/partial snapshots before closure are still in memory; their complete crash recovery is separate",
+    "Synchronous legacy research callers can contend with the shared journal lock; independent serial ownership is not complete scanner nonblocking-IO or throughput acceptance",
+    "Idempotent event verification scans the existing journal; production-size latency and indexing remain unmeasured",
+    "Malformed journal or outbox records fail closed and remain unacknowledged; this does not claim historical corruption repair",
+    "Local post-lookup receipt time is not independently checked provider market-asof/depth or executable price",
+    "Legacy missing-entry-price peak provenance and all other original source/input-generation acceptance remain separate",
+    "No operational PAPER, provider request, operator fit/activation, AutoResearch, API/UI or LIVE was started",
+    "Synthetic isolated test model fits and PAPER lifecycles are software evidence, not actual trading or measured profitability",
+    "Full original architecture goal remains active, with all original remaining requirements retained; profit and zero future errors are not guaranteed"
+  ],
+  "preceding_ci_observation": {
+    "observed_at_utc": "2026-10-14T02:14:22.453730+00:00",
+    "tests": {
+      "headSha": "35e96e62b634092e495a50d8ccac1d0c9104bb2e",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38497115534",
+      "pytest_summaries": [
+        "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T01:42:57.5275636Z 1 passed in 4.28s",
+        "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-14T02:09:17.7080998Z 6347 passed, 1 warning in 1579.46s (0:26:19)",
+        "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T01:43:49.0563290Z 1 passed in 6.45s",
+        "test (windows-2022)\tRun python -m pytest -q\t2026-10-14T02:01:54.4685710Z 6347 passed, 1 warning in 1084.39s (0:18:04)"
+      ]
+    },
+    "strategy": {
+      "headSha": "35e96e62b634092e495a50d8ccac1d0c9104bb2e",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38497115480",
+      "pytest_summaries": [
+        "strategy-regression\tStrategy regression pytest suite\t2026-10-14T01:42:38.0540617Z 41 passed in 2.63s"
+      ]
+    },
+    "scope": "Dated parent-revision observation, not changed-source or financial acceptance"
+  },
+  "observed_at_utc": "2026-10-14T02:15:25.305954+00:00",
+  "shutdown": {
+    "observed_at_utc": "2026-10-14T02:15:24.6157185+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml_entrypoint_processes": 0,
+    "actual_ml_entrypoint_observed_at_utc": "2026-10-14T02:15:25.1017730+00:00"
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-14T02:15:25.295888+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "additional_restored_ledger_sha256": "afbcb9a90a254e16d41df52749a1dfcc880b7a51c95045fed144229ed6532cb5"
+  }
+}

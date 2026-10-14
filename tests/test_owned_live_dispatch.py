@@ -387,7 +387,7 @@ async def test_actual_runner_cannot_publish_stopped_while_execution_thread_is_li
         "_recover_buy_persistence_outbox": AsyncMock(), "_recover_close_persistence_outbox": AsyncMock(),
         "_refresh_green_live_risk": AsyncMock(return_value=True),
         "main_loop": main, "_dex_discovery_loop": dex,
-        "_position_monitor_loop": monitor, "control_command_loop": fault,
+        "_position_monitor_loop": monitor, "_shadow_monitor_loop": lambda ready: forever(), "control_command_loop": fault,
         "_periodic_labeler": forever, "runtime_state_loop": forever, "_background_tasks": set(),
         "_publish_runtime_state_once": publish, "_note_runtime_error": Mock(),
         "store_append": Mock(return_value=True), "_policy_feature_write_result": Mock(),

@@ -84,12 +84,12 @@ def test_older_close_cannot_remove_replaced_open_context(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_actual_shadow_tick_sends_unknown_label_to_features_and_journal():
+async def test_actual_shadow_tick_sends_unknown_label_to_features_and_journal(tmp_path):
     now = dt.datetime(2026, 10, 14, tzinfo=dt.timezone.utc)
     feature, journal = Mock(return_value=True), Mock()
     states = {"unpriced": {"opened_at": now - dt.timedelta(hours=4),
         "buy_price_usd": 1., "vec": {"address": "unpriced", "timestamp": now - dt.timedelta(hours=4)}}}
-    ns = {"List": List, "SimpleNamespace": SimpleNamespace, "utc_now": lambda: now,
+    ns = {"List": List, "SimpleNamespace": SimpleNamespace, "utc_now": lambda: now, "PROJECT_ROOT": tmp_path,
         "_shadow_positions": states, "_RESEARCH_SHADOW_USE_GECKO": True, "ML_POSITIVE_PNL_RATIO": .05,
         "_to_float": lambda value, *args: float(value) if value is not None else None,
         "exit_policy": SimpleNamespace(effective_exit_policy=lambda sd: SimpleNamespace(max_holding_h=1),

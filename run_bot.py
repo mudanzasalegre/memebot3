@@ -4241,6 +4241,7 @@ async def _open_shadow(
     """Crea una shadow position (solo modo real) cuando pasa IA pero no se compra."""
     if not force and (DRY_RUN or not REAL_SHADOW_SIM):
         return
+    shadow_payload = None
     try:
         if addr in _shadow_positions:
             return
@@ -4262,6 +4263,8 @@ async def _open_shadow(
         token_ctx.setdefault("score_total", vec.get("score_total"))
         runner_exit_profile = _runner_profile_for_subject(token_ctx)
         shadow_payload = {
+            "shadow_instance_id": uuid.uuid4().hex,
+            "opening_pending": True,
             "vec": vec,
             "opened_at": opened_at,
             "buy_price_usd": float(price) if price is not None else None,
@@ -4289,7 +4292,8 @@ async def _open_shadow(
         }
         _shadow_positions[addr] = shadow_payload
         open_rank_info = rank_info or research_runtime.score_candidate(token_ctx, proba=proba, threshold=threshold)
-        research_runtime.record_shadow_open(
+        from runtime.owned_thread import await_owned_thread
+        await await_owned_thread(research_runtime.record_shadow_open,
             addr,
             payload={
                 **open_rank_info,
@@ -4318,24 +4322,52 @@ async def _open_shadow(
                 "impact_zero_flag": token_ctx.get("impact_zero_flag"),
                 "profit_gate_reject_reasons": token_ctx.get("profit_gate_reject_reasons"),
                 "runner_exit_profile": runner_exit_profile,
+                "shadow_instance_id": shadow_payload["shadow_instance_id"],
             },
             shadow_kind=shadow_kind,
         )
         log.info("👻 Shadow %s creada: %s (buy_price_usd=%s)", shadow_kind, addr[:6], _fmt(price))
     except Exception as exc:
         log.debug("open_shadow %s → %s", addr[:6], exc)
+    finally:
+        # The serial shadow actor must not close before its opening IO owner
+        # finishes (including cancellation drain), or a late open could reopen it.
+        if shadow_payload is not None:
+            shadow_payload.pop("opening_pending", None)
 
 async def _tick_shadows() -> None:
     """Revisa sombras paralelas y las cierra con una simulación ligera de la policy de exits."""
     if not _shadow_positions:
         return
     now = utc_now()
-    to_delete: List[str] = []
+    from runtime.owned_thread import await_owned_thread
+    from runtime.shadow_closes import freeze_observation, persist_observation
+    from utils.runtime_context import runtime_context_payload
+    import uuid as shadow_uuid
+    to_delete = []
+
+    async def publish(address, original):
+        try:
+            await await_owned_thread(persist_observation, PROJECT_ROOT, original["close_observation"],
+                feature_writer=store_append, journal_writer=research_runtime.record_shadow_close)
+        except Exception as exc:
+            log.debug("shadow close remains pending %s -> %s", address[:6], type(exc).__name__)
+            return False
+        if original["close_observation"]["has_features"]:
+            _stats["appended_shadow"] += 1
+        return True
 
     for addr, sd in list(_shadow_positions.items()):
+        if sd.get("opening_pending"):
+            continue
+        if "close_observation" in sd:
+            if await publish(addr, sd):
+                to_delete.append((addr, sd))
+            continue  # Retry the original result, never look up a newer close price.
+        sd.setdefault("shadow_instance_id", shadow_uuid.uuid4().hex)
         opened = sd.get("opened_at")
         if not opened:
-            to_delete.append(addr)
+            to_delete.append((addr, sd))
             continue
         regime = str(sd.get("entry_regime") or "dex_mature")
         shadow_policy = exit_policy.effective_exit_policy(sd)
@@ -4357,6 +4389,10 @@ async def _tick_shadows() -> None:
                 close_price = await price_service.get_price_usd(addr, use_gt=_RESEARCH_SHADOW_USE_GECKO)
             except Exception:
                 close_price = None
+
+        # Label availability cannot precede the completion of its price lookup.
+        # This is local receipt time, not independent provider market-asof proof.
+        now = utc_now()
 
         pnl_pct_total = None
         label = None  # No final observation is not an observed losing trade.
@@ -4406,7 +4442,7 @@ async def _tick_shadows() -> None:
                     float(sd.get("peak_after_partial_pct") or 0.0),
                     float(pnl_ratio_partial * 100.0),
                 )
-                research_runtime.record_shadow_partial(
+                await await_owned_thread(research_runtime.record_shadow_partial,
                     addr,
                     pnl_pct=float(pnl_ratio_partial * 100.0),
                     fraction_sold=float(sell_fraction),
@@ -4437,29 +4473,9 @@ async def _tick_shadows() -> None:
         if pnl_pct_total is not None:
             sd["exit_from_peak_giveback_pct"] = max(0.0, float(sd.get("highest_pnl_pct") or 0.0) - float(pnl_pct_total))
 
-        vec = sd.get("vec")
-        if vec is not None:
-            try:
-                store_append(
-                    vec,
-                    label,
-                    target_total_pnl_pct=pnl_pct_total,
-                    sample_type="shadow_close",
-                    outcome_targets={"max_pnl_pct_seen": sd.get("max_pnl_pct_seen"), "outcome_closed_at": now},
-                )
-                _stats["appended_shadow"] += 1
-            except Exception as exc:
-                log.debug("store_append shadow %s → %s", addr[:6], exc)
-
-        research_runtime.record_shadow_close(
-            addr,
-            regime=regime,
-            pnl_pct=pnl_pct_total,
-            exit_reason=str(exit_reason),
-            label=label,
-            close_price_usd=close_price,
-            shadow_kind=str(sd.get("shadow_kind") or "execution"),
-            extra={
+        close = dict(regime=regime, pnl_pct=pnl_pct_total, exit_reason=str(exit_reason),
+            label=label, close_price_usd=close_price,
+            shadow_kind=str(sd.get("shadow_kind") or "execution"), extra={
                 "reason": sd.get("reason"),
                 "stage": sd.get("stage"),
                 "ml_proba": sd.get("ml_proba"),
@@ -4472,12 +4488,17 @@ async def _tick_shadows() -> None:
                 "time_to_peak_sec": sd.get("time_to_peak_sec"),
                 "peak_after_partial_pct": sd.get("peak_after_partial_pct"),
                 "exit_from_peak_giveback_pct": sd.get("exit_from_peak_giveback_pct"),
-            },
-        )
-        to_delete.append(addr)
+            })
+        context = {**runtime_context_payload(),
+            **dict(getattr(research_runtime, "_OPEN_SHADOWS", {}).get(addr, {}))}
+        sd["close_observation"] = freeze_observation(addr, sd.get("vec"), closed_at=now,
+            close=close, context=context, instance_id=sd["shadow_instance_id"])
+        if await publish(addr, sd):
+            to_delete.append((addr, sd))
 
-    for addr in to_delete:
-        _shadow_positions.pop(addr, None)
+    for addr, original in to_delete:
+        if _shadow_positions.get(addr) is original:
+            _shadow_positions.pop(addr, None)
 
 
 # ───────────────────────── helpers pool/route/DEX ───────────────────────────
@@ -9662,6 +9683,25 @@ async def _position_monitor_loop(ready: asyncio.Event) -> None:
         on_success=succeeded, on_error=failed)
 
 
+async def _shadow_monitor_loop(ready: asyncio.Event) -> None:
+    from runtime.loop_scheduler import poll_discovery
+    from runtime.owned_thread import await_owned_thread
+    from runtime.shadow_closes import replay_pending
+
+    async def tick():
+        recovered = await await_owned_thread(replay_pending, PROJECT_ROOT)
+        if recovered["failed"]:
+            log.warning("Shadow close recovery remains pending (%d errors)", recovered["failed"])
+        await _tick_shadows()
+
+    def failed(exc):
+        _note_runtime_error("tick_shadows", exc)
+        log.debug("tick_shadows -> %s", type(exc).__name__)
+
+    await poll_discovery(ready=ready, tick=tick, interval=lambda: SLEEP_SECONDS,
+        enabled=lambda: True, on_error=failed)
+
+
 async def _dex_discovery_loop(ready: asyncio.Event) -> None:
     from runtime.loop_scheduler import poll_discovery
 
@@ -10058,12 +10098,7 @@ async def main_loop(*, positions_ready: asyncio.Event | None = None,
             except Exception as exc:
                 log.warning("Runner forward research unavailable: %s", type(exc).__name__)
 
-        if _shadow_positions or (not DRY_RUN and REAL_SHADOW_SIM):
-            try:
-                await _tick_shadows()
-            except Exception as exc:
-                _note_runtime_error("tick_shadows", exc)
-                log.debug("tick_shadows → %s", exc)
+        # Shadow price/recovery work has one independent serial owner.
 
         # 5) Métricas embudo + estado cola
         if (now_mono := time.monotonic()) - _last_stats_print >= 60:
@@ -10130,6 +10165,7 @@ async def _runner() -> None:
                 hot_queue_enabled=hot_queue_enabled)),
             ("dex-discovery", _dex_discovery_loop(positions_ready)),
             ("position-monitor", _position_monitor_loop(positions_ready)),
+            ("shadow-monitor", _shadow_monitor_loop(positions_ready)),
             ("periodic-labeler", _periodic_labeler()),
             ("control-commands", control_command_loop()),
             ("runtime-state", runtime_state_loop()),

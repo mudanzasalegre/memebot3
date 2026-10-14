@@ -151,6 +151,7 @@ CRITICAL_MODULES = [
     "ml/training_lock.py",
     "ml/runner_advisory_learning.py",
     "runtime/owned_thread.py",
+    "runtime/shadow_closes.py",
     "runtime/hot_queue.py",
     "runtime/loop_scheduler.py",
     "trader/papertrading.py",

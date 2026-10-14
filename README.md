@@ -13,6 +13,24 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Cierres shadow: observacion congelada y recuperacion (2026-10-14)
+
+El seguimiento de sombras tiene un propietario serial independiente de la
+entrada. Al cerrar, congela features, resultado y hora de disponibilidad tras
+la consulta de precio. El IO se ejecuta en un hilo cuya terminacion sigue
+siendo propiedad del bot, incluso ante cancelaciones repetidas.
+
+Un outbox atomico conserva el cierre antes de publicarlo. Los reintentos y el
+reinicio no vuelven a calcular el precio; Parquet y journal usan una identidad
+de observacion no financiera. Solo se retira la sombra tras confirmar ambos.
+Un cierre antiguo no cierra una apertura nueva, tampoco tras reiniciar.
+
+Se verifican ventanas de fallo y recuperacion con archivos temporales y un
+proceso nuevo. Esta etapa no certifica beneficio, precio ejecutable ni todo el
+rendimiento del scanner: otros journals sincronos pueden contender por sus
+locks, y las aperturas/parciales aun no tienen recuperacion durable completa.
+[Auditoria y limites](docs/audits/shadow_close_recovery_20261014.json).
+
 ### Cierres simulados y picos conocidos sin retorno final (2026-10-14)
 
 Un cierre sin precio/retorno observado conserva `label=null`: no se convierte

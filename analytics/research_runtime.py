@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from functools import wraps
 import json
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -16,6 +18,8 @@ from config.config import CFG, PROJECT_ROOT
 from ml.data_contract import normalize_candidate_event_row
 from utils.runtime_context import runtime_context_payload
 from utils.time import utc_now
+from utils.atomic_json import write_json_atomic
+from utils.file_ownership import exclusive_file_guard
 
 try:
     from features.decision_store import append_decision
@@ -34,7 +38,7 @@ RESEARCH_SCORECARD_MD = METRICS_DIR / "research_scorecard.md"
 RESEARCH_THRESHOLDS_JSON = METRICS_DIR / "research_thresholds.json"
 RESEARCH_PORTFOLIO_PATH = PROJECT_ROOT / "data" / "research_portfolio.json"
 
-_LOCK = threading.Lock()
+_LOCK = threading.RLock()
 _SEEN: dict[str, float] = {}
 _OPEN_SHADOWS: dict[str, dict[str, Any]] = {}
 _LIVE_CONTEXT: dict[str, dict[str, Any]] = {}
@@ -63,6 +67,8 @@ def _read_json_file(path: Path) -> dict[str, Any] | None:
 
 
 def _json_safe(value: Any) -> Any:
+    if isinstance(value, bool):
+        return value
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, datetime):
@@ -131,11 +137,11 @@ def _event_dedup(key: str, ttl_s: int) -> bool:
     return False
 
 
-def _write_event(event_type: str, address: str, **payload: Any) -> dict[str, Any]:
+def _write_event(event_type: str, address: str, *, observed_at: datetime | None = None, **payload: Any) -> dict[str, Any]:
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
     RESEARCH_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     row = {
-        "ts_utc": utc_now().isoformat(),
+        "ts_utc": (observed_at or utc_now()).isoformat(),
         "event_type": str(event_type),
         "address": str(address),
     }
@@ -147,25 +153,49 @@ def _write_event(event_type: str, address: str, **payload: Any) -> dict[str, Any
     row["address"] = str(address)
     row = normalize_candidate_event_row(row)
     line = json.dumps(row, ensure_ascii=True)
-    with _LOCK:
+    guard = RESEARCH_EVENTS_PATH.with_name(RESEARCH_EVENTS_PATH.name + ".guard")
+    with _LOCK, exclusive_file_guard(guard, deadline=time.monotonic() + 30., poll_seconds=.05):
+        identity = row.get("outcome_observation_id")
+        if identity and RESEARCH_EVENTS_PATH.exists():
+            matches = []
+            with RESEARCH_EVENTS_PATH.open("r", encoding="utf-8") as fh:
+                for saved in fh:
+                    existing = json.loads(saved)
+                    if existing.get("outcome_observation_id") == identity:
+                        matches.append(existing)
+            if matches:
+                if len(matches) != 1 or matches[0] != row:
+                    raise ValueError("Conflicting or duplicated shadow research observation")
+                with RESEARCH_EVENTS_PATH.open("r+b") as durable:
+                    os.fsync(durable.fileno())
+                return row
         with RESEARCH_EVENTS_PATH.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
     return row
 
 
 def _load_portfolio() -> dict[str, Any]:
-    try:
-        return json.loads(RESEARCH_PORTFOLIO_PATH.read_text(encoding="utf-8")) or {}
-    except Exception:
+    if not RESEARCH_PORTFOLIO_PATH.exists():
         return {}
+    payload = json.loads(RESEARCH_PORTFOLIO_PATH.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Research portfolio must be an object")
+    return payload
 
 
 def _save_portfolio(payload: dict[str, Any]) -> None:
-    RESEARCH_PORTFOLIO_PATH.parent.mkdir(parents=True, exist_ok=True)
-    RESEARCH_PORTFOLIO_PATH.write_text(
-        json.dumps(_json_safe(payload), indent=2),
-        encoding="utf-8",
-    )
+    write_json_atomic(RESEARCH_PORTFOLIO_PATH, _json_safe(payload))
+
+
+def _owned_shadow_io(function):
+    @wraps(function)
+    def owned(*args, **kwargs):
+        guard = RESEARCH_PORTFOLIO_PATH.with_name(RESEARCH_PORTFOLIO_PATH.name + ".guard")
+        with _LOCK, exclusive_file_guard(guard, deadline=time.monotonic() + 30., poll_seconds=.05):
+            return function(*args, **kwargs)
+    return owned
 
 
 def _shadow_counts_by_regime() -> dict[str, int]:
@@ -662,6 +692,7 @@ def should_open_shadow(
     return True, "open_shadow"
 
 
+@_owned_shadow_io
 def record_shadow_open(
     address: str,
     *,
@@ -706,6 +737,7 @@ def record_shadow_open(
         log.debug("decision ledger shadow append %s -> %s", address[:6], exc)
 
 
+@_owned_shadow_io
 def record_shadow_partial(
     address: str,
     *,
@@ -726,6 +758,7 @@ def record_shadow_partial(
     )
 
 
+@_owned_shadow_io
 def record_shadow_close(
     address: str,
     *,
@@ -736,14 +769,20 @@ def record_shadow_close(
     close_price_usd: float | None = None,
     shadow_kind: str = "research",
     extra: dict[str, Any] | None = None,
+    observation_id: str | None = None,
+    observation_sha256: str | None = None,
+    observed_at: datetime | None = None,
+    context_snapshot: dict[str, Any] | None = None,
+    shadow_instance_id: str | None = None,
 ) -> None:
     address = str(address or "").strip()
     if not address:
         return
     original_context = _OPEN_SHADOWS.get(address)
-    context = dict(original_context or {})
+    context = dict(context_snapshot if context_snapshot is not None else original_context or {})
     reserved = {"address", "event_type", "ts_utc", "source", "regime", "pnl_pct",
-                "exit_reason", "label", "close_price_usd", "shadow_kind", "closed_at"}
+                "exit_reason", "label", "close_price_usd", "shadow_kind", "closed_at",
+                "outcome_observation_id", "outcome_observation_sha256"}
     payload = {str(key): value for key, value in context.items() if str(key) not in reserved}
     if extra:
         payload.update({str(key): value for key, value in extra.items() if str(key) not in reserved})
@@ -759,13 +798,33 @@ def record_shadow_close(
         "label": int(label) if label is not None and observed_return is not None else None,
         "close_price_usd": _to_float(close_price_usd),
     })
-    _write_event("candidate_outcome", address, **payload)
+    closed_at = observed_at or utc_now()
+    if observation_id:
+        payload.update(outcome_observation_id=observation_id, outcome_observation_sha256=observation_sha256)
+    _write_event("candidate_outcome", address, observed_at=closed_at, **payload)
 
     portfolio = _load_portfolio()
+    latest_instance = portfolio.get(address, {}).get("shadow_instance_id")
+    if (shadow_instance_id is not None and latest_instance is not None
+            and latest_instance != shadow_instance_id):
+        # On process restart the in-memory context is empty. The durable latest
+        # opening still owns its address slot; retain it instead of reopening or
+        # closing it with this older observation.
+        if (original_context is not None
+                and original_context.get("shadow_instance_id") == shadow_instance_id
+                and _OPEN_SHADOWS.get(address) is original_context):
+            _OPEN_SHADOWS.pop(address, None)
+        return
+    # A recovered older close may publish its archive/event, but not close a
+    # newer opening in the address-keyed latest portfolio.
+    if (shadow_instance_id is not None and original_context is not None
+            and original_context.get("shadow_instance_id") != shadow_instance_id):
+        return
+
     row = dict(portfolio.get(address, {}))
     row.update(_json_safe(payload))
     row["closed"] = True
-    row["closed_at"] = utc_now().isoformat()
+    row["closed_at"] = closed_at.isoformat()
     portfolio[address] = row
     _save_portfolio(portfolio)
     # IO failure must not discard the original opening context. A concurrent

@@ -324,7 +324,7 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
     monkeypatch.setattr(research, "stop_background_tasks", stop_research)
     async def publish():
         assert namespace["_runtime_process_state"] == "stopped"
-        expected = {"recovery", "archive_recovery", "main", "monitor", "labeler", "state", "background", "social", "research", "trade_export", "dex", "socket"}
+        expected = {"recovery", "archive_recovery", "main", "monitor", "shadow", "labeler", "state", "background", "social", "research", "trade_export", "dex", "socket"}
         if hot_enabled:
             expected.add("pump")
         assert cleaned == expected
@@ -338,6 +338,7 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
         "_recover_buy_persistence_outbox": buy_recovery,
         "main_loop": main, "_position_monitor_loop": monitor, "_periodic_labeler": lambda: loop("labeler"),
         "_dex_discovery_loop": lambda ready: loop("dex"),
+        "_shadow_monitor_loop": lambda ready: loop("shadow"),
         "_pump_discovery_loop": lambda ready: loop("pump"),
         "runtime_state_loop": lambda: loop("state"), "control_command_loop": fault,
         "_background_tasks": {task}, "_publish_runtime_state_once": publish,

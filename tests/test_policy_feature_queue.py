@@ -348,7 +348,7 @@ async def test_actual_runner_cannot_publish_stopped_until_policy_worker_drains(m
         pumpfun=SimpleNamespace(stop_background_tasks=AsyncMock()), store_append=writer,
         async_init_db=AsyncMock(), SessionLocal=Session, _recover_buy_persistence_outbox=AsyncMock(),
         _recover_close_persistence_outbox=AsyncMock(), _refresh_green_live_risk=AsyncMock(),
-        main_loop=main, _dex_discovery_loop=forever, _position_monitor_loop=forever,
+        main_loop=main, _dex_discovery_loop=forever, _position_monitor_loop=forever, _shadow_monitor_loop=forever,
         _periodic_labeler=forever, control_command_loop=fault, runtime_state_loop=forever,
         _background_tasks=set(), _publish_runtime_state_once=publish,
         log=SimpleNamespace(info=Mock(), error=Mock(), warning=Mock()))
