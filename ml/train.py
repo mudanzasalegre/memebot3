@@ -297,7 +297,7 @@ def _load_one(path: str) -> pd.DataFrame:
     return _coerce_timestamp(df)
 
 
-def _load_dataset() -> pd.DataFrame:
+def _load_dataset(*, require_label: bool = True) -> pd.DataFrame:
     files = _feature_files()
     if not files:
         resolved = pathlib.Path(DATA_DIR).resolve()
@@ -321,13 +321,15 @@ def _load_dataset() -> pd.DataFrame:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
     if "label" not in df.columns:
-        raise ValueError("El dataset no contiene la columna 'label'")
+        if require_label:
+            raise ValueError("El dataset no contiene la columna 'label'")
+        df["label"] = np.nan
     from ml.financial_targets import apply_checked_net_returns
     df = apply_checked_net_returns(df)
-    df = df.dropna(subset=["label"]).copy()
     df["label"] = pd.to_numeric(df["label"], errors="coerce")
-    df = df.dropna(subset=["label"]).copy()
-    df["label"] = df["label"].astype(int)
+    if require_label:
+        df = df.dropna(subset=["label"]).copy()
+        df["label"] = df["label"].astype(int)
 
     if "mint" not in df.columns:
         if "address" in df.columns:

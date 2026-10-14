@@ -732,7 +732,7 @@ def record_shadow_close(
     regime: str,
     pnl_pct: float | None,
     exit_reason: str,
-    label: int,
+    label: int | None,
     close_price_usd: float | None = None,
     shadow_kind: str = "research",
     extra: dict[str, Any] | None = None,
@@ -740,19 +740,25 @@ def record_shadow_close(
     address = str(address or "").strip()
     if not address:
         return
-    context = dict(_OPEN_SHADOWS.pop(address, {}))
-    payload = {
+    original_context = _OPEN_SHADOWS.get(address)
+    context = dict(original_context or {})
+    reserved = {"address", "event_type", "ts_utc", "source", "regime", "pnl_pct",
+                "exit_reason", "label", "close_price_usd", "shadow_kind", "closed_at"}
+    payload = {str(key): value for key, value in context.items() if str(key) not in reserved}
+    if extra:
+        payload.update({str(key): value for key, value in extra.items() if str(key) not in reserved})
+    observed_return = _to_float(pnl_pct)
+    if observed_return is not None and not np.isfinite(observed_return):
+        observed_return = None
+    payload.update({
         "source": "research_shadow",
         "shadow_kind": str(shadow_kind),
         "regime": _normalize_regime(regime),
-        "pnl_pct": _to_float(pnl_pct),
+        "pnl_pct": observed_return,
         "exit_reason": str(exit_reason or ""),
-        "label": int(label),
+        "label": int(label) if label is not None and observed_return is not None else None,
         "close_price_usd": _to_float(close_price_usd),
-    }
-    payload.update(context)
-    if extra:
-        payload.update(extra)
+    })
     _write_event("candidate_outcome", address, **payload)
 
     portfolio = _load_portfolio()
@@ -762,6 +768,10 @@ def record_shadow_close(
     row["closed_at"] = utc_now().isoformat()
     portfolio[address] = row
     _save_portfolio(portfolio)
+    # IO failure must not discard the original opening context. A concurrent
+    # replacement also cannot be removed by this older close attempt.
+    if original_context is not None and _OPEN_SHADOWS.get(address) is original_context:
+        _OPEN_SHADOWS.pop(address, None)
 
 
 def record_live_trade_close(

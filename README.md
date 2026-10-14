@@ -13,6 +13,25 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Cierres simulados y picos conocidos sin retorno final (2026-10-14)
+
+Un cierre sin precio/retorno observado conserva `label=null`: no se convierte
+en una perdida. Los valores del cierre prevalecen sobre contexto antiguo y el
+contexto de apertura se conserva si falla el journal o el portfolio; un cierre
+antiguo tampoco elimina una apertura nueva del mismo token.
+
+El lector de familias conserva filas sin etiqueta final. Un pico conocido
+puede aportar una etiqueta de runner, incluso por encima del 10.000%, sin
+inventar retorno realizado. Siguen vigentes los filtros de muestra, lane, DEX,
+tiempo y prueba financiera. El modelo primario sigue exigiendo su etiqueta.
+
+Pasan 251 pruebas enfocadas por carpeta, incluidos 20 casos nuevos; se recogen
+6.347 casos de repositorio. La CI completa de esta revision queda pendiente.
+No se ha ejecutado entrenamiento operativo ni trading. Aun quedan por cerrar
+la escritura sincrona y la recuperacion/idempotencia completa de estos cierres:
+un evento escrito antes de un fallo del portfolio puede repetirse al reintentar.
+[Evidencia y limites](docs/audits/shadow_close_observation_integrity_20261014.json).
+
 ### Scanner: rechazos sin escritura de disco en la entrada (2026-10-14)
 
 Las muestras de rechazo de politica pasan ahora por una cola propia limitada

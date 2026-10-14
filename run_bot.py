@@ -4359,7 +4359,7 @@ async def _tick_shadows() -> None:
                 close_price = None
 
         pnl_pct_total = None
-        label = 0
+        label = None  # No final observation is not an observed losing trade.
         peak = float(sd.get("highest_pnl_pct") or 0.0)
         pnl_pct_live = None
         if buy_price and close_price:

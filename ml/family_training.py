@@ -80,7 +80,9 @@ def _json_safe(value: Any) -> Any:
 def load_training_frame(frame: pd.DataFrame | None = None) -> pd.DataFrame:
     if frame is not None:
         return attach_labels(frame.copy())
-    df = _load_dataset()
+    # A known peak target does not require a known terminal return/primary label.
+    # Each family still applies its own observed-target and temporal masks.
+    df = _load_dataset(require_label=False)
     df, _meta = _filter_outcome_training_rows(df)
     return attach_labels(enrich_outcome_targets(df, PROJECT_ROOT))
 

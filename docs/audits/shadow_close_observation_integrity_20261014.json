@@ -1,0 +1,163 @@
+{
+  "status": "SHADOW_UNKNOWN_OUTCOMES_AND_NULLABLE_FAMILY_SOURCE_FOCUSED_ACCEPTED_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "2bdf85fb2c36978186eec871f26ceaaa7d0282e3",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 821,
+      "sha256": "32bffd54bcd6e419b6636dda24cd0f18dc77e54d106aee8de67cdd9f21efcea3"
+    },
+    {
+      "checkout": "publishing",
+      "files": 821,
+      "sha256": "32bffd54bcd6e419b6636dda24cd0f18dc77e54d106aee8de67cdd9f21efcea3"
+    }
+  ],
+  "summary": "Actual shadow ticks now pass unknown final return and label as None rather than inventing a losing label. The native research close writer accepts nullable labels, rejects nonfinite returns, owns close values over stale context/extra data, and retains its exact original opening context until event and portfolio writes succeed. It cannot remove a newer replacement opening. Native shared source loading optionally retains missing primary labels; family loading uses this mode while primary loading keeps its original label requirement. Real temporary CSV/Parquet and native family filters retain a known25000-percent peak and runner10000 target without inventing realized EV; unknown peaks remain unlabelled, policy rejects and invalid declared financial proof remain excluded. Original sample/lane/DEX, temporal, financial, sizing and activation contracts are not relaxed.20 new cases and251 focused tests pass in each root without skips;6347 repository cases plus the original private D timeout fixture are collected. The changed full two-OS CI, durable/idempotent shadow close publication, independent shadow scheduling, real opportunity capture and prospective financial acceptance remain incomplete. No operational PAPER, fit, activation, AutoResearch, API/UI or LIVE run was started.",
+  "implementation": {
+    "run_bot.py": "Unknown final shadow label stays None; known final return threshold behavior is unchanged",
+    "analytics/research_runtime.py": "Authoritative close fields, nullable observed return/label, original context retained on write errors and replacement identity preserved",
+    "ml/train.py": "Optional require_label=False retains nullable raw source; primary default still requires known numeric labels",
+    "ml/family_training.py": "Requests nullable source, then retains existing sample/lane/DEX/financial filtering and per-target temporal acceptance"
+  },
+  "acceptance": {
+    "baseline": {
+      "tests": 2,
+      "failures": 2,
+      "causes": [
+        "int(None) rejected an unknown label",
+        "Event IO error discarded opening context before success"
+      ]
+    },
+    "new_repository_cases": 20,
+    "repository_cases": 6347,
+    "working_collected_cases": 6348,
+    "working_only_case": "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline",
+    "focused": {
+      "working": {
+        "tests": 251,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 140.443
+      },
+      "publishing": {
+        "tests": 251,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 140.468
+      }
+    },
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "native_observations": [
+      "Native temporary journal: None/NaN/positive and negative infinity cannot produce a losing label or a numeric return",
+      "Zero, negative and positive observed returns retain their actual close label and override stale context identity",
+      "Native event or portfolio IO failures retain the original opening context; older completion cannot remove a replacement",
+      "Actual AST-extracted shadow tick sends unknown return/label to its feature and research boundaries; these two boundary writers are mocked in this one case",
+      "Actual temporary CSV/Parquet through native family loading retains known peak and original T0, leaves unknown peak unlabelled, excludes policy rejection and invalid declared financial proof",
+      "No operational model weights are loaded or fitted by this stage; other focused test fits use synthetic isolated artifacts"
+    ],
+    "intermediate_failures_retained": [
+      "First broad invocation referenced nonexistent test_label_builder_regime_targets.py: no tests ran in either root; not acceptance",
+      "Initial fixture tried setting a missing property on frozen CFG:4failed16passed4errors; fixture repaired without unfreezing operator CFG",
+      "Strengthened native-family fixture initially allowed a pre-normalization lane alias:4failed16passed; explicit canonical research lane fixes the fixture, with no production filter/config change"
+    ]
+  },
+  "limits": [
+    "Research event append can succeed before portfolio failure; retry can duplicate a journal event. This stage does not claim durable or idempotent close publication",
+    "Portfolio publication remains non-atomic and synchronous; _tick_shadows still shares the candidate main-loop path",
+    "Shadow feature append failure/False handling, exact frozen retry outcome and crash recovery remain separate required work",
+    "Known observed peak is not executable captured profit, an independently verified market price or a financial net-return proof",
+    "Current family source preservation is not activation approval; original target-specific temporal and provenance requirements remain mandatory",
+    "No established historical no-buy cause or measured profitability follows from these source fixes",
+    "No new provider request, operational PAPER, fit/activation, AutoResearch, API/UI or LIVE action was started",
+    "Full original architecture goal remains active; future profit and absence of all future errors cannot be guaranteed"
+  ],
+  "preceding_ci_observation": {
+    "observed_at_utc": "2026-10-14T01:36:21.457139+00:00",
+    "tests": {
+      "headSha": "2bdf85fb2c36978186eec871f26ceaaa7d0282e3",
+      "status": "in_progress",
+      "conclusion": "",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38493950223"
+    },
+    "strategy": {
+      "headSha": "2bdf85fb2c36978186eec871f26ceaaa7d0282e3",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38493950104",
+      "pytest_summaries": [
+        "strategy-regression\tStrategy regression pytest suite\t2026-10-14T01:08:14.3131422Z 41 passed in 3.60s"
+      ]
+    },
+    "scope": "Dated parent-revision observation, not current-source or financial acceptance"
+  },
+  "preceding_complete_ci": {
+    "observed_at_utc": "2026-10-14T01:41:10.129714+00:00",
+    "headSha": "2bdf85fb2c36978186eec871f26ceaaa7d0282e3",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38493950223",
+    "pytest_summaries": [
+      "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T01:08:10.6383077Z 1 passed in 4.26s",
+      "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-14T01:34:05.1625949Z 6327 passed, 1 warning in 1553.87s (0:25:53)",
+      "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T01:09:18.3314983Z 1 passed in 6.47s",
+      "test (windows-2022)\tRun python -m pytest -q\t2026-10-14T01:39:29.4717303Z 6327 passed, 1 warning in 1809.96s (0:30:09)"
+    ],
+    "scope": "Parent6327 complete CI, not the changed nullable shadow/family source or financial acceptance"
+  },
+  "observed_at_utc": "2026-10-14T01:41:33.447966+00:00",
+  "shutdown": {
+    "observed_at_utc": "2026-10-14T01:41:32.7709401+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml_entrypoint_processes": 0,
+    "actual_ml_entrypoint_observed_at_utc": "2026-10-14T01:41:33.2448141+00:00"
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-14T01:41:33.437822+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    }
+  }
+}
