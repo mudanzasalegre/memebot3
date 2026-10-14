@@ -3337,9 +3337,15 @@ def _research_stage(
             proba=proba,
             threshold=threshold,
             rank_info=rank_info,
+            queued_only=True,
         )
     except Exception as exc:
         log.debug("research stage %s %s → %s", stage, str(token.get("address") or "")[:6], exc)
+    finally:
+        snapshot = research_runtime.candidate_write_stats()
+        if snapshot is not None:
+            for key in ('admitted', 'persisted', 'failed', 'dropped', 'pending'):
+                _stats['candidate_event_' + key] = snapshot[key]
 
 
 def _research_decision(
@@ -3372,9 +3378,15 @@ def _research_decision(
             rank_info=rank_info,
             shadow_kind=shadow_kind,
             dedup_ttl_s=dedup_ttl_s,
+            queued_only=True,
         )
     except Exception as exc:
         log.debug("research decision %s %s %s → %s", action, reason, str(token.get("address") or "")[:6], exc)
+    finally:
+        snapshot = research_runtime.candidate_write_stats()
+        if snapshot is not None:
+            for key in ('admitted', 'persisted', 'failed', 'dropped', 'pending'):
+                _stats['candidate_event_' + key] = snapshot[key]
 
 
 def _record_blocked_before_buy_metric(
@@ -10139,6 +10151,8 @@ async def _runner() -> None:
     global _runtime_process_state, _POLICY_FEATURE_WRITER
     _runtime_process_state = "starting"
     policy_writer = None
+    candidate_writer = None
+    from analytics import research_runtime as candidate_runtime
     try:
         from runtime.owned_dispatch import open_dispatch
         open_dispatch()
@@ -10157,6 +10171,18 @@ async def _runner() -> None:
         policy_writer = PolicyWriteQueue(store_append, on_result=_policy_feature_write_result)
         policy_writer.start()
         _POLICY_FEATURE_WRITER = policy_writer
+        from runtime.candidate_events import CandidateEventWriter
+        def candidate_written(context, written, error):
+            candidate_runtime.finish_candidate_admission(context, written, error)
+            snapshot = candidate_writer.snapshot()
+            for key in ('admitted', 'persisted', 'failed', 'dropped', 'pending'):
+                _stats['candidate_event_' + key] = snapshot[key]
+            if error is not None:
+                _note_runtime_error('candidate_event_write', error)
+                log.warning('Candidate telemetry persistence failed: %s', type(error).__name__)
+        candidate_writer = CandidateEventWriter(candidate_runtime.publish_candidate_event, on_result=candidate_written)
+        candidate_writer.start()
+        candidate_runtime.install_candidate_writer(candidate_writer)
         from runtime.loop_scheduler import supervise
         positions_ready = asyncio.Event()
         hot_queue_enabled = bool(getattr(CFG, "HOT_QUEUE_ENABLED", True))
@@ -10195,14 +10221,26 @@ async def _runner() -> None:
         # ``running`` row after the process has already exited.
         async def finish_shutdown():
             global _runtime_process_state, _POLICY_FEATURE_WRITER
+            writer_errors = []
             pending = list(_background_tasks)
             for task in pending:
                 task.cancel()
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
+            if candidate_writer is not None:
+                try:
+                    await candidate_writer.close()
+                except BaseException as exc:
+                    writer_errors.append(exc)
+                if candidate_writer.snapshot()['closed']:
+                    candidate_runtime.remove_candidate_writer(candidate_writer)
             if policy_writer is not None:
-                await policy_writer.close()
-                _POLICY_FEATURE_WRITER = None
+                try:
+                    await policy_writer.close()
+                except BaseException as exc:
+                    writer_errors.append(exc)
+                if policy_writer.snapshot()['closed']:
+                    _POLICY_FEATURE_WRITER = None
             # Feed owners above are drained; sockets and execution owners must
             # also finish before stopped state is visible.
             await pumpfun.stop_background_tasks()
@@ -10212,11 +10250,16 @@ async def _runner() -> None:
             await stop_background_tasks()
             from runtime.owned_dispatch import drain_dispatch
             await drain_dispatch()
+            if any(writer is not None and not writer.snapshot()['closed']
+                   for writer in (candidate_writer, policy_writer)):
+                raise RuntimeError('An owned writer is still live; stopped publication withheld')
             _runtime_process_state = "stopped"
             try:
                 await _publish_runtime_state_once()
             except Exception as publish_exc:
                 log.error("runtime state final publish → %s", publish_exc)
+            if writer_errors:
+                raise writer_errors[0]
         cleanup = asyncio.create_task(finish_shutdown(), name="owned-runtime-shutdown")
         cancelled = None
         while not cleanup.done():

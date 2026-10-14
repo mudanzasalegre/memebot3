@@ -13,6 +13,26 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Entrada: stages y decisiones con escritor propio (2026-10-14)
+
+Los registros de investigacion de candidatos ya se preparan en la entrada y
+se escriben desde una cola propia, limitada a 256 trabajos incluido el activo,
+con un solo hilo. Hora, contexto y valores originales se congelan al admitir
+la muestra; la espera por el journal no bloquea estas llamadas de entrada.
+
+Admision, persistencia, fallo, descarte y pendiente se distinguen. Saturacion
+o fallo no dejan una deduplicacion falsa; un fallo antiguo no borra una
+admision nueva. El contexto de una compra real ya confirmada queda disponible
+antes de la escritura, tambien si su telemetria se descarta o deduplica.
+Los cierres financieros no entran en esta cola diagnostica en memoria.
+
+La parada drena el escritor antes de `stopped` y conserva los errores incluso
+si deben terminar otras limpiezas primero. Todavia hay otros sinks sincronos,
+y no se promete conservar diagnosticos ante saturacion o caida del proceso.
+La CI anterior fallo en Windows en coherencia de edad/RPC; el motivo exacto
+sigue sin estar demostrado. Se conservan los asserts y se amplian diagnosticos.
+[Evidencia y limites](docs/audits/candidate_event_persistence_20261014.json).
+
 ### Cierres shadow: observacion congelada y recuperacion (2026-10-14)
 
 El seguimiento de sombras tiene un propietario serial independiente de la

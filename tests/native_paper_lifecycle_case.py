@@ -84,6 +84,24 @@ from utils.auxiliary_observation import observation
 from analytics.token_birth import FIELD
 from sqlalchemy import select
 from db.models import Position, TradeEvent
+from features import token_clock_semantics as native_clock
+clock_failures = []
+original_clock_capture = native_clock.capture_clock_proof
+def diagnose_original_clock_capture(vector, token):
+    try:
+        return original_clock_capture(vector, token)
+    except (ValueError, TypeError, KeyError, OverflowError) as exc:
+        row = vector.to_dict() if hasattr(vector, 'to_dict') else dict(vector)
+        from analytics.token_time import _to_datetime
+        stamp = _to_datetime(row.get('timestamp'))
+        inputs = native_clock._inputs(token)
+        clock_failures.append({'error':str(exc),'type':type(exc).__name__,
+            'timestamp':stamp.isoformat() if stamp else None,
+            'vector_ages':{name:row.get(name) for name in native_clock.AGE_FEATURES},
+            'expected_ages':native_clock._ages(inputs,stamp) if stamp else None,
+            'inputs':inputs,'birth_received_at':token.get(FIELD,{}).get('received_at')})
+        raise
+native_clock.capture_clock_proof = diagnose_original_clock_capture
 calls = []
 factor = 1.
 born = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=3)
@@ -192,6 +210,12 @@ sol_price.get_sol_usd_observation = fx
 async def exercise():
     global factor
     await run_bot.async_init_db()
+    from analytics import research_runtime as candidate_runtime
+    from runtime.candidate_events import CandidateEventWriter
+    candidate_writer = CandidateEventWriter(candidate_runtime.publish_candidate_event,
+        on_result=candidate_runtime.finish_candidate_admission)
+    candidate_writer.start()
+    candidate_runtime.install_candidate_writer(candidate_writer)
     run_bot._wallet_sol_balance = 10.
     report = {'progression':[]}
     try:
@@ -210,6 +234,7 @@ async def exercise():
                         'position_dry_run':[p.dry_run for p in positions],
                         'boundary_calls':calls,'stats':run_bot._stats,
                         'runtime_last_error':run_bot._runtime_last_error,
+                        'clock_validation_failures':clock_failures[-5:],
                         'birth_enrichment':token_birth_enrichment_snapshot(),
                         'decisions':[{'event':e.get('event_type') or e.get('event'),
                             'reason':e.get('reason'),'stage':e.get('stage'),
@@ -274,6 +299,10 @@ async def exercise():
             report['pending_buys'] = len(run_bot._BUY_RECOVERY.pending_addresses)
             report['pending_sells'] = len(run_bot._SELL_RECOVERY.pending_addresses)
     finally:
+        await candidate_writer.close()
+        candidate_runtime.remove_candidate_writer(candidate_writer)
+        for key in ('admitted', 'persisted', 'failed', 'dropped', 'pending'):
+            run_bot._stats['candidate_event_' + key] = candidate_writer.snapshot()[key]
         await jupiter_price.aclose()
         await engine.dispose()
     return report

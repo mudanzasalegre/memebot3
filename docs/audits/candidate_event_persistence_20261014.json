@@ -1,0 +1,166 @@
+{
+  "status": "BOUNDED_CANDIDATE_DIAGNOSTICS_OFF_ENTRY_LOOP_FOCUSED_ACCEPTED_PARENT_WINDOWS_FAILURE_RETAINED_CURRENT_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "c77171cfee3cf13debe06fd91db24c1598170525",
+  "implementation_revision": "Commit containing this audit; normalized source identity below",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 825,
+      "sha256": "5bd6d255847e9310492f389ec77f08cec7994d216337544cf7e5ba8bd9bb997a"
+    },
+    {
+      "checkout": "publishing",
+      "files": 825,
+      "sha256": "5bd6d255847e9310492f389ec77f08cec7994d216337544cf7e5ba8bd9bb997a"
+    }
+  ],
+  "summary": "Actual candidate stage/decision wrappers prohibit unmanaged inline disk fallback. Native runtime starts a bounded256-work candidate diagnostic writer with one dedicated owned thread; the budget includes active work. Preparation freezes the normalized event clock/context/values before any deferred IO. Actual journal-lock contention stays in the writer while the candidate owner loop advances. Native decision persistence confirms journal plus ledger return, with explicit failures rather than hidden dual-sink success. Pending/confirmed/failed/dropped admission counters are distinct. Saturation and invalid payloads do not reserve dedup; failed original opaque ownership cannot clear a newer admitted key, and zero-TTL diagnostics cannot release another claim. Actual committed-buy context is available synchronously before disk/overflow and refreshes even when logging is deduplicated. Outcome/financial close records are excluded; their original durable paths, sizing, risk and activation guards are unchanged. Normal and repeated-cancel shutdown drains the writer; a fatal writer error preserves its cause, drains other cleanup and withholds stopped if an owned writer remains live.32 new cases plus existing native PAPER/clock/financial integrations are recorded separately. Parent c771 complete CI retains Ubuntu6375passed and Windows1failed6374passed: an isolated native RPC birth entry reports changed_model_birth_inputs with zero positions. Its precise cause remains unresolved; current test helper adds original clock validation diagnostics without removing the positive assertion or relaxing guards. No operational PAPER, provider request, fit/activation, AutoResearch, API/UI or LIVE was started; full original goal remains active.",
+  "acceptance": {
+    "baseline": {
+      "tests": 2,
+      "failures": 2,
+      "scope": "Actual bot stage/decision wrapper enters its native disk boundary inline before repair"
+    },
+    "new_repository_cases": 32,
+    "repository_cases": 6407,
+    "working_collected_cases": 6408,
+    "working_only_case": "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline",
+    "focused": {
+      "working": {
+        "tests": 472,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 167.011
+      },
+      "publishing": {
+        "tests": 472,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 165.439
+      }
+    },
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "native_evidence": [
+      "Actual temporary event and decision ledger receive the original run/clock/context, not later mutations, from a different physical thread",
+      "Actual research journal lock is held on another thread while the entry wrapper admits and the owner loop advances",
+      "Active-inclusive saturation preserves immediate committed-buy context and does not claim the rejected dedup key",
+      "Native ledger IO error after journal success is failed, not confirmed dual-sink publication; no crash or exact-once claim",
+      "Actual runtime source reports stopped only after both writer lifecycles and other cleanup, then preserves an original synthetic fatal writer exception",
+      "Source-only PAPER fixture explicitly installs/drains the same candidate writer; no operational bot, network, wallet or operator data are copied"
+    ]
+  },
+  "queue_contract": {
+    "capacity_including_active": 256,
+    "max_estimated_and_encoded_row_context_bytes": 262144,
+    "dedicated_worker_threads": 1,
+    "roles": [
+      "candidate_stage",
+      "candidate_decision"
+    ],
+    "overflow": "Drop new diagnostic sample explicitly; do not block trading decisions or claim successful persistence",
+    "confirmed": "Publisher returned True after native journal and, for a decision, ledger completion",
+    "financial_close": "Not admitted; original costed trade/export and shadow close durability remain separate",
+    "process_crash": "Pending memory-only diagnostics may be lost; complete full-strategy durable decision provenance remains required",
+    "shutdown": "Close admission, drain queued/active work and join executor before stopped; preserve original writer failure"
+  },
+  "parent_native_rpc_failure": {
+    "run": "https://github.com/mudanzasalegre/memebot3/actions/runs/38500266001",
+    "scope": "Actual completed parent revision, not acceptance of this changed source",
+    "case": "test_full_native_rpc_birth_exact_paper_entry_runner_close_and_T0_net_export",
+    "positions": 0,
+    "reason": "entry_observation:changed_model_birth_inputs",
+    "cause": "UNRESOLVED",
+    "action": "Retain original assertion/control guard and add bounded original capture_clock_proof exception/input diagnostics to the isolated test helper",
+    "no_claim": "Later local positive cases do not explain or repair the CI failure or establish historical operational no-buy cause"
+  },
+  "limits": [
+    "This bounded diagnostic queue is best effort, not a financial durable outbox or full-strategy original-decision acceptance",
+    "Journal success followed by ledger failure can leave partial diagnostic publication; later new decisions are distinct observations, not exact-once recovery",
+    "Synchronous legacy API calls remain available outside managed bot wrappers; other telemetry/CSV/close sinks and real production latency remain separate",
+    "Estimated payload and encoded size bounds do not certify an exact process RSS or milliseconds SLA",
+    "Full current two-OS CI and parent RPC birth cause remain unproven; no model-birth guard, price/cash proof or exact0.1SOL contract was weakened",
+    "Existing operator ledger prefix hash remains verified after fixture isolation; no current-stage synthetic row is written there",
+    "No operational PAPER, providers, operator fit/activation, AutoResearch, API/UI or LIVE was started",
+    "Actual profitable opportunities, prospective net returns and whole original goal completion remain unestablished; profit and zero future errors cannot be guaranteed"
+  ],
+  "preceding_ci_observation": {
+    "observed_at_utc": "2026-10-14T02:47:43.915408+00:00",
+    "tests": {
+      "headSha": "c77171cfee3cf13debe06fd91db24c1598170525",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38500266001",
+      "pytest_summaries": [
+        "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T02:19:21.4742046Z 1 passed in 6.20s",
+        "test (windows-2022)\tRun python -m pytest -q\t2026-10-14T02:36:34.7256921Z 1 failed, 6374 passed, 1 warning in 1032.35s (0:17:12)",
+        "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T02:18:43.4668131Z 1 passed in 4.45s",
+        "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-14T02:45:25.1245077Z 6375 passed, 1 warning in 1600.87s (0:26:40)"
+      ]
+    },
+    "strategy": {
+      "headSha": "c77171cfee3cf13debe06fd91db24c1598170525",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38500265905",
+      "pytest_summaries": [
+        "strategy-regression\tStrategy regression pytest suite\t2026-10-14T02:18:28.3802738Z 41 passed in 2.62s"
+      ]
+    },
+    "scope": "Dated parent-revision observation, not changed-source or financial acceptance"
+  },
+  "observed_at_utc": "2026-10-14T03:03:14.347056+00:00",
+  "shutdown": {
+    "observed_at_utc": "2026-10-14T03:03:13.6765667+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml_entrypoint_processes": 0,
+    "actual_ml_entrypoint_observed_at_utc": "2026-10-14T03:03:14.1440138+00:00"
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-14T03:03:14.337519+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "additional_restored_ledger_sha256": "afbcb9a90a254e16d41df52749a1dfcc880b7a51c95045fed144229ed6532cb5"
+  }
+}

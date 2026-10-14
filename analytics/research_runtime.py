@@ -9,6 +9,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 import pandas as pd
@@ -43,6 +44,8 @@ _SEEN: dict[str, float] = {}
 _OPEN_SHADOWS: dict[str, dict[str, Any]] = {}
 _LIVE_CONTEXT: dict[str, dict[str, Any]] = {}
 _LAST_SCORECARD_BUILD_MONO = 0.0
+_CANDIDATE_WRITER = None
+_CANDIDATE_OWNERS: dict[str, str] = {}
 
 
 def _parse_utc(value: Any) -> datetime | None:
@@ -137,9 +140,7 @@ def _event_dedup(key: str, ttl_s: int) -> bool:
     return False
 
 
-def _write_event(event_type: str, address: str, *, observed_at: datetime | None = None, **payload: Any) -> dict[str, Any]:
-    METRICS_DIR.mkdir(parents=True, exist_ok=True)
-    RESEARCH_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+def _build_event_row(event_type: str, address: str, *, observed_at: datetime | None = None, **payload: Any) -> dict[str, Any]:
     row = {
         "ts_utc": (observed_at or utc_now()).isoformat(),
         "event_type": str(event_type),
@@ -152,6 +153,12 @@ def _write_event(event_type: str, address: str, *, observed_at: datetime | None 
     row["event_type"] = str(event_type)
     row["address"] = str(address)
     row = normalize_candidate_event_row(row)
+    return row
+
+
+def _persist_event_row(row: dict[str, Any]) -> dict[str, Any]:
+    METRICS_DIR.mkdir(parents=True, exist_ok=True)
+    RESEARCH_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(row, ensure_ascii=True)
     guard = RESEARCH_EVENTS_PATH.with_name(RESEARCH_EVENTS_PATH.name + ".guard")
     with _LOCK, exclusive_file_guard(guard, deadline=time.monotonic() + 30., poll_seconds=.05):
@@ -174,6 +181,78 @@ def _write_event(event_type: str, address: str, *, observed_at: datetime | None 
             fh.flush()
             os.fsync(fh.fileno())
     return row
+
+
+def _write_event(event_type: str, address: str, *, observed_at: datetime | None = None, **payload: Any) -> dict[str, Any]:
+    return _persist_event_row(_build_event_row(event_type, address, observed_at=observed_at, **payload))
+
+
+def install_candidate_writer(writer) -> None:
+    global _CANDIDATE_WRITER
+    if _CANDIDATE_WRITER is not None:
+        raise RuntimeError('Candidate writer already installed')
+    if not writer._owner_context() or not writer.snapshot()['accepting']:
+        raise RuntimeError('Candidate writer has no active owner')
+    _CANDIDATE_WRITER = writer
+
+
+def remove_candidate_writer(writer) -> None:
+    global _CANDIDATE_WRITER
+    if _CANDIDATE_WRITER is writer:
+        if not writer.snapshot()['closed']:
+            raise RuntimeError('Candidate writer must drain before removal')
+        _CANDIDATE_WRITER = None
+
+
+def finish_candidate_admission(context, written, error=None) -> None:
+    key, owner = context
+    if owner is not None and _CANDIDATE_OWNERS.get(key) == owner:
+        _CANDIDATE_OWNERS.pop(key, None)
+        if not written:
+            _SEEN.pop(key, None)
+
+
+def _candidate_writer(queued_only):
+    writer = _CANDIDATE_WRITER
+    if writer is None and queued_only:
+        raise RuntimeError('No managed candidate writer; inline fallback disabled')
+    if writer is not None and not writer._owner_context():
+        raise RuntimeError('Candidate telemetry requires its actual owner loop/thread')
+    return writer
+
+
+def candidate_write_stats():
+    return _CANDIDATE_WRITER.snapshot() if _CANDIDATE_WRITER is not None else None
+
+
+def _candidate_duplicate(key, ttl_s):
+    return ttl_s > 0 and key in _SEEN and time.monotonic() - _SEEN[key] < ttl_s
+
+
+def _queue_candidate(row, *, ledger, key, ttl_s):
+    owner = uuid4().hex if ttl_s > 0 else None
+    if not _CANDIDATE_WRITER.submit({'row': row, 'ledger': ledger}, context=(key, owner)):
+        raise RuntimeError('Candidate telemetry not admitted')
+    if owner is not None:
+        _SEEN[key] = time.monotonic()
+        _CANDIDATE_OWNERS[key] = owner
+
+
+def _decision_payload(row):
+    return {**row, 'address': row['address'], 'action': row.get('decision') or row.get('decision_action'),
+        'timestamp': row.get('timestamp') or row['ts_utc'], 'source': 'candidate_decision',
+        'feature_snapshot': row.get('feature_snapshot') or {},
+        'features_snapshot': row.get('feature_snapshot') or {}, 'policy_version': 'research_runtime_v1'}
+
+
+def publish_candidate_event(prepared) -> bool:
+    row = prepared['row']
+    if row['event_type'] not in {'candidate_stage', 'candidate_decision'}:
+        raise ValueError('Only candidate diagnostics may use this publisher')
+    _persist_event_row(row)
+    if prepared['ledger']:
+        append_decision(_decision_payload(row))
+    return True
 
 
 def _load_portfolio() -> dict[str, Any]:
@@ -531,14 +610,22 @@ def record_candidate_stage(
     proba: float | None = None,
     threshold: float | None = None,
     rank_info: dict[str, Any] | None = None,
+    queued_only: bool = False,
 ) -> None:
     if not bool(getattr(CFG, "RESEARCH_STAGE_LOGGING_ENABLED", True)):
         return
     address = str(token.get("address") or "").strip()
     if not address:
         return
+    writer = _candidate_writer(queued_only)
     ttl_s = int(getattr(CFG, "RESEARCH_DECISION_DEDUP_TTL_S", 600) or 600)
     dedup_key = f"stage:{address}:{stage}"
+    if writer is not None:
+        if _candidate_duplicate(dedup_key, ttl_s): return
+        row = _build_event_row('candidate_stage', address, stage=str(stage),
+            **_common_payload(token, proba=proba, threshold=threshold, rank_info=rank_info))
+        _queue_candidate(row, ledger=False, key=dedup_key, ttl_s=ttl_s)
+        return
     if _event_dedup(dedup_key, ttl_s):
         return
     _write_event(
@@ -560,20 +647,23 @@ def record_candidate_decision(
     rank_info: dict[str, Any] | None = None,
     shadow_kind: str | None = None,
     dedup_ttl_s: int | None = None,
+    queued_only: bool = False,
 ) -> None:
     if not bool(getattr(CFG, "RESEARCH_LANE_ENABLED", True)):
         return
     address = str(token.get("address") or "").strip()
     if not address:
         return
+    writer = _candidate_writer(queued_only)
     ttl_s = int(
         dedup_ttl_s
         if dedup_ttl_s is not None
         else int(getattr(CFG, "RESEARCH_DECISION_DEDUP_TTL_S", 600) or 600)
     )
     dedup_key = f"decision:{address}:{action}:{reason}:{stage}"
-    if _event_dedup(dedup_key, ttl_s):
+    if writer is None and _event_dedup(dedup_key, ttl_s):
         return
+    if writer is not None and action != 'bought' and _candidate_duplicate(dedup_key, ttl_s): return
 
     payload = _common_payload(token, proba=proba, threshold=threshold, rank_info=rank_info)
     payload.update(
@@ -585,6 +675,15 @@ def record_candidate_decision(
     )
     if shadow_kind:
         payload["shadow_kind"] = str(shadow_kind)
+    if writer is not None:
+        row = _build_event_row('candidate_decision', address, **payload)
+        if action == 'bought':
+            # Actual committed-entry context is available before any deferred
+            # write or saturation; the diagnostic queue cannot erase it.
+            _LIVE_CONTEXT[address] = row
+        if not _candidate_duplicate(dedup_key, ttl_s):
+            _queue_candidate(row, ledger=True, key=dedup_key, ttl_s=ttl_s)
+        return
     event_row = _write_event("candidate_decision", address, **payload)
     try:
         append_decision(
