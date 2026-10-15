@@ -171,6 +171,13 @@ if options.get('coarse_clock'):
             reads=len(observed),returned_actual_observation=result is not None and any(result is item for item in observed))
         return result
     entry_clock.capture_causal_utc = coarse_capture
+if case == 'clock_ahead':
+    from runtime import entry_clock
+    original_capture = entry_clock.capture_causal_utc
+    async def ahead_capture(*, minimum_epoch, utc, **kwargs):
+        return await original_capture(minimum_epoch=minimum_epoch,
+            utc=lambda:utc()+dt.timedelta(seconds=5),**kwargs)
+    entry_clock.capture_causal_utc = ahead_capture
 
 async def snapshot(address, **kwargs):
     calls.append('snapshot')
@@ -258,6 +265,8 @@ async def exercise():
                         'boundary_calls':calls,'stats':run_bot._stats,
                         'runtime_last_error':run_bot._runtime_last_error,
                         'clock_validation_failures':clock_failures[-5:],
+                        'causal_clock_failures':[e.get('clock_diagnostic') for e in events
+                            if e.get('event_type')=='entry_clock_unconfirmed' or e.get('event')=='entry_clock_unconfirmed'],
                         'birth_enrichment':token_birth_enrichment_snapshot(),
                         'decisions':[{'event':e.get('event_type') or e.get('event'),
                             'reason':e.get('reason'),'stage':e.get('stage'),
@@ -335,7 +344,8 @@ events_path = expected/'data/metrics/runtime_events.jsonl'
 events = [json.loads(line) for line in events_path.read_text(encoding='utf-8-sig').splitlines()] if events_path.exists() else []
 print(json.dumps({**report,'native_complete_entry':True,'boundary_calls':calls,'causal_clock_trace':clock_trace,
     'events':[{'event':e.get('event_type') or e.get('event'),'reason':e.get('reason'),
-        'stage':e.get('stage'),'hard_failures':e.get('hard_failures')} for e in events],
+        'stage':e.get('stage'),'hard_failures':e.get('hard_failures'),
+        'clock_diagnostic':e.get('clock_diagnostic')} for e in events],
     'stats':run_bot._stats,'external_attempts':attempts,
     'blocked_dependency_probes':dependency_probes,
     'isolated_native_import':True,'scoped_modules':len(scoped),

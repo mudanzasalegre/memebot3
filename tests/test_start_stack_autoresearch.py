@@ -4,6 +4,9 @@ import os
 from pathlib import Path
 import subprocess
 import shutil
+import time
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,34 +90,81 @@ def test_start_bot_prepares_policy_preflight_status_when_missing() -> None:
     assert "the selected profile enforces dry-run" in text
 
 
-def test_start_stack_fails_fast_before_ui_when_api_is_unreachable() -> None:
+def _await_native_startup_exit(process, stdout_path, stderr_path, *,
+        startup_timeout_s=90, readiness_timeout_s=15, monotonic=time.monotonic, sleep=time.sleep):
+    """Host shell startup is not the configured API health-check budget."""
+    milestones = []
+    started = monotonic()
+    def output():
+        return '\n'.join(path.read_text(encoding='utf-8',errors='replace')
+            if path.exists() else '' for path in (stdout_path,stderr_path))
+    for phase, timeout, complete in (
+        ('host_startup',startup_timeout_s,lambda:'[start_stack] config_profile=' in output()),
+        ('api_failure_delivery',readiness_timeout_s,lambda:process.poll() is not None),
+    ):
+        phase_started = monotonic()
+        while not complete():
+            elapsed = monotonic()-phase_started
+            if elapsed>=timeout or phase=='host_startup' and process.poll() is not None:
+                raise AssertionError(f'Startup milestone failed phase={phase} timeout_s={timeout} '
+                    f'phase_elapsed_s={elapsed:.3f} total_elapsed_s={monotonic()-started:.3f} '
+                    f'exit_code={process.poll()} milestones={milestones} output={output()[-4096:]}')
+            sleep(.02)
+        milestones.append({'phase':phase,'seconds':monotonic()-phase_started})
+    return milestones
+
+
+@pytest.mark.parametrize('host_start_delay_s',[0,20])
+def test_start_stack_fails_fast_before_ui_when_api_is_unreachable(tmp_path,host_start_delay_s) -> None:
     launcher = shutil.which("powershell.exe") or shutil.which("pwsh")
     assert launcher is not None, "PowerShell is required for the native fail-fast startup test"
-    env = os.environ.copy()
+    isolated = tmp_path/'isolated-startup'
+    scripts = isolated/'scripts'
+    scripts.mkdir(parents=True)
+    source = (ROOT/'scripts/start_stack.ps1').read_text(encoding='utf-8')
+    if host_start_delay_s:
+        anchor = 'Write-Host "[start_stack] config_profile=$StackConfigProfile"'
+        assert source.count(anchor)==1
+        source = source.replace(anchor,f'Start-Sleep -Seconds {host_start_delay_s}\n'+anchor)
+    (scripts/'start_stack.ps1').write_text(source,encoding='utf-8')
+    # A defect must not start any real UI/bot/training/research/API child.
+    for name in ('start_ui','start_bot','start_training_daemon','start_autoresearch','start_api'):
+        (scripts/(name+'.ps1')).write_text(
+            f"New-Item -ItemType File -Path (Join-Path $PSScriptRoot '{name}-unexpected')\n"
+            "throw 'Unexpected service dispatch in provider-free startup QA'\n",encoding='utf-8')
+    keep = {'PATH','SYSTEMROOT','WINDIR','TEMP','TMP','USERPROFILE','LOCALAPPDATA',
+        'APPDATA','HOMEDRIVE','HOMEPATH','COMSPEC','PATHEXT'}
+    env = {key:value for key,value in os.environ.items() if key.upper() in keep}
     env["CONFIG_PROFILE"] = "paper_hotfix_0707"
-    env["CONFIG_PROFILE_PATH"] = str(ROOT / "stale-profile-that-must-not-win.env")
-    result = subprocess.run(
-        [
+    env["CONFIG_PROFILE_PATH"] = str(isolated / "stale-profile-that-must-not-win.env")
+    command = [
             launcher,
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            str(ROOT / "scripts" / "start_stack.ps1"),
+            str(scripts / "start_stack.ps1"),
             "-SkipApi",
             "-SkipStartupPreflight",
             "-ApiReadyTimeoutSeconds",
             "1",
             "-UiApiProxyTarget",
             "http://127.0.0.1:1",
-        ],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=15,
-        check=False,
-    )
+        ]
+    stdout_path,stderr_path = tmp_path/'stdout.log',tmp_path/'stderr.log'
+    with stdout_path.open('wb') as stdout,stderr_path.open('wb') as stderr:
+        process = subprocess.Popen(command,cwd=isolated,env=env,stdin=subprocess.DEVNULL,
+            stdout=stdout,stderr=stderr,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
+        try:
+            milestones = _await_native_startup_exit(process,stdout_path,stderr_path)
+        finally:
+            if process.poll() is None:
+                process.kill()  # Exact fixture shell handle, never a discovered PID.
+            process.wait(timeout=10)
+    result = subprocess.CompletedProcess(command,process.returncode,
+        stdout_path.read_text(encoding='utf-8',errors='replace'),
+        stderr_path.read_text(encoding='utf-8',errors='replace'))
 
     output = result.stdout + result.stderr
     assert result.returncode != 0
@@ -122,6 +172,25 @@ def test_start_stack_fails_fast_before_ui_when_api_is_unreachable() -> None:
     assert "clearing inherited CONFIG_PROFILE_PATH" in output
     assert "API readiness failed; UI and remaining stack services were not started" in output
     assert "started start_ui.ps1" not in output
+    assert [item['phase'] for item in milestones]==['host_startup','api_failure_delivery']
+    assert milestones[0]['seconds']>=host_start_delay_s
+    assert milestones[1]['seconds']<=15
+    assert not list(scripts.glob('*-unexpected'))
+
+
+@pytest.mark.parametrize('phase',['host_startup','api_failure_delivery'])
+def test_startup_milestone_timeout_reports_the_exact_unfinished_phase(tmp_path,phase):
+    stdout_path,stderr_path = tmp_path/'stdout',tmp_path/'stderr'
+    stdout_path.write_text('[start_stack] config_profile=test' if phase=='api_failure_delivery' else '')
+    stderr_path.write_text('original-stderr')
+    class Alive:
+        def poll(self): return None
+    now = [0.]
+    def sleep(seconds): now[0]+=seconds
+    with pytest.raises(AssertionError,match='phase='+phase) as exc:
+        _await_native_startup_exit(Alive(),stdout_path,stderr_path,startup_timeout_s=.1,
+            readiness_timeout_s=.1,monotonic=lambda:now[0],sleep=sleep)
+    assert 'original-stderr' in str(exc.value) and 'exit_code=None' in str(exc.value)
 
 
 def test_start_stack_powershell_smoke_exists() -> None:

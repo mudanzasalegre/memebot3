@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
-  "status": "FUNCTIONAL_SOURCE_CI_APPROVED_BOTH_OS_FINANCIAL_ACCEPTANCE_PENDING_RUNTIME_OFF",
+  "status": "HISTORICAL_PASS_SUBSEQUENT_IDENTICAL_SOURCE_CI_FAILED_REPAIR_PENDING_RUNTIME_OFF",
+  "later_current_ci": {"commit":"8c104c39c8a2bbe19e5ab29909322efb5192db23","url":"https://github.com/mudanzasalegre/memebot3/actions/runs/38761671358","conclusion":"failure","windows":"2failed6970passed1warning2160.27s","ubuntu":"6963passed9platformskips1warning1659.79s","restarted":false,"followup":"docs/audits/causal_clock_confirmation_20261015.json","qualification":"The earlier success remains actual historical evidence, not current reproducibility or acceptance of the later changed clock source. New bounded PAPER authority has since been received but remains unconsumed pending full current-source CI approval."},
   "whole_goal_complete": false,
   "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
   "tested_source_commit": "f0f969d2a8e557b5a72b1bcaae0a012debabe508",

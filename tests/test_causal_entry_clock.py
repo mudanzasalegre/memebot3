@@ -137,3 +137,57 @@ async def test_real_observed_catchup_retains_strict_original_birth_validation():
     current = build_feature_vector(token,now=captured)
     assert PROOF_COLUMN in current.attrs and current.timestamp is captured
     assert receipt['received_at'] == RECEIVED and token[FIELD] is receipt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('second', [1792067706, 1792079531, 1792100000])
+async def test_same_native_tick_float_rounding_waits_for_a_fresh_confirmed_read(second):
+    # CPython3.12 pytime.c converts nanoseconds through double /1e9, while
+    # aware datetime.timestamp divides integer microseconds by1e6. Even the
+    # SAME native tick can produce datetime_epoch > numeric_wall. No tolerance
+    # is admitted: only a later actual UTC read confirmed by wall may return.
+    found = None
+    for microsecond in range(100000):
+        nanoseconds = second * 1_000_000_000 + microsecond * 1000
+        wall = float(nanoseconds) / 1e9
+        observed = dt.datetime.fromtimestamp(second, dt.timezone.utc).replace(microsecond=microsecond)
+        if observed.timestamp() > wall:
+            found = wall, observed
+            break
+    assert found is not None
+    wall, first = found
+    later = first + dt.timedelta(milliseconds=16)
+    reads = iter([first, later])
+    walls = iter([wall, wall, later.timestamp()])
+    sleeps = []
+    async def sleep(seconds): sleeps.append(seconds)
+    result = await clock.capture_causal_utc(minimum_epoch=wall-1,
+        utc=lambda:next(reads), wall=lambda:next(walls),
+        monotonic=lambda:10., sleep=sleep)
+    assert result is later and result is not first
+    assert first.timestamp() > wall and result.timestamp() <= later.timestamp()
+    assert sleeps == [.001]
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_utc_never_becomes_a_tolerance_or_reused_timestamp():
+    diagnostics = {'reason':'confirmed','reads':-1}
+    ahead = ANCHOR+dt.timedelta(seconds=5)
+    sleeps = []
+    async def sleep(seconds): sleeps.append(seconds)
+    result = await clock.capture_causal_utc(utc=lambda:ahead,wall=lambda:RECEIVED,
+        monotonic=lambda:10.,sleep=sleep,max_reads=3,diagnostics=diagnostics)
+    assert result is None and len(sleeps)==3
+    assert diagnostics['reason']=='read_limit' and diagnostics['reads']==3
+    assert diagnostics['utc_ahead_retries']==3 and diagnostics['last_utc']>diagnostics['last_wall']
+
+
+@pytest.mark.asyncio
+async def test_wall_regression_after_ahead_read_is_not_a_recovered_clock():
+    walls = iter([RECEIVED,RECEIVED,RECEIVED-1])
+    async def sleep(seconds): pass
+    diagnostics = {}
+    result = await clock.capture_causal_utc(utc=lambda:ANCHOR+dt.timedelta(seconds=1),
+        wall=lambda:next(walls),monotonic=lambda:10.,sleep=sleep,diagnostics=diagnostics)
+    assert result is None and diagnostics['reason']=='invalid_or_backwards_clock'
+    assert diagnostics['utc_ahead_retries']==1

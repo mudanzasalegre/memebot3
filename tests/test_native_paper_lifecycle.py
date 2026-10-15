@@ -170,6 +170,23 @@ def test_native_no_log_preserves_an_explicit_launcher_identity(tmp_path):
     assert row['entry_run_id']=='synthetic-owned-fixture'
 
 
+def test_full_native_unconfirmed_causal_clock_defers_without_an_attempt_and_keeps_diagnostics(tmp_path):
+    row = native_case(tmp_path,case='clock_ahead')
+    assert row['positions']==[] and row['stats']['actual_paper_buy_attempts']==0
+    assert row['stats']['actual_paper_buys']==0 and row['stats']['requeues']==1
+    assert row['pending_buys']==row['pending_sells']==0
+    assert any(event['reason']=='entry_observation:unconfirmed_entry_clock' for event in row['events'])
+    diagnostics = [event['clock_diagnostic'] for event in row['events']
+        if event['event']=='entry_clock_unconfirmed']
+    assert len(diagnostics)==1
+    diagnostic = diagnostics[0]
+    assert diagnostic['reason'] in {'wait_limit','read_limit'}
+    assert type(diagnostic['reads']) is int and 0<=diagnostic['reads']<=128
+    if diagnostic['reads']:
+        assert diagnostic['utc_ahead_retries']==diagnostic['reads']
+        assert diagnostic['last_utc']>diagnostic['last_wall']
+
+
 def test_full_native_rpc_birth_exact_paper_entry_runner_close_and_T0_net_export(tmp_path):
     row = native_case(tmp_path,case='rpc_birth',momentum=1000000.,monitor=True)
     assert len(row['positions']) == 1 and row['positions'][0]['amount_sol'] == .1

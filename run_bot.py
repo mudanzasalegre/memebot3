@@ -5527,8 +5527,15 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
                 received_at = False
         except (ValueError, TypeError, KeyError, RecursionError):
             received_at = False  # Invalid input remains unconfirmed, not absent.
-        entry_model_at = await capture_causal_utc(minimum_epoch=received_at, utc=utc_now)
+        clock_diagnostic = {}
+        entry_model_at = await capture_causal_utc(minimum_epoch=received_at, utc=utc_now,
+            diagnostics=clock_diagnostic)
         if entry_model_at is None:
+            try:
+                record_runtime_event('entry_clock_unconfirmed', addr, stage='pre_model',
+                    clock_diagnostic=clock_diagnostic)
+            except Exception:
+                log.debug('Could not persist entry clock diagnostic', exc_info=True)
             _defer_entry_observation(token, reason="unconfirmed_entry_clock", stage="pre_model")
             return
     token["runner_exit_profile"] = _runner_profile_for_subject(token)

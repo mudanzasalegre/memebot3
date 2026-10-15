@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "status": "IMPLEMENTED_FOCUSED_230_BOTH_ROOTS_CURRENT_FULL_CI_PENDING_RUNTIME_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent": "8c104c39c8a2bbe19e5ab29909322efb5192db23",
+  "actual_parent_ci": {
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38761671358",
+    "windows": {"failed":2,"passed":6970,"skipped":0,"warnings":1,"seconds":2160.27},
+    "ubuntu": {"failed":0,"passed":6963,"skipped":9,"warnings":1,"seconds":1659.79},
+    "failed_cases": ["test_full_native_entry_keeps_extreme_signal_exact_size_and_original_identity[500.0]", "test_start_stack_fails_fast_before_ui_when_api_is_unreachable"],
+    "strategy": {"url":"https://github.com/mudanzasalegre/memebot3/actions/runs/38761671436","passed":41,"seconds":2.61},
+    "original_terminal_receipt": "work/first-launch-stage-20261013/software-ci-doc-head-20261015-terminal.json",
+    "restarted": false
+  },
+  "causal_clock": {
+    "controlled_original_regressions": "3FAILED_ON_IMMUTABLE_PARENT",
+    "numeric_conversion_primary_source": "https://github.com/python/cpython/blob/v3.12.10/Python/pytime.c#L559",
+    "datetime_conversion_primary_source": "https://github.com/python/cpython/blob/v3.12.10/Modules/_datetimemodule.c#L2533",
+    "repair": "After an unconfirmed UTC/numeric pair, obtain a new pair inside the original0.1s/128-read defaults. Accept only the exact new actual datetime object with minimum_epoch<=epoch<=wall_after; no epsilon, clamp, receipt repair or earlier-read reuse.",
+    "unchanged_guards": "Invalid/future receipt, invalid/backwards clocks, time/read bounds, cancellation, entry deferral/requeue, risk, sizing and final buy protections",
+    "diagnostics": "Output-only bounded reason/read/retry/clock/elapsed fields. Native pre-model unknown-clock decisions retain the original deferral and record diagnostics; logging failure cannot grant entry.",
+    "real_local_clock_probe": {"calls":20000,"failed":0,"python":"3.12.3","wall_implementation":"GetSystemTimeAsFileTime()","reported_resolution_s":0.015625},
+    "qualification": "The controlled conversion counterexample is proved. The original CI has no detailed rejected-clock trace; its exact reason is not retrospectively established, and no historical operator no-buy cause or profitable counterfactual is claimed."
+  },
+  "startup_qa": {
+    "original_controlled_probe": "FAILED_ORIGINAL15S_TOTAL_DEADLINE_WITH20S_HOST_STARTUP",
+    "current_phases": {"host_startup_seconds":90,"api_failure_delivery_seconds":15},
+    "configured_api_readiness_timeout_seconds":1,
+    "production_start_stack_changed": false,
+    "scope": "Only source-copied temporary workspace, stripped environment, localhost unreachable API, sentinel scripts and exact fixture-owned process cleanup. Original nonzero exit/profile clearing/fail-fast/no-UI assertions are retained; no other service sentinel may run.",
+    "qualification": "Synthetic host latency reproduction, not a confirmed original CI host cause or a global production startup/HTTP SLA."
+  },
+  "validation": {
+    "working_initial": {"passed":229,"failures":0,"errors":0,"skipped":0,"warnings":2,"seconds":167.83},
+    "publishing_initial": {"passed":229,"failures":0,"errors":0,"skipped":0,"warnings":2,"seconds":166.16},
+    "working_native_negative_supplement": {"passed":1,"failures":0,"errors":0,"skipped":0,"seconds":5.18},
+    "publishing_native_negative_supplement": {"passed":1,"failures":0,"errors":0,"skipped":0,"seconds":5.21},
+    "distinct_focused_checks_each":230,
+    "invocations_each":2,
+    "official_collected_each":6981,
+    "new_official_cases":9,
+    "source_files_each":855,
+    "normalized_source_sha256":"5301c4ac8d61ba79b18e0b3a4f906e8cfb3479488b5f70c6cc71d31507802e28",
+    "warning_scope": "Existing pandas all-NA concatenation FutureWarning in two model-runtime tests",
+    "native_negative_scope":"The actual guarded native entry receives an unconfirmed future UTC source, never attempts a buy, retains one requeue, has no pending buy/sell intent and durably records a bounded clock diagnostic. Read count may be0 on a host-scheduling deadline; this is retained as unknown, not fabricated evidence of an observed pair.",
+    "initial_selection_error":"An initial focused command named a nonexistent test_token_birth.py and exited with0 tests; it is not counted as validation. The corrected229-case invocations and separate native negative checks are retained independently.",
+    "current_full_source_ci": "PENDING_NOT_PREAPPROVED"
+  },
+  "fresh_operator_authority": {
+    "received": true,
+    "consumed": false,
+    "run_started": false,
+    "conditions": "One30-minute PAPER after current complete CI approval, exact0.1SOL simulated buys, no LIVE/training/AutoResearch/model activation, stop at deadline",
+    "prior_20261015_1_authority": "CONSUMED_NOT_REUSED"
+  },
+  "remaining": "All original whole-goal requirements remain. Current financial net-close evidence, independent provider/access/full-strategy opportunity capture and profitability are still unproved; software fixtures and CI cannot establish maximum benefit or zero future errors."
+}

@@ -13,6 +13,24 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Repeticion de CI y confirmacion del reloj causal (2026-10-15)
+
+La repeticion del commit documental `8c104c3`, con el mismo codigo funcional
+anterior, termino con 2 fallos de Windows: reloj causal de una entrada sintetica
+y plazo global de arranque de una prueba. Linux paso. El resultado verde anterior
+se conserva como evidencia historica, no como garantia de repetibilidad.
+
+Se corrige un rechazo reproducible entre las conversiones numerica y UTC del
+mismo tick: solo se admite una nueva lectura UTC confirmada, sin tolerancia,
+timestamp fabricado ni ampliar los limites del reloj. Los fallos no confirmados
+aportan diagnostico y conservan el aplazamiento de la entrada.
+La prueba de arranque distingue inicio del host y respuesta de la API, aislada
+sin servicios operativos. Pasan 230 comprobaciones distintas por carpeta y se
+recogen 6.981 casos oficiales. La CI completa de esta correccion debe aprobarse antes
+de consumir la nueva autorizacion PAPER de 30 minutos, 0,1 SOL, sin LIVE,
+entrenamiento ni AutoResearch. Todavia no se ha iniciado.
+[Evidencia y limites](docs/audits/causal_clock_confirmation_20261015.json).
+
 ### Software aprobado en ambos sistemas; rentabilidad pendiente (2026-10-15)
 
 La revision funcional `f0f969d` supera la matriz completa: 6.972 pruebas en
