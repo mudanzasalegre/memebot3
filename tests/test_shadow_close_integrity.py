@@ -132,8 +132,14 @@ def test_runner_source_preserves_known_peak_without_fabricating_final_label(tmp_
     monkeypatch.setattr(train, "CFG", SimpleNamespace(
         ML_TRAIN_ENTRY_LANE_ALLOWLIST="pump_early_sniper_research",
         ML_TRAIN_DEX_ALLOWLIST="pumpfun", ML_TRAIN_ALLOW_MISSING_ENTRY_LANE=False))
+    original_bytes = path.read_bytes()
     source = train._load_dataset(require_label=False)
-    assert len(source) == 4 and source.label.isna().all()
+    # A declared broken financial row is rejected during source preparation,
+    # before label dropping, not retained until the later family cohort filter.
+    assert source.address.tolist() == ["observed-runner", "unknown-peak", "policy-not-outcome"]
+    assert len(source) == 3 and source.label.isna().all()
+    assert source.attrs["cohort_source_preparation"]["rejected_rows"] == 1
+    assert source.attrs["cohort_source_preparation"]["legacy_rows"] == 3
     from ml.label_builder import attach_labels
     labels = attach_labels(source)
     assert labels.loc[labels.address.eq("observed-runner"), "runner_10000"].tolist() == [1]
@@ -151,6 +157,7 @@ def test_runner_source_preserves_known_peak_without_fabricating_final_label(tmp_
     assert family.loc[family.address.eq("observed-runner"), "runner_10000"].tolist() == [1]
     assert family.loc[family.address.eq("unknown-peak"), "runner_10000"].isna().all()
     assert family.timestamp.eq(pd.Timestamp(row["timestamp"])).all()
+    assert path.read_bytes() == original_bytes
     if with_label:
         assert train._load_dataset().empty
     else:

@@ -13,6 +13,22 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Familias ML: la entrada directa tambien verifica el original (2026-10-15)
+
+El DataFrame pasado directamente a una familia o al aprendizaje del ranking ya
+verifica todas las copias financieras antes de generar etiquetas y filtrar fechas.
+Asi, una copia invalida no puede desaparecer antes de invalidar su identidad.
+Se restauran los predictores originales sin imponer al llamador los filtros de
+cohorte de la carga por defecto. Los datos del operador permanecen intactos.
+
+Las diez regresiones reproducidas fallan en el cargador anterior. Pasan 1.037
+pruebas focalizadas en cada carpeta, incluidos los consumidores del cargador.
+Los informes conservan los rechazos iniciales y la poblacion final por separado.
+Se recogen 6.967 casos oficiales en ambos checkouts; la nueva CI sigue pendiente.
+Las pruebas usan fuentes sinteticas y destinos temporales; no se entrenan modelos
+del operador ni se acredita rentabilidad.
+[Contrato y limites](docs/audits/explicit_family_sources_20261015.json).
+
 ### Aprendizaje: fuente financiera original antes de filtrar (2026-10-15)
 
 EV, riesgo y la carga auxiliar comun verifican ahora los trades declarados antes
@@ -138,11 +154,17 @@ impone un tiempo maximo al sistema de archivos ni permite matar hilos nativos.
 No cambia filtros, compras de 0.1 SOL, salidas ni activacion de modelos.
 [Evidencia y limites](docs/audits/export_owner_shutdown_20261015.json).
 
-### Evidencia de aprendizaje disponible: captura del 15-10-2026
+### Evidencia de aprendizaje: antes y despues de la PAPER del 15-10
 
-La auditoria de los datos locales seleccionados encuentra 7.792 registros:
+La comprobacion posterior conserva 7.877 observaciones: 5.438 rechazos y 2.439
+sombras. Las 85 nuevas coinciden con la ventana PAPER y 83 tienen recibos de
+entrada actuales. El T0 mas reciente es del 15 de octubre; siguen siendo cero
+las filas con retorno financiero neto verificable. No hay principal, metadatos
+ni registro principal configurados. No se han entrenado o activado para rellenarlos.
+
+La captura anterior de las 07:14 UTC, previa a la PAPER, contenia 7.792 registros:
 5.435 rechazos de politica y 2.357 cierres de sombras, no operaciones financieras
-independientes. El T0 mas reciente es del 4 de octubre. Ninguna fila acredita
+independientes. Su T0 mas reciente era del 4 de octubre. Ninguna fila acreditaba
 retorno neto con el contrato financiero actual ni el recibo actual de entradas.
 El principal configurado, sus metadatos y su registro no estan presentes; los
 29 metadatos historicos inspeccionados no acreditan el contrato financiero actual.

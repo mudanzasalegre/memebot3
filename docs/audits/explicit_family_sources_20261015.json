@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "status": "IMPLEMENTED_FOCUSED_1037_BOTH_ROOTS_NEW_FULL_CI_PENDING_RUNTIME_OFF",
+  "source": {"files_each": 854, "normalized_sha256": "6fcf572d64df6b1bac34422b495d98bed60a1b416d64b3b1e3c1d2896f8b7fd6"},
+  "final_conservation": {"observed_at_utc": "2026-10-15T14:20:42.7253309+00:00", "protected_working": 4108, "protected_publishing": 28, "changed": [], "added": [], "operational_and_qa_processes": 0, "tasks_services_locks": 0},
+  "global_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "50b74e2ee5f4a2b25e382c9dcd7059bb01b52a19",
+  "basis": "The preceding shared-loader repair covered native file/default consumers. Explicit in-memory family input still called attach_labels directly, before temporal/current-semantic selection and whole-identity financial validation. These are public family and runner-advisory paths, not proof that operator training or the last no-buy run encountered the gap.",
+  "baseline": {
+    "source": "Exact50b74e2 load_training_frame independently AST-extracted with native label/temporal/source validators",
+    "cases": 10,
+    "failed": 10,
+    "errors": 0,
+    "observed": [
+      "Five changed physical fields remain unrestored before early family work: original age, score, lane, DEX and regime.",
+      "Five broken copies, with altered net/T0/close/hash/body, have availability cleared by label preparation and can disappear before whole-identity validation, allowing their otherwise valid sibling to survive."
+    ],
+    "scope": "Synthetic source-only regressions; no provider, operator training, live fill or profitable-counterfactual evidence."
+  },
+  "implementation": [
+    "Explicit DataFrame input now goes through the same checked original-source preparation before label generation. This restores verified financial inputs, rejects every copy of conflicting identities before availability can be cleared, and deduplicates only checked equal originals.",
+    "Preserve the caller's explicit population: do not apply default productive lane/DEX allowlists to in-memory input. Undeclared legacy/shadow rows, their duplicate observations and their diagnostic role remain unchanged.",
+    "Publish the newly measured source-preparation report on the detached loaded frame; supplied attributes cannot skip validation. The operator frame, original financial receipt bytes and old source files are not rewritten.",
+    "The normal classifier/regressor and public runner-advisory consumers receive the prepared source before their temporal or semantic filtering. Direct-entry integration probes stop before fitting, and runner probes use temporary isolated roots and must never reach candidate fitting or activation."
+  ],
+  "validation": {
+    "initial_new_cases_passed": 23,
+    "initial_seconds": 4.05,
+    "final_new_repository_cases": 31,
+    "five_additional_public_runner_cases": "PASS_IN_FINAL_JOINT_RUN",
+    "broad_both_roots": {"working": {"passed": 1037, "seconds": 398.80}, "publishing": {"passed": 1037, "seconds": 396.54}, "failures": 0, "errors": 0, "skips": 0, "existing_pandas_future_warnings_each": 2, "invocations_each": 1, "scope": "All27 selected loader/family consumers and supporting financial/current-generation/temporal regression modules; not the entire repository suite"},
+    "official_collection_each": 6967,
+    "collection_seconds": {"working": 5.24, "publishing": 5.09},
+    "native_cold_imports_each": {"modules": 5, "status": "PASS"},
+    "full_new_revision_ci": "PENDING",
+    "parent_strategy_ci": {"url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38747175391", "conclusion": "success", "passed": 41, "seconds": 4.40},
+    "parent_full_ci": {"url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38747175340", "status": "IN_PROGRESS_AT_STAGE_START", "qualification": "No restart or preapproval of changed source."}
+  },
+  "preserved": [
+    "Exact0.1SOL trade sizing, original buy/risk/exit guards and uncapped signed net source values",
+    "Operator .env, data, logs, models, registries, policies and previous authorized PAPER evidence",
+    "No operational PAPER/provider call, LIVE, operator fit, model activation, AutoResearch, API/UI or account/key mutation",
+    "All original master requirements and historical implementation/evidence entries"
+  ],
+  "retained_intermediate_failures": {
+    "initial_consumer_closure_each": {"failed": 5, "passed": 735, "working_seconds": 343.37, "publishing_seconds": 338.07},
+    "risk_reporting": "The earlier source rejection correctly removes one invalid row, but the final financial population now reports0unchecked instead of the former1. The repair retains a separate measured cohort_source_preparation report in classifier/regressor/exit and runner reports; source160/rejected1 and checked159/unchecked0 are independently asserted without relaxing OOS, calibration or publication checks.",
+    "four_shadow_loader_assertions": "The preceding50b74e2 loader already rejects a declared broken financial row at intake. Four CSV/Parquet label/no-label fixtures still expected four raw loaded rows instead of the three remaining diagnostics. They now assert the exact three addresses, source rejected1/legacy3 and unchanged original file bytes; all known/unknown extreme-peak, final-label, family-cohort and strict-label absence checks remain.",
+    "targeted_followup": {"passed": 36, "seconds": 9.85},
+    "whole_joint_rerun": "1037_PASS_EACH_SEE_FINAL_VALIDATION"
+  },
+  "scoped_post_paper_quality": {"evidence": "docs/audits/learning_readiness_20261015.json", "source_rows": 7877, "new_window_rows": 85, "new_current_entry_receipts": 83, "checked_net_rows": 0, "purpose": "Correct the pre-PAPER freshness/provenance snapshot without claiming financial readiness, launching another run or changing operator artifacts."},
+  "limits": [
+    "This is a source-consumption repair, not complete strategy, provider, capital, live protocol or prospective financial acceptance.",
+    "Unchanged legacy diagnostic rows do not gain checked financial or current-generation provenance.",
+    "No maximum or future profit, exhaustive opportunity capture or zero future errors is guaranteed."
+  ]
+}

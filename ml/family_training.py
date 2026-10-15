@@ -39,6 +39,7 @@ from ml.temporal_validation import purged_temporal_windows, temporal_eligibility
 from ml.calibrated_ranker import fit_calibrated_ranker, reliability_bins
 from ml.prediction_validation import paired_token_loss_check, regression_error_check
 from ml.financial_targets import checked_financial_frame, financial_target
+from ml.cohort_sources import prepare_cohort_sources
 from ml.exit_diagnostics import exit_style_labels, forward_exit_diagnostics, LABEL_CONTRACT, PREDICTION_KIND
 from ml.train import _filter_outcome_training_rows, _load_dataset
 from ml.model_validation_warnings import (
@@ -79,7 +80,12 @@ def _json_safe(value: Any) -> Any:
 
 def load_training_frame(frame: pd.DataFrame | None = None) -> pd.DataFrame:
     if frame is not None:
-        return attach_labels(frame.copy())
+        # Explicit in-memory callers must not bypass whole-identity validation:
+        # attach_labels can clear a bad copy's availability before temporal or
+        # semantic filtering hides it from the later financial family check.
+        prepared, source_preparation = prepare_cohort_sources(frame)
+        prepared.attrs["cohort_source_preparation"] = source_preparation
+        return attach_labels(prepared)
     # A known peak target does not require a known terminal return/primary label.
     # Each family still applies its own observed-target and temporal masks.
     df = _load_dataset(require_label=False)
@@ -216,7 +222,9 @@ def train_classifier_family(
 ) -> dict[str, Any]:
     if validation_predictions_path is not None and len(targets) != 1:
         raise ValueError("validation_prediction_export_requires_one_target")
-    df = _settled_training_frame(load_training_frame(frame))
+    loaded = load_training_frame(frame)
+    source_preparation = loaded.attrs.get("cohort_source_preparation", {})
+    df = _settled_training_frame(loaded)
     financial = None
     if family == "risk":
         df, financial = checked_financial_frame(df)
@@ -237,6 +245,7 @@ def train_classifier_family(
         "feature_set_hash": feature_set_hash(feature_set_name),
         "rows": int(len(df)),
         "financial_training": financial,
+        "cohort_source_preparation": source_preparation,
         "auxiliary_semantics_filtering": semantics_filtering,
         "targets": {},
         "validation": target_validation_payload(
@@ -398,7 +407,9 @@ def train_regressor_family(
 ) -> dict[str, Any]:
     if validation_predictions_path is not None and len(targets) != 1:
         raise ValueError("validation_prediction_export_requires_one_target")
-    df = _settled_training_frame(load_training_frame(frame))
+    loaded = load_training_frame(frame)
+    source_preparation = loaded.attrs.get("cohort_source_preparation", {})
+    df = _settled_training_frame(loaded)
     # Mixed opportunity/financial target lists are handled independently below.
     df, semantics_filtering = prepare_training_frame(df, min_current_rows=min_rows)
     df = augment_context_frame(df, available_context_features(df))
@@ -410,6 +421,7 @@ def train_regressor_family(
         "feature_set": feature_set_name,
         "feature_set_hash": feature_set_hash(feature_set_name),
         "rows": int(len(df)),
+        "cohort_source_preparation": source_preparation,
         "auxiliary_semantics_filtering": semantics_filtering,
         "targets": {},
         "validation": target_validation_payload(
@@ -522,6 +534,7 @@ def train_exit_classifier(
     min_rows: int = 20,
 ) -> dict[str, Any]:
     df = load_training_frame(frame)
+    source_preparation = df.attrs.get("cohort_source_preparation", {})
     source_rows = len(df)
     valid, *_ = temporal_eligibility(df)
     df = df.loc[valid].reset_index(drop=True)
@@ -536,6 +549,7 @@ def train_exit_classifier(
                 and column != "exit_profile" and FEATURE_SOURCES.get(column) != "exit_profile"]
     features = _supported_target_features(features, df)
     report: dict[str, Any] = {"family": "exit", "rows": len(df), "source_rows": source_rows,
+        "cohort_source_preparation": source_preparation,
         "excluded_invalid_timing_or_identity_rows": int((~valid).sum()), "unknown_or_invalid_label_rows": unknown_rows,
         "label_source": label_source, "label_contract": LABEL_CONTRACT,
         "auxiliary_semantics_filtering": semantics_filtering, "targets": {},

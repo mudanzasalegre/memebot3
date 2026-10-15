@@ -182,6 +182,7 @@ def _train_runner_advisory_unlocked(*, root: Path | None = None, frame: pd.DataF
                 _atomic_json(status_path, result)
                 return result
         df = load_training_frame(frame)
+        result["cohort_source_preparation"] = df.attrs.get("cohort_source_preparation", {})
         valid, times, available, identities = temporal_eligibility(df, as_of=as_of)
         result["source_rows"] = len(df)
         result["excluded_unsettled_or_invalid_rows"] = int((~valid).sum())

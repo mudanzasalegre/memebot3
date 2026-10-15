@@ -156,7 +156,13 @@ def test_compatibility_risk_training_exports_oos_rank_not_fit_probabilities(tmp_
     report = trainer.train_risk_model(frame=frame)
     assert report["compatibility_published"]
     target = report["targets"]["severe_loss_configured"]
-    assert report["financial_training"]["unchecked_rows"] == 1
+    # Source rejection now happens before temporal/semantic work. Keep that
+    # evidence separate from the exact final checked model population.
+    assert report["cohort_source_preparation"]["source_rows"] == len(frame)
+    assert report["cohort_source_preparation"]["rejected_rows"] == 1
+    assert report["cohort_source_preparation"]["financial_validation"]["unchecked_rows"] == 1
+    assert report["financial_training"]["unchecked_rows"] == 0
+    assert report["financial_training"]["rows"] == len(frame) - 1
     exported = pd.read_csv(trainer.VAL_PREDS)
     assert 0 < len(exported) < len(frame)
     assert "rank_score" in exported and "y_prob" not in exported
