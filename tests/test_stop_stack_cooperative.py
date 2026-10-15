@@ -81,8 +81,17 @@ def _stop_command(root, *, force=False):
         *(['-Force'] if force else [])]
 
 
-def test_normal_stack_stop_waits_for_owned_cleanup_without_taskkill_or_foreign_process_stop(tmp_path):
+@pytest.mark.parametrize('controller_start_delay_s',[0,12])
+def test_normal_stack_stop_waits_for_owned_cleanup_without_taskkill_or_foreign_process_stop(tmp_path,controller_start_delay_s):
     root = _workspace(tmp_path)
+    if controller_start_delay_s:
+        # Controlled startup latency, not a change to the production15s/20s
+        # cooperative/helper deadlines. The old10s fixture wait cannot cover it.
+        script = root / 'scripts/stop_stack.ps1'
+        text = script.read_text(encoding='utf-8')
+        anchor = 'Write-StopLog "stop_stack requested_by='
+        assert text.count(anchor) == 1
+        script.write_text(text.replace(anchor,f'Start-Sleep -Seconds {controller_start_delay_s}\n'+anchor),encoding='utf-8')
     process = _launch(root)
     foreign = subprocess.Popen([sys.executable, '-I', '-c', 'import sys;sys.stdin.buffer.read(1)'],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -97,7 +106,12 @@ def test_normal_stack_stop_waits_for_owned_cleanup_without_taskkill_or_foreign_p
         controller = subprocess.Popen(_stop_command(root), env=_environment(),
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             creationflags=subprocess.CREATE_NO_WINDOW)
-        _until(binding.requested)
+        try:
+            _until(binding.requested,timeout=30)
+        except AssertionError as exc:
+            log_path = root / 'logs/stop_stack.log'
+            log = log_path.read_text(encoding='utf-8-sig',errors='replace')[-4096:] if log_path.exists() else '<no log>'
+            raise AssertionError(f'No owned stop request; controller_exit={controller.poll()} owner_exit={process.poll()} log={log}') from exc
         assert controller.poll() is None and process.poll() is None
         assert not binding.completed() and not (root / 'cleanup-finished').exists()
         (root / 'release').touch()

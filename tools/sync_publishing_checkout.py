@@ -13,7 +13,7 @@ import subprocess
 
 SOURCE_DIRS = {".github", "analytics", "api", "assets", "backtest", "config", "db", "docs", "execution",
                "features", "fetcher", "labeler", "ml", "research_loop", "runtime", "scripts", "tests", "tools", "trader", "ui", "utils"}
-ROOT_FILES = {".gitignore", ".env.example", "README.md", "Makefile", "requirements.txt", "run_bot.py", "trade_pnl.py"}
+ROOT_FILES = {".gitignore", ".env.example", "README.md", "Makefile", "requirements.txt", "run_bot.py", "trade_pnl.py", "pytest.ini"}
 SUFFIXES = {".py", ".ps1", ".sh", ".md", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg",
             ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css", ".html", ".svg", ".png", ".jpg", ".jpeg", ".ico", ".txt"}
 EXCLUDED_PARTS = {"node_modules", "dist", ".vite", "__pycache__", ".pytest_cache", ".ruff_cache", "backups", "versions"}

@@ -5516,6 +5516,21 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 
     # 9) — IA + soft score gate —
     entry_model_at = utc_now()
+    if getattr(entry_observation, "birth", None) is not None:
+        # CPython datetime floors microseconds; a new numeric receipt can be
+        # later within the same Windows clock tick. Observe a real later UTC
+        # reading, never clamp T0 to the receipt or relax causal validation.
+        from runtime.entry_clock import capture_causal_utc
+        try:
+            received_at = json.loads(entry_observation.birth)["received_at"]
+            if received_at is None:
+                received_at = False
+        except (ValueError, TypeError, KeyError, RecursionError):
+            received_at = False  # Invalid input remains unconfirmed, not absent.
+        entry_model_at = await capture_causal_utc(minimum_epoch=received_at, utc=utc_now)
+        if entry_model_at is None:
+            _defer_entry_observation(token, reason="unconfirmed_entry_clock", stage="pre_model")
+            return
     token["runner_exit_profile"] = _runner_profile_for_subject(token)
     token["exit_profile"] = token.get("runner_exit_profile")
     token["config_hash"] = _config_hash()

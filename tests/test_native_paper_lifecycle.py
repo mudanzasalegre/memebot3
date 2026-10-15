@@ -22,7 +22,7 @@ SUPPORT = {'tests/quote_fixtures.py', 'tests/native_paper_lifecycle_case.py'}
 
 
 def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log=False, run_id=None,
-                expected_failure=None):
+                expected_failure=None, coarse_clock=False):
     assert (SOURCE/'run_bot.py').is_file() and (SOURCE/'config/config.py').is_file()
     isolated = (tmp_path/'owned-source-only').resolve()
     assert isolated.is_relative_to(tmp_path.resolve()) and isolated != SOURCE
@@ -75,7 +75,7 @@ def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log
         env['DEX_WHITELIST'] = 'raydium,orca,meteora'
     if expected_failure not in {None,'rpc_unavailable'}:
         raise ValueError('Unknown isolated native failure injection')
-    options = dict(case=case,momentum=momentum,monitor=monitor,log=log,failure=expected_failure)
+    options = dict(case=case,momentum=momentum,monitor=monitor,log=log,failure=expected_failure,coarse_clock=coarse_clock)
     result = subprocess.run([sys.executable,str(isolated/'tests/native_paper_lifecycle_case.py'),
         str(isolated),json.dumps(options)],cwd=isolated,env=env,
         capture_output=True,text=True,timeout=90)
@@ -190,6 +190,18 @@ def test_native_rpc_entry_failure_retains_missing_birth_decision_evidence(tmp_pa
     counts=diagnostic['birth_enrichment']['rpc_initialization']['lookup_reservations']
     assert counts['unavailable']==1
     assert any(event['reason']=='entry_observation:missing_age' for event in diagnostic['decisions'])
+
+
+def test_full_native_rpc_entry_survives_a_controlled_submicrosecond_clock_floor(tmp_path):
+    row = native_case(tmp_path,case='rpc_birth',momentum=1000000.,monitor=True,coarse_clock=True)
+    clock = row['causal_clock_trace']
+    assert clock['first_epoch'] < clock['minimum_epoch'] <= clock['captured_epoch']
+    assert clock['reads'] >= 2 and clock['returned_actual_observation'] is True
+    assert len(row['positions']) == 1 and row['positions'][0]['amount_sol'] == .1
+    assert row['positions'][0]['closed'] and row['export_rows'] == 1
+    assert row['rpc_birth_retained_in_export'] and row['rpc_birth_initializer_checked']
+    assert row['boundary_calls'].count('creation_rpc') == 1
+    assert row['pending_buys'] == row['pending_sells'] == 0
 
 
 @pytest.mark.parametrize('case',['rpc_birth_unknown','rpc_birth_failed','rpc_birth_future'])

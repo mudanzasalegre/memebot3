@@ -13,6 +13,38 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Entrada: T0 causal observado, sin tolerar recibos futuros (2026-10-15)
+
+La CI de `107eae2` termina con Linux aprobado y dos fallos en Windows.
+Uno reproduce un recibo numerico posterior al T0 truncado a microsegundos;
+el otro no observa una solicitud de parada dentro del plazo de la prueba.
+Los logs originales se conservan: no se ha reiniciado esa ejecucion.
+
+La entrada ahora espera, como maximo 100 ms de espera admitida, una lectura UTC
+real posterior al recibo ya observado. No adelanta T0, altera recibos ni anade
+epsilon. Recibos futuros, relojes invalidos y ausencia de confirmacion siguen
+aplazando la entrada. La prueba de parada separa su presupuesto de arranque de
+los plazos de produccion y conserva la exigencia de cierre sin taskkill.
+Pasan 310 comprobaciones focalizadas de runtime y otras 569 de modelos/cohortes
+en cada checkout; son varias ejecuciones, no la suite completa. La nueva matriz
+completa aun no se ha aprobado.
+[Reproduccion, reparacion y limites](docs/audits/causal_entry_clock_20261015.json).
+
+### Aprendizaje: cohortes por estrategia y edad original (2026-10-15)
+
+La reconstruccion configurada de filas sin estrategia ya reconoce el marcador
+`unknown` que produce la carga nativa. Cada familia respeta su allowlist: no se
+mezclan filas standard, meteor y breakout por compartir un fallback general.
+Una edad original declarada desconocida o invalida no se sustituye por un alias.
+Las filas explicitas y sus pruebas originales no se reescriben; esta elegibilidad
+de entrenamiento no recupera una decision historica ni da permiso para comprar.
+
+La suite por defecto se limita a `tests/`; los simuladores privados de `work/`
+siguen disponibles al indicarlos expresamente. La nueva validacion completa
+todavia esta pendiente. No cambia el tamano de 0,1 SOL, los filtros de compra,
+las salidas ni la activacion de modelos. No se acredita rentabilidad.
+[Contrato y evidencia](docs/audits/primary_lane_cohort_20261015.json).
+
 ### Parada normal: solicitud propia, drenaje y confirmacion (2026-10-15)
 
 El arranque nativo publica una generacion de parada propia junto a su PID real.
@@ -28,7 +60,7 @@ Esto cubre `_runner`, incluido su inicio, no las importaciones previas de Python
 Los botones/API que pidan `force=true` conservan su comportamiento de emergencia.
 La prueba aislada de Windows no usa proveedores ni el bot operativo; el
 finalizador SQLite se valida aparte. Pasan 191 pruebas focalizadas en cada
-checkout; la nueva matriz completa aun esta pendiente.
+checkout; la CI posterior fallo en Windows y su reparacion se documenta arriba.
 [Contrato, pruebas y limites](docs/audits/cooperative_stop_20261015.json).
 
 ### Scanner: esperar al cupo local sin reevaluar cada 5 segundos (2026-10-15)

@@ -149,6 +149,29 @@ if case.startswith('rpc_birth'):
     rpc.aiohttp.ClientSession = CreationSession
     token_birth_enrichment.GLOBAL_RPC_TOKEN_BIRTH_RESOLVER = RpcTokenBirthResolver(
         lookup=get_mint_initialization,endpoint=lambda:'https://synthetic-node.example.test',degraded=lambda:False)
+clock_trace = {}
+if options.get('coarse_clock'):
+    assert case == 'rpc_birth'
+    from runtime import entry_clock
+    original_capture_causal_utc = entry_clock.capture_causal_utc
+    async def coarse_capture(*, minimum_epoch, utc, **kwargs):
+        # This deliberately lagging UTC callback is a synthetic clock source,
+        # not a production timestamp repair. All receipt bytes stay original.
+        first = dt.datetime.fromtimestamp(minimum_epoch,dt.timezone.utc)
+        if first.timestamp() >= minimum_epoch:
+            first -= dt.timedelta(microseconds=1)
+        observed = []
+        def lagging_then_real():
+            value = first if not observed else utc()
+            observed.append(value)
+            return value
+        result = await original_capture_causal_utc(minimum_epoch=minimum_epoch,utc=lagging_then_real,**kwargs)
+        clock_trace.update(first_epoch=first.timestamp(),minimum_epoch=minimum_epoch,
+            captured_epoch=result.timestamp() if result is not None else None,
+            reads=len(observed),returned_actual_observation=result is not None and any(result is item for item in observed))
+        return result
+    entry_clock.capture_causal_utc = coarse_capture
+
 async def snapshot(address, **kwargs):
     calls.append('snapshot')
     return stamp_market_observation({'address':address,'chain':'solana','symbol':'SYNTHETIC',
@@ -310,7 +333,7 @@ report = asyncio.run(exercise())
 assert not attempts, attempts
 events_path = expected/'data/metrics/runtime_events.jsonl'
 events = [json.loads(line) for line in events_path.read_text(encoding='utf-8-sig').splitlines()] if events_path.exists() else []
-print(json.dumps({**report,'native_complete_entry':True,'boundary_calls':calls,
+print(json.dumps({**report,'native_complete_entry':True,'boundary_calls':calls,'causal_clock_trace':clock_trace,
     'events':[{'event':e.get('event_type') or e.get('event'),'reason':e.get('reason'),
         'stage':e.get('stage'),'hard_failures':e.get('hard_failures')} for e in events],
     'stats':run_bot._stats,'external_attempts':attempts,

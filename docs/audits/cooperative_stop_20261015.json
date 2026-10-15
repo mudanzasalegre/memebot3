@@ -1,6 +1,8 @@
 {
   "schema_version": 1,
-  "status": "IMPLEMENTED_FOCUSED_191_BOTH_CHECKOUTS_FULL_CI_PENDING_RUNTIME_OFF",
+  "status": "IMPLEMENTED_FOCUSED_VALIDATED_FULL_CI_FAILED_WINDOWS_REPAIR_PENDING_RUNTIME_OFF",
+  "terminal_ci": {"commit": "107eae20a812dc04b30fd5a368272d5ca8e10a70", "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38734257951", "conclusion": "failure", "observed_at_utc": "2026-10-15T12:53:29.084488+00:00", "ubuntu": {"passed": 6800, "skipped": 7, "warnings": 1, "seconds": 1593.08}, "windows": {"failed": 2, "passed": 6805, "warnings": 1, "seconds": 1177.50}, "failed_cases": ["test_full_native_rpc_birth_exact_paper_entry_runner_close_and_T0_net_export", "test_normal_stack_stop_waits_for_owned_cleanup_without_taskkill_or_foreign_process_stop"], "repair": "docs/audits/causal_entry_clock_20261015.json", "qualification": "No workflow restart; original terminal failure retained. Source repair and new CI must be validated separately. The Windows request-milestone failure lacked controller diagnostics, so its exact CI startup cause is not established."},
+  "terminal_ci_supersedes_original_pending_snapshot": true,
   "source": {"files_each": 846, "normalized_sha256": "e5aa8b26c8a414b26d7d73632ccf7fd44aa7c308b58846706a9b9260411dc8dc"},
   "conservation": {"fresh_post_paper_baseline": true, "working_protected_files": 4108, "publishing_protected_files": 28, "changed": [], "added": []},
   "global_goal_status": "ACTIVE_INCOMPLETE",

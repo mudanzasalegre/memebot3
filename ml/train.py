@@ -406,6 +406,45 @@ def _numeric_series(df: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_numeric(df[column], errors="coerce")
 
 
+def _cohort_age_series(df: pd.DataFrame) -> tuple[pd.Series, dict[str, Any]]:
+    """A declared original clock cannot fall through to mutable age aliases.
+
+    Undeclared legacy measured ages remain historical eligibility diagnostics,
+    not normalized-current predictors, authenticated mint age or buy permission.
+    """
+    from features.token_clock_semantics import checked_row_clock
+    legacy = _numeric_series(df, "age_minutes").fillna(_numeric_series(df, "age_min"))
+    def declared(value):
+        if value is None or value is pd.NA or value is pd.NaT:
+            return False
+        if isinstance(value, (float, np.floating)) and np.isnan(value):
+            return False
+        return not (isinstance(value, str) and not value.strip())
+    values, current, unusable, historical = [], 0, 0, 0
+    for position, row in enumerate(df.to_dict(orient="records")):
+        if any(declared(row.get(key)) for key in (CLOCK_PROOF_COLUMN, PROOF_COLUMN, "outcome_execution_proof")):
+            try:
+                proof = checked_row_clock(row)
+            except RecursionError:
+                proof = None
+            if proof is None:
+                value = None
+                unusable += 1
+            else:
+                value = proof["ages"]["age_minutes"]
+                current += 1
+        else:
+            value = legacy.iloc[position]
+            historical += 1
+        values.append(value)
+    return pd.Series(values, index=df.index, dtype="float64"), {
+        "fallback_current_clock_rows": current,
+        "fallback_declared_clock_unusable_rows": unusable,
+        "fallback_legacy_age_rows": historical,
+        "fallback_age_basis": "checked_original_clock_or_unchanged_legacy_diagnostic_not_birth_authentication",
+    }
+
+
 def _bool_like_series(df: pd.DataFrame, columns: Sequence[str]) -> pd.Series:
     out = pd.Series(np.nan, index=df.index, dtype="float64")
     for column in columns:
@@ -523,7 +562,17 @@ def _profit_shape_guard_mask(df: pd.DataFrame) -> pd.Series:
     return ok
 
 
-def _productive_lane_fallback_mask(df: pd.DataFrame) -> tuple[pd.Series, dict[str, Any]]:
+def _productive_lane_fallback_mask(
+    df: pd.DataFrame, *, allowed_lanes: set[str] | None = None,
+) -> tuple[pd.Series, dict[str, Any]]:
+    from ml.lane_taxonomy import (LANE_PUMP_EARLY_PROFIT, LANE_PUMP_EARLY_PRIME,
+        LANE_PUMP_EARLY_METEOR, LANE_PUMP_EARLY_BREAKOUT)
+    age, clock_meta = _cohort_age_series(df)
+    df = df.copy()
+    # This is an ephemeral classification view. Preserve original rows/proofs
+    # and prevent meteor's alias fallback from replacing checked unknown age.
+    df["age_minutes"] = age
+    df["age_min"] = age
     dex_series = _coalesced_string_series(df, ("dex_id", "dexId", "buy_dex_id")).map(_normalize_dex_id)
     liquidity = _numeric_series(df, "liquidity_usd")
     score_total = _numeric_series(df, "score_total")
@@ -586,12 +635,29 @@ def _productive_lane_fallback_mask(df: pd.DataFrame) -> tuple[pd.Series, dict[st
             & impact.le(float(getattr(CFG, "PUMP_EARLY_BREAKOUT_MAX_PRICE_IMPACT_PCT", 8.0) or 8.0))
         )
     )
+    candidate_counts = {
+        "fallback_candidate_standard_rows": int(standard_mask.sum()),
+        "fallback_candidate_meteor_rows": int(meteor_mask.sum()),
+        "fallback_candidate_breakout_rows": int(breakout_mask.sum()),
+    }
+    if allowed_lanes is not None:
+        prime = standard_mask & mcap.lt(25_000.0) & liquidity.le(25_000.0)
+        standard_mask = (standard_mask if LANE_PUMP_EARLY_PROFIT in allowed_lanes
+            else prime if LANE_PUMP_EARLY_PRIME in allowed_lanes
+            else pd.Series(False, index=df.index))
+        if LANE_PUMP_EARLY_METEOR not in allowed_lanes:
+            meteor_mask = pd.Series(False, index=df.index)
+        if LANE_PUMP_EARLY_BREAKOUT not in allowed_lanes:
+            breakout_mask = pd.Series(False, index=df.index)
     fallback = standard_mask | meteor_mask | breakout_mask
     return fallback, {
         "fallback_rows": int(fallback.sum()),
         "fallback_standard_rows": int(standard_mask.sum()),
         "fallback_meteor_rows": int(meteor_mask.sum()) if isinstance(meteor_mask, pd.Series) else 0,
         "fallback_breakout_rows": int(breakout_mask.sum()) if isinstance(breakout_mask, pd.Series) else 0,
+        "fallback_basis": "configured_eligibility_not_recovered_original_choice",
+        **candidate_counts,
+        **clock_meta,
     }
 
 
@@ -603,25 +669,41 @@ def _productive_lane_mask(
 ) -> tuple[pd.Series, dict[str, Any]]:
     if entry_lane_allowlist is None:
         entry_lane_allowlist = getattr(CFG, "ML_TRAIN_ENTRY_LANE_ALLOWLIST", "")
-    allowed = _csv_allowlist(entry_lane_allowlist)
-    lane_series = _coalesced_string_series(df, ("entry_lane", "profit_lane_tier", "size_bucket"))
-    normalized = lane_series.fillna("").astype("string").str.strip().str.lower()
-    if not allowed:
+    raw_allowed = _csv_allowlist(entry_lane_allowlist)
+    if not raw_allowed:
         return pd.Series(True, index=df.index), {"entry_lane_allowlist": [], "entry_lane_rows": int(len(df))}
-    mask = normalized.isin(allowed)
-    missing_lane = normalized.eq("")
+    from ml.lane_taxonomy import (normalize_entry_lane, LANE_UNKNOWN,
+        LANE_PUMP_EARLY_PROFIT, LANE_PUMP_EARLY_PRIME, LANE_PUMP_EARLY_METEOR, LANE_PUMP_EARLY_BREAKOUT)
+    allowed = {normalize_entry_lane(value) for value in raw_allowed}
+    normalized = pd.Series(LANE_UNKNOWN, index=df.index, dtype="string")
+    for column in ("entry_lane", "profit_lane_tier", "size_bucket"):
+        if column in df:
+            values = df[column].astype("string").fillna("").map(normalize_entry_lane).astype("string")
+            normalized = normalized.mask(normalized.eq(LANE_UNKNOWN), values)
+    missing_lane = normalized.eq(LANE_UNKNOWN)
+    mask = normalized.isin(allowed) & ~missing_lane
     allow_missing = (
         bool(getattr(CFG, "ML_TRAIN_ALLOW_MISSING_ENTRY_LANE", True))
         if allow_missing_entry_lane is None
         else bool(allow_missing_entry_lane)
     )
-    if allow_missing:
-        fallback_mask, fallback_meta = _productive_lane_fallback_mask(df)
-        reconstructed = missing_lane & fallback_mask
+    fallback_meta = {"fallback_rows": 0, "fallback_standard_rows": 0,
+        "fallback_meteor_rows": 0, "fallback_breakout_rows": 0,
+        "fallback_candidate_standard_rows": 0, "fallback_candidate_meteor_rows": 0,
+        "fallback_candidate_breakout_rows": 0, "fallback_current_clock_rows": 0,
+        "fallback_declared_clock_unusable_rows": 0, "fallback_legacy_age_rows": 0,
+        "fallback_basis": "not_needed"}
+    supported = {LANE_PUMP_EARLY_PROFIT, LANE_PUMP_EARLY_PRIME, LANE_PUMP_EARLY_METEOR, LANE_PUMP_EARLY_BREAKOUT}
+    if allow_missing and missing_lane.any() and allowed.intersection(supported):
+        positions = np.flatnonzero(missing_lane.to_numpy(dtype=bool))
+        # Classify only missing rows, with a positional temporary index so
+        # duplicate external labels cannot duplicate or misalign admission.
+        candidates = df.iloc[positions].copy().reset_index(drop=True)
+        fallback_mask, fallback_meta = _productive_lane_fallback_mask(candidates, allowed_lanes=allowed)
+        reconstructed = pd.Series(False, index=df.index)
+        reconstructed.iloc[positions] = fallback_mask.to_numpy(dtype=bool)
         mask = mask | reconstructed
-    else:
-        fallback_meta = {"fallback_rows": 0, "fallback_standard_rows": 0, "fallback_meteor_rows": 0}
-    counts = normalized.replace("", "<missing>").value_counts(dropna=False)
+    counts = normalized.replace(LANE_UNKNOWN, "<missing>").value_counts(dropna=False)
     return mask, {
         "entry_lane_allowlist": sorted(allowed),
         "entry_lane_rows": int(mask.sum()),
