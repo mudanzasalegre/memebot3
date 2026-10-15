@@ -37,16 +37,16 @@ def _set(subject: Any, key: str, value: Any) -> None:
         pass
 
 
-def _to_float(value: Any, default: float = 0.0) -> float:
+def _to_float(value: Any, default: float | None = 0.0) -> float | None:
     try:
         if value is None:
-            return float(default)
+            return None if default is None else float(default)
         out = float(value)
         if out != out or out == float("inf") or out == float("-inf"):
-            return float(default)
+            return None if default is None else float(default)
         return out
     except Exception:
-        return float(default)
+        return None if default is None else float(default)
 
 
 def _to_bool(value: Any, default: bool = False) -> bool:

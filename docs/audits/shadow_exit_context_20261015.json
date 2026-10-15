@@ -1,0 +1,209 @@
+{
+  "status": "SHADOW_EXIT_CONTEXT_AND_NULLABLE_NATIVE_FOCUSED_VERIFIED_CURRENT_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "44e77459cedfa7621a2411b64b711408e604a49c",
+  "implementation_revision": "Commit containing this audit; normalized source identity follows verification",
+  "summary": "Native nonfinancial shadow exits now receive a frozen versioned original exit context rather than a reduced object that discarded lane, proved selected subprofile and original mode. Original supplied rank participates in shadow profile selection; a later global mode or price-drawdown configuration cannot retune that saved sample. Original v4 subprofile proof is checked without changing the original predictor vector. The configured PAPER price-drawdown policy can follow uncapped extreme tails, while LIVE-mode shadows cannot enable that PAPER-only policy. First-partial realized prefix and remaining fraction supply explicitly gross whole-sample return to diagnostic protections, not remaining-token spot return or fabricated net cash. Native exit phase/adverse-excursion updates are checkpointed for retry/restart. Existing saved states or queued openings with no original context retain their old generation instead of gaining post-hoc source inputs. The simulation deliberately remains one fractional partial without quantities, fills, fees or financial multi-sale claims. A separately reproduced native exit-policy float(None) exception is repaired by preserving an explicitly nullable default; old finite values and numeric defaults remain unchanged. No buying threshold, 0.1 SOL sizing, financial transaction, operator fit/activation, history rewrite or operational run is added. Full-strategy provider/financial/profitability acceptance remains incomplete; operational processes stay off.",
+  "reproduction": {
+    "original_six": "Six failing native cases: birth-probe and green lane exits differ from the actual direct policy; original proved deep-reversal selection is absent; global mode leaks into an existing sample; realized gross partial prefix is missing from protection input; native exit-state changes are lost across restart",
+    "nullable_exit_default": "Eight native failures and six passing controls reproduce the actual exit-policy converter calling float(None). A real profile-resolution probe also hits this exception before reaching rank evaluation",
+    "rank_after_nullable_repair": "One native failure: original supplied rank50 is ignored, selecting jackpot_runner instead of the existing policy's broad_runner at min rank61. This is a shadow profile/context defect, not measured real opportunity loss",
+    "historical_causality": "Not established as the previous operator no-buy cause or measured financial-loss cause"
+  },
+  "contract": {
+    "version": "unquoted_fractional_shadow_exits_v1",
+    "role": "nonfinancial_shadow_only",
+    "original_inputs": "Whitelist scalar strategy inputs and original supplied rank; selected subprofile only from matching original v4 receipt, never a reason, arbitrary raw alias or outcome",
+    "mode_and_policy": "Capture original bool mode and configured price-drawdown snapshot before provider await; immutable state context includes exact version, role and single-partial contract. Disabled and enabled snapshots are checked; a LIVE mode cannot carry enabled PAPER policy",
+    "original_features": "Original predictor vector, T0, missingness and all three proof attrs remain untouched and separate from exit context",
+    "gross_wealth": "100 * (original realized_pnl_ratio + remaining_fraction * current price return); unknown entry/current price remains unknown. This has no quotes, costs, token quantities or validated net profitability",
+    "partial_scope": "At most the original single fractional partial, with its original durable event identity; do not fabricate token quantities or invoke financial multi-partial machinery",
+    "dynamic_state": "Only native peak, adverse-excursion and phase updates may enter state; original context is immutable under existing generation/CAS ownership. Failed state persistence does not publish a close and is retried",
+    "legacy": "No context reconstruction for existing context-absent states or legacy queued openings. Preserve their original reduced simulation generation",
+    "numeric_exit_default": "Explicit default None now returns None for absent, invalid or nonfinite numeric values, rather than raising TypeError. Genuine finite zero and existing numeric-default behavior are retained"
+  },
+  "acceptance": {
+    "new_repository_cases": 49,
+    "new_shadow_context_cases": 35,
+    "new_native_exit_numeric_cases": 14,
+    "focused": {
+      "working": {
+        "tests": 840,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 292.704
+      },
+      "publishing": {
+        "tests": 840,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 289.975
+      }
+    },
+    "source_proof": [
+      {
+        "checkout": "working",
+        "files": 834,
+        "sha256": "d7bb518795783ff2599cf759d903de73047de08fa824c51ef9b5b71ef6ec9532"
+      },
+      {
+        "checkout": "publishing",
+        "files": 834,
+        "sha256": "d7bb518795783ff2599cf759d903de73047de08fa824c51ef9b5b71ef6ec9532"
+      }
+    ],
+    "repository_collection": {
+      "observed_at_utc": "2026-10-15T07:01:01.450353+00:00",
+      "counts": {
+        "working": 6607,
+        "publishing": 6606
+      },
+      "only_working": [
+        "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline"
+      ],
+      "only_publishing": [],
+      "scope": "Collection, not execution or financial acceptance"
+    },
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "native_cases": "Actual admission/IO handler, current exit policy, owned state/checkpoint/restore and close outbox; temporary research paths and synthetic prices only. Cases cover distinct lane exits, original proved subprofile, rank-based profile, original mode, gross prefix, failed state IO, immutable context, invalid roles/quantity injection, legacy and uncapped price tails",
+    "extreme_cases": "Actual nonfinancial shadow tick follows +500%, +5000% and +1000000% peaks, survives 5% peak-price retrace and closes beyond the original20% price drawdown even after restart and global reconfiguration. No real token, profitable trade or market opportunity is established",
+    "qa_harness_repair": "The initial added configuration tests attempted to assign frozen dataclass fields and produced five failures plus five teardown errors. They now replace temporary configuration objects through monkeypatch; no operator configuration is edited",
+    "scope": "Source and software integration only; not full process authenticity, provider response/asof, LIVE wallet/finality, full financial ladder or prospective strategy acceptance",
+    "original_baseline": {
+      "tests": 6,
+      "failures": 6,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 4.29
+    },
+    "nullable_baseline": {
+      "tests": 14,
+      "failures": 8,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.234
+    },
+    "original_rank_baseline": {
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.471
+    }
+  },
+  "remaining_boundaries": [
+    "No retrospective shadow or synthetic extreme path establishes profitable capture, maximum gains or full-strategy net profitability",
+    "Nonfinancial shadows remain intentionally separate from costed primary PAPER/financial multi-partial receipts; their gross return is not accepted as validated net evidence",
+    "Fresh real provider/PAPER/model acceptance requires separate authority and has not been run here",
+    "The older c771 Windows RPC birth-input mismatch remains causally unresolved; later green tests are not its explanation",
+    "Original full-process/input availability, source authenticity and independent whole-strategy capital/finality boundaries remain incomplete"
+  ],
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "additional_restored_ledger_sha256": "afbcb9a90a254e16d41df52749a1dfcc880b7a51c95045fed144229ed6532cb5"
+  },
+  "shutdown": {
+    "observed_at_utc": "2026-10-15T07:03:12.0981310+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml": {
+      "observed_at_utc": "2026-10-15T07:03:12.6084462+00:00",
+      "actual_ml_entrypoint_processes": 0
+    },
+    "read_only_sql": {
+      "observed_at": "2026-10-15T07:03:12.833143+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-13 10:43:54.767270"
+        }
+      ]
+    }
+  },
+  "observed_at_utc": "2026-10-15T07:03:12.845143+00:00",
+  "preceding_full_ci_verified": {
+    "commit": "171a9085c577eb84b0875896e68563ca36973d07",
+    "observed_at_utc": "2026-10-15T06:58:33.002587+00:00",
+    "runs": {
+      "tests": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38691975626",
+        "pytest_summaries": [
+          "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-15T06:24:23.1825024Z 1 passed in 6.73s",
+          "test (windows-2022)\tRun python -m pytest -q\t2026-10-15T06:55:07.7647120Z 6536 passed, 1 warning in 1843.36s (0:30:43)",
+          "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-15T06:23:03.7689697Z 1 passed in 3.71s",
+          "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-15T06:42:51.9084102Z 6536 passed, 1 warning in 1187.39s (0:19:47)"
+        ]
+      },
+      "ci": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38691975653",
+        "pytest_summaries": [
+          "strategy-regression\tStrategy regression pytest suite\t2026-10-15T06:22:59.2092321Z 41 passed in 4.22s"
+        ]
+      }
+    },
+    "qualification": "6536 full cases per OS pass; no cause determination of the older c771 Windows failure"
+  },
+  "preceding_ci_observation": {
+    "observed_at_utc": "2026-10-15T07:02:12.448209+00:00",
+    "commit": "44e77459cedfa7621a2411b64b711408e604a49c",
+    "runs": {
+      "tests": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38694073918",
+        "pytest_summaries": [
+          "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-15T06:43:50.7227895Z 1 passed in 3.55s",
+          "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-15T06:58:03.3005640Z 6557 passed, 1 warning in 851.94s (0:14:11)",
+          "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-15T06:44:39.3175207Z 1 passed in 5.04s",
+          "test (windows-2022)\tRun python -m pytest -q\t2026-10-15T07:01:50.9973674Z 6557 passed, 1 warning in 1030.62s (0:17:10)"
+        ]
+      },
+      "ci": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38694073935",
+        "pytest_summaries": [
+          "strategy-regression\tStrategy regression pytest suite\t2026-10-15T06:43:55.1014880Z 41 passed in 4.60s"
+        ]
+      }
+    },
+    "qualification": "Parent CI observation only; no workflow restart and no cause determination of the older c771 Windows failure"
+  }
+}

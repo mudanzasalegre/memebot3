@@ -4256,9 +4256,11 @@ async def _open_shadow(
         from utils.runtime_context import runtime_context_payload
         vector = snapshot_vector(vec)
         diagnostics = snapshot_vector(decision_context) or {}
+        from runtime.shadow_exits import freeze as freeze_shadow_exits
+        exit_context = freeze_shadow_exits(vector, diagnostics, dry_run=bool(DRY_RUN), rank_info=rank_info)
         # Preserve the existing shadow exit-profile choice, separately from
         # the original predictor vector which will reach the feature writer.
-        subject = {**(vector or {}), **diagnostics}
+        subject = {**(vector or {}), **diagnostics, **exit_context['inputs']}
         subject.setdefault('address', addr)
         subject.setdefault('entry_regime', regime or 'dex_mature')
         accepted = queue.submit({'address': addr, 'vector': vector, 'price_hint': price_hint,
@@ -4266,7 +4268,7 @@ async def _open_shadow(
             'proba': proba, 'threshold': threshold, 'rank_info': rank_info,
             'shadow_kind': shadow_kind, 'opening_snapshot': {'context': runtime_context_payload(),
                 'profile': _runner_profile_for_subject(subject), 'requested_at': utc_now(),
-                'decision_context': diagnostics}})
+                'decision_context': diagnostics, 'shadow_exit_context': exit_context}})
         for key, value in queue.snapshot().items():
             _stats['shadow_open_' + key] = value
         return accepted
@@ -4302,6 +4304,11 @@ async def _open_shadow_now(
         from copy import deepcopy
         vec = snapshot_vector(vec)
         rank_info = deepcopy(rank_info)
+        from runtime.shadow_exits import freeze as freeze_shadow_exits, validate as validate_shadow_exits
+        exit_context = (deepcopy(_opening_snapshot.get('shadow_exit_context'))
+            if _opening_snapshot is not None else freeze_shadow_exits(vec, None, dry_run=bool(DRY_RUN), rank_info=rank_info))
+        if exit_context is not None:
+            validate_shadow_exits(exit_context)
         from runtime.shadow_closes import positive_price
         price = positive_price(price_hint)
         if price is None:
@@ -4325,7 +4332,7 @@ async def _open_shadow_now(
         token_ctx.setdefault("entry_regime", regime or "dex_mature")
         token_ctx.setdefault("score_total", vec.get("score_total"))
         runner_exit_profile = (_opening_snapshot['profile'] if _opening_snapshot is not None
-            else _runner_profile_for_subject(token_ctx))
+            else _runner_profile_for_subject({**token_ctx, **(exit_context or {}).get('inputs', {})}))
         shadow_payload = {
             "shadow_instance_id": uuid.uuid4().hex,
             "opening_pending": True,
@@ -4353,6 +4360,7 @@ async def _open_shadow_now(
             "threshold": threshold,
             "rank_info": rank_info or {},
             "shadow_kind": shadow_kind,
+            "shadow_exit_context": exit_context,
         }
         _shadow_positions[addr] = shadow_payload
         if _opening_snapshot is not None:
@@ -4366,6 +4374,7 @@ async def _open_shadow_now(
         open_payload = {
                 **open_rank_info,
                 "decision_context": diagnostics,
+                "shadow_exit_context": exit_context,
                 "regime": regime or "dex_mature",
                 "opened_at": opened_at,
                 "buy_price_usd": float(price) if price is not None else None,
@@ -4476,7 +4485,6 @@ async def _tick_shadows() -> None:
             log.debug('shadow state remains pending %s -> %s', addr[:6], type(exc).__name__)
             continue
         regime = str(sd.get("entry_regime") or "dex_mature")
-        shadow_policy = exit_policy.effective_exit_policy(sd)
         buy_price = positive_price(sd.get("buy_price_usd"))
         if buy_price is None:
             # Without an original denominator a return/peak is not observable.
@@ -4529,19 +4537,13 @@ async def _tick_shadows() -> None:
                     if peak > current_peak_after_partial:
                         sd["peak_after_partial_pct"] = peak
 
-        subject = SimpleNamespace(
-            entry_regime=regime,
-            opened_at=opened,
-            buy_price_usd=buy_price,
-            buy_liquidity_usd=sd.get("buy_liquidity_usd"),
-            highest_pnl_pct=peak,
-            max_pnl_pct_seen=sd.get("max_pnl_pct_seen"),
-            partial_taken=bool(sd.get("partial_taken")),
-            runner_exit_profile=sd.get("runner_exit_profile"),
-        )
+        from runtime.shadow_exits import subject as shadow_exit_subject, gross_return, retain_updates
+        subject = shadow_exit_subject(sd)
+        shadow_policy = exit_policy.effective_exit_policy(subject)
 
         partial_event = None
-        if buy_price and close_price and exit_policy.should_take_partial(subject, float(pnl_pct_live or 0.0)):
+        if (buy_price and close_price and not bool(sd.get('partial_taken'))
+                and exit_policy.should_take_partial(subject, float(pnl_pct_live or 0.0))):
             fraction = float(exit_policy.partial_fraction(subject))
             remaining_before = float(sd.get("remaining_fraction") or 1.0)
             sell_fraction = min(max(0.05, fraction), remaining_before)
@@ -4574,6 +4576,7 @@ async def _tick_shadows() -> None:
             log.debug('shadow checkpoint remains pending %s -> %s', addr[:6], type(exc).__name__)
             continue
 
+        gross_return(subject, sd, close_price)
         exit_reason = exit_policy.should_exit(
             subject,
             close_price,
@@ -4581,6 +4584,12 @@ async def _tick_shadows() -> None:
             liq_now=liq_now,
             pnl_pct=pnl_pct_live,
         )
+        if retain_updates(sd, subject):
+            try:
+                sd['_shadow_state'] = await await_owned_thread(checkpoint, PROJECT_ROOT, addr, sd)
+            except Exception as exc:
+                log.debug('shadow exit state remains pending %s -> %s', addr[:6], type(exc).__name__)
+                continue
         if exit_reason is None and close_price is None:
             age_h = (now - opened).total_seconds() / 3600.0
             if age_h < float(shadow_policy.max_holding_h):

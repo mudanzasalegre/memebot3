@@ -9,6 +9,24 @@ from pathlib import Path
 import pytest
 
 
+@pytest.mark.parametrize('value', [None, '', 'not-a-number', float('nan'), float('inf'), float('-inf'), {}, []])
+def test_nullable_exit_number_preserves_absence_instead_of_raising(value):
+    from analytics.exit_policy import _to_float
+    assert _to_float(value, None) is None
+
+
+@pytest.mark.parametrize('value', [0., 2., -1.5])
+def test_nullable_exit_number_keeps_actual_finite_values(value):
+    from analytics.exit_policy import _to_float
+    assert _to_float(value, None) == value
+
+
+@pytest.mark.parametrize('value', [None, 'not-a-number', float('nan')])
+def test_legacy_numeric_exit_default_is_unchanged(value):
+    from analytics.exit_policy import _to_float
+    assert _to_float(value) == 0.
+
+
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))

@@ -24,7 +24,7 @@ MAX_BYTES = 2 * CLOSE_MAX_BYTES + 4096
 INTERNAL = '_shadow_state'
 IMMUTABLE = ('vec', 'opened_at', 'buy_price_usd', 'entry_regime', 'runner_exit_profile',
     'reason', 'stage', 'ml_proba', 'threshold', 'rank_info', 'shadow_kind', 'price_source', 'buy_liquidity_usd',
-    'shadow_requested_at', 'shadow_open_latency_sec')
+    'shadow_requested_at', 'shadow_open_latency_sec', 'shadow_exit_context')
 
 
 def snapshot_vector(vector):
@@ -74,6 +74,13 @@ def _validate(envelope):
             or any(type(value) is not bool for value in record['published'].values())):
         raise ValueError('Invalid shadow state record')
     state = record['state']
+    if state.get('shadow_exit_context') is not None:
+        from runtime.shadow_exits import validate
+        validate(state['shadow_exit_context'])
+        remaining, realized = state.get('remaining_fraction'), state.get('realized_pnl_ratio')
+        if (type(remaining) not in (int, float) or type(realized) not in (int, float)
+                or not math.isfinite(remaining) or not math.isfinite(realized) or not 0 <= remaining <= 1):
+            raise ValueError('Invalid original fractional shadow wealth')
     if state.get('shadow_instance_id') != record['instance_id'] or not isinstance(state.get('vec'), (dict, type(None))):
         raise ValueError('Invalid original shadow state identity')
     _time(state['opened_at'])

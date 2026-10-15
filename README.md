@@ -13,6 +13,27 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Salidas: contexto original y colas extremas en sombras diagnosticas (2026-10-15)
+
+Las nuevas sombras fijan carril, contexto de decision, ranking recibido, modo
+original y politica de caida de precio antes de esperar al proveedor. El
+subperfil solo se recupera de su recibo T0 v4 valido. Las salidas nativas reciben
+este contexto, el retorno bruto del prefijo parcial y el estado observado;
+sus cambios de fase y excursion adversa se guardan tambien para reinicios.
+
+En modo PAPER se conserva la politica de runner configurada al abrir, incluso
+tras reiniciar o cambiar la configuracion. Se prueban subidas sinteticas hasta
++1.000.000% y la diferencia entre retroceso de precio y puntos de beneficio.
+Una sombra sigue siendo una simulacion no financiera de un unico parcial
+fraccional: no inventa cantidades, fills, comisiones, net cash ni varias ventas.
+Los estados antiguos no reciben contexto reconstruido a posteriori.
+
+Tambien se corrige una excepcion real de las salidas al convertir un dato
+ausente con default `None`: permanece desconocido, sin `float(None)` ni cero
+fabricado. Se conserva el comportamiento de los defaults numericos existentes.
+No se cambian umbrales de compra, importe de 0.1 SOL ni se activa el bot.
+[Evidencia y limites](docs/audits/shadow_exit_context_20261015.json).
+
 ### Aprendizaje: el diagnostico posterior no sustituye al vector original (2026-10-15)
 
 Las sombras de investigacion conservan los 77 valores originales y sus tres
