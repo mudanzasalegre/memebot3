@@ -1,5 +1,9 @@
 """Untrusted creation references must survive discovery without becoming age."""
 from copy import deepcopy
+import datetime as dt
+import math
+from types import SimpleNamespace
+import time
 
 import pytest
 
@@ -12,13 +16,18 @@ SIGNATURE = '1' * 64  # Syntactic reference only; never a verified transaction.
 FIELD = 'mint_creation_reference'
 
 
-def test_native_parser_preserves_creation_reference_without_fabricating_birth():
+def test_native_parser_preserves_creation_reference_without_fabricating_birth(monkeypatch):
+    received=math.nextafter(float(int(time.time())),math.inf)
+    discovered=dt.datetime.fromtimestamp(received+.001,dt.timezone.utc)
+    monkeypatch.setattr(pumpfun,'time',SimpleNamespace(time=lambda:received))
+    monkeypatch.setattr(pumpfun,'utc_now',lambda:discovered)
     result = pumpfun._parse_event({'mint': MINT, 'signature': SIGNATURE, 'txType': 'create', 'slot': 123})
     assert result['address'] == MINT and result['created_at'] is None
     assert result['age_minutes'] is None and result['age_min'] is None
     assert result[FIELD]['tx_hash'] == SIGNATURE and result[FIELD]['slot'] == 123
     assert result[FIELD]['address'] == MINT
-    assert result[FIELD]['received_at'] == result['discovered_at'].timestamp()
+    assert result[FIELD]['received_at'] == received
+    assert result['discovered_at'] == discovered and discovered.timestamp() != received
     assert 'token_birth_observation' not in result
 
 

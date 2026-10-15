@@ -5,6 +5,7 @@ import heapq
 import itertools
 import math
 import json
+import time
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -59,7 +60,9 @@ class HotQueue:
         self._drop_counts: dict[str, int] = {}
 
     def _now(self) -> float:
-        return dt.datetime.now(dt.timezone.utc).timestamp()
+        # Admission/reference receipts use numeric seconds. UTC encoding may
+        # round either side of that observation; keep it for metadata only.
+        return time.time()
 
     def _event(self, event: str, token: dict[str, Any], source: str, score: float, reason: str) -> None:
         address = str(token.get("address") or token.get("mint") or "")

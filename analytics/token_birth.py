@@ -105,10 +105,17 @@ def merge_birth_context(primary, secondary, *, now=None):
     # An invalid/future supplied original clock must not be silently replaced.
     if any(out.get(name) is not None for name in BIRTH_CLOCK_FIELDS):
         return out
-    limit = _to_datetime(now) if now is not None else dt.datetime.now(dt.timezone.utc)
-    if incoming is None or limit is None or incoming > limit:
+    # Sample one actual numeric wall clock by default. Converting it to
+    # datetime first can round down a valid receipt or round up a future one.
+    # Keep supported explicit datetime/unit encodings, but compare seconds at
+    # their original precision when the source is numeric seconds.
+    now = time.time() if now is None else now
+    limit = _to_datetime(now)
+    numeric_limit = (float(now) if type(now) in (int, float) and 0 < now < 1e11
+                     else limit.timestamp() if limit is not None else None)
+    if incoming is None or numeric_limit is None or incoming.timestamp() > numeric_limit:
         return out
-    proof = checked_token_birth(secondary.get(FIELD), out.get("address"), now=now if now is not None else limit)
+    proof = checked_token_birth(secondary.get(FIELD), out.get("address"), now=now)
     if FIELD in secondary and (proof is None or _to_datetime(proof["created_at"]) != incoming):
         return out
     if any((value := _to_datetime(secondary.get(name))) is not None and value != incoming for name in BIRTH_CLOCK_FIELDS):

@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "status": "NATIVE_BIRTH_CLOCK_SOURCES_REPAIRED_948_PASS_EACH_FULL_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "72ced4079211cb873522e62a0c2affd9b86bcdbd",
+  "previous_stage": "docs/audits/birth_cache_coverage_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "defects": [
+    "Default birth-context merge converted now through datetime before validating the numeric receipt. Rounding down could discard a valid equal receipt; rounding up could accept a strictly future receipt. Explicit numeric legacy birth comparison also used the rounded datetime limit.",
+    "PumpPortal creation-reference receipt was encoded from UTC discovery metadata, then checked against numeric seconds. An immediate common-entry consumer could discard the reference when the UTC observation led that numeric clock, leaving missing_age and no RPC request.",
+    "HotQueue admission used UTC-encoded seconds for reference/birth validation. Moving the parser receipt to actual numeric seconds exposed the inverse rounding case at queue admission."
+  ],
+  "repair": {
+    "birth_merge": "Use one actual numeric default clock and preserve numeric-seconds precision for comparison and receipt validation. Supported explicit datetime/unit encodings retain their parser semantics. No epsilon, ceiling, clamp, fabricated age or rewritten receipt.",
+    "discovery": "Capture the original numeric local parser receipt before UTC metadata; retain it in the untrusted creation reference. Discovery/event UTC fields remain separate, and neither source certifies mint birth or buy permission.",
+    "queue": "Use actual numeric seconds for native queue admission; all other HotQueue methods, ranking, waiting order, dedup, limits and expiry logic are unchanged.",
+    "test_contract": "One legacy parser test incorrectly equated a numeric receipt with separately observed UTC metadata. Replace that equality with exact checks against each deliberately distinct original clock. All its other birth/identity checks and every other existing reference test function are retained."
+  },
+  "immutable_original_probe": {
+    "tests": 39,
+    "failures": 19,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 2.541,
+    "source": "The three original clock owners are reconstructed from retained files checked against immutable72ced40 Git blobs. Current strict probes run with those exact original function bodies, not an assumed original checkout or an in-flight source edit."
+  },
+  "native_entry_repetitions": {
+    "attempts_each": 200,
+    "before": {"passed":197,"failed_assertions":3},
+    "after": {"passed":200,"failed_assertions":0},
+    "observed_before_reasons": "All3 retained failures defer missing_age at entry_snapshot.",
+    "scope": "Direct repeated execution of the retained native discovery/queue/router/current-entry/T0 test with synthetic RPC and market boundaries; no operator main loop, provider or financial transaction.",
+    "qualification": "A bounded repetition is not an error-rate estimate, proof of universal repeatability, exact retrospective CI diagnosis or profitable opportunity-capture result."
+  },
+  "earlier_ci_relationship": {
+    "failed_revision": "e2ebaeafa610d7cde7582718ba209d70ccb6feda",
+    "failed_run": "https://github.com/mudanzasalegre/memebot3/actions/runs/38815961415",
+    "native_failed_case": "test_native_discovery_queue_router_fresh_entry_and_T0_keep_checked_rpc_birth",
+    "original_clock_sources_and_test_body_match": true,
+    "qualification": "The earlier CI contains prepared=None but no rejected-reference clock trace. The same failure path is reproduced under controlled clock gaps and in the original local repetitions, but its exact original CI cause and historical operator impact are not retrospectively established."
+  },
+  "real_local_clock_probe": {"samples":20000,"python":"3.12.3","time_implementation":"GetSystemTimeAsFileTime()","reported_resolution_seconds":0.015625,"utc_ahead_of_later_numeric":0,"numeric_reversals":0,"qualification":"This local sample did not reproduce a clock discrepancy; it does not invalidate controlled rounding counterexamples or certify every host/time window."},
+  "focused": {
+    "working": {"tests":948,"failures":0,"errors":0,"skipped":0,"junit_seconds":391.956},
+    "publishing": {"tests":948,"failures":0,"errors":0,"skipped":0,"junit_seconds":385.408}
+  },
+  "new_repository_cases": 39,
+  "official_collected_each": 7084,
+  "source_files_each": 860,
+  "source_sha256": "6a01de7a705166415784bb68b26afc4a73f04ff311168fa70bd1401e86558a8e",
+  "preservation": {"all_previous696_focused_cases_retained":true,"all_run_bot_code_unchanged":true,"all_other_hot_queue_methods_unchanged":true,"protected_working_files":4442,"protected_publishing_files":28,"changed_protected_files":0,"added_protected_files":0,"original_scope_and_ten_remaining_requirements_preserved":true},
+  "retained_intermediate_evidence": [
+    "repaired-reference.xml retains3failed146passed before correcting inverse HotQueue rounding and the obsolete equality fixture.",
+    "original-hotqueue-clock.xml passed3 cases while source edits overlapped that process and is not accepted as original-source proof. The immutable39-case probe is the authoritative baseline.",
+    "detailed-original-entry-repeat.json200-pass observation overlapped edits and added timing instrumentation; it is not used to erase or explain the original3 failures."
+  ],
+  "private_receipts": "work/birth-clock-merge-stage-20261016/review.json, immutable-original-39.xml, focused-working.xml, focused-publishing.xml, original-entry-repeat.json, repaired-entry-repeat.json and real-clock-pairs.json",
+  "current_full_source_ci": "PENDING_NOT_PREAPPROVED",
+  "operator_provider_retest": "NOT_AUTHORIZED_NOT_RUN",
+  "limits": "No fresh operator PAPER, provider probe, training, model activation, AutoResearch, API/UI, LIVE or account/key/paid-plan mutation. Exact0.1SOL sizing, financial strategy, exits, source signatures/packet checks and all run_bot code remain unchanged. Current model/full-strategy coverage, operational provider acceptance, checked prospective net profitability and zero future errors are not established."
+}

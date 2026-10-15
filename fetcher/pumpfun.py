@@ -25,6 +25,7 @@ import json
 import logging
 import math
 import os
+import time
 from collections import deque
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
@@ -307,6 +308,10 @@ def _parse_event(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         name   = (_extract_first(msg, "name", "tokenName") or "").strip()
         symbol = (_extract_first(msg, "symbol", "tokenSymbol") or "").strip()
 
+        # Creation-reference causality is checked against numeric seconds.
+        # Retain this actual local receipt, not a UTC conversion that can lead
+        # a coarser numeric clock. Discovery/event UTC metadata stays separate.
+        reference_received_at = time.time()
         now = utc_now()
         ts = _to_dt(_extract_clock(msg, "created_at", "createdAt"))
         event_at = _to_dt(_extract_clock(msg, "timestamp", "ts", "time"))
@@ -345,7 +350,7 @@ def _parse_event(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         # Keep the age at the original client receipt, not a second sanitizer
         # clock. Generic event timestamps and receipt time are never birth.
         clean["age_minutes"] = clean["age_min"] = age_minutes
-        reference = reference_from_event(msg, mint, now.timestamp())
+        reference = reference_from_event(msg, mint, reference_received_at)
         if reference is not None:
             clean[CREATION_REFERENCE_FIELD] = reference
         return clean

@@ -13,6 +13,23 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Relojes de nacimiento y discovery sin redondear recibos (2026-10-16)
+
+La fusion de nacimiento, la referencia local de PumpPortal y la admision de
+HotQueue conservan ahora segundos numericos originales. La conversion UTC podia
+perder un recibo valido o aceptar uno ligeramente futuro; tambien podia descartar
+una referencia antes de consultar RPC. No se inventan edades ni se anade tolerancia.
+
+Las tres funciones originales fijadas a Git fallan 19 de 39 casos nuevos.
+La reparacion pasa 948 regresiones por carpeta, incluidas las 696 anteriores;
+el test nativo repetido pasa 200 de 200 frente a 197 de 200 antes. Se recogen
+7.084 casos oficiales; la CI completa de la nueva revision sigue pendiente.
+La medicion local de 20.000 pares de reloj no reprodujo discrepancias: no se
+atribuye retrospectivamente una causa exacta al fallo de CI o a la PAPER sin compras.
+El operador queda apagado, con datos/modelos y tamano de 0,1 SOL conservados.
+No se ha iniciado otra PAPER ni demostrado rentabilidad.
+[Pruebas, procedencia y limites](docs/audits/birth_clock_sources_20261016.json).
+
 ### Edad en cache: conservar la evidencia ya comprobada (2026-10-16)
 
 Se ha reproducido y corregido una perdida de la edad original: un token visto
