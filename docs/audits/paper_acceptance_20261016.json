@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "status": "AUTHORIZED_PAPER_COMPLETED_NO_BUYS_OFF_WITH_CLEANUP_ERRORS",
+  "global_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "tested_commit": "4799aa16c0417d06b85b59263d7ea72aff361017",
+  "normalized_source_sha256": "5301c4ac8d61ba79b18e0b3a4f906e8cfb3479488b5f70c6cc71d31507802e28",
+  "functional_files_each_checkout": 855,
+  "authorization": {"fresh_human_reply": "Autorizo", "native_paper_runs": 1, "duration_seconds": 1800, "simulated_buy_size_sol": 0.1, "live": false, "training": false, "autoresearch": false, "model_activation": false, "paid_changes": false, "remaining_runs": 0},
+  "software_ci_before_launch": {
+    "full_matrix_url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38806135357",
+    "windows": {"passed": 6981, "failed": 0, "warnings": 1, "seconds": 2194.63},
+    "ubuntu": {"passed": 6972, "failed": 0, "platform_skips": 9, "warnings": 1, "seconds": 1753.22},
+    "strategy_url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38806135235",
+    "strategy": {"passed": 41, "seconds": 3.73},
+    "restarted": false,
+    "qualification": "Terminal CI verifies this exact functional revision, not operational provider entitlement, future profitability or zero future errors. Missing-model/no-data diagnostics pass only under their explicit allowed-absence flags."
+  },
+  "execution": {
+    "run_id": "20261015-2",
+    "start_utc": "2026-10-15T21:40:06.856791+00:00",
+    "stop_requested_utc": "2026-10-15T22:10:06.887612+00:00",
+    "finish_utc": "2026-10-15T22:10:11.530751+00:00",
+    "madrid_window": "15/10/2026 23:40:06 — 16/10/2026 00:10:11 Europe/Madrid",
+    "elapsed_including_stop_seconds": 1804.672,
+    "termination_reason": "authorized_30_minute_deadline",
+    "native_stop_exit_code": 0,
+    "forced_fallback": false,
+    "cooperative_owner_exit_confirmed": true,
+    "sql_finalizer_ok": true,
+    "supervisor_exit_code": 1,
+    "supervisor_exit_qualification": "The original exact-byte watchdog flags policy_replay.json; do not relabel the whole run as a green safety acceptance."
+  },
+  "results": {"entry_evaluation_invocations": 416, "queue_add_events": 251, "blocked_before_buy_events": 291, "actual_paper_buy_attempts": 0, "actual_paper_buys": 0, "new_positions": 0, "new_closed_positions": 0, "configured_paper_size_sol": 0.1, "sizing_observed_in_fills": false, "checked_net_pnl_usd": null, "win_rate": null},
+  "blocked_event_groups": {"missing_original_age": 159, "snapshot_unavailable": 48, "policy_or_risk": 84, "local_pumpfun_wait": 0, "unconfirmed_entry_clock": 0},
+  "grain": "The five groups are exclusive per blocked event and sum to291. Evaluations are invocations, not offered demand or all unique tokens. No count demonstrates profitable missed opportunities. Zero closed trades does not establish a0percent financial return.",
+  "provider_access": {
+    "creation_resource_last_http_status": 401,
+    "creation_resource_status": "access_denied",
+    "overview_last_http_status": 200,
+    "pair_overview_last_http_status": 200,
+    "rpc_creation_resolved_local_counter": 98,
+    "rpc_creation_budget_local_counter": 140,
+    "rpc_creation_provider_error_local_counter": 2,
+    "current_chrome_account_package": "NOT_REVERIFIED_CHROME_NOT_CONNECTED",
+    "key_or_plan_changed": false,
+    "qualification": "The creation-resource401 does not invalidate all Birdeye resources. RPC creation_budget combines local rolling-minute admission and minimum60/configured_RPM spacing, not proved external quota exhaustion. Local counters are not wire billing or subscription entitlement."
+  },
+  "model": {"configured_primary_exists": false, "configured_primary_loaded": false, "metadata_exists": false, "activation_ready": false, "mode": "shadow", "enforced": false, "fit_or_activation_during_this_run": false, "qualification": "Legacy trained metadata refers to Oct4, not training during this window. An absent unenforced shadow model is not established as the cause of pre-model age/snapshot/risk vetoes."},
+  "learning": {"october_before_rows": 98, "october_after_rows": 182, "new_rows": 84, "new_shadow_close_rows": 83, "new_policy_reject_rows": 1, "new_financial_outcome_trade_ids": 0, "original_rows_preserved": true, "columns_before_and_after": 93, "qualification": "Nonfinancial observations are not simulated fills or checked net trades; missing financial receipt fields do not turn these sample types into financial-export failures."},
+  "event_quality": {"event_rows": 2799, "bad_json_rows": 0, "exact_duplicate_lines": 0, "missing_run_id_rows": 0, "missing_timestamp_rows": 0, "test_events": 0, "timestamps_in_window": true, "sql_event_block_and_queue_counts_reconcile": true, "original_event_and_ledger_prefixes_preserved": true, "delta_sha256": "b8d618d978456a9db8beb9df0f31f2512f6a108491eb248bf5d1456833fe2c09"},
+  "shutdown_findings": {
+    "status": "OFF_CONFIRMED_RESOURCE_CLEANUP_NOT_ACCEPTED",
+    "console_error_level_lines": 6,
+    "observed": ["aiohttp Unclosed client session", "aiohttp Unclosed connector", "ValueError: I/O operation on closed file in utils/logger.py emit"],
+    "timing": "Destructor/logging errors appear at22:10:08UTC after the native cooperative-cleanup completion message.",
+    "cause_scope": "The trace proves an unclosed HTTP resource and logging after file closure. The original leaked-session owner and exact lifecycle cause are not yet established; no fix or suppression is claimed.",
+    "next_software_stage": "Reproduce the original HTTP-resource and logger shutdown ownership without external providers, then repair and validate all owned cleanup paths. Do not merely suppress destructor/logging errors."
+  },
+  "preservation": {
+    "pre_run_backup_files": 4290,
+    "pre_run_backup_bytes": 2887549122,
+    "configuration_models_and_other_native_immutable_files_unchanged": true,
+    "changed_native_immutable_file": "data/metrics/policy_replay.json",
+    "semantic_changed_leaf_fields": 495,
+    "classification": "SUBSTANTIVE_DERIVED_REPLAY_METRICS_REFRESH_BYTE_WARNING_RETAINED",
+    "qualification": "This is not a timestamp-only change. Native core-report generation writes this mixed historical-outcome replay report. Its generated_at is21:40:19UTC near startup, not current-window close. Its legacy rows and PnL fields are not current financial trades or policy/model activation. No report, operator data or backup was restored to hide the warning.",
+    "new_native_immutable_paths": []
+  },
+  "verification": {"companion": "work/paper30-20261015-2/paper30-acceptance.ipynb", "notebook_cells": 14, "executed_code_cells": 6, "notebook_errors": 0, "notebook_warning": "Windows zmq Proactor compatibility warning; execution succeeded", "visual_scope": "Both PNG figures inspected; executed notebook content and final warning summary inspected in local IAB. No desktop-wide or native inline-host rendering claim.", "final_off_observed_utc": "2026-10-15T22:12:07.2245220+00:00", "runtime_processes": 0, "qa_processes": 0, "running_tasks": 0, "running_services": 0, "runtime_locks_both_roots": 0, "sql": "stopped/idle/idle"},
+  "unresolved": ["No prospective financial buy/close or net-profit evidence.", "Creation-resource access and source completeness remain insufficient; no paid plan or new key is presumed to fix entitlement.", "Actual unclosed HTTP and closed-logger errors require a dedicated native lifecycle repair.", "Mixed historical replay metrics need separate financial-evidence and report-mutation classification; their names do not certify profitability.", "All original ten whole-goal requirements remain. Another operator run, training, AutoResearch or activation needs separate authority."]
+}

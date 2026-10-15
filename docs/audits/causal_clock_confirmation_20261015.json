@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "IMPLEMENTED_FOCUSED_230_BOTH_ROOTS_CURRENT_FULL_CI_PENDING_RUNTIME_OFF",
+  "status": "IMPLEMENTED_FULL_CI_SUCCESS_CURRENT_PAPER_NO_BUYS_OFF_CLEANUP_ERRORS_OPEN",
   "whole_goal_complete": false,
   "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
   "parent": "8c104c39c8a2bbe19e5ab29909322efb5192db23",
@@ -45,12 +45,17 @@
     "warning_scope": "Existing pandas all-NA concatenation FutureWarning in two model-runtime tests",
     "native_negative_scope":"The actual guarded native entry receives an unconfirmed future UTC source, never attempts a buy, retains one requeue, has no pending buy/sell intent and durably records a bounded clock diagnostic. Read count may be0 on a host-scheduling deadline; this is retained as unknown, not fabricated evidence of an observed pair.",
     "initial_selection_error":"An initial focused command named a nonexistent test_token_birth.py and exited with0 tests; it is not counted as validation. The corrected229-case invocations and separate native negative checks are retained independently.",
-    "current_full_source_ci": "PENDING_NOT_PREAPPROVED"
+    "current_full_source_ci": "SUCCESS_4799AA1_BOTH_OS_6981_COLLECTED_STRATEGY41",
+    "current_full_source_ci_evidence": "docs/audits/paper_acceptance_20261016.json"
   },
   "fresh_operator_authority": {
     "received": true,
-    "consumed": false,
-    "run_started": false,
+    "consumed": true,
+    "run_started": true,
+    "run_finished": true,
+    "run_id": "20261015-2",
+    "remaining_runs": 0,
+    "result": "NO_BUYS_OFF_CONFIRMED_HTTP_AND_LOGGER_SHUTDOWN_ERRORS_RETAINED",
     "conditions": "One30-minute PAPER after current complete CI approval, exact0.1SOL simulated buys, no LIVE/training/AutoResearch/model activation, stop at deadline",
     "prior_20261015_1_authority": "CONSUMED_NOT_REUSED"
   },

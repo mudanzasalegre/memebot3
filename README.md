@@ -13,6 +13,30 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Segunda PAPER: cero compras y fallo de limpieza al salir (2026-10-16)
+
+La revision funcional `4799aa1` aprobo la CI completa antes del arranque:
+6.981 pruebas Windows; 6.972 Linux y 9 omitidas por plataforma; 41 de estrategia.
+La nueva autorizacion se consumio en una unica PAPER del 15/10 23:40 al
+16/10 00:10, hora de Madrid. Se solicito la parada al cumplir treinta minutos.
+Compras configuradas en 0,1 SOL, pero hubo cero intentos y cero compras:
+el tamano no quedo ejercitado en fills. No hay rentabilidad financiera demostrada.
+
+Se registraron 291 bloqueos: 159 por edad no verificable, 48 por datos de entrada
+ausentes y 84 por politica/riesgo. Birdeye devolvio 401 en creacion, pero 200
+en overview y pair overview; RPC resolvio 98 consultas de origen en su contador
+local. No son facturacion, cobertura total ni oportunidades ganadoras demostradas.
+Las 84 nuevas filas de aprendizaje son 83 sombras y un rechazo, no trades.
+
+El propietario salio cooperativamente, sin terminacion forzada, y procesos,
+locks y SQLite confirman OFF. Sin embargo, al salir quedaron errores de sesion
+HTTP/conector sin cerrar y del logger sobre un archivo cerrado. La limpieza
+no esta aceptada como libre de errores. El supervisor conserva su salida 1
+por cambios sustantivos en el replay diagnostico historico, no solo en su fecha;
+no se restauraron datos ni se activaron politicas o modelos para ocultarlo.
+No hubo LIVE, entrenamiento, AutoResearch ni otra prueba posterior.
+[Resultados y pendientes](docs/audits/paper_acceptance_20261016.json).
+
 ### Repeticion de CI y confirmacion del reloj causal (2026-10-15)
 
 La repeticion del commit documental `8c104c3`, con el mismo codigo funcional
@@ -26,9 +50,9 @@ timestamp fabricado ni ampliar los limites del reloj. Los fallos no confirmados
 aportan diagnostico y conservan el aplazamiento de la entrada.
 La prueba de arranque distingue inicio del host y respuesta de la API, aislada
 sin servicios operativos. Pasan 230 comprobaciones distintas por carpeta y se
-recogen 6.981 casos oficiales. La CI completa de esta correccion debe aprobarse antes
+recogen 6.981 casos oficiales. La CI completa de esta correccion aprobo antes
 de consumir la nueva autorizacion PAPER de 30 minutos, 0,1 SOL, sin LIVE,
-entrenamiento ni AutoResearch. Todavia no se ha iniciado.
+entrenamiento ni AutoResearch. El resultado de esa prueba figura arriba.
 [Evidencia y limites](docs/audits/causal_clock_confirmation_20261015.json).
 
 ### Software aprobado en ambos sistemas; rentabilidad pendiente (2026-10-15)
