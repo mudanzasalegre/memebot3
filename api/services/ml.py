@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -45,20 +46,17 @@ _RUNTIME_GATE_KEYS = ("mode", "enforced", "threshold", "activation_ready")
 
 def _to_float(value: Any) -> float | None:
     try:
-        if value is None:
+        if value is None or isinstance(value, bool):
             return None
-        return float(value)
-    except Exception:
+        parsed = float(value)
+        return parsed if math.isfinite(parsed) else None
+    except (ValueError, TypeError, OverflowError):
         return None
 
 
 def _to_int(value: Any) -> int | None:
-    try:
-        if value is None:
-            return None
-        return int(float(value))
-    except Exception:
-        return None
+    parsed = _to_float(value)
+    return int(parsed) if parsed is not None and parsed.is_integer() else None
 
 
 def _scorecard_status_with_consistency(settings: APISettings, consistency: dict[str, Any]) -> SourceStatus:
@@ -164,6 +162,7 @@ def _model_source_status(runtime: dict[str, Any]) -> list[SourceStatus]:
 
 
 def _profit_outcome_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Reported event-tail diagnostics, not reconciled financial trade returns."""
     pnl_values: list[float] = []
     positive = 0
     for row in rows:
@@ -179,15 +178,24 @@ def _profit_outcome_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         if pnl > 0.0:
             positive += 1
     count = len(pnl_values)
+    scale = max((abs(value) for value in pnl_values), default=0.)
+    # Summing finite extremes directly can overflow before dividing. Scaling
+    # keeps the intermediate sum bounded by the event count, without clipping
+    # positive/negative tails or silently dropping a valid finite observation.
+    mean = scale * (math.fsum(value / scale for value in pnl_values) / count) if scale else 0.
     return {
         "count": count,
         "positives": positive,
-        "avg_realized_pnl_pct": (sum(pnl_values) / count) if count else None,
+        "avg_realized_pnl_pct": mean if count else None,
         "win_rate_pct": (positive / count * 100.0) if count else None,
+        "basis": "reported_event_returns_not_checked_net",
+        "count_unit": "events_with_numeric_reported_returns_not_unique_trades",
+        "financial_evidence_validated": False,
     }
 
 
 def _promotion_readiness(runtime: dict[str, Any], profit_metrics: dict[str, Any]) -> dict[str, Any]:
+    """A historical review checklist cannot approve a complete live strategy."""
     thresholds = {
         "eligible_rows": 250,
         "eligible_positives": 80,
@@ -215,11 +223,23 @@ def _promotion_readiness(runtime: dict[str, Any], profit_metrics: dict[str, Any]
     }
     blockers = [name for name, passed in checks.items() if not passed]
     return {
-        "ready": not blockers,
+        # This endpoint reads a bounded research-event tail. It has no checked
+        # full-strategy forward/decision/capital acceptance owner. Neither its
+        # checklist nor caller-supplied readiness flags can grant that authority.
+        "ready": False,
+        "diagnostic_checks_passed": not blockers,
+        "activation_role": "diagnostic_only",
+        "buy_permission": False,
+        "live_permission": False,
+        "financial_evidence_validated": False,
+        "full_strategy_profitability_established": False,
         "checks": checks,
         "actuals": actuals,
         "thresholds": thresholds,
         "blockers": blockers,
+        # Training/review diagnostics and permission blockers are different
+        # contracts. Do not make missing LIVE acceptance an auto-train blocker.
+        "activation_blockers": ["full_strategy_financial_forward_acceptance_required"],
     }
 
 
@@ -389,6 +409,11 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
         "runtime": runtime,
         "gate": gate,
         "lane_readiness": {
+            "basis": "bounded_research_event_tail_not_reconciled_financial_population",
+            "count_unit": "events_not_unique_trades",
+            "financial_evidence_validated": False,
+            "activation_role": "diagnostic_only",
+            "buy_permission": False,
             "pump_early_outcomes": len(pump_closes),
             "pump_early_sniper_outcomes": len(sniper_closes),
             "pump_early_pumpswap_profit_outcomes": len(profit_closes),
@@ -411,7 +436,7 @@ def get_ml_status_envelope(settings: APISettings) -> Envelope:
             "all_outcomes_by_dex": dex_counts,
             "research_profit_like_outcomes": len(research_profit_like),
             "productive_lane_promotion_readiness": promotion,
-            "ml_live_ready": bool(promotion["ready"]),
+            "ml_live_ready": False,
             "required_pump_early_outcomes": 100,
             "required_productive_lane_outcomes": 100,
             "required_positive_outcomes": 35,

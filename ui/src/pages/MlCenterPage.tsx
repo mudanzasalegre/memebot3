@@ -79,7 +79,9 @@ export function MlCenterPage() {
   const nextModel = asRecord(status?.next_model);
   const laneReadiness = asRecord(status?.lane_readiness);
   const laneReadinessRows = Object.entries(laneReadiness || {})
-    .filter(([, value]) => typeof value !== "object")
+    .filter(([key, value]) => typeof value !== "object" && ![
+      "basis", "count_unit", "financial_evidence_validated", "activation_role", "buy_permission",
+    ].includes(key))
     .slice(0, 18);
   const thresholdRegimes = asRecord(thresholds?.regimes) || {};
   const thresholdEntries = Object.entries(thresholdRegimes).map(([regime, value]) => ({
@@ -168,6 +170,14 @@ export function MlCenterPage() {
           detail={queryError}
           title="ML query failed"
           tone="danger"
+        />
+      ) : null}
+
+      {status && laneReadiness?.financial_evidence_validated !== true ? (
+        <Banner
+          detail="Research-event counts and reported returns are diagnostics, not reconciled net trade returns or approval for live trading. Passing the historical checklist does not establish a profitable strategy."
+          title="Research metrics: diagnostic evidence only"
+          tone="warn"
         />
       ) : null}
 

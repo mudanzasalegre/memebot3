@@ -13,6 +13,19 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### ML Center: diagnosticos de eventos, no permiso LIVE (2026-10-15)
+
+El checklist historico de filas, AUC y porcentajes de eventos no acredita
+rendimiento neto ni autoriza una estrategia LIVE. La API mantiene `ml_live_ready`
+y sus permisos en falso y separa el resultado diagnostico del checklist. Los
+recuentos son eventos de una cola acotada, no operaciones financieras unicas;
+el panel muestra esa limitacion expresamente.
+
+Los porcentajes booleanos/no finitos ya no contaminan la media o la tasa de
+acierto ni rompen JSON. La media conserva valores finitos extremos sin recorte
+y evita el desbordamiento de su suma. No cambian compras, salidas, entrenamiento
+ni activacion. [Contrato y evidencia](docs/audits/ml_api_evidence_20261015.json).
+
 ### Apagado: el exportador conserva su hilo hasta terminar (2026-10-15)
 
 Una cancelacion repetida ya no abandona el hilo del exportador de cierres.

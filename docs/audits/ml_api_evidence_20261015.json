@@ -1,0 +1,206 @@
+{
+  "status": "ML_API_DIAGNOSTIC_ONLY_NATIVE_REGRESSION_AND_UI_BUILDS_VERIFIED_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "b1516f3f7f87e5d45854ae2bd26cb65b9f26db65",
+  "scope": "ML status API and visible provenance of reported research-event diagnostics; not a change in trading, training or financial acceptance",
+  "original_defects": [
+    "A historical count/AUC/average-return checklist can publish ml_live_ready=true from repeated unverified research events without full-strategy financial acceptance",
+    "Boolean and nonfinite reported returns are accepted as numeric observations; finite extreme returns can overflow their direct sum and fail strict JSON serialization"
+  ],
+  "baseline": {
+    "cases": 7,
+    "failures": 7,
+    "errors": 0,
+    "scope": "Native API service functions with synthetic data only"
+  },
+  "contract": [
+    "Existing checklist thresholds remain diagnostic; ready/ml_live_ready and trading permissions remain false because this endpoint has no guarded full-strategy financial forward-acceptance owner",
+    "Caller-provided readiness or financial-validation bits do not create acceptance authority",
+    "Activation permission blockers remain separate from historical training/review checklist blockers; missing full-strategy LIVE acceptance must not be inserted into next-model training blockers",
+    "Research counts describe bounded event-tail observations, not independent financial trades; duplicates/source tags/absent shadow kinds are not authenticated trade receipts",
+    "Preserve finite signed returns and extreme tails without a strategy ceiling; reject missing/invalid/nonfinite/Boolean numeric inputs and fractional count inputs",
+    "Scaled finite arithmetic avoids direct-sum overflow without clipping or discarding valid finite values; invalid canonical PnL never falls back to a convenient positive alternative",
+    "Visible ML Center warning labels event diagnostics as unreconciled returns rather than validated net PnL or live approval",
+    "No operator records, model weights, registry, data generation, trading filters, 0.1 SOL sizing, exits or activation behavior is rewritten"
+  ],
+  "acceptance": {
+    "new_repository_cases": 30,
+    "targeted_tests": 32,
+    "targeted_failures": 0,
+    "full_matrix": "PENDING_FOR_THIS_REVISION",
+    "ui_rendered_browser": "NOT_VERIFIED",
+    "focused": {
+      "working": {
+        "tests": 1041,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 249.22,
+        "ui_builds": [
+          {
+            "script": "typescript/bin/tsc",
+            "exit_code": 0,
+            "tail": ""
+          },
+          {
+            "script": "vite/bin/vite.js",
+            "exit_code": 0,
+            "tail": "vite v8.0.3 building client environment for production...\n\u001b[2K\ntransforming...\u2713 64 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                   0.58 kB \u2502 gzip:   0.35 kB\ndist/assets/index-CoK0sni3.css   29.55 kB \u2502 gzip:   5.51 kB\ndist/assets/index-CCkpDEDs.js   525.27 kB \u2502 gzip: 138.70 kB\n\n\u2713 built in 180ms\n"
+          }
+        ]
+      },
+      "publishing": {
+        "tests": 1041,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 244.764,
+        "ui_builds": [
+          {
+            "script": "typescript/bin/tsc",
+            "exit_code": 0,
+            "tail": ""
+          },
+          {
+            "script": "vite/bin/vite.js",
+            "exit_code": 0,
+            "tail": "vite v8.0.3 building client environment for production...\n\u001b[2K\ntransforming...\u2713 64 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                   0.58 kB \u2502 gzip:   0.35 kB\ndist/assets/index-CoK0sni3.css   29.55 kB \u2502 gzip:   5.51 kB\ndist/assets/index-CCkpDEDs.js   525.27 kB \u2502 gzip: 138.70 kB\n\n\u2713 built in 206ms\n"
+          }
+        ]
+      }
+    },
+    "source_proof": [
+      {
+        "checkout": "working",
+        "files": 836,
+        "sha256": "c8fb1a4c06f81da97db730ac09b9b886dd9eb0243325e12ae2001dc21b39c431"
+      },
+      {
+        "checkout": "publishing",
+        "files": 836,
+        "sha256": "c8fb1a4c06f81da97db730ac09b9b886dd9eb0243325e12ae2001dc21b39c431"
+      }
+    ],
+    "repository_collection": {
+      "observed_at_utc": "2026-10-15T08:10:36.603578+00:00",
+      "counts": {
+        "working": 6654,
+        "publishing": 6653
+      },
+      "only_working": [
+        "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline"
+      ],
+      "only_publishing": [],
+      "scope": "Collection, not execution or financial acceptance"
+    }
+  },
+  "qa_harness_notes": [
+    "An initial multi-module test command named a nonexistent policy test and collected zero tests; it is not counted as validation. The corrected explicit module command passes32 cases.",
+    "The first1041-case regression and UI builds passed in each checkout. A final API-contract refinement separates activation permission blockers from next-model checklist blockers; final exact-source regression is recorded separately without overwriting that first receipt.",
+    "Vite reports the existing above500kB chunk-size warning. Builds pass, but this is not zero-warning or browser-rendered acceptance."
+  ],
+  "whole_goal_complete": false,
+  "profitability": "NOT_ESTABLISHED",
+  "observed_at_utc": "2026-10-15T08:18:52.548681+00:00",
+  "summary": "ML status no longer promotes an unverified bounded research-event checklist into live readiness. Its historical numeric checks remain inspectable but ready, ml_live_ready and trading permissions stay false; caller-supplied flags cannot approve a full strategy. Explicit event-grain/basis metadata and a visible ML Center warning distinguish reported diagnostic returns from independently reconciled net financial trades. Boolean/nonfinite returns and fractional count inputs are rejected; scaled arithmetic preserves finite signed extreme tails without direct-sum overflow or fallback from an invalid canonical return to a convenient positive alias. No trading/training gates, exact0.1SOL sizing, exits, operator history, fit or activation change. Full strategy/provider/profitability acceptance and rendered-browser UI verification remain incomplete.",
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "ledger_sha256": "afbcb9a90a254e16d41df52749a1dfcc880b7a51c95045fed144229ed6532cb5"
+  },
+  "shutdown": {
+    "observed_at_utc": "2026-10-15T08:18:51.9378431+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml": {
+      "observed_at_utc": "2026-10-15T08:18:52.3616383+00:00",
+      "actual_ml_entrypoint_processes": 0
+    },
+    "read_only_sql": {
+      "observed_at": "2026-10-15T08:18:52.542681+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-13 10:43:54.767270"
+        }
+      ]
+    }
+  },
+  "preceding_ci_observations": [
+    {
+      "commit": "b1516f3f7f87e5d45854ae2bd26cb65b9f26db65",
+      "observed_at_utc": "2026-10-15T08:09:51.576639+00:00",
+      "runs": {
+        "tests": {
+          "status": "in_progress",
+          "conclusion": "",
+          "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38701719172",
+          "pytest_summaries": null
+        },
+        "ci": {
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38701719174",
+          "pytest_summaries": [
+            "strategy-regression\tStrategy regression pytest suite\t2026-10-15T07:53:47.0259658Z 41 passed in 4.57s"
+          ]
+        }
+      }
+    },
+    {
+      "commit": "2485cc8a13df05af2eaa6f4a87a7b973c83a75e5",
+      "observed_at_utc": "2026-10-15T08:02:21.676092+00:00",
+      "runs": {
+        "tests": {
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38698878927",
+          "pytest_summaries": [
+            "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-15T07:29:51.8220799Z 1 passed in 6.98s",
+            "test (windows-2022)\tRun python -m pytest -q\t2026-10-15T08:01:40.3498670Z 6606 passed, 1 warning in 1907.25s (0:31:47)",
+            "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-15T07:28:36.7161599Z 1 passed in 4.43s",
+            "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-15T07:55:26.6235442Z 6606 passed, 1 warning in 1609.24s (0:26:49)"
+          ]
+        },
+        "ci": {
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38698879004",
+          "pytest_summaries": [
+            "strategy-regression\tStrategy regression pytest suite\t2026-10-15T07:28:39.7101086Z 41 passed in 4.62s"
+          ]
+        }
+      }
+    }
+  ]
+}
