@@ -238,7 +238,7 @@ jupiter_router.get_routing_quote = quote
 jupiter_price._fetch_batch_with_status = price_batch
 sol_price.get_sol_usd_observation = fx
 async def exercise():
-    global factor
+    global factor, entry_token
     await run_bot.async_init_db()
     from analytics import research_runtime as candidate_runtime
     from runtime.candidate_events import CandidateEventWriter
@@ -249,10 +249,20 @@ async def exercise():
     run_bot._wallet_sol_balance = 10.
     report = {'progression':[]}
     try:
+        if case == 'rpc_birth_cached_unreferenced':
+            # The only synthetic creation response precedes the new feed. The
+            # actual entry receives neither a creation reference nor a clock.
+            warmed = await token_birth_enrichment.enrich_token_birth(entry_token)
+            cached_original_birth = warmed[FIELD]
+            assert warmed['token_birth_enrichment']['status'] == 'resolved'
+            assert calls == ['creation_rpc']
+            entry_token = {'address':TOKEN,'chain':'solana',
+                'discovered_via':'dex','dex_id':'pumpswap'}
+            calls.append('cached_unreferenced_entry')
         async with run_bot.SessionLocal() as ses:
             await run_bot._evaluate_and_buy_guarded(entry_token,ses,source='dex')
             positions = (await ses.execute(select(Position))).scalars().all()
-            if case in {'positive','rpc_birth'}:
+            if case in {'positive','rpc_birth','rpc_birth_cached_unreferenced'}:
                 if not (len(positions)==1 and positions[0].buy_amount_sol==.1 and positions[0].dry_run is True):
                     events_path = expected/'data/metrics/runtime_events.jsonl'
                     events = [json.loads(line) for line in events_path.read_text(encoding='utf-8-sig').splitlines()] if events_path.exists() else []
@@ -279,7 +289,7 @@ async def exercise():
                 report['entry_signal'] = p.buy_price_pct_5m
                 report['entry_run_id'] = p.run_id
                 report['entry_identity_matches'] = p.source_position_key=='buy:'+primary['entry_intent_id']
-                if case == 'rpc_birth':
+                if case in {'rpc_birth','rpc_birth_cached_unreferenced'}:
                     from analytics.token_birth import checked_token_birth
                     from utils.atomic_json import read_json_strict
                     from runtime.buy_recovery import BuyRecoveryStore
@@ -291,6 +301,9 @@ async def exercise():
                     BuyRecoveryStore._validate_row(journal)
                     original_birth = journal['entry_features']['token_clock'][FIELD]
                     report['rpc_birth_initializer_checked'] = checked_token_birth(original_birth,TOKEN) is not None
+                    if case == 'rpc_birth_cached_unreferenced':
+                        report['cached_original_receipt_retained'] = original_birth == cached_original_birth
+                        assert calls.count('creation_rpc') == 1
                 assert not run_bot._BUY_RECOVERY.pending_addresses
                 # A duplicate actual dispatch cannot submit or persist another fill.
                 await run_bot._evaluate_and_buy_guarded(entry_token,ses,source='dex')
@@ -320,7 +333,7 @@ async def exercise():
                     assert len(exported)==1 and exported[0]['outcome_trade_id']==identity
                     assert exported[0]['price_pct_5m']==options.get('momentum',5000.)
                     assert abs(exported[0]['target_total_pnl_pct']-report['net_label_pct'])<.001
-                    if case == 'rpc_birth':
+                    if case in {'rpc_birth','rpc_birth_cached_unreferenced'}:
                         from features.token_clock_semantics import checked_row_clock
                         report['rpc_birth_retained_in_export'] = checked_row_clock(exported[0])[FIELD] == original_birth
                     fills = (await ses.execute(select(TradeEvent).where(TradeEvent.position_id==p.id))).scalars().all()

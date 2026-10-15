@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "status": "ORIGINAL_BIRTH_CACHE_REUSE_REPAIRED_696_PASS_EACH_FULL_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "fa89a34333e2a4d9579842c914e9fad36bd49584",
+  "previous_stage": "docs/audits/http_cleanup_cancellation_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "original_run": {
+    "run_id": "20261015-2",
+    "start_utc": "2026-10-15T21:40:06.856791+00:00",
+    "finish_utc": "2026-10-15T22:10:11.530751+00:00",
+    "paper_buy_attempts": 0,
+    "paper_buys": 0,
+    "recorded_blocked_events": 291,
+    "missing_age_events": 159,
+    "snapshot_unavailable_events": 48,
+    "other_policy_risk_events": 84,
+    "missing_age_events_with_individual_birth_resolver_metadata": 0,
+    "historical_cache_defect_impact_count": null,
+    "grain": "Native blocked-before-buy dedup key address:stage:action:reason; not all evaluations, source-offered tokens or profitable opportunities.",
+    "new_parquet_rows": 84,
+    "new_parquet_population": "83 shadow observations and1 policy reject, not financial trades or buy fills",
+    "qualification": "Aggregate RPC outcomes cannot be joined causally to these159 tokens without original per-token resolver metadata. No historical profitable-counterfactual attribution is established. Original zero buys, shutdown errors and replay-report watchdog failure remain unchanged."
+  },
+  "defect": "The RPC resolver checked for a new creation reference before accepting its already verified mint-bound positive cache. The common router did not consult that cache at all for discoveries without a new reference. A different feed could therefore discard an original checked birth, then fall back to unavailable Birdeye creation access and retain missing_age.",
+  "original_controlled_proofs": {
+    "initial_cache_cases": {"tests":8,"failures":5,"errors":0,"skipped":0,"junit_seconds":2.304},
+    "whole_native_entry_case": {"tests":1,"failures":1,"errors":0,"skipped":0,"junit_seconds":6.072},
+    "source": "Retained original resolver/router files match immutable fa89a34 blobs. The whole native reproduction copies fa89 source without operator files; only explicit synthetic test helpers are supplied. It resolves one original birth, presents the same mint without another reference and retains the resulting missing_age assertion failure."
+  },
+  "repair": {
+    "cache": "Reuse only a still-valid checked original positive receipt for the same valid mint; never renew its received_at or TTL. The no-reference common-router path is synchronous and memory-only: no endpoint, degraded-state call, reservation, request or new provider lookup.",
+    "unknowns": "Missing, expired, invalid, altered, mismatched or negative caches remain unknown. Supplied original clocks and partial typed receipts are not repaired or overwritten by the cache-only route. Both disable flags remain effective.",
+    "diagnostics": "Existing deduplicated entry-observation rejection events gain bounded status/source labels and presence booleans, not raw receipts, transactions, URLs or provider exceptions. Presence is not proof or buy permission; diagnostic metadata is excluded from feature snapshots and training vectors.",
+    "unchanged": "All run_bot code outside the existing rejection-telemetry function, all previous native test functions/assertions, exact0.1SOL sizing, risk/entry/exit policy, provider quotas, learning/activation controls and operator artifacts are preserved. An existing fake resolver gains only a no-op cache capability; its no-new-RPC assertions remain."
+  },
+  "focused": {
+    "working": {"tests":696,"failures":0,"errors":0,"skipped":0,"junit_seconds":336.477},
+    "publishing": {"tests":696,"failures":0,"errors":0,"skipped":0,"junit_seconds":329.699}
+  },
+  "new_repository_cases": 38,
+  "official_collected_each": 7045,
+  "source_files_each": 858,
+  "source_sha256": "97a1dc1d3d24d0d1c8f276fb02dc304e267053466c8abfdf199fe0a4a5a60f91",
+  "native_financial_software_case": "Original cached RPC receipt survives unreferenced common entry, exact0.1SOL isolated PAPER buy, duplicate dispatch, extreme synthetic runner monitoring, close, original T0 and exactly-once checked net-label export; only one synthetic creation lookup precedes entry. No operational bot or external provider is launched. Synthetic price appreciation and retained runner exposure are not profitable capture evidence.",
+  "preservation": {"all_previous406_focused_cases_retained":true,"protected_working_files":4442,"protected_publishing_files":28,"changed_protected_files":0,"added_protected_files":0,"original_scope_and_ten_remaining_requirements_preserved":true},
+  "analysis_companion": {
+    "notebook": "work/birth-cache-coverage-stage-20261016/birth-cache-coverage.ipynb",
+    "executed_code_cells": 6,
+    "cell_errors": 0,
+    "sources": "Original-run prefixed JSONL suffixes, original Parquet prefix/new observations, original operator reconciliation and strict original/repaired JUnit receipts; raw input hashes checked before and after analysis.",
+    "visual_qa": "PNG figure inspected at reading size; browser DOM summary, five tables, chart values and Sources disclosure inspected. Full responsive desktop/narrow and both-theme layout are not certified because actual viewport widths differed from requested sizes. Temporary viewport override restored. Notebook-kernel pkg_resources/frozen-module/ZMQ compatibility warnings remain; no notebook cell failed."
+  },
+  "input_sha256": {
+    "data/metrics/runtime_events.jsonl": "b3202de828b73a447749978c12441d8a497f6bb3eb5b54198963ca8ed8f14d73",
+    "data/metrics/decision_ledger.jsonl": "2bd1aa598b1e0ad3c6306b936c9b25fb3f846990f0c5d4a3fc61b6215d6614de",
+    "data/features/features_202610.parquet": "bb0551ebbf39fba47601ab434dec33f2f812c6e94f3d3fd9a96e84dd39fb8eef"
+  },
+  "private_receipts": "work/birth-cache-coverage-stage-20261016/source-census.json, review.json, notebook-validation.json, original-cache.xml, original-native-cache.xml, focused-working.xml and focused-publishing.xml",
+  "current_full_source_ci": "PENDING_NOT_PREAPPROVED",
+  "operator_provider_retest": "NOT_AUTHORIZED_NOT_RUN",
+  "limits": "No fresh operator PAPER, provider probe, fit, model activation, AutoResearch, API/UI, LIVE or account/key/paid-plan change. Current primary-model, real feed/birth coverage, full-strategy opportunity coverage and prospective checked net profitability remain incomplete. More entries are not inherently profitable; neither a winning bot nor zero future errors is established."
+}

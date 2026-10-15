@@ -8,7 +8,7 @@ import time
 
 from analytics.api_budget import provider_status
 from analytics.mint_creation_reference import FIELD as REFERENCE_FIELD, checked_reference
-from analytics.token_birth import FIELD, birth_clock, checked_token_birth, merge_birth_context
+from analytics.token_birth import FIELD, base58_size, birth_clock, checked_token_birth, merge_birth_context
 from analytics.token_time import BIRTH_CLOCK_FIELDS
 from fetcher.mint_initialization import get_mint_initialization
 from utils.bounded_state import bounded_int
@@ -190,11 +190,16 @@ class RpcTokenBirthResolver:
         try:
             wall = self._wall_now()
             reference = checked_reference(token.get(REFERENCE_FIELD), token.get('address'), now=wall)
-            hit, cached = self._cached(token.get('address'))
+            hit, cached = (self._cached(token.get('address'))
+                if base58_size(token.get('address'), 32) else (False, None))
         except _AdmissionDenied: return self._finish(token, None, 'clock_unavailable')
-        if reference is None: return self._finish(token, None, 'missing_creation_reference')
-        if hit and checked_token_birth(cached.get(FIELD), token.get('address'), now=wall) is not None:
+        # An original checked positive is mint-bound, not tied to the latest
+        # discovery feed carrying another untrusted creation reference. Never
+        # use this route to repair a supplied partial/invalid typed receipt.
+        if (hit and isinstance(cached, dict) and (reference is not None or FIELD not in token)
+                and checked_token_birth(cached.get(FIELD), token.get('address'), now=wall) is not None):
             return self._finish(token, cached, 'cache_hit')
+        if reference is None: return self._finish(token, None, 'missing_creation_reference')
         try:
             endpoint = rpc.checked_endpoint(self.endpoint())
             source_hash = rpc.endpoint_fingerprint(endpoint)
@@ -216,3 +221,23 @@ class RpcTokenBirthResolver:
             return self._finish(token, None, error.args[0])
         if result is None: return self._finish(token, None, 'concurrency_budget')
         return self._finish(token, result['receipt'], result['status'])
+
+    def cached_birth(self, token):
+        """Memory-only reuse for an unreferenced discovery, never a new query.
+
+        A miss/expired/invalid receipt stays unknown. Original clocks or typed
+        receipts supplied by the caller are not repaired or overwritten here.
+        The detached retained proof keeps its original receipt and expiry.
+        """
+        if (not isinstance(token, dict) or not base58_size(token.get('address'), 32)
+                or FIELD in token or any(token.get(name) is not None for name in BIRTH_CLOCK_FIELDS)):
+            return None
+        try:
+            wall = self._wall_now()
+            hit, cached = self._cached(token['address'])
+        except _AdmissionDenied:
+            return None
+        if (not hit or not isinstance(cached, dict)
+                or checked_token_birth(cached.get(FIELD), token['address'], now=wall) is None):
+            return None
+        return self._finish(token, cached, 'cache_hit')

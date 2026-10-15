@@ -225,6 +225,31 @@ def _enabled(name):
     return os.getenv(name, "true").strip().lower() in {"true", "1", "yes", "on"}
 
 
+def birth_enrichment_diagnostic(token):
+    """Bounded local labels/presence only, never a receipt or buy permission."""
+    statuses = {'resolved', 'cache_hit', 'existing_original_clock', 'invalid_existing_clock',
+        'invalid_identity', 'missing_creation_reference', 'negative_cache', 'unavailable',
+        'timeout', 'provider_error', 'provider_degraded', 'provider_state_unavailable',
+        'not_configured', 'clock_unavailable', 'creation_budget', 'concurrency_budget',
+        'coalesced', 'coalesced_unavailable', 'coalesced_timeout', 'access_denied',
+        'access_recovery_wait', 'access_probe_inflight', 'access_state_unavailable',
+        'configuration_changed'}
+    def label(value, allowed):
+        return value if isinstance(value, str) and value in allowed else 'unknown'
+    token = token if isinstance(token, dict) else {}
+    state = token.get('token_birth_enrichment')
+    state = state if isinstance(state, dict) else {}
+    source = label(state.get('source'), {'birdeye', 'solana_rpc'})
+    rpc = state if source == 'solana_rpc' else state.get('rpc_initialization')
+    rpc = rpc if isinstance(rpc, dict) else {}
+    return {'schema_version': 1, 'source': source,
+        'status': label(state.get('status'), statuses),
+        'rpc_status': label(rpc.get('status'), statuses),
+        'creation_reference_present': token.get(REFERENCE_FIELD) is not None,
+        'birth_observation_present': token.get('token_birth_observation') is not None,
+        'basis': 'local_status_and_presence_not_verified_birth_or_buy_permission'}
+
+
 async def enrich_token_birth(token):
     if not _enabled("BIRTH_ENRICHMENT_ENABLED"):
         return deepcopy(token)
@@ -234,6 +259,13 @@ async def enrich_token_birth(token):
         out = await GLOBAL_RPC_TOKEN_BIRTH_RESOLVER.enrich(out)
         if birth_clock(out) is not None:
             return out
+    elif _enabled("BIRTH_RPC_ENRICHMENT_ENABLED"):
+        # A different feed need not repeat an untrusted creation reference to
+        # reuse an already checked original mint receipt. This path is memory
+        # only and cannot reserve budget or launch a provider lookup.
+        cached = GLOBAL_RPC_TOKEN_BIRTH_RESOLVER.cached_birth(out)
+        if cached is not None:
+            return cached
     if _enabled("USE_BIRDEYE"):
         rpc_state = deepcopy(out.get('token_birth_enrichment'))
         out = await GLOBAL_TOKEN_BIRTH_RESOLVER.enrich(out)

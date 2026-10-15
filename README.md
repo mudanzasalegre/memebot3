@@ -13,6 +13,24 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Edad en cache: conservar la evidencia ya comprobada (2026-10-16)
+
+Se ha reproducido y corregido una perdida de la edad original: un token visto
+por otro feed sin repetir su referencia de creacion no aprovechaba la cache RPC
+ya verificada. Ahora se reutiliza ese recibo sin renovarlo ni consultar otra vez.
+Los desconocidos, caducados o invalidos siguen sin autorizar compras. Los rechazos
+futuros incorporan diagnosticos acotados, ajenos a las senales del modelo.
+
+La PAPER original sigue teniendo cero compras: 159 de 291 rechazos registrados
+fueron por edad ausente, pero no guardaron detalle suficiente para atribuirlos
+al defecto de cache. Las 84 observaciones nuevas no fueron operaciones financieras.
+Pasan 696 regresiones por carpeta, incluidas las 406 anteriores y una compra
+nativa aislada de 0,1 SOL con cierre y exportacion neta. Se recogen 7.045 pruebas;
+la CI completa de esta nueva fuente queda pendiente. No se ha lanzado otra PAPER
+ni entrenado/activado modelos. El operador permanece apagado y la rentabilidad
+no esta demostrada.
+[Evidencia, analisis y limites](docs/audits/birth_cache_coverage_20261016.json).
+
 ### Parada: una cancelacion interna no confirma limpieza (2026-10-16)
 
 La revision posterior detecto seis casos en los que una cancelacion dentro de

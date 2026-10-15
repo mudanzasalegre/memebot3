@@ -198,6 +198,19 @@ def test_full_native_rpc_birth_exact_paper_entry_runner_close_and_T0_net_export(
     assert row['pending_buys'] == row['pending_sells'] == 0
 
 
+def test_full_native_cached_rpc_birth_without_new_reference_retains_original_through_net_export(tmp_path):
+    row = native_case(tmp_path,case='rpc_birth_cached_unreferenced',momentum=1000000.,monitor=True)
+    assert len(row['positions']) == 1 and row['positions'][0]['amount_sol'] == .1
+    assert row['positions'][0]['closed'] is True and row['export_rows'] == 1
+    assert row['progression'][-2]['peak'] > 900000 and row['progression'][-2]['qty'] > 0
+    assert row['cached_original_receipt_retained'] is True
+    assert row['rpc_birth_retained_in_export'] is True and row['rpc_birth_initializer_checked'] is True
+    assert row['boundary_calls'].count('creation_rpc') == 1
+    assert row['boundary_calls'].index('creation_rpc') < row['boundary_calls'].index('cached_unreferenced_entry')
+    assert row['boundary_calls'].index('cached_unreferenced_entry') < row['boundary_calls'].index('snapshot')
+    assert row['pending_buys'] == row['pending_sells'] == 0
+
+
 def test_native_rpc_entry_failure_retains_missing_birth_decision_evidence(tmp_path):
     row=native_case(tmp_path,case='rpc_birth',momentum=1000000.,expected_failure='rpc_unavailable')
     assert row['native_failure'] is True and row['exit_code']==1

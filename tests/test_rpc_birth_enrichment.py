@@ -373,7 +373,7 @@ async def test_monotonic_pacing_reads_clock_inside_the_reservation_lock():
 async def test_native_router_disable_and_birdeye_fallback_preserve_unknown_and_diagnostics(monkeypatch,case):
     from runtime import token_birth_enrichment as module
     token, _ = candidate()
-    rpc = SimpleNamespace(enrich=AsyncMock(return_value={**token,'token_birth_enrichment':{
+    rpc = SimpleNamespace(cached_birth=lambda value:None, enrich=AsyncMock(return_value={**token,'token_birth_enrichment':{
         'source':'solana_rpc','status':'unavailable'}}))
     bird = SimpleNamespace(enrich=AsyncMock(side_effect=lambda value:{**value,
         'token_birth_enrichment':{'source':'birdeye','status':'access_denied'}}))

@@ -3420,6 +3420,10 @@ def _record_blocked_before_buy_metric(
         _stats["blocked_before_buy"] += 1
         if action_norm == "shadow":
             _stats["shadow_only"] += 1
+        diagnostics = {}
+        if str(reason or '').startswith('entry_observation:'):
+            from runtime.token_birth_enrichment import birth_enrichment_diagnostic
+            diagnostics['birth_enrichment_diagnostic'] = birth_enrichment_diagnostic(token)
         record_runtime_event(
             "blocked_before_buy",
             addr,
@@ -3431,6 +3435,7 @@ def _record_blocked_before_buy_metric(
             entry_lane=str(token.get("entry_lane") or ""),
             gate_profile=str(token.get("gate_profile") or token.get("sniper_gate_profile") or ""),
             paper_bootstrap=bool(_paper_bootstrap_active(token)),
+            **diagnostics,
         )
     except Exception:
         pass
