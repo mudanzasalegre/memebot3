@@ -13,6 +13,22 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Software aprobado en ambos sistemas; rentabilidad pendiente (2026-10-15)
+
+La revision funcional `f0f969d` supera la matriz completa: 6.972 pruebas en
+Windows; 6.963 en Linux y 9 omitidas por plataforma. Tambien pasan las 41 de
+estrategia. Hay un aviso conocido de deprecacion por suite, no fallos.
+Los 855 archivos funcionales coinciden con Git y ambas carpetas locales.
+
+Esta aprobacion no demuestra beneficio neto ni captura exhaustiva de oportunidades.
+La PAPER anterior no produjo compras y todavia no hay cierres financieros netos
+verificables en la poblacion auditada para acreditar un bot ganador.
+Otra PAPER requiere nueva autorizacion; no se ha
+iniciado. Bot, LIVE, entrenamiento, AutoResearch, API y UI permanecen apagados.
+Las entradas cronologicas inferiores conservan sus capturas historicas; este
+resumen y la [aceptacion actual](docs/audits/software_ci_acceptance_20261015.json)
+aclaran el estado y los requisitos pendientes sin cambiar el codigo funcional.
+
 ### Parada: tiempos de arranque y entrega separados en QA (2026-10-15)
 
 La CI anterior conserva dos fallos de Windows al esperar la solicitud de parada.
@@ -23,7 +39,7 @@ de limpieza real y anade diagnosticos por fase. Los limites de produccion de
 15/20 s, la verificacion del proceso y el respaldo forzado no cambian.
 Pasan 125 pruebas focalizadas en cada carpeta, incluido el ciclo nativo aislado
 de compra, monitor, cierre y exportacion neta. Se recogen 6.972 casos oficiales
-en ambos checkouts; la nueva matriz completa sigue pendiente.
+en ambos checkouts; la matriz completa de esa revision funcional ya esta aprobada.
 [Evidencia y alcance](docs/audits/stop_controller_startup_20261015.json).
 
 ### Familias ML: la entrada directa tambien verifica el original (2026-10-15)

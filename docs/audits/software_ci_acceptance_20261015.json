@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "status": "FUNCTIONAL_SOURCE_CI_APPROVED_BOTH_OS_FINANCIAL_ACCEPTANCE_PENDING_RUNTIME_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "tested_source_commit": "f0f969d2a8e557b5a72b1bcaae0a012debabe508",
+  "observed_terminal_ci_at_utc": "2026-10-15T15:24:23.157067+00:00",
+  "full_matrix": {
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38754885592",
+    "conclusion": "success",
+    "windows": {"passed": 6972, "failed": 0, "errors": 0, "skipped": 0, "pytest_warnings": 1, "seconds": 1890.84},
+    "ubuntu": {"passed": 6963, "failed": 0, "errors": 0, "skipped": 9, "pytest_warnings": 1, "seconds": 1028.50},
+    "skip_scope": "Native Windows platform cases; not hidden failed cases",
+    "pytest_warning": "Existing StarletteDeprecationWarning about httpx TestClient integration; not a failed test or zero-future-errors assurance",
+    "native_data_imports_each": {"numpy": "1.26.4", "pandas": "3.0.6", "pyarrow": "20.0.0"},
+    "native_signing_sdk_imports_each": "PASS_WITHOUT_LOADING_KEYS_OR_SIGNING",
+    "extra_guarded_native_lifecycle_smoke": {"passed_each": 1, "windows_seconds": 7.20, "ubuntu_seconds": 3.01},
+    "model_status_and_rules_replay": "PASS_WITH_EXPLICIT_MISSING_MODEL_AND_NO_DATA_ALLOWED_FLAGS",
+    "restarted": false,
+    "qualification": "Missing-model/no-data diagnostics are not trained-model or profitable-backtest acceptance. These jobs use temporary synthetic PAPER fixtures, not an operator run, actual provider entitlement or LIVE fills."
+  },
+  "strategy_matrix": {"url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38754885879", "conclusion": "success", "passed": 41, "seconds": 4.40},
+  "functional_source_publication": {
+    "files_each": 855,
+    "normalized_sha256": "00c3049da364c57907ccfc880a74ee968d2d8f008dde67cf1e22f4ee5f3b2e4e",
+    "git_objects_match_both_local_roots": true,
+    "tracked_code_paths_outside_reviewed_publication_allowlist": 0,
+    "publishing_branch": "main",
+    "publishing_checkout": "C:/Users/monmo10/Documents/GitHub/memebot3",
+    "following_publication_scope": "Documentation only; no functional source, dependency, configuration, workflow, model, provider or trading-policy change",
+    "qualification": "Content/publication proof, not authentication of a complete executing process, provider, wallet or financial strategy."
+  },
+  "requirement_acceptance": [
+    {"requirement": "Architecture, scanner/sniper, data, models and AutoResearch", "status": "SOURCE_AUDITED_AND_HARDENED_FULL_STRATEGY_ACCEPTANCE_INCOMPLETE", "evidence": "docs/audits/architecture_goal_20261007.json"},
+    {"requirement": "Capture executable winners including extreme tails beyond100/200percent", "status": "SYNTHETIC_SOURCE_PATHS_PASS_PROSPECTIVE_CAPTURE_AND_NET_PROFIT_NOT_ESTABLISHED", "evidence": "docs/audits/paper_acceptance_20261015.json"},
+    {"requirement": "Minimal-intervention adaptive learning", "status": "SOURCE_INTEGRATED_OPERATOR_FIT_ACTIVATION_AND_FINANCIAL_ACCEPTANCE_NOT_PROVED", "evidence": "docs/audits/learning_readiness_20261015.json"},
+    {"requirement": "Correct first launch and error paths", "status": "FULL_CURRENT_SOURCE_SOFTWARE_MATRIX_APPROVED_FRESH_PROVIDER_OPERATOR_ACCEPTANCE_PENDING", "evidence": "https://github.com/mudanzasalegre/memebot3/actions/runs/38754885592"},
+    {"requirement": "Publish implementation to the separate GitHub checkout", "status": "VERIFIED_PUSHED_FUNCTIONAL_SOURCE_AND_GIT_OBJECT_PARITY", "evidence": "f0f969d2a8e557b5a72b1bcaae0a012debabe508"},
+    {"requirement": "Leave bot, training, AutoResearch, API and UI stopped", "status": "VERIFIED_OFF_RECHECK_REQUIRED_AT_HANDOFF", "evidence": "Current process/task/service/lock census and read-only SQL main stopped/idle/idle"}
+  ],
+  "operator_evidence": {
+    "last_authorized_paper": "20261015-1; authority consumed, not restarted",
+    "fresh_paper_authority": "PENDING_HUMAN_REPLY_TO_SEPARATE_REQUEST",
+    "requested_simulated_buy_size_sol": 0.1,
+    "current_source_paper_execution": "NOT_STARTED",
+    "selected_feature_observations": 7877,
+    "new_prior_paper_window_observations": 85,
+    "new_current_original_entry_receipts": 83,
+    "checked_net_financial_rows": 0,
+    "configured_primary_model_metadata_registry": "ABSENT",
+    "gate_mode": "shadow",
+    "training_and_auto_promotion": "OFF",
+    "data_evidence": "docs/audits/learning_readiness_20261015.json",
+    "qualification": "These persisted observations are diagnostic shadows/rejections, not independent profitable trades. Source hashes still matched the post-PAPER capture during the completion audit."
+  },
+  "next_required_step": "Separately authorized fresh bounded PAPER for the approved current functional source, exact0.1SOL simulated buys, no LIVE/training/AutoResearch, stop at the deadline and inspect original net closed-trade evidence. No new run has been authorized or launched.",
+  "remaining_limits": [
+    "All ten original remaining master requirements stay intact; successful source tests do not close independent full-process, provider, LIVE protocol, financial, capital or rare-event opportunity acceptance.",
+    "The exact host timing cause of earlier Windows milestone failures remains unproved. Current phased fixtures pass the full Windows suite; the controller still does not promise a global20-second initialization/IO SLA.",
+    "A successful source matrix cannot guarantee a winning bot, maximum possible benefit or zero future errors. Further evidence and separately scoped authority are required; no absent financial labels or models are fabricated."
+  ]
+}

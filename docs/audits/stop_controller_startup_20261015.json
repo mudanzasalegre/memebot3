@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
-  "status": "IMPLEMENTED_FOCUSED_125_BOTH_ROOTS_NEW_FULL_CI_PENDING_RUNTIME_OFF",
+  "status": "IMPLEMENTED_FOCUSED_125_AND_FULL_SOURCE_CI_APPROVED_BOTH_OS_RUNTIME_OFF",
+  "actual_complete_ci": {"tested_source_commit": "f0f969d2a8e557b5a72b1bcaae0a012debabe508", "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38754885592", "conclusion": "success", "windows": "6972passed1warning1890.84s", "ubuntu": "6963passed9platformskips1warning1028.50s", "observed_at_utc": "2026-10-15T15:24:23.157067+00:00", "restarted": false, "supersedes_prior_pending_snapshot": true, "scope": "Current complete source acceptance, not a new operator PAPER, global stop latency SLA or financial-profitability acceptance", "evidence": "docs/audits/software_ci_acceptance_20261015.json"},
   "source": {"files_each": 855, "normalized_sha256": "00c3049da364c57907ccfc880a74ee968d2d8f008dde67cf1e22f4ee5f3b2e4e"},
   "global_goal_status": "ACTIVE_INCOMPLETE",
   "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
