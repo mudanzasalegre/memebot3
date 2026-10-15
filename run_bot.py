@@ -3457,11 +3457,12 @@ async def _maybe_open_research_shadow(
     if not should_open:
         return False
 
-    shadow_vec = vec
     try:
         from runtime.shadow_state import snapshot_vector
         shadow_vec = snapshot_vector(vec)
-        for key in (
+        # Later gate diagnostics describe this decision, not the original
+        # inference inputs. Never overwrite the values bound by T0 receipts.
+        decision_context = snapshot_vector({key: token[key] for key in (
             "entry_lane",
             "sniper_gate_profile",
             "sniper_gate_failures",
@@ -3477,11 +3478,10 @@ async def _maybe_open_research_shadow(
             "price5m_bucket",
             "venue_is_pumpswap",
             "impact_zero_flag",
-        ):
-            if token.get(key) is not None:
-                shadow_vec[key] = token.get(key)
-    except Exception:
-        shadow_vec = vec
+        ) if token.get(key) is not None})
+    except Exception as exc:
+        log.debug('Research shadow snapshot %s -> %s', str(token.get('address') or '')[:6], type(exc).__name__)
+        return False
 
     return await _open_shadow(
         str(token.get("address") or ""),
@@ -3495,6 +3495,7 @@ async def _maybe_open_research_shadow(
         threshold=threshold,
         rank_info=rank_info,
         shadow_kind="research",
+        decision_context=decision_context,
     )
 
 # ───────────────────── Cupo/cooldown para Pump.fun quick-price ──────────────
@@ -4244,6 +4245,7 @@ async def _open_shadow(
     regime: str | None = None, reason: str = '', stage: str = 'decision',
     proba: float | None = None, threshold: float | None = None,
     rank_info: dict[str, object] | None = None, shadow_kind: str = 'execution',
+    decision_context: dict | None = None,
 ) -> bool:
     """Admit auxiliary work without price/disk IO in the entry caller."""
     if not force and (DRY_RUN or not REAL_SHADOW_SIM): return False
@@ -4253,14 +4255,18 @@ async def _open_shadow(
         from runtime.shadow_state import snapshot_vector
         from utils.runtime_context import runtime_context_payload
         vector = snapshot_vector(vec)
-        subject = dict(vector or {})
+        diagnostics = snapshot_vector(decision_context) or {}
+        # Preserve the existing shadow exit-profile choice, separately from
+        # the original predictor vector which will reach the feature writer.
+        subject = {**(vector or {}), **diagnostics}
         subject.setdefault('address', addr)
         subject.setdefault('entry_regime', regime or 'dex_mature')
         accepted = queue.submit({'address': addr, 'vector': vector, 'price_hint': price_hint,
             'force': force, 'regime': regime, 'reason': reason, 'stage': stage,
             'proba': proba, 'threshold': threshold, 'rank_info': rank_info,
             'shadow_kind': shadow_kind, 'opening_snapshot': {'context': runtime_context_payload(),
-                'profile': _runner_profile_for_subject(subject), 'requested_at': utc_now()}})
+                'profile': _runner_profile_for_subject(subject), 'requested_at': utc_now(),
+                'decision_context': diagnostics}})
         for key, value in queue.snapshot().items():
             _stats['shadow_open_' + key] = value
         return accepted
@@ -4311,7 +4317,10 @@ async def _open_shadow_now(
         # A competing opener may have arrived while the price lookup yielded.
         if addr in _shadow_positions:
             return False
-        token_ctx = dict(vec)
+        from features.builder import COLUMNS
+        diagnostics = (snapshot_vector(_opening_snapshot.get('decision_context')) or {}
+            if _opening_snapshot is not None else {})
+        token_ctx = {**vec, **{key: value for key, value in diagnostics.items() if key not in COLUMNS}}
         token_ctx.setdefault("address", addr)
         token_ctx.setdefault("entry_regime", regime or "dex_mature")
         token_ctx.setdefault("score_total", vec.get("score_total"))
@@ -4356,6 +4365,7 @@ async def _open_shadow_now(
         from runtime.owned_thread import await_owned_thread
         open_payload = {
                 **open_rank_info,
+                "decision_context": diagnostics,
                 "regime": regime or "dex_mature",
                 "opened_at": opened_at,
                 "buy_price_usd": float(price) if price is not None else None,
@@ -4364,7 +4374,8 @@ async def _open_shadow_now(
                 "ml_proba": proba,
                 "threshold": threshold,
                 "score_total": token_ctx.get("score_total"),
-                "age_minutes": token_ctx.get("age_minutes") or token_ctx.get("age_min"),
+                "age_minutes": (token_ctx.get("age_minutes") if token_ctx.get("age_minutes") is not None
+                    else token_ctx.get("age_min")),
                 "liquidity_usd": token_ctx.get("liquidity_usd"),
                 "volume_24h_usd": token_ctx.get("volume_24h_usd"),
                 "market_cap_usd": token_ctx.get("market_cap_usd"),
@@ -4374,7 +4385,8 @@ async def _open_shadow_now(
                 "sniper_gate_profile": token_ctx.get("sniper_gate_profile"),
                 "sniper_gate_failures": token_ctx.get("sniper_gate_failures") or token_ctx.get("live_profit_gate_failures"),
                 "gate_profile": token_ctx.get("gate_profile"),
-                "liquidity_is_proxy": token_ctx.get("liquidity_is_proxy") or token_ctx.get("liquidity_usd_is_proxy"),
+                "liquidity_is_proxy": (token_ctx.get("liquidity_is_proxy") if token_ctx.get("liquidity_is_proxy") is not None
+                    else token_ctx.get("liquidity_usd_is_proxy")),
                 "mcap_bucket": token_ctx.get("mcap_bucket"),
                 "price5m_bucket": token_ctx.get("price5m_bucket"),
                 "venue_is_pumpswap": token_ctx.get("venue_is_pumpswap"),

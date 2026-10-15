@@ -1,0 +1,174 @@
+{
+  "status": "RESEARCH_SHADOW_T0_NATIVE_FOCUSED_VERIFIED_CURRENT_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "171a9085c577eb84b0875896e68563ca36973d07",
+  "implementation_revision": "Commit containing this audit; exact normalized source identity follows verification",
+  "summary": "The actual research-shadow adapter now transports the original predictor vector and its three proof attrs without overwriting seven original fields from later token metadata. The same sixteen supported later gate/decision fields are detached separately as decision_context. The existing shadow exit-profile selection still sees that original decision context and is pinned before admission; diagnostics survive the native owned queue, immutable opening checkpoint, restart restoration, close outbox and research events without becoming predictors. Native original zero age and false liquidity-proxy metadata are no longer replaced by aliases. Snapshot failures reject only this auxiliary sample without submitting the raw mutable object. No buying filter, birth/quote gate, 0.1 SOL sizing, financial execution, exit-policy implementation, operator fit, model activation, historical data or runtime launch is changed. This repairs source/input coherence; profitable capture, actual missed-opportunity impact and full-strategy financial acceptance remain unproved. All operational processes must remain off.",
+  "reproduction": {
+    "original_baseline": "Eight native tests fail: seven original predictor fields are replaced by later metadata, plus raw mutable fallback after snapshot failure",
+    "secondary_baseline": "Four failures and thirteen passes: both full native export paths expose a conflicting liquidity alias; zero age/proxy metadata are also replaced by aliases",
+    "affected_original_predictors": [
+      "entry_lane",
+      "gate_profile",
+      "liquidity_is_proxy",
+      "mcap_bucket",
+      "price5m_bucket",
+      "venue_is_pumpswap",
+      "impact_zero_flag"
+    ],
+    "actual_consumer": "features.auxiliary_semantics.checked_row_receipt replays the original causal receipt and rejects mismatched row values; preserving receipt attrs alone is not sufficient",
+    "qualification": "Synthetic native source reproduction, not an established historical operator no-buy or economic-loss cause"
+  },
+  "contract": {
+    "original_inputs": "Retain original feature values, missingness, T0, auxiliary/strategy context receipt, token-clock and valuation proofs; no new receipt or predictor generation is manufactured",
+    "later_diagnostics": "The previous sixteen non-None supported token fields are detached in decision_context, retaining actual false/zero and nested failure lists; no absent legacy predictor is backfilled",
+    "exit_profile": "Use the existing merged original vector plus decision diagnostics solely for the shadow profile choice before queue admission; native resolver probes verify the same selection as the prior overlay behavior",
+    "persisted_metadata": "Canonical opening feature fields come from original vector values; nonpredictor diagnostic aliases remain available and the complete later context is retained separately",
+    "ownership": "Existing bounded supervised ShadowOpeningQueue and native shadow-state/close ownership are unchanged; memory admission remains nondurable until confirmed checkpoint",
+    "failure": "Invalid snapshot returns false for auxiliary admission without raw-object fallback; invalid diagnostics are not submitted",
+    "historical_boundary": "Only prospectively produced samples change; existing operator Parquet, models, policies, portfolios, logs, ledger and environment are not rewritten"
+  },
+  "acceptance": {
+    "new_repository_cases": 21,
+    "focused": {
+      "working": {
+        "tests": 759,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 520.189
+      },
+      "publishing": {
+        "tests": 759,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 516.945
+      }
+    },
+    "source_proof": [
+      {
+        "checkout": "working",
+        "files": 832,
+        "sha256": "b582c3351e9b62279ad8448a07050bcc25972d1dc419d5c20ff8d54e840346ca"
+      },
+      {
+        "checkout": "publishing",
+        "files": 832,
+        "sha256": "b582c3351e9b62279ad8448a07050bcc25972d1dc419d5c20ff8d54e840346ca"
+      }
+    ],
+    "repository_collection": {
+      "observed_at_utc": "2026-10-15T06:35:23.543273+00:00",
+      "counts": {
+        "working": 6558,
+        "publishing": 6557
+      },
+      "only_working": [
+        "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline"
+      ],
+      "only_publishing": [],
+      "scope": "Collection, not execution or financial acceptance"
+    },
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "native_chain": "Actual research adapter -> actual admission frontend -> owned native queue -> actual IO handler/checkpoint/journal -> optional memory-loss restoration -> actual shadow tick/close/outbox -> native Parquet -> checked original-receipt/model matrix. Providers, admission policy and timeout exit use synthetic isolated boundaries; original validators and persistence are not stubbed.",
+    "temporary_storage_only": "Research portfolio, events, Parquet and shadow state/outbox are redirected to temporary roots; decision ledger append is mocked and verified as invoked once rather than writing operator data",
+    "scope": "Software coherence and regression acceptance only; no production latency, provider access, live wallet/finality or real profitability acceptance",
+    "original_baseline": {
+      "tests": 8,
+      "failures": 8,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 2.302
+    },
+    "secondary_baseline": {
+      "tests": 17,
+      "failures": 4,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 4.849
+    }
+  },
+  "remaining_boundaries": [
+    "Full-strategy prospective net profitability and opportunity capture, including extreme tails, remain unproved",
+    "Fresh operational provider/PAPER/model acceptance requires separate authority; no operational run is included here",
+    "The older c771 Windows RPC birth-input mismatch remains causally unresolved; later green or focused tests do not explain it",
+    "A preserved original receipt does not independently authenticate the full executing process, provider market-asof, actual mint birth or creator identity",
+    "Browser extension connection is separate and remains unavailable in the last observed session; no paid plan or new key has been created"
+  ],
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "additional_restored_ledger_sha256": "afbcb9a90a254e16d41df52749a1dfcc880b7a51c95045fed144229ed6532cb5"
+  },
+  "shutdown": {
+    "observed_at_utc": "2026-10-15T06:42:28.0279380+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml": {
+      "observed_at_utc": "2026-10-15T06:42:28.4902162+00:00",
+      "actual_ml_entrypoint_processes": 0
+    },
+    "read_only_sql": {
+      "observed_at": "2026-10-15T06:42:28.679878+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-13 10:43:54.767270"
+        }
+      ]
+    }
+  },
+  "observed_at_utc": "2026-10-15T06:42:28.696000+00:00",
+  "preceding_ci_observation": {
+    "observed_at_utc": "2026-10-15T06:41:49.411455+00:00",
+    "commit": "171a9085c577eb84b0875896e68563ca36973d07",
+    "runs": {
+      "tests": {
+        "status": "in_progress",
+        "conclusion": "",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38691975626",
+        "pytest_summaries": null
+      },
+      "ci": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38691975653",
+        "pytest_summaries": [
+          "strategy-regression\tStrategy regression pytest suite\t2026-10-15T06:22:59.2092321Z 41 passed in 4.22s"
+        ]
+      }
+    },
+    "qualification": "Parent CI observation only; no workflow restart and no cause determination of the older c771 Windows failure"
+  }
+}

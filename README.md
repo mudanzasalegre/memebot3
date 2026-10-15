@@ -13,6 +13,22 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Aprendizaje: el diagnostico posterior no sustituye al vector original (2026-10-15)
+
+Las sombras de investigacion conservan los 77 valores originales y sus tres
+proof attrs. Los datos posteriores de filtros y rechazos viajan por separado
+como `decision_context`, sin sobrescribir ni rellenar predictores historicos.
+El perfil de salida de la sombra sigue eligiendose con el contexto de decision
+existente y queda fijado antes de encolar; no cambia la politica de compra.
+
+Se comprueba la cadena nativa hasta checkpoint, reinicio, cierre, Parquet y
+lector de modelos. Los ceros originales de edad y liquidez proxy ya no se
+reemplazan por un alias. Un fallo al congelar la muestra no entrega un objeto
+mutable como alternativa. No se reescriben datos previos ni se entrena o activa
+ningun modelo. Es una reparacion de integridad, no evidencia de rentabilidad ni
+una causa demostrada de las cero compras.
+[Evidencia y limites](docs/audits/research_shadow_t0_20261015.json).
+
 ### Entrada: las sombras no esperan precios ni disco en el evaluador (2026-10-15)
 
 La apertura auxiliar de sombras se admite en una cola propia de un consumidor,
