@@ -1,0 +1,212 @@
+{
+  "status": "EXPORT_OWNER_SUPERVISOR_NATIVE_FOCUSED_VERIFIED_CURRENT_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "2485cc8a13df05af2eaa6f4a87a7b973c83a75e5",
+  "implementation_revision": "Commit containing this audit; normalized source identity follows verification",
+  "summary": "The costed-close export loop now retains its native filesystem worker through repeated cancellation using the shared owned-thread primitive. The runtime supervisor cancels admitted children once and shields their join, so later parent cancellations cannot interrupt a child's already-running cleanup or release the runtime while native export IO is still active. It collects named coroutine inputs before admission, closes unsubmitted coroutines on producer/task-creation failure and drains all created tasks. Original critical return/error/cancellation behavior remains explicit after cleanup; repeated parent cancellation is propagated only after the join. A native runtime reproduction previously published stopped while the isolated export worker was unfinished; the fixed path withholds stopped until that worker completes. No buy filter, 0.1 SOL sizing, financial outcome validator, exit policy, model fitting/activation or operator history is changed. Original closed-source paths in the working root are absent, so no additional operator net-learning export is manufactured from them. All operational processes stay off. Full strategy/provider/financial/profitability acceptance remains incomplete.",
+  "reproduction": {
+    "authoritative_baseline": "Three native failing cases: export task ends while its admitted thread is live; supervisor interrupts sibling cleanup after a second cancel; actual _runner publishes stopped before isolated export IO completes",
+    "original_code": "run_export_loop awaited an unshielded gather during cancellation; supervise also awaited an unshielded gather of children. Repeated cancellation could propagate into those cleanup waits",
+    "qualification": "Controlled synthetic IO and actual native runtime functions. Not an established historical no-buy or financial-loss cause"
+  },
+  "contract": {
+    "export_owner": "No export before readiness. Exactly one admitted off-loop repair call at a time. On cancellation, wait for that same worker, consume late worker errors and propagate caller cancellation without a false result callback",
+    "supervisor": "Critical-loop exit cancels siblings once; later parent cancellation does not recancel their cleanup. Drain every admitted child before returning or raising",
+    "startup": "Close captured unsubmitted coroutines after producer, malformed admission or task-creation failure, and consume/drain created tasks before propagating the source failure",
+    "latency": "No forceful thread termination or hardware/filesystem completion SLA is claimed. Waiting for real admitted IO may exceed a nominal shutdown deadline",
+    "financial_boundary": "Existing immutable original close, costs/FX/T0, guarded export deduplication and native net-return validation remain unchanged. No legacy SQL or gross shadow row is promoted into an original financial source",
+    "operator_source_scope": "Presence checks cover the actual native D-working-root archive/export/journal/portfolio paths only; absence is not a universal assertion that no trade occurred elsewhere"
+  },
+  "acceptance": {
+    "new_repository_cases": 17,
+    "focused": {
+      "working": {
+        "tests": 876,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 204.876
+      },
+      "publishing": {
+        "tests": 876,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 202.08
+      }
+    },
+    "source_proof": [
+      {
+        "checkout": "working",
+        "files": 835,
+        "sha256": "7793152df7ab57f1dfb77264b621fd29f2de8ba4bbeb0e3e417532cf6fd6e0b8"
+      },
+      {
+        "checkout": "publishing",
+        "files": 835,
+        "sha256": "7793152df7ab57f1dfb77264b621fd29f2de8ba4bbeb0e3e417532cf6fd6e0b8"
+      }
+    ],
+    "repository_collection": {
+      "observed_at_utc": "2026-10-15T07:44:16.331391+00:00",
+      "counts": {
+        "working": 6624,
+        "publishing": 6623
+      },
+      "only_working": [
+        "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline"
+      ],
+      "only_publishing": [],
+      "scope": "Collection, not execution or financial acceptance"
+    },
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "qa_harness_notes": [
+      "An initial development runtime fixture omitted the PAPER archive-bootstrap stub and did not reach its worker barrier. Only verified task-owned QA processes were terminated; the fixture was corrected and its wait bounded before the authoritative reproduction",
+      "A temporary cancellation-count assertion was placed after the first rather than second cancel; corrected before the three-failure baseline used here",
+      "A pre-sync source verifier rejected the new working-only test as expected; the later mirrored source/protection check passed. A failed parity check is not treated as data-conservation evidence"
+    ],
+    "scope": "Native source regression including actual isolated _runner and supervisor ownership; synthetic providers and temporary storage/model fixtures only. No operator run, fit, activation or transaction",
+    "original_baseline": {
+      "tests": 3,
+      "failures": 3,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 2.339
+    }
+  },
+  "operator_source_availability": {
+    "observed_at_utc": "2026-10-15T07:47:47.416917+00:00",
+    "root": "working project root",
+    "paths": [
+      {
+        "path": "data/paper_closed_trades",
+        "exists": false
+      },
+      {
+        "path": "data/learning/trade_closes",
+        "exists": false
+      },
+      {
+        "path": "data/metrics/buy_recovery",
+        "exists": false
+      },
+      {
+        "path": "data/paper_portfolio.json",
+        "exists": false
+      },
+      {
+        "path": "data/paper_closed_trades.jsonl",
+        "exists": false
+      }
+    ],
+    "qualification": "Actual native configured paths only; not all historical SQL positions or external wallets"
+  },
+  "remaining_boundaries": [
+    "No source-only shutdown test proves profitable opportunity capture or full-strategy financial performance",
+    "The original full architecture-goal requirements remain unchanged; source authenticity, fresh prospective acceptance and LIVE wallet/finality remain independent",
+    "The older c771 Windows RPC birth-input failure remains causally unresolved; later passing suites do not explain it"
+  ],
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "additional_restored_ledger_sha256": "afbcb9a90a254e16d41df52749a1dfcc880b7a51c95045fed144229ed6532cb5"
+  },
+  "shutdown": {
+    "observed_at_utc": "2026-10-15T07:47:46.7967211+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml": {
+      "observed_at_utc": "2026-10-15T07:47:47.2367459+00:00",
+      "actual_ml_entrypoint_processes": 0
+    },
+    "read_only_sql": {
+      "observed_at": "2026-10-15T07:47:47.412901+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-13 10:43:54.767270"
+        }
+      ]
+    }
+  },
+  "whole_goal_complete": false,
+  "observed_at_utc": "2026-10-15T07:47:47.416917+00:00",
+  "preceding_ci_observations": [
+    {
+      "commit": "2485cc8a13df05af2eaa6f4a87a7b973c83a75e5",
+      "observed_at_utc": "2026-10-15T07:30:46.577785+00:00",
+      "runs": {
+        "tests": {
+          "status": "in_progress",
+          "conclusion": "",
+          "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38698878927",
+          "pytest_summaries": null
+        },
+        "ci": {
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38698879004",
+          "pytest_summaries": [
+            "strategy-regression\tStrategy regression pytest suite\t2026-10-15T07:28:39.7101086Z 41 passed in 4.62s"
+          ]
+        }
+      }
+    },
+    {
+      "commit": "91a1dcf56b39155d3150669ce92bc9114a50b2e1",
+      "observed_at_utc": "2026-10-15T07:40:38.857364+00:00",
+      "runs": {
+        "tests": {
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38696275532",
+          "pytest_summaries": [
+            "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-15T07:06:32.5525896Z 1 passed in 6.17s",
+            "test (windows-2022)\tRun python -m pytest -q\t2026-10-15T07:34:45.0277508Z 6606 passed, 1 warning in 1691.33s (0:28:11)",
+            "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-15T07:04:54.4540511Z 1 passed in 4.07s",
+            "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-15T07:31:13.3419022Z 6606 passed, 1 warning in 1578.20s (0:26:18)"
+          ]
+        },
+        "ci": {
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38696275564",
+          "pytest_summaries": [
+            "strategy-regression\tStrategy regression pytest suite\t2026-10-15T07:04:59.9664898Z 41 passed in 3.99s"
+          ]
+        }
+      }
+    }
+  ],
+  "preceding_ci_qualification": "Parent documentation revision and its byte-identical preceding source are distinct CI observations. Verified preceding source passes6606 per OS; current changed source full CI remains pending. No explanation of the older c771 Windows failure is claimed."
+}

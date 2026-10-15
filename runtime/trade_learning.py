@@ -380,13 +380,12 @@ async def run_export_loop(*, ready, root, cfg, on_result, on_error, sleep=asynci
     Cancellation drains the owned filesystem worker before runtime shutdown is
     published. No overlapping exports or abandoned to_thread jobs are started.
     """
+    from runtime.owned_thread import await_owned_thread
     await ready.wait()
     while True:
-        worker = asyncio.create_task(asyncio.to_thread(repair_exports, root=root, cfg=cfg, force=True))
         try:
-            result = await asyncio.shield(worker)
+            result = await await_owned_thread(repair_exports, root=root, cfg=cfg, force=True)
         except asyncio.CancelledError:
-            await asyncio.gather(worker, return_exceptions=True)
             raise
         except Exception as exc:
             on_error(exc)

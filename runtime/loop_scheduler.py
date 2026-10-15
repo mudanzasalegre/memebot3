@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import math
 import time
 from itertools import islice
@@ -128,8 +129,20 @@ async def evaluate_ready_queue(next_item: Callable, evaluate: Callable, *, max_i
 
 async def supervise(coroutines: Iterable[tuple[str, Coroutine]]) -> None:
     """A critical loop ending cancels and drains every owned sibling."""
-    tasks = [asyncio.create_task(coro, name=name) for name, coro in coroutines]
+    tasks, entries = [], []
     try:
+        # Capture the producer before starting children. On iterator or task
+        # creation failure, unsubmitted coroutines still need explicit closure.
+        for entry in coroutines:
+            try:
+                name, coro = entry
+            except (TypeError, ValueError) as exc:
+                if inspect.iscoroutine(entry):
+                    entry.close()
+                raise TypeError('Expected named runtime coroutines') from exc
+            entries.append((name, coro))
+        for name, coro in entries:
+            tasks.append(asyncio.create_task(coro, name=name))
         if not tasks:
             return
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -138,7 +151,22 @@ async def supervise(coroutines: Iterable[tuple[str, Coroutine]]) -> None:
                 task.result()  # Propagate original failure/cancellation, not an ExceptionGroup.
         raise RuntimeError("Critical runtime loop ended: " + ", ".join(t.get_name() for t in tasks if t in done))
     finally:
+        for _, coro in entries[len(tasks):]:
+            if inspect.iscoroutine(coro):
+                coro.close()
         for task in tasks:
             if not task.done():
                 task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # Repeated parent cancellation must not send another cancellation into
+        # children already running their native cleanup or abandon their IO.
+        joined = asyncio.gather(*tasks, return_exceptions=True)
+        cancelled = None
+        while not joined.done():
+            try:
+                await asyncio.shield(joined)
+            except asyncio.CancelledError as exc:
+                if asyncio.current_task().cancelling():
+                    cancelled = exc
+        joined.result()
+        if cancelled is not None:
+            raise cancelled

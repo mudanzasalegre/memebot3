@@ -13,6 +13,20 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Apagado: el exportador conserva su hilo hasta terminar (2026-10-15)
+
+Una cancelacion repetida ya no abandona el hilo del exportador de cierres.
+El supervisor cancela cada propietario una vez y espera su limpieza sin que
+otra cancelacion del padre la interrumpa. Si falla la creacion de tareas o el
+productor de corutinas, se cierran las no admitidas y se drenan las ya creadas.
+La excepcion o cancelacion se comunica despues de completar esa limpieza.
+
+La reproduccion nativa anterior podia publicar `stopped` antes de terminar una
+escritura aislada; ahora el estado detenido espera al propietario. Esto no
+impone un tiempo maximo al sistema de archivos ni permite matar hilos nativos.
+No cambia filtros, compras de 0.1 SOL, salidas ni activacion de modelos.
+[Evidencia y limites](docs/audits/export_owner_shutdown_20261015.json).
+
 ### Evidencia de aprendizaje disponible: captura del 15-10-2026
 
 La auditoria de los datos locales seleccionados encuentra 7.792 registros:
