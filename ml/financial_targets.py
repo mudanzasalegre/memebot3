@@ -13,6 +13,8 @@ from execution.paper_execution_cost import VERSION as COST_VERSION
 from execution.paper_closed_cash import VERSION as CASH_VERSION
 from features.builder import COLUMNS
 from features.auxiliary_semantics import PROOF_COLUMN
+from features.token_clock_semantics import PROOF_COLUMN as CLOCK_PROOF_COLUMN
+from features.valuation_semantics import PROOF_COLUMN as VALUATION_PROOF_COLUMN
 from ml.data_contract import normalize_sample_type
 
 TRAINING_VERSION = "checked_net_training_population_v1"
@@ -52,6 +54,12 @@ def checked_financial_frame(frame):
         source = json.loads(row["outcome_execution_proof"])
         restored = {**row, **source["entry_features"]["vector"]}
         restored[PROOF_COLUMN] = json.dumps(source["entry_features"], sort_keys=True, separators=(",", ":"), allow_nan=False)
+        # Detached mutable markers cannot veto a verified original input or
+        # upgrade a legacy entry that did not capture this proof generation.
+        for column, key in ((CLOCK_PROOF_COLUMN, "token_clock"),
+                            (VALUATION_PROOF_COLUMN, "valuation")):
+            restored[column] = (json.dumps(source["entry_features"][key], sort_keys=True,
+                separators=(",", ":"), allow_nan=False) if key in source["entry_features"] else None)
         restored["timestamp"] = pd.to_datetime(restored["timestamp"], utc=True)
         restored["mint"] = restored["address"]
         restored["outcome_closed_at"] = pd.to_datetime(source["trade"]["closed_at"], utc=True)
@@ -67,7 +75,8 @@ def checked_financial_frame(frame):
         population.append([identity, source["payload_sha256"]])
     out = pd.DataFrame(selected, columns=frame.columns.union(
         pd.Index(COLUMNS + ["mint", "realized_pnl_pct", "total_pnl_pct", "pnl_pct", "target_total_pnl_pct",
-                          "label", "ts", "outcome_closed_at", PROOF_COLUMN]), sort=False))
+                          "label", "ts", "outcome_closed_at", PROOF_COLUMN,
+                          CLOCK_PROOF_COLUMN, VALUATION_PROOF_COLUMN]), sort=False))
     report = {
         "version": TRAINING_VERSION, "return_basis": VERSION, "scope": TRAINING_SCOPE,
         "cost_basis_version": COST_VERSION,

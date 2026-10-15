@@ -153,17 +153,23 @@ def test_fixed_parquet_projection_uses_original_age_at_the_exact_threshold(confi
     assert result.tolist() == [True] and meta['fallback_current_clock_rows'] == 1
 
 
-def test_only_missing_subset_is_examined_and_original_rows_are_not_relabelled(monkeypatch):
+@pytest.mark.parametrize('missing',[None,np.nan,pd.NA],ids=['none','nan','pandas-na'])
+@pytest.mark.parametrize('storage',['inferred','object','string'])
+def test_only_missing_subset_is_examined_and_original_rows_are_not_relabelled(monkeypatch,missing,storage):
     observed = []
     original = train._productive_lane_fallback_mask
     def capture(data,**kwargs):
         observed.extend(data.address.tolist())
         return original(data,**kwargs)
     monkeypatch.setattr(train,'_productive_lane_fallback_mask',capture)
-    frame = pd.DataFrame([row(address='explicit',entry_lane=PROFIT),row(address='missing')],index=[8,8])
+    frame = pd.DataFrame([row(address='explicit',entry_lane=PROFIT),
+        row(address='missing',entry_lane=missing)],index=[8,8])
+    if storage != 'inferred':
+        frame['entry_lane'] = frame['entry_lane'].astype(storage)
+    before = frame.copy(deep=True)
     result,meta = mask(frame)
     assert result.tolist() == [True,True] and observed == ['missing']
-    assert frame.entry_lane.tolist() == [PROFIT,None]
+    pd.testing.assert_frame_equal(frame,before)
     assert meta['fallback_basis'] == 'configured_eligibility_not_recovered_original_choice'
 
 

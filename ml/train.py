@@ -293,7 +293,14 @@ def _coerce_timestamp(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _load_one(path: str) -> pd.DataFrame:
-    df = pd.read_parquet(path) if path.endswith(".parquet") else pd.read_csv(path)
+    # Base58 mints/trade IDs may contain only digits. CSV inference must not
+    # remove leading zeroes or round an identity before its proof is checked.
+    identity_types = {column: "string" for column in (
+        "address", "mint", "token_address", "pair_address", "run_id", "decision_id",
+        "outcome_trade_id", "outcome_source_sha256", "outcome_return_basis",
+        "outcome_execution_proof")}
+    df = (pd.read_parquet(path) if path.endswith(".parquet")
+          else pd.read_csv(path, dtype=identity_types))
     return _coerce_timestamp(df)
 
 
@@ -324,8 +331,8 @@ def _load_dataset(*, require_label: bool = True) -> pd.DataFrame:
         if require_label:
             raise ValueError("El dataset no contiene la columna 'label'")
         df["label"] = np.nan
-    from ml.financial_targets import apply_checked_net_returns
-    df = apply_checked_net_returns(df)
+    from ml.cohort_sources import prepare_cohort_sources
+    df, source_preparation = prepare_cohort_sources(df)
     df["label"] = pd.to_numeric(df["label"], errors="coerce")
     if require_label:
         df = df.dropna(subset=["label"]).copy()
@@ -339,6 +346,7 @@ def _load_dataset(*, require_label: bool = True) -> pd.DataFrame:
     df["mint"] = df["mint"].astype("string")
     df = apply_data_contract(df)
     df["mint"] = df["mint"].astype("string")
+    df.attrs["cohort_source_preparation"] = source_preparation
     return df
 
 
@@ -744,8 +752,10 @@ def _filter_outcome_training_rows(
     dex_allowlist: Any | None = None,
     allow_missing_entry_lane: bool | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
-    from ml.financial_targets import apply_checked_net_returns, declared_financial_rows
-    df = apply_checked_net_returns(df)
+    from ml.financial_targets import declared_financial_rows
+    from ml.cohort_sources import prepare_cohort_sources, cohort_input_view
+    df, source_preparation = prepare_cohort_sources(df)
+    inputs = cohort_input_view(df)
     sample_type = _sample_type_series(df)
     return_col = _resolve_return_col(df)
     if return_col:
@@ -755,13 +765,13 @@ def _filter_outcome_training_rows(
 
     allowed_mask = sample_type.isin(OUTCOME_SAMPLE_TYPES)
     legacy_outcome_mask = (sample_type.isna() | sample_type.eq("unknown")) & realized_mask
-    regime_mask = _productive_regime_mask(df)
+    regime_mask = _productive_regime_mask(inputs)
     lane_mask, lane_meta = _productive_lane_mask(
-        df,
+        inputs,
         entry_lane_allowlist=entry_lane_allowlist,
         allow_missing_entry_lane=allow_missing_entry_lane,
     )
-    dex_mask, dex_meta = _productive_dex_mask(df, dex_allowlist=dex_allowlist)
+    dex_mask, dex_meta = _productive_dex_mask(inputs, dex_allowlist=dex_allowlist)
     # Declared net contracts must have revalidated proof. Legacy/shadow rows
     # remain historical diagnostics, not newly asserted costed profit evidence.
     financial_mask = ~declared_financial_rows(df) | realized_mask
@@ -777,6 +787,7 @@ def _filter_outcome_training_rows(
         "policy_reject_rows": int(sample_type.fillna("").eq("policy_reject").sum()),
         "eligible_rows": int(eligible_mask.sum()),
         "productive_regime_rows": int(regime_mask.sum()),
+        "cohort_source_preparation": source_preparation,
         **lane_meta,
         **dex_meta,
     }

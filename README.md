@@ -13,6 +13,23 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Aprendizaje: fuente financiera original antes de filtrar (2026-10-15)
+
+EV, riesgo y la carga auxiliar comun verifican ahora los trades declarados antes
+de eliminar etiquetas o seleccionar cohortes. Se recuperan sus entradas originales;
+una copia alterada invalida esa identidad completa, incluso entre particiones.
+Los alias de diagnostico no rellenan predictores originales ausentes y los IDs
+CSV conservan sus ceros iniciales. Los datos del operador no se reescriben.
+
+La matriz de `61451b5` fallo la misma asercion de prueba en ambos sistemas:
+comparaba `None` con el valor ausente inferido por pandas. Las pruebas de reloj
+y parada pasaron. Se conserva esa ejecucion y se compara ahora el DataFrame
+completo antes/despues, sin cambiar la politica de entrada. Pasan 644 comprobaciones
+focalizadas en cada checkout y se recogen 6.936 casos oficiales en ambos.
+Son dos invocaciones por checkout, no la suite completa; la nueva matriz sigue pendiente.
+Sin entrenamiento, otra PAPER ni activacion; no acredita rentabilidad.
+[Contrato, reproducciones y limites](docs/audits/financial_cohort_sources_20261015.json).
+
 ### Entrada: T0 causal observado, sin tolerar recibos futuros (2026-10-15)
 
 La CI de `107eae2` termina con Linux aprobado y dos fallos en Windows.

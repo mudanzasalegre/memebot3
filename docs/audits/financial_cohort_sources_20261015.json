@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "status": "IMPLEMENTED_644_FOCUSED_BOTH_ROOTS_FULL_NEW_CI_PENDING_RUNTIME_OFF",
+  "source": {"files_each": 853, "normalized_sha256": "1e8301deec55fb64cd9bc5eaf888c123c8870b0d43b1990d9df6a1ebb8acee50"},
+  "global_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "61451b54c97a8d0b7f3218d833b5798cb9975fae",
+  "basis": "The shared/default EV, risk and auxiliary loaders filtered mutable physical lane, DEX, regime and eligibility inputs before checked financial restoration. Primary training already restored financial inputs before its own filter; this is not proof of the historical zero-buy cause.",
+  "baseline": {
+    "frozen_shared_filter": {"cases": 9, "failed": 9},
+    "frozen_csv_identity_loader": {"cases": 2, "failed": 2},
+    "cross_partition_additional_observation": "An eleven-case exploratory receipt has10failed1passed. The CSV conflict case passed only because inferred numeric trade IDs invalidated both rows; that false green is not evidence of correct conflict rejection. The independent identity baseline and corrected native CSV tests qualify this result.",
+    "frozen_pandas_assertion": "After a retained private import error was fixed, the exact parent assertion passes with object string inference and fails with future string inference. This reproduces the same None-versus-NaN assertion seen in both actual CI jobs, not a mutation by the production cohort selector.",
+    "scope": "Synthetic source regressions and actual retained CI, not real trades, new provider calls, training or profitable counterfactual evidence."
+  },
+  "implementation": [
+    "Prepare declared financial rows across the concatenated selected partitions before label dropping or cohort selection. Validate original source, critical mint/T0/closed/net/hash bindings and every declared copy; reject the whole conflicting identity, retain unrelated valid identities and collapse only validated equal duplicates.",
+    "Restore frozen COLUMNS and entry proof from the independently checked original financial source. Rebind detached clock/valuation markers only to those nested original receipts; clear them when the original entry did not contain that proof generation. Do not modify proof bytes, repair a broken original source, retime old decisions or upgrade legacy evidence.",
+    "Financial regime/lane/DEX selectors receive a constrained original-input view. Unowned physical aliases cannot fill an original missing canonical value; the returned diagnostic frame still retains those aliases. Undeclared historical/shadow rows retain their previous diagnostic semantics, original row order and external repeated indices.",
+    "Read textual CSV identities with explicit string dtype so all-digit trade IDs and leading zeroes survive inference. Parquet loading retains its native typed contract. Source-preparation counts remain inspectable in loader attributes and shared filter metadata; attributes are never trusted to bypass validation.",
+    "Replace the pandas-version-dependent None assertion with an exact before/after DataFrame comparison. Preserve all original admission/clock/no-relabel assertions, and cover inferred, object and explicit StringDtype with None, NaN and pandas.NA. No production lane selector or dependency pin changes for this CI assertion repair."
+  ],
+  "retained_parent_ci": {
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38741371188",
+    "head_sha": "61451b54c97a8d0b7f3218d833b5798cb9975fae",
+    "conclusion": "failure",
+    "observed_at_utc": "2026-10-15T13:46:10.534866+00:00",
+    "windows": {"failed": 1, "passed": 6889, "warnings": 1, "seconds": 1088.56},
+    "ubuntu": {"failed": 1, "passed": 6881, "skipped": 8, "warnings": 1, "seconds": 1601.07},
+    "only_failed_case_both": "test_only_missing_subset_is_examined_and_original_rows_are_not_relabelled",
+    "ci_pandas": "3.0.6",
+    "native_runtime_clock_stop_cases": "PASS_IN_BOTH_PARENT_JOBS",
+    "restarted": false,
+    "qualification": "Eight Ubuntu skips are platform-specific; both complete jobs failed the same test assertion. Green parent runtime cases do not preapprove changed financial source."
+  },
+  "validation": {
+    "new_financial_cases": 38,
+    "expanded_existing_case_net_addition": 8,
+    "initial_native_core": {"passed": 169, "seconds": 21.58, "failures": 0, "errors": 0, "skips": 0},
+    "native_default_consumer_scope": "EV/risk/default-family source loading is exercised with a synthetic terminal no-fit stub and temporary risk diagnostic destination. No model artifact is published or activated.",
+    "broad_both_checkouts": {"working": {"passed": 643, "seconds": 169.17}, "publishing": {"passed": 643, "seconds": 167.77}, "additional_risk_adapter_each": {"passed": 1, "seconds": 0.68}, "unique_checks_aggregate_each": 644, "invocations_each": 2, "failures": 0, "errors": 0, "skips": 0, "existing_pandas_future_warnings_each_broad": 2, "six_native_cold_imports_each": "PASS"},
+    "official_collection": {"working": 6936, "working_seconds": 5.22, "publishing": 6936, "publishing_seconds": 5.00, "new_cases": 46, "removed_cases": 0},
+    "new_complete_ci": "PENDING"
+  },
+  "preserved": [
+    "Original operator data, logs, .env, model weights, registries, policies and authorized PAPER evidence",
+    "Exact0.1SOL sizing, original entry/risk guards, signed net losses and uncapped finite positive tails",
+    "No LIVE, operator PAPER, training, activation, AutoResearch, API/UI, provider or account/key mutation",
+    "All original master requirements and historical implementation/evidence arrays"
+  ],
+  "limits": [
+    "Generic data-contract normalization can still derive diagnostic values in intermediate loaded frames; checked financial consumers re-restore original inputs before cohort/model preparation. The constrained selector view, not every intermediate column, is the claimed boundary.",
+    "No retrospective or synthetic source result establishes complete opportunity capture, provider access, maximum profit, live fill quality or prospective strategy profitability.",
+    "The already consumed operational PAPER authority is not reused; further provider/operational evidence needs a separate authorization.",
+    "Full-goal source/process, full-strategy capital/provenance, provider and LIVE protocol boundaries remain independently incomplete."
+  ]
+}
