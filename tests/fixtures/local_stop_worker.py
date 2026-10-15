@@ -28,7 +28,9 @@ lock.acquire(payload=binding.owner_fields())
 
 def owned_io():
     (root / 'io-started').write_text('ready')
-    deadline = time.monotonic() + (45 if args.ignore_stop else 60)
+    # Normal QA independently bounds cold controller startup90s, delivery30s
+    # and final cleanup. This self-expiry is not a production stop deadline.
+    deadline = time.monotonic() + (45 if args.ignore_stop else 180)
     while not (root / 'release').exists():
         if time.monotonic() >= deadline:
             raise TimeoutError('Synthetic IO release was not received')

@@ -13,6 +13,19 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Parada: tiempos de arranque y entrega separados en QA (2026-10-15)
+
+La CI anterior conserva dos fallos de Windows al esperar la solicitud de parada.
+Una reproduccion con arranque frio controlado de 35 s agota la espera unica de
+30 s; no demuestra por si sola la causa exacta de CI. La prueba separa ahora
+arranque del controlador y entrega de la solicitud, conserva todos los requisitos
+de limpieza real y anade diagnosticos por fase. Los limites de produccion de
+15/20 s, la verificacion del proceso y el respaldo forzado no cambian.
+Pasan 125 pruebas focalizadas en cada carpeta, incluido el ciclo nativo aislado
+de compra, monitor, cierre y exportacion neta. Se recogen 6.972 casos oficiales
+en ambos checkouts; la nueva matriz completa sigue pendiente.
+[Evidencia y alcance](docs/audits/stop_controller_startup_20261015.json).
+
 ### Familias ML: la entrada directa tambien verifica el original (2026-10-15)
 
 El DataFrame pasado directamente a una familia o al aprendizaje del ranking ya

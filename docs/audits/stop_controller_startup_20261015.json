@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "status": "IMPLEMENTED_FOCUSED_125_BOTH_ROOTS_NEW_FULL_CI_PENDING_RUNTIME_OFF",
+  "source": {"files_each": 855, "normalized_sha256": "00c3049da364c57907ccfc880a74ee968d2d8f008dde67cf1e22f4ee5f3b2e4e"},
+  "global_goal_status": "ACTIVE_INCOMPLETE",
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_source_commit": "5ca2cda07ec5921368ae663ff460b4ffff968b91",
+  "change_scope": "Read-only controller phase diagnostics and bounded test-fixture clocks. No stop protocol, process ownership, helper15s/20s deadlines, fallback, trade sizing, entry/exit/risk/model policy or operational run changes.",
+  "retained_preceding_ci": {
+    "commit": "50b74e2ee5f4a2b25e382c9dcd7059bb01b52a19",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38747175340",
+    "conclusion": "failure",
+    "observed_at_utc": "2026-10-15T14:34:58.612286+00:00",
+    "windows": {"failed": 6, "passed": 6930, "warnings": 1, "seconds": 2063.26},
+    "ubuntu": {"failed": 4, "passed": 6924, "skipped": 8, "warnings": 1, "seconds": 1650.84},
+    "four_shared_failures": "Earlier shadow-loader row-count assertions, already repaired by5ca2cda with exact retained/rejected/source-byte assertions.",
+    "two_additional_windows_failures": "Both normal controller startup-delay variants failed the original single30s matching-request milestone. The zero-delay failure log contains script-entry and ancestor lines; the12s-delay failure has no log at that observation. Both original controller/owner processes were still running at the failed milestone.",
+    "restarted": false,
+    "cause_qualification": "The exact CI controller creation/phase elapsed clocks were not recorded. These logs do not prove whether the first case exhausted its startup allowance or stalled after script entry. Do not retroactively assign a single underlying host, filesystem, CIM or helper-startup cause."
+  },
+  "controlled_baseline": {
+    "source": "Exact5ca2cda normal native test function, independently AST-extracted; production stop script and provider-free temporary owner unchanged",
+    "startup_delay_seconds": 35,
+    "old_single_request_budget_seconds": 30,
+    "failed": 1,
+    "seconds": 38.94,
+    "observed": "The original test times out with both processes alive and no controller log. Original synthetic process handles are disposed; no operator process is started or stopped.",
+    "qualification": "This proves a fixture envelope that cannot cover controlled cold controller startup, not the exact cause of either original CI failure or a production latency SLA."
+  },
+  "implementation": [
+    "Test controller startup is observed through its original first log under a90s bound; only then does the distinct30s matching-request delivery bound start. Neither process creation nor that log is accepted as a stop request or completed cleanup.",
+    "Retain original0s/12s startup variants and add35s controlled cold startup. Preserve mandatory actual nonce-bound request, owner cleanup/completion, exit0, finalizer, no-taskkill/no-force, stale nonce preservation and untouched foreign-process assertions.",
+    "Give only the normal synthetic IO worker a bounded180s self-expiry to cover its separate fixture phases; the unresponsive synthetic worker retains45s. No production runtime cleanup or cooperation deadline is extended.",
+    "Phase failures retain stage, timeout, phase and total elapsed times, original process states, completed milestones, bounded controller log tail and the original assertion cause. Cross-platform unit tests distinguish startup from delivery and ensure a startup log cannot satisfy a missing request.",
+    "Production stop logs bracket owner-path/read/verification and helper-start/identity-read stages. The identity-read message explicitly records whether an observation exists, without claiming verification from a missing process object. All process identity checks and kill authority remain unchanged."
+  ],
+  "validation": {"new_cross_platform_cases": 4, "new_native_windows_case": 1, "initial_working_checks": {"passed": 98, "seconds": 122.96}, "focused_both_roots": {"working": {"passed": 125, "seconds": 230.04}, "publishing": {"passed": 125, "seconds": 228.26}, "failures": 0, "errors": 0, "skips": 0, "warnings": 0, "invocations_each": 1, "scope": "Native normal/delayed/unresponsive/hung-helper stop and strict identity/cleanup/finalizer tests, plus complete provider-free native PAPER entry/monitor/close/net-export lifecycle cases. Not an operational PAPER or the complete repository suite."}, "official_collection": {"working": 6972, "working_seconds": 5.17, "publishing": 6972, "publishing_seconds": 4.99, "new_cases": 5, "removed_cases": 0}, "production_diff": "Exactly six added diagnostic Write-StopLog lines; removing only those lines reproduces the original5ca2cda controller bytes after newline normalization", "new_complete_ci": "PENDING", "current_parent_ci": "The5ca2cda matrix remains independently in progress; it cannot preapprove this changed source."},
+  "preserved": ["Original operator .env/data/logs/models/registries/policies and previous PAPER evidence", "Exact0.1SOL PAPER sizing and every original trading, risk and model activation guard", "No operator PAPER, provider probe, fitting, AutoResearch, API/UI, wallet or account/key action", "All original master requirements and historical implementation/evidence arrays"],
+  "limits": ["A controller log is diagnostic, not independent cleanup or process-exit acceptance", "The20s bound belongs to the helper, not every preceding PowerShell initialization/CIM/filesystem operation or the whole stack controller", "Fresh first-launch/provider/full-strategy and financial acceptance remain separate; maximum profit and zero future errors are not guaranteed"]
+}

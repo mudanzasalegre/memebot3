@@ -81,12 +81,49 @@ def _stop_command(root, *, force=False):
         *(['-Force'] if force else [])]
 
 
-@pytest.mark.parametrize('controller_start_delay_s',[0,12])
+def _await_owned_stop_request(root, binding, controller, owner):
+    """Separate bounded host startup from the actual request delivery phase.
+
+    Neither a new process handle nor the first controller log grants cleanup
+    acceptance. The caller still requires the matching request and full original
+    cleanup/process/finalizer/foreign-owner assertions below.
+    """
+    log_path = root / 'logs/stop_stack.log'
+    started = time.monotonic()
+    milestones = []
+    def controller_started():
+        try:
+            return 'stop_stack requested_by=' in log_path.read_text(encoding='utf-8-sig', errors='replace')
+        except OSError:
+            return False
+    for phase, predicate, timeout in (
+        ('controller_startup', controller_started, 90),
+        ('owned_request_delivery', binding.requested, 30),
+    ):
+        phase_started = time.monotonic()
+        try:
+            _until(predicate, timeout=timeout)
+        except AssertionError as exc:
+            try:
+                log = log_path.read_text(encoding='utf-8-sig', errors='replace')[-4096:]
+            except OSError:
+                log = '<no log>'
+            raise AssertionError(f'Stop milestone failed phase={phase} timeout_s={timeout} '
+                f'phase_elapsed_s={time.monotonic()-phase_started:.3f} '
+                f'total_elapsed_s={time.monotonic()-started:.3f} '
+                f'controller_exit={controller.poll()} owner_exit={owner.poll()} '
+                f'milestones={milestones} log={log}') from exc
+        milestones.append({'phase': phase, 'elapsed_s': time.monotonic()-phase_started})
+    return milestones
+
+
+@pytest.mark.parametrize('controller_start_delay_s',[0,12,35])
 def test_normal_stack_stop_waits_for_owned_cleanup_without_taskkill_or_foreign_process_stop(tmp_path,controller_start_delay_s):
     root = _workspace(tmp_path)
     if controller_start_delay_s:
         # Controlled startup latency, not a change to the production15s/20s
-        # cooperative/helper deadlines. The old10s fixture wait cannot cover it.
+        # cooperative/helper deadlines. Startup is observed independently of
+        # delivery; the old single30s wait cannot cover the35s cold-start probe.
         script = root / 'scripts/stop_stack.ps1'
         text = script.read_text(encoding='utf-8')
         anchor = 'Write-StopLog "stop_stack requested_by='
@@ -106,12 +143,8 @@ def test_normal_stack_stop_waits_for_owned_cleanup_without_taskkill_or_foreign_p
         controller = subprocess.Popen(_stop_command(root), env=_environment(),
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             creationflags=subprocess.CREATE_NO_WINDOW)
-        try:
-            _until(binding.requested,timeout=30)
-        except AssertionError as exc:
-            log_path = root / 'logs/stop_stack.log'
-            log = log_path.read_text(encoding='utf-8-sig',errors='replace')[-4096:] if log_path.exists() else '<no log>'
-            raise AssertionError(f'No owned stop request; controller_exit={controller.poll()} owner_exit={process.poll()} log={log}') from exc
+        milestones = _await_owned_stop_request(root, binding, controller, process)
+        assert [item['phase'] for item in milestones] == ['controller_startup', 'owned_request_delivery']
         assert controller.poll() is None and process.poll() is None
         assert not binding.completed() and not (root / 'cleanup-finished').exists()
         (root / 'release').touch()
@@ -121,6 +154,9 @@ def test_normal_stack_stop_waits_for_owned_cleanup_without_taskkill_or_foreign_p
         assert process.returncode == 0 and (root / 'stopped').is_file()
         log = (root / 'logs/stop_stack.log').read_text(encoding='utf-8-sig')
         assert '"cleanup_confirmed": true' in log and 'helper_exit_code=0' in log
+        assert 'cooperative_phase=owner_read_begin' in log
+        assert 'cooperative_phase=owner_verified' in log
+        assert 'cooperative_phase=helper_started' in log
         assert 'taskkill_result' not in log and 'stage=forced' not in log
         assert (root / 'finalizer-receipt').exists()
         assert not binding.path().exists() and not binding.completion_path().exists()

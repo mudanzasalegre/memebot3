@@ -154,7 +154,9 @@ function Invoke-CooperativeStopHelper {
     $StartInfo.RedirectStandardError = $true
     $Helper = [System.Diagnostics.Process]::Start($StartInfo)
     try {
+        Write-StopLog "cooperative_phase=helper_started helper_pid=$($Helper.Id)"
         $InitialHelper = Get-CimInstance Win32_Process -Filter "ProcessId=$($Helper.Id)" -ErrorAction SilentlyContinue
+        Write-StopLog "cooperative_phase=helper_identity_read_complete helper_pid=$($Helper.Id) observed=$($null -ne $InitialHelper)"
         $OutputTask = $Helper.StandardOutput.ReadToEndAsync()
         $ErrorTask = $Helper.StandardError.ReadToEndAsync()
         if (-not $Helper.WaitForExit(20000)) {
@@ -361,16 +363,20 @@ if (-not $Force) {
     $StopPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
     $StopRequester = Join-Path $PSScriptRoot "request_runtime_stop.py"
     $OwnerPath = Join-Path $RepoRoot "data\run_bot.lock"
+    Write-StopLog "cooperative_phase=owner_paths_begin"
     if ((Test-Path $StopPython) -and (Test-Path $StopRequester) -and (Test-Path $OwnerPath)) {
         try {
+            Write-StopLog "cooperative_phase=owner_read_begin"
             $OwnerFile = Get-Item -LiteralPath $OwnerPath -ErrorAction Stop
             if ($OwnerFile.Length -gt 4096 -or $OwnerFile.PSIsContainer -or ($OwnerFile.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
                 throw "Owner receipt is not a bounded regular file"
             }
             $Owner = Get-Content -LiteralPath $OwnerPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
             $OwnerPid = [int]$Owner.pid
+            Write-StopLog "cooperative_phase=owner_read_complete owner_pid=$OwnerPid"
             $OwnerProcess = Get-VerifiedRepoStackProcessById -TargetProcessId $OwnerPid
             if ($null -ne $OwnerProcess -and (([string]$OwnerProcess.CommandLine -like "*-m run_bot*") -or ([string]$OwnerProcess.CommandLine -like "*run_bot.py*"))) {
+                Write-StopLog "cooperative_phase=owner_verified owner_pid=$OwnerPid"
                 Write-StopLog "cooperative_stop requesting verified_runtime_pid=$OwnerPid timeout_seconds=15"
                 Invoke-CooperativeStopHelper -Python $StopPython -Requester $StopRequester -OwnerPid $OwnerPid
             } else {
