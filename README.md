@@ -13,6 +13,24 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Parada normal: solicitud propia, drenaje y confirmacion (2026-10-15)
+
+El arranque nativo publica una generacion de parada propia junto a su PID real.
+El script `scripts/stop_stack.ps1` sin `-Force` solicita primero la parada y
+espera a que termine la limpieza del runtime. Solo confirma esa limpieza si
+coinciden el recibo de cierre y la salida del proceso original; ni un archivo
+de solicitud ni la desaparicion del proceso bastan por separado.
+
+La espera cooperativa es de 15 segundos, con limite externo del solicitante de
+20 segundos para conservar el respaldo ante IO atascado. Se mantienen la
+verificacion del proceso, el respaldo forzado y `-Force` como emergencia directa.
+Esto cubre `_runner`, incluido su inicio, no las importaciones previas de Python.
+Los botones/API que pidan `force=true` conservan su comportamiento de emergencia.
+La prueba aislada de Windows no usa proveedores ni el bot operativo; el
+finalizador SQLite se valida aparte. Pasan 191 pruebas focalizadas en cada
+checkout; la nueva matriz completa aun esta pendiente.
+[Contrato, pruebas y limites](docs/audits/cooperative_stop_20261015.json).
+
 ### Scanner: esperar al cupo local sin reevaluar cada 5 segundos (2026-10-15)
 
 La admision local de intentos Pump.fun distingue cooldown por token, ventana
@@ -23,8 +41,9 @@ perder su limite por truncar el historial. Se conservan los valores del operador
 4 intentos por 10 segundos y 60 segundos de cooldown. Estas cifras no son CUs.
 
 Cuatro regresiones nativas reproducidas en la revision publicada anterior;
-58 casos nuevos y 745 pruebas focalizadas pasan en cada checkout. La matriz
-completa de GitHub de esta nueva revision sigue pendiente. No se arranca el bot.
+58 casos nuevos y 745 pruebas focalizadas pasan en cada checkout. La revision
+`572f4d5` supera 6.711 pruebas completas en Linux y otras 6.711 en Windows.
+Esa matriz no valida por anticipado la posterior integracion de parada. No se arranca el bot.
 Evidencia: [admision local](docs/audits/pumpfun_local_admission_20261015.json).
 
 ### PAPER autorizada del 15-10: mas datos de origen, todavia cero compras

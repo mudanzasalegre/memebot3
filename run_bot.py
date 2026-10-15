@@ -467,13 +467,16 @@ if not DRY_RUN:
         raise SystemExit(str(exc)) from exc
 exit_policy.set_runtime_dry_run(DRY_RUN)
 _PROCESS_LOCK: SingleInstanceLock | None = None
+_PROCESS_STOP_BINDING = None
 
 
 def _acquire_process_lock() -> None:
-    global _PROCESS_LOCK
+    global _PROCESS_LOCK, _PROCESS_STOP_BINDING
     if _PROCESS_LOCK is not None and _PROCESS_LOCK.is_acquired:
         return
 
+    from runtime.local_stop import StopBinding
+    binding = StopBinding.create(PROJECT_ROOT)
     lock = SingleInstanceLock(PROJECT_ROOT / "data" / "run_bot.lock")
     lock.acquire(
         payload={
@@ -481,17 +484,22 @@ def _acquire_process_lock() -> None:
             "dry_run": bool(DRY_RUN),
             "pid": os.getpid(),
             "started_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+            **binding.owner_fields(),
         }
     )
     _PROCESS_LOCK = lock
+    _PROCESS_STOP_BINDING = binding
 
 
 def _release_process_lock() -> None:
-    global _PROCESS_LOCK
+    global _PROCESS_LOCK, _PROCESS_STOP_BINDING
     if _PROCESS_LOCK is None:
         return
+    if _PROCESS_STOP_BINDING is not None:
+        _PROCESS_STOP_BINDING.clear_request()
     _PROCESS_LOCK.release()
     _PROCESS_LOCK = None
+    _PROCESS_STOP_BINDING = None
 
 # ╭─────────────────────── Logging básico ────────────────────────────────────╮
 logging.basicConfig(
@@ -10408,6 +10416,7 @@ async def _runner() -> None:
             raise cancelled
 
 if __name__ == "__main__":
+    from runtime.local_stop import LocalStopRequested, run_with_local_stop
     try:
         _acquire_process_lock()
     except SingleInstanceLockError as exc:
@@ -10415,7 +10424,12 @@ if __name__ == "__main__":
         sys.exit(2)
 
     try:
-        asyncio.run(_runner())
+        asyncio.run(run_with_local_stop(_runner, _PROCESS_STOP_BINDING))
+    except LocalStopRequested:
+        # asyncio.run has also drained its executor; do not acknowledge from
+        # the watcher or before the native runtime's shielded cleanup finishes.
+        _PROCESS_STOP_BINDING.complete()
+        log.info("Bot detenido por solicitud cooperativa; limpieza propia completada")
     except KeyboardInterrupt:
         log.info("⏹️  Bot detenido por usuario")
     finally:

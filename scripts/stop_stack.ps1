@@ -138,6 +138,49 @@ function Invoke-TaskkillCommand {
     return [int]$ExitCode
 }
 
+function Invoke-CooperativeStopHelper {
+    param([string]$Python, [string]$Requester, [int]$OwnerPid)
+
+    # The helper's 15s clock cannot interrupt a stuck filesystem operation.
+    # Independently bound its process to20s, retaining the original creation
+    # identity before any helper-tree termination (including a venv launcher).
+    $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $StartInfo.FileName = $Python
+    $StartInfo.Arguments = '"' + $Requester + '" --expected-pid ' + $OwnerPid + ' --timeout 15'
+    $StartInfo.WorkingDirectory = $RepoRoot
+    $StartInfo.UseShellExecute = $false
+    $StartInfo.CreateNoWindow = $true
+    $StartInfo.RedirectStandardOutput = $true
+    $StartInfo.RedirectStandardError = $true
+    $Helper = [System.Diagnostics.Process]::Start($StartInfo)
+    try {
+        $InitialHelper = Get-CimInstance Win32_Process -Filter "ProcessId=$($Helper.Id)" -ErrorAction SilentlyContinue
+        $OutputTask = $Helper.StandardOutput.ReadToEndAsync()
+        $ErrorTask = $Helper.StandardError.ReadToEndAsync()
+        if (-not $Helper.WaitForExit(20000)) {
+            Write-StopLog "cooperative_stop helper_outer_timeout_seconds=20; cleanup unconfirmed"
+            $CurrentHelper = Get-CimInstance Win32_Process -Filter "ProcessId=$($Helper.Id)" -ErrorAction SilentlyContinue
+            if ((-not $Helper.HasExited) -and (Test-SameProcessIdentity -InitialProcess $InitialHelper -CurrentProcess $CurrentHelper) -and ([string]$CurrentHelper.CommandLine -like "*$Requester*")) {
+                $HelperArgs = @("/PID", "$($Helper.Id)", "/T", "/F")
+                [void](Invoke-TaskkillCommand -TargetProcessId $Helper.Id -TaskkillArgs $HelperArgs -Stage "cooperative_helper_timeout")
+                [void]$Helper.WaitForExit(2000)
+            }
+        }
+        foreach ($ReadTask in @($OutputTask, $ErrorTask)) {
+            if ($ReadTask.Wait(1000)) {
+                foreach ($Line in ($ReadTask.Result -split "`r?`n")) {
+                    if (-not [string]::IsNullOrWhiteSpace($Line)) { Write-StopLog "cooperative_stop $Line" }
+                }
+            }
+        }
+        if ($Helper.HasExited) {
+            Write-StopLog "cooperative_stop helper_exit_code=$($Helper.ExitCode); remaining targets use verified fallback"
+        }
+    } finally {
+        $Helper.Dispose()
+    }
+}
+
 function Stop-VerifiedRepoProcess {
     param(
         [int]$TargetProcessId,
@@ -293,7 +336,8 @@ $scriptMarkers = @(
     "scripts\start_ui.ps1",
     "scripts\start_bot.ps1",
     "scripts\start_autoresearch.ps1",
-    "scripts\start_training_daemon.ps1"
+    "scripts\start_training_daemon.ps1",
+    "scripts\request_runtime_stop.py"
 )
 $runtimeMarkers = @(
     "-m run_bot",
@@ -309,6 +353,34 @@ $runtimeMarkers = @(
 
 $selfAncestors = Get-ProcessAncestorMap -TargetProcessId $SelfPid
 Write-StopLog "stop_stack self_pid=$SelfPid ancestor_pids=$($selfAncestors.Keys -join ',')"
+
+# Let the native runtime drain owned IO before any tree/taskkill operation.
+# Force remains emergency force-first. Old/unsupported owners retain the
+# existing command-line + creation-identity-verified fallback below.
+if (-not $Force) {
+    $StopPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+    $StopRequester = Join-Path $PSScriptRoot "request_runtime_stop.py"
+    $OwnerPath = Join-Path $RepoRoot "data\run_bot.lock"
+    if ((Test-Path $StopPython) -and (Test-Path $StopRequester) -and (Test-Path $OwnerPath)) {
+        try {
+            $OwnerFile = Get-Item -LiteralPath $OwnerPath -ErrorAction Stop
+            if ($OwnerFile.Length -gt 4096 -or $OwnerFile.PSIsContainer -or ($OwnerFile.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                throw "Owner receipt is not a bounded regular file"
+            }
+            $Owner = Get-Content -LiteralPath $OwnerPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            $OwnerPid = [int]$Owner.pid
+            $OwnerProcess = Get-VerifiedRepoStackProcessById -TargetProcessId $OwnerPid
+            if ($null -ne $OwnerProcess -and (([string]$OwnerProcess.CommandLine -like "*-m run_bot*") -or ([string]$OwnerProcess.CommandLine -like "*run_bot.py*"))) {
+                Write-StopLog "cooperative_stop requesting verified_runtime_pid=$OwnerPid timeout_seconds=15"
+                Invoke-CooperativeStopHelper -Python $StopPython -Requester $StopRequester -OwnerPid $OwnerPid
+            } else {
+                Write-StopLog "cooperative_stop skipped: no verified native runtime owner"
+            }
+        } catch {
+            Write-StopLog "cooperative_stop unavailable; retaining verified fallback"
+        }
+    }
+}
 
 if (Test-Path $StatePath) {
     try {

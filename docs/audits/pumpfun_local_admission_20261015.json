@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
-  "status": "IMPLEMENTED_FOCUSED_VALIDATED_FULL_CI_PENDING_RUNTIME_OFF",
+  "status": "IMPLEMENTED_FULL_CI_6711_BOTH_OS_RUNTIME_OFF",
+  "terminal_ci": {"commit": "572f4d586f4d319d66a86e139698fee6a625ebc9", "run_url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38728299110", "conclusion": "success", "observed_at_utc": "2026-10-15T12:07:10.848529+00:00", "ubuntu_passed": 6711, "ubuntu_seconds": 1361.15, "windows_passed": 6711, "windows_seconds": 1748.27, "warning_each": 1, "strategy_passed": 41, "qualification": "Actual terminal logs, not an expected case count. This verifies scanner commit572f4d5 only; it does not preapprove the subsequent cooperative-stop source or establish operational profitability."},
   "global_goal_status": "ACTIVE_INCOMPLETE",
+  "terminal_ci_supersedes_original_tests_pending_snapshot": true,
   "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
   "parent_commit": "1cded12260f7817fafae84f493e6db047c51e92f",
   "operational_evidence": "docs/audits/paper_acceptance_20261015.json",

@@ -271,7 +271,10 @@ async def test_owned_entry_sessions_rollback_exception_timeout_and_allow_next_co
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("hot_enabled", [True, False])
-async def test_real_runner_drains_owned_loops_and_background_before_stopped_publication(tmp_path, monkeypatch, hot_enabled):
+@pytest.mark.parametrize("termination", ["critical_failure", "local_stop"])
+async def test_real_runner_drains_owned_loops_and_background_before_stopped_publication(tmp_path, monkeypatch, hot_enabled, termination):
+    from runtime.local_stop import LocalStopRequested, StopBinding, run_with_local_stop
+    binding = StopBinding.create(tmp_path)
     import runtime.social_enrichment_queue as socials
     import research_loop.entry_gate_forward as research
     monitor_started, background_started = asyncio.Event(), asyncio.Event()
@@ -303,6 +306,9 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
     async def fault():
         await monitor_started.wait()
         await background_started.wait()
+        if termination == 'local_stop':
+            binding.request()
+            await asyncio.Event().wait()
         raise ValueError("synthetic control-loop failure")
     async def background():
         try:
@@ -348,6 +354,13 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
         "_note_runtime_error": lambda *args: None,
         "log": SimpleNamespace(info=lambda *args: None, error=lambda *args: None)}
     exec(compile(ast.Module(body=[_function("_runner")], type_ignores=[]), "run_bot.py", "exec"), namespace)
-    with pytest.raises(ValueError, match="synthetic control-loop failure"):
-        await namespace["_runner"]()
+    if termination == 'local_stop':
+        with pytest.raises(LocalStopRequested):
+            await run_with_local_stop(namespace["_runner"], binding)
+        assert not binding.completed(), 'Watcher must not acknowledge before its native caller'
+        binding.complete()
+        assert binding.completed()
+    else:
+        with pytest.raises(ValueError, match="synthetic control-loop failure"):
+            await namespace["_runner"]()
     assert task.done() and published == [True]
