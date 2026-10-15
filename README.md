@@ -13,6 +13,22 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Evidencia de aprendizaje disponible: captura del 15-10-2026
+
+La auditoria de los datos locales seleccionados encuentra 7.792 registros:
+5.435 rechazos de politica y 2.357 cierres de sombras, no operaciones financieras
+independientes. El T0 mas reciente es del 4 de octubre. Ninguna fila acredita
+retorno neto con el contrato financiero actual ni el recibo actual de entradas.
+El principal configurado, sus metadatos y su registro no estan presentes; los
+29 metadatos historicos inspeccionados no acreditan el contrato financiero actual.
+
+Es una captura del operador local, no un requisito de instalacion ni prueba de
+que no existan otros modelos auxiliares. El modo shadow y la autopromocion
+apagada no demuestran una causa de cero compras. No se han reconstruido datos,
+entrenado pesos o activado procesos para rellenar estas carencias. La evidencia
+prospectiva requiere una nueva validacion autorizada y conservada.
+[Fuentes, alcance y limites](docs/audits/learning_readiness_20261015.json).
+
 ### Salidas: contexto original y colas extremas en sombras diagnosticas (2026-10-15)
 
 Las nuevas sombras fijan carril, contexto de decision, ranking recibido, modo

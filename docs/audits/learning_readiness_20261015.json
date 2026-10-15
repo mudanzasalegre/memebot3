@@ -1,0 +1,209 @@
+{
+  "status": "CURRENT_OPERATOR_SOURCE_READ_ONLY_PROFILED_NOT_FINANCIALLY_READY_WHOLE_GOAL_INCOMPLETE",
+  "source_revision": "91a1dcf56b39155d3150669ce92bc9114a50b2e1",
+  "scope": "Current selected local feature-source observations, JSON model metadata and configured principal presence. Not a live strategy run, weights load, model fit, provider call or financial performance acceptance.",
+  "summary": "The current selected feature store consists of policy rejections and diagnostic shadow closes, not validated financial trades. It contains no rows satisfying the current checked-net return contract or current auxiliary/strategy input receipt. The configured principal, its metadata and its registry are absent. Historical trained status does not establish a current active accepted model. Current OFF/shadow/autopromotion settings are intentional audit boundaries, not proof of the historical no-buy cause. Fresh separately authorized prospective evidence is required; no costs, FX, T0, receipts or closes are backfilled to manufacture acceptance.",
+  "grain": "One persisted feature-store decision/outcome observation. Address/T0/sample_type is profiled as a candidate key, not asserted as a universal primary key. Counts are not independent executed trades.",
+  "selection": "Use the actual ml.feature_sources.feature_partition_files per-partition selector. Prefer Parquet only to the same-stem CSV; retain CSV-only partitions. Do not sum replicas.",
+  "findings": [
+    {
+      "id": "no-current-financial-population",
+      "severity": "Critical for financial validation",
+      "support": "Direct native source-contract checks; not causal evidence",
+      "impact": "Selected legacy shadow/gross labels cannot certify net profitability or satisfy current financial model acceptance."
+    },
+    {
+      "id": "configured-primary-absent",
+      "severity": "High for accepted learned-model readiness",
+      "support": "Fresh file-presence and JSON-metadata inspection",
+      "impact": "An old trained status is not a current accepted principal. Shadow-mode absence is not established as the no-buy cause."
+    },
+    {
+      "id": "retained-history-not-new-run",
+      "severity": "High for prospective performance validation",
+      "support": "Original T0 distribution and source hashes",
+      "impact": "Historical observations cannot establish performance of the newly repaired source or missed opportunities in the current market."
+    }
+  ],
+  "profile": {
+    "observed_at_utc": "2026-10-15T07:14:18.040497+00:00",
+    "source_rows": 7792,
+    "selected_files": [
+      {
+        "file": "data/features/features_202607.parquet",
+        "rows": 7779,
+        "columns": 81,
+        "mtime_utc": "2026-07-15T18:18:25.193220+00:00",
+        "sha256": "18edc6f91c13e617e0ba8b9afa96106807353ba7887ac062840ab54cac589ab0"
+      },
+      {
+        "file": "data/features/features_202610.parquet",
+        "rows": 13,
+        "columns": 81,
+        "mtime_utc": "2026-10-04T10:43:35.278763+00:00",
+        "sha256": "9b5226d4284eedaa8d5e4cc1206128a04b13247f21e80d8ee26de67091a2c84c"
+      }
+    ],
+    "min_original_t0": "2026-07-13T12:06:18.556288+00:00",
+    "max_original_t0": "2026-10-04T10:43:35.258754+00:00",
+    "unparseable_original_t0": 0,
+    "future_original_t0": 0,
+    "candidate_key_duplicate_excess": 0,
+    "unique_addresses": 7038,
+    "declared_financial_rows": 0,
+    "checked_net_rows": 0,
+    "current_auxiliary_strategy_receipt_rows": 0,
+    "types": [
+      {
+        "tipo": "policy_reject",
+        "observaciones": 5435,
+        "porcentaje": 69.75102669404517
+      },
+      {
+        "tipo": "shadow_close",
+        "observaciones": 2357,
+        "porcentaje": 30.248973305954824
+      }
+    ],
+    "days": [
+      {
+        "fecha_UTC": "2026-07-13",
+        "observaciones": 3169
+      },
+      {
+        "fecha_UTC": "2026-07-14",
+        "observaciones": 4484
+      },
+      {
+        "fecha_UTC": "2026-07-15",
+        "observaciones": 126
+      },
+      {
+        "fecha_UTC": "2026-10-04",
+        "observaciones": 13
+      }
+    ],
+    "current_primary": {
+      "model_file": "ml/model.pkl",
+      "model_exists": false,
+      "metadata_exists": false,
+      "registry_exists": false,
+      "gate_mode": "shadow",
+      "retrain_in_main_loop": false,
+      "model_auto_promote": false,
+      "lane_auto_promote": false
+    },
+    "historical_metadata_count": 29,
+    "historical_supported_financial_count": 0,
+    "retained_train_status": {
+      "status": "trained",
+      "last_train_attempt_at": "2026-10-04T10:42:21.815222+00:00",
+      "last_train_status": "trained",
+      "daemon_updated_at_utc": "2026-10-04T10:42:25Z",
+      "training_scope": "productive_strict",
+      "activation_ready": false
+    },
+    "csv_replicas": [
+      {
+        "file": "data/features/features_202607.csv",
+        "rows": 7735,
+        "max_original_t0": "2026-07-15T00:25:12.561383+00:00",
+        "selected_by_native_loader": false,
+        "matching_parquet_exists": true
+      }
+    ]
+  },
+  "methodology": "Private companion executes seven analysis code cells top-to-bottom. The exported companion additionally executes its project-root bootstrap, eight code cells total, from docs/audits. Use current native source selection, sample normalization, receipt and net-return validators. Read JSON metadata only; never deserialize operator weights. Reconcile types/dates/file totals and source hashes.",
+  "reproduction": "docs/audits/learning_readiness_20261015.ipynb contains the executed aggregate-only companion and exact checks. Original operator records, weights and detailed local captures remain private, not copied into Git. Rerun requires the existing authorized local project inputs.",
+  "rendered_inspection": "Both saved notebook figures inspected; whole notebook UI inspection unconfirmed because open_in_codex returned queued. HTML preview generated, not claimed visually inspected.",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 834,
+      "sha256": "d7bb518795783ff2599cf759d903de73047de08fa824c51ef9b5b71ef6ec9532"
+    },
+    {
+      "checkout": "publishing",
+      "files": 834,
+      "sha256": "d7bb518795783ff2599cf759d903de73047de08fa824c51ef9b5b71ef6ec9532"
+    }
+  ],
+  "shutdown": {
+    "observed_at_utc": "2026-10-15T07:23:30.0078371+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml": {
+      "observed_at_utc": "2026-10-15T07:23:30.5064532+00:00",
+      "actual_ml_entrypoint_processes": 0
+    },
+    "read_only_sql": {
+      "observed_at": "2026-10-15T07:23:30.697903+00:00",
+      "source": "data/memebotdatabase.db",
+      "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+      "rows": [],
+      "green_live_risk_file_exists": false,
+      "runtime_state": [
+        {
+          "bot_id": "main",
+          "process_state": "stopped",
+          "reports_refresh_state": "idle",
+          "retrain_state": "idle",
+          "updated_at": "2026-10-13 10:43:54.767270"
+        }
+      ]
+    }
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "additional_restored_ledger_sha256": "afbcb9a90a254e16d41df52749a1dfcc880b7a51c95045fed144229ed6532cb5"
+  },
+  "whole_goal_complete": false,
+  "remaining": "Original architecture-goal requirements remain unchanged. Current full source CI and prospective provider, strategy, financial and profitability acceptance are separate. No operational PAPER authority is inferred from this audit.",
+  "observed_at_utc": "2026-10-15T07:23:30.768161+00:00",
+  "source_ci_observation": {
+    "commit": "91a1dcf56b39155d3150669ce92bc9114a50b2e1",
+    "observed_at_utc": "2026-10-15T07:19:42.082580+00:00",
+    "runs": {
+      "tests": {
+        "status": "in_progress",
+        "conclusion": "",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38696275532",
+        "pytest_summaries": null
+      },
+      "ci": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38696275564",
+        "pytest_summaries": [
+          "strategy-regression\tStrategy regression pytest suite\t2026-10-15T07:04:59.9664898Z 41 passed in 3.99s"
+        ]
+      }
+    },
+    "qualification": "Code-source CI, not prospective financial acceptance"
+  }
+}
