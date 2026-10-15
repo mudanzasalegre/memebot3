@@ -13,6 +13,35 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Scanner: esperar al cupo local sin reevaluar cada 5 segundos (2026-10-15)
+
+La admision local de intentos Pump.fun distingue cooldown por token, ventana
+de intentos y reloj invalido. El siguiente intento se programa segun la espera
+restante, sin cambiar la edad original, los filtros ni el tamano de 0,1 SOL.
+El estado retenido queda acotado y una ventana mayor de 64 intentos ya no puede
+perder su limite por truncar el historial. Se conservan los valores del operador:
+4 intentos por 10 segundos y 60 segundos de cooldown. Estas cifras no son CUs.
+
+Cuatro regresiones nativas reproducidas en la revision publicada anterior;
+58 casos nuevos y 745 pruebas focalizadas pasan en cada checkout. La matriz
+completa de GitHub de esta nueva revision sigue pendiente. No se arranca el bot.
+Evidencia: [admision local](docs/audits/pumpfun_local_admission_20261015.json).
+
+### PAPER autorizada del 15-10: mas datos de origen, todavia cero compras
+
+La prueba nativa de 30 minutos registra 477 evaluaciones, cero intentos de compra,
+cero posiciones nuevas y 103 resoluciones de creacion por RPC. Los 345 bloqueos
+se reparten en edad no verificada (144), snapshot ausente (46), espera local
+Pump.fun (70) y otras reglas/riesgos (85). Son eventos, no tokens unicos ni
+oportunidades rentables perdidas demostradas. Birdeye creacion sigue en HTTP401.
+Se guardan 82 cierres shadow y 3 rechazos, no 85 trades financieros.
+
+La parada al plazo requirio terminar el arbol verificado; procesos y bloqueos
+quedan a cero, con SQL stopped/idle/idle. Sin LIVE, entrenamiento, AutoResearch,
+activacion ni cambios de clave/plan. No hay rentabilidad demostrada. La correccion
+del scanner anterior es posterior a este run y aun no tiene otra PAPER autorizada.
+Evidencia: [aceptacion operativa](docs/audits/paper_acceptance_20261015.json).
+
 ### ML Center: diagnosticos de eventos, no permiso LIVE (2026-10-15)
 
 El checklist historico de filas, AUC y porcentajes de eventos no acredita

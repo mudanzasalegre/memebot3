@@ -182,6 +182,7 @@ from analytics.token_time import compute_age_minutes  # noqa: E402
 from analytics.token_birth import FIELD as BIRTH_FIELD, merge_birth_context  # noqa: E402
 from analytics.token_time import BIRTH_CLOCK_FIELDS  # noqa: E402
 from runtime.token_birth_enrichment import enrich_token_birth, token_birth_enrichment_snapshot  # noqa: E402
+from runtime.price_attempt_admission import PriceAttemptAdmission, retry_delay_seconds  # noqa: E402
 import analytics.api_budget as api_budget  # noqa: E402
 import analytics.sizing as entry_sizing  # noqa: E402
 import analytics.exit_policy as exit_policy  # noqa: E402
@@ -3498,34 +3499,8 @@ async def _maybe_open_research_shadow(
         decision_context=decision_context,
     )
 
-# ───────────────────── Cupo/cooldown para Pump.fun quick-price ──────────────
-_PF_PRICE_QUOTA        = int(os.getenv("PUMPFUN_PRICE_QUOTA", "4"))       # intentos/ventana
-_PF_PRICE_QUOTA_WINDOW = int(os.getenv("PUMPFUN_PRICE_QUOTA_WINDOW", "10"))  # seg
-_PF_COOLDOWN_S         = int(os.getenv("PUMPFUN_PRICE_ATTEMPT_COOLDOWN", "25"))
-_pf_attempt_bucket: deque[float] = deque(maxlen=64)   # timestamps monotonic
-_pf_last_attempt: dict[str, float] = {}
-
-def _pf_can_try_now(addr: str) -> bool:
-    """Cuota global y cooldown por token para intentos rápidos de precio (Pump.fun)."""
-    now = time.monotonic()
-
-    # cooldown por token
-    last = _pf_last_attempt.get(addr, 0.0)
-    if now - last < _PF_COOLDOWN_S:
-        return False
-
-    # limpia ventana
-    while _pf_attempt_bucket and (now - _pf_attempt_bucket[0] > _PF_PRICE_QUOTA_WINDOW):
-        _pf_attempt_bucket.popleft()
-
-    # cupo global
-    if len(_pf_attempt_bucket) >= _PF_PRICE_QUOTA:
-        return False
-
-    # reserva hueco
-    _pf_attempt_bucket.append(now)
-    _pf_last_attempt[addr] = now
-    return True
+# ───────────────────── Local Pump.fun attempt admission ──────────────────
+_PF_PRICE_ADMISSION = PriceAttemptAdmission.from_env()
 
 
 # ╭─────────────────────── Helpers de balance ────────────────────────────────╮
@@ -3806,6 +3781,7 @@ async def _build_runtime_state_snapshot() -> RuntimeStateSnapshot:
     stats_payload = {
         **_stats,
         "token_birth_enrichment": token_birth_enrichment_snapshot(),
+        "local_price_attempt_admission": _PF_PRICE_ADMISSION.snapshot(),
         "provider_capacity": {"shared_cache": cache_snapshot(), "birdeye": birdeye_pressure_snapshot(), "gecko": gecko_pressure_snapshot()},
         "last_buy_at": _last_buy_at,
         "last_sell_at": _last_sell_at,
@@ -4694,13 +4670,14 @@ def _entry_probe_amount_sol() -> float:
     return max(float(MIN_BUY_SOL), float(TRADE_AMOUNT_SOL_CFG))
 
 
-def _defer_entry_observation(token: dict, *, reason: str, stage: str) -> None:
+def _defer_entry_observation(token: dict, *, reason: str, stage: str, retry_after_s=None) -> None:
     """Temporary uncertainty: retry the whole decision, without negative labels."""
     addr = token["address"]
     _pending_ai_vectors.pop(addr, None)
     reason = f"entry_observation:{reason}"
-    _research_decision(token, action="wait", reason=reason, stage=stage, dedup_ttl_s=5)
-    _ensure_requeue_with_stats(addr, reason=reason, backoff=5, token=token)
+    delay = 5 if retry_after_s is None else retry_delay_seconds(retry_after_s)
+    _research_decision(token, action="wait", reason=reason, stage=stage, dedup_ttl_s=delay)
+    _ensure_requeue_with_stats(addr, reason=reason, backoff=delay, token=token)
 
 
 def _entry_observation_is_current(token: dict, observation, *, stage: str, vector=None) -> bool:
@@ -5062,9 +5039,12 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     # Every production source enters here. A cached queue snapshot is discovery
     # context only, never the market input used by gates, ranking or learning.
     is_pumpfun = token.get("discovered_via") == "pumpfun"
-    if is_pumpfun and not _pf_can_try_now(addr):
-        _defer_entry_observation(token, reason="provider_quota", stage="entry_snapshot")
-        return
+    if is_pumpfun:
+        admission = _PF_PRICE_ADMISSION.admit(addr)
+        if not admission.allowed:
+            _defer_entry_observation(token, reason=f"local_pumpfun_wait:{admission.reason}",
+                                     stage="entry_snapshot", retry_after_s=admission.retry_after_s)
+            return
     # Separate immutable mint creation from fresh market collection. Awaited,
     # locally bounded lookup cannot hold independently owned discovery/monitor
     # loops, and its latency cannot age an already collected entry quote.

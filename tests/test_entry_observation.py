@@ -263,7 +263,7 @@ def preparation_namespace(snapshot):
         "_candidate_age_minutes": lambda *a: 0, "_log_token": lambda *a: None, "BANNED_CREATORS": set(),
         "select": lambda *a: SimpleNamespace(where=lambda *a: None),
         "Position": SimpleNamespace(address="column", closed=SimpleNamespace(is_=lambda *a: None)),
-        "_pf_can_try_now": lambda *a: True, "_PUMPFUN_PRICE_USE_GECKO": False,
+        "_PF_PRICE_ADMISSION": SimpleNamespace(admit=lambda *a: SimpleNamespace(allowed=True)), "_PUMPFUN_PRICE_USE_GECKO": False,
         "_GECKO_MIN_QUEUE_ATTEMPTS": 2, "_GECKO_MIN_QUEUE_AGE_S": 90,
         "price_service": SimpleNamespace(get_entry_snapshot=source), "DRY_RUN": True,
         "merge_birth_context": __import__("analytics.token_birth", fromlist=["merge_birth_context"]).merge_birth_context,
