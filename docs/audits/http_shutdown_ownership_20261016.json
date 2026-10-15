@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_NATIVE_REPAIR_400_PASS_BOTH_ROOTS_FULL_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "e2ebaeafa610d7cde7582718ba209d70ccb6feda",
+  "trigger": "The separately authorized20261015-2 PAPER ended with no buys. After the cooperative-cleanup message, its original console recorded an unclosed aiohttp session/connector and closed-file logger errors. Original runtime and watchdog failure evidence remains unchanged in paper_acceptance_20261016.json.",
+  "identified_defects": [
+    "The native runner drained feed/execution owners but never called the existing persistent Jupiter price HTTP close function.",
+    "A failed network-owner cleanup abandoned later cleanup callbacks, including other independent resources.",
+    "The Jupiter close helper could erase an unconfirmed or interleaved replacement reference, and retained an already-closed reference.",
+    "HourlySplitFileHandler attempted writes or rotation after its owned close; close did not serialize with an active handler."
+  ],
+  "repair": {
+    "runtime": "After supervised producers, background tasks and writers drain, try each existing network/execution owner cleanup and finally close the Jupiter price session. Retain the first resource failure after attempting all remaining cleanup; withhold native stopped publication and cleanup acknowledgement on unconfirmed resources.",
+    "price_owner": "Capture the original session, await its close, confirm closed and detach only that same reference. Preserve unclosed/failed/replaced owners and propagate original close errors or cancellation. An unused session is never allocated during shutdown.",
+    "logger": "Serialize emit and close with the native reentrant handler lock. A closed file sink cannot write or reopen on late diagnostics. Other active sinks still receive those diagnostics; ordinary active-file IO failures remain visible.",
+    "unchanged": "AST equality outside _runner and Jupiter aclose, and outside handler emit/close. Entry/birth/market/price evidence, all financial and risk guards, exact0.1SOL PAPER sizing, runner policies, model activation and original existing test files remain unchanged."
+  },
+  "original_controlled_probe": {"tests": 20, "failed": 15, "passed": 5, "errors": 0, "junit_seconds": 7.290, "source": "Three frozen native files match immutable e2ebaea Git blobs. The same strict tests exercise those original owners, including an actual loopback keep-alive connection.", "receipt": "work/http-shutdown-stage-20261016/frozen-final.xml"},
+  "validation": {
+    "working": {"passed": 400, "failed": 0, "errors": 0, "skipped": 0, "pytest_seconds": 270.36, "junit_seconds": 270.337},
+    "publishing": {"passed": 400, "failed": 0, "errors": 0, "skipped": 0, "pytest_seconds": 269.40, "junit_seconds": 269.385},
+    "focused_nodeids_identical": true,
+    "new_official_cases": 20,
+    "official_collected_each": 7001,
+    "functional_files_each": 856,
+    "normalized_source_sha256": "e5ee1b086e0a8492163cb227003a99eb882488a0e5bd605d86cbaf9ca60fcf09",
+    "coverage": "Real aiohttp keep-alive connection to localhost, native running/startup-failure cleanup, repeated cancellation, independent owner cleanup failures, withheld stopped on HTTP error/unconfirmed close, original close-error propagation, interleaved replacement preservation, no unused allocation, file-close locking, late file diagnostics, active-sink visibility and hourly rotation. Existing owned writers, dispatch/export, local stop and full guarded native PAPER entry/monitor/close/net-export cases also pass.",
+    "initial_fixture_error_retained": "An initial running-owner probe omitted its _open_shadow_now fixture dependency; the intermediate1failed11passed result is not acceptance. The fixture was corrected without weakening assertions. Final strict20-case frozen and400-case repaired results are separately retained.",
+    "current_full_source_ci": "PENDING_NOT_PREAPPROVED",
+    "operator_provider_retest": "NOT_AUTHORIZED_NOT_RUN"
+  },
+  "conservation": {"fresh_post_second_paper_baseline": true, "protected_working_files": 4442, "protected_publishing_files": 28, "changed": 0, "added": 0, "old_paper_backups_or_reports_restored": false, "operator_run_or_training_or_autoresearch_or_live_started": false},
+  "off_evidence": {"observed_at_utc": "2026-10-15T22:32:18.5059551+00:00", "runtime_processes": 0, "qa_processes": 0, "running_tasks": 0, "running_services": 0, "locks_both_roots": 0},
+  "limits": [
+    "The original operator traceback has no allocation trace proving the identity of its leaked object. This repairs a reproduced native persistent Jupiter ownership omission and logger defects; it does not retrospectively identify every original resource or certify all third-party cleanup paths.",
+    "Localhost and source-only fixtures do not certify provider/TLS/market/finality behavior, operational shutdown under every deployment, profitable capture, maximum gains or zero future errors.",
+    "All original whole-goal requirements remain, including independent source/access, current models, complete opportunity and checked net financial acceptance. No filters were weakened to force buys.",
+    "The latest operator PAPER authority is consumed. No new PAPER, fit, AutoResearch, model activation or LIVE execution follows from this software change."
+  ]
+}

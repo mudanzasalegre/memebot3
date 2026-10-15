@@ -620,13 +620,25 @@ async def get_usd_price(mint: str, *, force_refresh: bool = False) -> Optional[f
 
 # ───────────────────────────── cierre de sesión ───────────────────────────────
 async def aclose():
-    """Cierra la sesión HTTP (opcional; el runner puede llamarlo al apagar)."""
+    """Close the captured HTTP owner; never erase an unclosed replacement.
+
+    Producers must be drained before the runtime calls this. A failed or
+    unconfirmed close retains the original reference for inspection/retry.
+    """
     global _SESSION
-    if _SESSION and not _SESSION.closed:
-        await _SESSION.close()
+    session = _SESSION
+    if session is None:
+        return
+    if not session.closed:
+        await session.close()
+    if not session.closed:
+        raise RuntimeError("Jupiter price HTTP session is not closed")
+    if _SESSION is session:
         _SESSION = None
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("[jupiter_price] sesión HTTP cerrada")
+    elif _SESSION is not None:
+        raise RuntimeError("Jupiter price HTTP session changed while closing")
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("[jupiter_price] sesión HTTP cerrada")
 
 
 __all__ = [

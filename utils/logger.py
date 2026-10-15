@@ -69,18 +69,33 @@ class HourlySplitFileHandler(logging.Handler):
         self._file = open(self.logs_path / fname, "a", encoding="utf-8")
 
     def emit(self, record: logging.LogRecord) -> None:
-        if dt.datetime.now() - self._period_start >= dt.timedelta(hours=1):
-            self._file.close()
-            self._open_file()
-        self._file.write(self.format(record) + "\n")
-        self._file.flush()
+        self.acquire()
+        try:
+            # logging.shutdown does not remove handlers from their loggers.
+            # Late destructor diagnostics may still reach this closed sink;
+            # other live handlers retain the record, but this file must not
+            # be reopened or written after its owned shutdown.
+            if self._closed:
+                return
+            if dt.datetime.now() - self._period_start >= dt.timedelta(hours=1):
+                self._file.close()
+                self._open_file()
+            self._file.write(self.format(record) + "\n")
+            self._file.flush()
+        finally:
+            self.release()
 
     def close(self) -> None:
+        self.acquire()
         try:
-            if not self._file.closed:
-                self._file.close()
+            stream = getattr(self, "_file", None)
+            if stream is not None and not stream.closed:
+                stream.close()
         finally:
-            super().close()
+            try:
+                super().close()
+            finally:
+                self.release()
 
 
 # ——————————————————— observabilidad ——————————————————

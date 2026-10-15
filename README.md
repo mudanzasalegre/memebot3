@@ -13,6 +13,24 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Cierre HTTP y logger: defectos reproducidos y corregidos (2026-10-16)
+
+El runner cierra ahora la sesion persistente de Jupiter despues de drenar los
+productores. Si falla una limpieza, intenta las demas y no confirma parada
+completa con recursos sin cerrar. El cierre conserva la identidad del recurso;
+no pierde una sesion fallida o reemplazada. El logger serializa escritura/cierre
+y no reabre ni escribe en un archivo ya cerrado; los errores activos y los
+diagnosticos en otras salidas siguen visibles.
+
+El original congelado falla 15 de 20 pruebas estrictas; la correccion pasa
+400 regresiones por carpeta, incluida una conexion persistente real a localhost
+y el ciclo PAPER nativo aislado. Se recogen 7.001 pruebas oficiales y coinciden
+los 856 archivos funcionales. La nueva CI completa esta pendiente; no se ha
+arrancado otra PAPER ni contactado proveedores. Datos, modelos y configuracion
+se conservan; todos los servicios del operador permanecen apagados.
+Esta reparacion acotada no demuestra rentabilidad ni ausencia universal de fallos.
+[Validacion y limites](docs/audits/http_shutdown_ownership_20261016.json).
+
 ### Segunda PAPER: cero compras y fallo de limpieza al salir (2026-10-16)
 
 La revision funcional `4799aa1` aprobo la CI completa antes del arranque:

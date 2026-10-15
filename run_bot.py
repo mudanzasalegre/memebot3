@@ -10408,16 +10408,25 @@ async def _runner() -> None:
                     _POLICY_FEATURE_WRITER = None
             # Feed owners above are drained; sockets and execution owners must
             # also finish before stopped state is visible.
-            await pumpfun.stop_background_tasks()
             from runtime.social_enrichment_queue import stop_background_tasks as stop_social_tasks
-            await stop_social_tasks()
             from research_loop.entry_gate_forward import stop_background_tasks
-            await stop_background_tasks()
             from runtime.owned_dispatch import drain_dispatch
-            await drain_dispatch()
+            from fetcher.jupiter_price import aclose as close_price_http
+            resource_errors = []
+            for close_owner in (pumpfun.stop_background_tasks, stop_social_tasks,
+                                stop_background_tasks, drain_dispatch, close_price_http):
+                try:
+                    await close_owner()
+                except BaseException as exc:
+                    # One failed owner cannot abandon the remaining cleanup.
+                    # Retain the failure and withhold native stopped/ack rather
+                    # than publishing success with an unconfirmed resource.
+                    resource_errors.append(exc)
             if any(writer is not None and not writer.snapshot()['closed']
                    for writer in (shadow_queue, candidate_writer, policy_writer)):
                 raise RuntimeError('An owned writer is still live; stopped publication withheld')
+            if resource_errors:
+                raise resource_errors[0]
             _runtime_process_state = "stopped"
             try:
                 await _publish_runtime_state_once()
