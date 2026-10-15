@@ -10377,6 +10377,14 @@ async def _runner() -> None:
         # ``running`` row after the process has already exited.
         async def finish_shutdown():
             global _runtime_process_state, _POLICY_FEATURE_WRITER, _SHADOW_OPEN_QUEUE
+            def raise_cleanup_failure(exc):
+                # This cleanup task is shielded from the caller's expected
+                # stop cancellation. A cancellation raised by an owner inside
+                # it is a real cleanup failure, not permission to acknowledge
+                # a completed cooperative stop.
+                if isinstance(exc, asyncio.CancelledError):
+                    raise RuntimeError('Owned resource cleanup was cancelled') from exc
+                raise exc
             writer_errors = []
             pending = list(_background_tasks)
             for task in pending:
@@ -10426,14 +10434,14 @@ async def _runner() -> None:
                    for writer in (shadow_queue, candidate_writer, policy_writer)):
                 raise RuntimeError('An owned writer is still live; stopped publication withheld')
             if resource_errors:
-                raise resource_errors[0]
+                raise_cleanup_failure(resource_errors[0])
             _runtime_process_state = "stopped"
             try:
                 await _publish_runtime_state_once()
             except Exception as publish_exc:
                 log.error("runtime state final publish → %s", publish_exc)
             if writer_errors:
-                raise writer_errors[0]
+                raise_cleanup_failure(writer_errors[0])
         cleanup = asyncio.create_task(finish_shutdown(), name="owned-runtime-shutdown")
         cancelled = None
         while not cleanup.done():

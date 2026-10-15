@@ -46,7 +46,8 @@ def native(monkeypatch,tmp_path):
     monkeypatch.setattr(owned_dispatch,'drain_dispatch',closers['dispatch'])
     monkeypatch.setattr(social_enrichment_queue,'stop_background_tasks',closers['social'])
     monkeypatch.setattr(entry_gate_forward,'stop_background_tasks',closers['research'])
-    # No import of run_bot/config entrypoint, DB, wallet, data, fitting or HTTP.
+    # Compile the native owner without importing the operational run_bot
+    # entrypoint or calling its DB, wallet, operator-data or fitting paths.
     tree=ast.parse(RUNNER_SOURCE.read_text(encoding='utf-8'))
     runner=next(node for node in tree.body if isinstance(node,ast.AsyncFunctionDef) and node.name=='_runner')
     class Session:
@@ -297,3 +298,61 @@ def test_closed_file_sink_does_not_hide_late_diagnostic_from_live_console(tmp_pa
         assert handler._file.closed
     finally:
         live.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failed_owner',['pump','social','research','dispatch','http'])
+async def test_local_stop_cannot_acknowledge_an_internally_cancelled_resource_cleanup(native,monkeypatch,tmp_path,failed_owner):
+    from runtime.local_stop import StopBinding,run_with_local_stop
+    namespace,closers,published=native
+    binding=StopBinding.create(tmp_path)
+    error=asyncio.CancelledError('controlled internal cleanup cancellation')
+    sessions,real_close=[],[]
+    async def main(*,positions_ready,**kwargs):
+        session=await price._ensure_session()
+        sessions.append(session)
+        real_close.append(session.close)
+        if failed_owner=='http':
+            monkeypatch.setattr(session,'close',AsyncMock(side_effect=error))
+        positions_ready.set()
+        binding.request()
+        await asyncio.Event().wait()
+    namespace['main_loop']=main
+    if failed_owner!='http': closers[failed_owner].side_effect=error
+    try:
+        with pytest.raises(RuntimeError,match='cleanup was cancelled') as captured:
+            await run_with_local_stop(namespace['_runner'],binding)
+        assert captured.value.__cause__ is error
+        assert not published and namespace['_runtime_process_state']!='stopped'
+        assert not binding.completed()
+        assert all(close.await_count==1 for close in closers.values())
+        if failed_owner=='http':
+            assert not sessions[0].closed and price._SESSION is sessions[0]
+        else:
+            assert sessions[0].closed and price._SESSION is None
+    finally:
+        for close in real_close: await close()
+
+
+@pytest.mark.asyncio
+async def test_local_stop_surfaces_internal_closed_writer_cancellation_instead_of_ack(native,monkeypatch,tmp_path):
+    from runtime.local_stop import StopBinding,run_with_local_stop
+    from features.policy_write_queue import PolicyWriteQueue
+    namespace,closers,published=native
+    binding=StopBinding.create(tmp_path)
+    error=asyncio.CancelledError('controlled closed-writer cancellation')
+    original=PolicyWriteQueue.close
+    async def close(writer):
+        await original(writer)
+        assert writer.snapshot()['closed']
+        raise error
+    monkeypatch.setattr(PolicyWriteQueue,'close',close)
+    async def main(*,positions_ready,**kwargs):
+        positions_ready.set()
+        binding.request()
+        await asyncio.Event().wait()
+    namespace['main_loop']=main
+    with pytest.raises(RuntimeError,match='cleanup was cancelled') as captured:
+        await run_with_local_stop(namespace['_runner'],binding)
+    assert captured.value.__cause__ is error and not binding.completed()
+    assert published==[True] and namespace['_POLICY_FEATURE_WRITER'] is None

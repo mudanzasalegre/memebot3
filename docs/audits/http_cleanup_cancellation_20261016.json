@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "status": "NATIVE_CANCEL_BOUNDARY_REPAIRED_406_PASS_EACH_FULL_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "f3f058018f823a6a32cf8ea89b223b29e5a05f91",
+  "previous_stage": "docs/audits/http_shutdown_ownership_20261016.json",
+  "defect": "A CancelledError raised inside the shielded owner-cleanup task was propagated as ordinary runtime cancellation. The real local-stop boundary intentionally ignores ordinary cancellation, so it could deliver LocalStopRequested despite unconfirmed resource cleanup. Its main caller could then acknowledge cleanup incorrectly. The previous400 passing cases did not cover this boundary.",
+  "original_probe": {"tests": 6, "failed": 6, "errors": 0, "junit_seconds": 3.150, "receipt": "work/http-shutdown-stage-20261016/pre-cancellation-boundary.xml", "source": "The retained native runner and local-stop files match immutable f3f0580 Git blobs; five network/execution cleanup owners and one closed-writer cancellation fail the strict real-stop tests."},
+  "repair": "A cancellation raised by an owner inside the shielded cleanup task is a cleanup failure, wrapped as RuntimeError with the original cancellation as its cause. Ordinary caller cancellation is unchanged and still propagates only after cleanup drains. The local-stop boundary retains an explicit original failure cause rather than overwriting it while suppressing the expected watcher stop. No acknowledgement is allowed for the tested internal failures.",
+  "state_semantics": "Unconfirmed network/resource cleanup withholds native stopped publication. A writer confirmed closed may still publish stopped, but its internal failure is surfaced and cannot become a successful cleanup acknowledgement. Existing fatal-writer and normal-stop behavior is retained.",
+  "focused": {
+    "working": {"tests": 406, "failures": 0, "errors": 0, "skipped": 0, "junit_seconds": 272.184},
+    "publishing": {"tests": 406, "failures": 0, "errors": 0, "skipped": 0, "junit_seconds": 271.077}
+  },
+  "official_collected_each": 7007,
+  "new_cases_this_followup": 6,
+  "new_http_cleanup_cases_total": 26,
+  "source_files_each": 856,
+  "source_sha256": "7efe331605327b0c517f13bdeb9be058463fffa53b5f9bf795af7219b45c45c0",
+  "preservation": {"all400_previous_focused_cases_retained": true, "all_previous_test_ast_and_assertions_preserved": true, "code_outside_runner_and_stop_wrapper_unchanged": true, "original_scope_and_ten_remaining_requirements_preserved": true, "protected_working_files": 4442, "protected_publishing_files": 28, "changed_protected_files": 0, "added_protected_files": 0},
+  "off_evidence": {"observed_at_utc": "2026-10-15T22:42:08.0777373+00:00", "runtime_processes": 0, "qa_processes": 0, "running_tasks": 0, "running_services": 0, "locks_both_roots": 0},
+  "current_full_source_ci": "PENDING_NOT_PREAPPROVED",
+  "operator_provider_retest": "NOT_AUTHORIZED_NOT_RUN",
+  "limits": "Software-only native and localhost evidence. No new PAPER, provider probe, fit, AutoResearch, model activation, API/UI or LIVE launch. Financial strategy, exact0.1SOL sizing and uncapped runners are unchanged; previous no-buy and cleanup-error evidence remains intact. Actual original leaked-object allocation, provider/access/full-strategy opportunity coverage, checked net profitability and zero future errors are not established."
+}

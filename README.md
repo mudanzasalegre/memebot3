@@ -13,6 +13,18 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Parada: una cancelacion interna no confirma limpieza (2026-10-16)
+
+La revision posterior detecto seis casos en los que una cancelacion dentro de
+la limpieza podia confundirse con la parada normal. Ahora se comunica como
+fallo conservando su causa, sin alterar la cancelacion legitima del usuario.
+Las 406 regresiones por carpeta pasan, incluidas las 400 anteriores sin retirar
+aserciones. Se recogen 7.007 pruebas oficiales; la nueva CI completa sigue
+pendiente. No se ha arrancado otra PAPER ni cambiado datos/modelos/configuracion.
+El operador permanece apagado; no hay aceptacion de rentabilidad ni garantia
+de ausencia universal de errores.
+[Evidencia del limite de cancelacion](docs/audits/http_cleanup_cancellation_20261016.json).
+
 ### Cierre HTTP y logger: defectos reproducidos y corregidos (2026-10-16)
 
 El runner cierra ahora la sesion persistente de Jupiter despues de drenar los

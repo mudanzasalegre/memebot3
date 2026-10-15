@@ -183,7 +183,10 @@ async def run_with_local_stop(runtime_factory, binding):
                          ('local-stop', watch_local_stop(binding))])
     except LocalStopRequested:
         if errors:
-            raise errors[0] from None
+            # Suppress the expected watcher stop, not a cleanup failure's
+            # original explicit cause (for example an internal cancellation).
+            failure = errors[0]
+            raise failure from failure.__cause__
         raise
 
 
