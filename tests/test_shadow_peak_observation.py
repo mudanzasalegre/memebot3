@@ -21,8 +21,11 @@ def native_open(root):
         'log': SimpleNamespace(info=Mock(), debug=Mock()), 'Optional': __import__('typing').Optional,
         'Dict': dict}
     node = next(item for item in ast.parse(Path('run_bot.py').read_text(encoding='utf-8')).body
-                if isinstance(item, ast.AsyncFunctionDef) and item.name == '_open_shadow')
+                if isinstance(item, ast.AsyncFunctionDef) and item.name == '_open_shadow_now')
     exec(compile(ast.Module(body=[node], type_ignores=[]), 'run_bot.py', 'exec'), namespace)
+    # Existing persistence probes exercise the actual IO handler. Managed
+    # admission/lifecycle is tested separately with the native front end.
+    namespace['_open_shadow'] = namespace['_open_shadow_now']
     return namespace
 
 

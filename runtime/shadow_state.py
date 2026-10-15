@@ -23,7 +23,8 @@ VERSION = 1
 MAX_BYTES = 2 * CLOSE_MAX_BYTES + 4096
 INTERNAL = '_shadow_state'
 IMMUTABLE = ('vec', 'opened_at', 'buy_price_usd', 'entry_regime', 'runner_exit_profile',
-    'reason', 'stage', 'ml_proba', 'threshold', 'rank_info', 'shadow_kind', 'price_source', 'buy_liquidity_usd')
+    'reason', 'stage', 'ml_proba', 'threshold', 'rank_info', 'shadow_kind', 'price_source', 'buy_liquidity_usd',
+    'shadow_requested_at', 'shadow_open_latency_sec')
 
 
 def snapshot_vector(vector):

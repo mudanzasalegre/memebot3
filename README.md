@@ -13,6 +13,22 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Entrada: las sombras no esperan precios ni disco en el evaluador (2026-10-15)
+
+La apertura auxiliar de sombras se admite en una cola propia de un consumidor,
+limitada a 64 trabajos pendientes incluido el activo. Vector, proof attrs,
+contexto, perfil y metadatos originales se congelan antes de encolar. El
+evaluador sigue atendiendo candidatos sin esperar el precio o la persistencia
+de esa sombra; el monitor y la compra real conservan sus propietarios propios.
+
+Las reservas pendientes cuentan en los limites de investigacion existentes sin
+duplicar las posiciones ya abiertas. Saturacion, caducidad y errores se cuentan
+como tales: admision en memoria no significa apertura durable ni compra. El
+ejecutor supervisa y drena este propietario antes de publicar `stopped`.
+La ruta de investigacion conserva tambien los tres proof attrs de la Series.
+No se modifican filtros de compra, importe de 0.1 SOL ni politica de salidas.
+[Evidencia y limites](docs/audits/shadow_open_admission_20261015.json).
+
 ### Reinicios: sombras abiertas y parciales con estado durable (2026-10-14)
 
 Las nuevas sombras guardan su vector original y sus proof attrs, referencia de

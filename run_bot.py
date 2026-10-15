@@ -884,6 +884,7 @@ _autoresearch_lock = asyncio.Lock()
 _core_reports_regen_lock = asyncio.Lock()
 _background_tasks: set[asyncio.Task[object]] = set()
 _POLICY_FEATURE_WRITER = None  # Started only by the actual owned runtime.
+_SHADOW_OPEN_QUEUE = None  # Only nonfinancial shadow work; owned by _runner.
 _initial_paper_wallet_refresh_task: Optional[asyncio.Task[object]] = None
 _last_core_reports_regen_at: Optional[dt.datetime] = None
 _last_core_reports_regen_sold: int = 0
@@ -3437,6 +3438,7 @@ async def _maybe_open_research_shadow(
     soft_score_min: int = 0,
     stage: str = "decision",
 ) -> bool:
+    """Return queue admission, not a durable opening or a financial fill."""
     try:
         should_open, _shadow_reason = research_runtime.should_open_shadow(
             token,
@@ -3446,6 +3448,7 @@ async def _maybe_open_research_shadow(
             threshold=threshold,
             rank_info=rank_info,
             soft_score_min=soft_score_min,
+            pending_shadows=_SHADOW_OPEN_QUEUE.pending_tokens() if _SHADOW_OPEN_QUEUE is not None else None,
         )
     except Exception as exc:
         log.debug("research should_open_shadow %s → %s", str(token.get("address") or "")[:6], exc)
@@ -3456,7 +3459,8 @@ async def _maybe_open_research_shadow(
 
     shadow_vec = vec
     try:
-        shadow_vec = vec.to_dict() if hasattr(vec, "to_dict") else dict(vec)
+        from runtime.shadow_state import snapshot_vector
+        shadow_vec = snapshot_vector(vec)
         for key in (
             "entry_lane",
             "sniper_gate_profile",
@@ -3479,7 +3483,7 @@ async def _maybe_open_research_shadow(
     except Exception:
         shadow_vec = vec
 
-    await _open_shadow(
+    return await _open_shadow(
         str(token.get("address") or ""),
         shadow_vec,
         price_hint=token.get("price_usd"),
@@ -3492,7 +3496,6 @@ async def _maybe_open_research_shadow(
         rank_info=rank_info,
         shadow_kind="research",
     )
-    return True
 
 # ───────────────────── Cupo/cooldown para Pump.fun quick-price ──────────────
 _PF_PRICE_QUOTA        = int(os.getenv("PUMPFUN_PRICE_QUOTA", "4"))       # intentos/ventana
@@ -4237,6 +4240,36 @@ def _log_token(tok: dict, addr: str) -> None:
 
 # ╭─────────────────────── Shadow helpers ────────────────────────────────────╮
 async def _open_shadow(
+    addr: str, vec: dict, price_hint: Optional[float] = None, *, force: bool = False,
+    regime: str | None = None, reason: str = '', stage: str = 'decision',
+    proba: float | None = None, threshold: float | None = None,
+    rank_info: dict[str, object] | None = None, shadow_kind: str = 'execution',
+) -> bool:
+    """Admit auxiliary work without price/disk IO in the entry caller."""
+    if not force and (DRY_RUN or not REAL_SHADOW_SIM): return False
+    queue = _SHADOW_OPEN_QUEUE
+    if queue is None or addr in _shadow_positions: return False
+    try:
+        from runtime.shadow_state import snapshot_vector
+        from utils.runtime_context import runtime_context_payload
+        vector = snapshot_vector(vec)
+        subject = dict(vector or {})
+        subject.setdefault('address', addr)
+        subject.setdefault('entry_regime', regime or 'dex_mature')
+        accepted = queue.submit({'address': addr, 'vector': vector, 'price_hint': price_hint,
+            'force': force, 'regime': regime, 'reason': reason, 'stage': stage,
+            'proba': proba, 'threshold': threshold, 'rank_info': rank_info,
+            'shadow_kind': shadow_kind, 'opening_snapshot': {'context': runtime_context_payload(),
+                'profile': _runner_profile_for_subject(subject), 'requested_at': utc_now()}})
+        for key, value in queue.snapshot().items():
+            _stats['shadow_open_' + key] = value
+        return accepted
+    except Exception as exc:
+        log.debug('Shadow admission %s -> %s', str(addr)[:6], type(exc).__name__)
+        return False
+
+
+async def _open_shadow_now(
     addr: str,
     vec: dict,
     price_hint: Optional[float] = None,
@@ -4249,14 +4282,15 @@ async def _open_shadow(
     threshold: float | None = None,
     rank_info: dict[str, object] | None = None,
     shadow_kind: str = "execution",
-) -> None:
-    """Crea una shadow position (solo modo real) cuando pasa IA pero no se compra."""
+    _opening_snapshot: dict | None = None,
+) -> bool:
+    """Owned nonfinancial shadow IO, including explicitly forced PAPER shadows."""
     if not force and (DRY_RUN or not REAL_SHADOW_SIM):
-        return
+        return False
     shadow_payload = None
     try:
         if addr in _shadow_positions:
-            return
+            return False
         _pending_ai_vectors.pop(addr, None)
         from runtime.shadow_state import snapshot_vector
         from copy import deepcopy
@@ -4276,12 +4310,13 @@ async def _open_shadow(
         opened_at = utc_now()
         # A competing opener may have arrived while the price lookup yielded.
         if addr in _shadow_positions:
-            return
+            return False
         token_ctx = dict(vec)
         token_ctx.setdefault("address", addr)
         token_ctx.setdefault("entry_regime", regime or "dex_mature")
         token_ctx.setdefault("score_total", vec.get("score_total"))
-        runner_exit_profile = _runner_profile_for_subject(token_ctx)
+        runner_exit_profile = (_opening_snapshot['profile'] if _opening_snapshot is not None
+            else _runner_profile_for_subject(token_ctx))
         shadow_payload = {
             "shadow_instance_id": uuid.uuid4().hex,
             "opening_pending": True,
@@ -4311,6 +4346,12 @@ async def _open_shadow(
             "shadow_kind": shadow_kind,
         }
         _shadow_positions[addr] = shadow_payload
+        if _opening_snapshot is not None:
+            from runtime.shadow_closes import _time
+            requested = _time(_opening_snapshot['requested_at'])
+            latency = (opened_at - requested).total_seconds()
+            shadow_payload['shadow_requested_at'] = requested.isoformat()
+            shadow_payload['shadow_open_latency_sec'] = latency if latency >= 0 else None
         open_rank_info = rank_info or research_runtime.score_candidate(token_ctx, proba=proba, threshold=threshold)
         from runtime.owned_thread import await_owned_thread
         open_payload = {
@@ -4344,9 +4385,10 @@ async def _open_shadow(
             }
         from runtime.shadow_state import checkpoint, publish_pending
         from utils.runtime_context import runtime_context_payload
-        open_payload = {**runtime_context_payload(), **open_payload}
+        origin_context = (_opening_snapshot['context'] if _opening_snapshot is not None else runtime_context_payload())
+        open_payload = {**origin_context, **open_payload}
         shadow_payload['_shadow_state'] = await await_owned_thread(checkpoint, PROJECT_ROOT, addr,
-            shadow_payload, context={**runtime_context_payload(), **open_payload},
+            shadow_payload, context={**origin_context, **open_payload},
             opening={'id': f"shadow_state_{shadow_payload['shadow_instance_id']}_opening",
                 'observed_at': opened_at, 'payload': open_payload, 'shadow_kind': shadow_kind})
         # The original vector is detached, including its original proof attrs.
@@ -4355,6 +4397,7 @@ async def _open_shadow(
         shadow_payload['_shadow_state'] = await await_owned_thread(publish_pending, PROJECT_ROOT,
             shadow_payload['_shadow_state'], research=research_runtime)
         log.info("👻 Shadow %s creada: %s (buy_price_usd=%s)", shadow_kind, addr[:6], _fmt(price))
+        return True
     except BaseException as exc:
         if shadow_payload is not None and '_shadow_state' not in shadow_payload:
             if _shadow_positions.get(addr) is shadow_payload:
@@ -4362,6 +4405,7 @@ async def _open_shadow(
         if not isinstance(exc, Exception):
             raise
         log.debug("open_shadow %s → %s", addr[:6], exc)
+        return False
     finally:
         # The serial shadow actor must not close before its opening IO owner
         # finishes (including cancellation drain), or a late open could reopen it.
@@ -10216,10 +10260,11 @@ async def main_loop(*, positions_ready: asyncio.Event | None = None,
 
 # ╭─────────────────────── Entrypoint ───────────────────────────────────────╮
 async def _runner() -> None:
-    global _runtime_process_state, _POLICY_FEATURE_WRITER
+    global _runtime_process_state, _POLICY_FEATURE_WRITER, _SHADOW_OPEN_QUEUE
     _runtime_process_state = "starting"
     policy_writer = None
     candidate_writer = None
+    shadow_queue = None
     from analytics import research_runtime as candidate_runtime
     try:
         from runtime.owned_dispatch import open_dispatch
@@ -10253,6 +10298,17 @@ async def _runner() -> None:
         candidate_runtime.install_candidate_writer(candidate_writer)
         from runtime.loop_scheduler import supervise
         positions_ready = asyncio.Event()
+        from runtime.shadow_openings import ShadowOpeningQueue
+        def shadow_finished(address, completed, error):
+            for key, value in shadow_queue.snapshot().items():
+                _stats['shadow_open_' + key] = value
+            if error is not None:
+                _note_runtime_error('shadow_open', type(error).__name__)
+                log.warning('Shadow opening remains unconfirmed %s (%s)', address[:6], type(error).__name__)
+        shadow_queue = ShadowOpeningQueue(_open_shadow_now, ready=positions_ready,
+            on_result=shadow_finished)
+        shadow_queue.start()
+        _SHADOW_OPEN_QUEUE = shadow_queue
         hot_queue_enabled = bool(getattr(CFG, "HOT_QUEUE_ENABLED", True))
         tasks = [
             ("entry-service", main_loop(positions_ready=positions_ready,
@@ -10260,6 +10316,7 @@ async def _runner() -> None:
             ("dex-discovery", _dex_discovery_loop(positions_ready)),
             ("position-monitor", _position_monitor_loop(positions_ready)),
             ("shadow-monitor", _shadow_monitor_loop(positions_ready)),
+            ("shadow-opening", shadow_queue.watch()),
             ("periodic-labeler", _periodic_labeler()),
             ("control-commands", control_command_loop()),
             ("runtime-state", runtime_state_loop()),
@@ -10288,13 +10345,22 @@ async def _runner() -> None:
         # just like an exception; otherwise the API can retain a stale
         # ``running`` row after the process has already exited.
         async def finish_shutdown():
-            global _runtime_process_state, _POLICY_FEATURE_WRITER
+            global _runtime_process_state, _POLICY_FEATURE_WRITER, _SHADOW_OPEN_QUEUE
             writer_errors = []
             pending = list(_background_tasks)
             for task in pending:
                 task.cancel()
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
+            if shadow_queue is not None:
+                try:
+                    await shadow_queue.close()
+                except BaseException as exc:
+                    writer_errors.append(exc)
+                for key, value in shadow_queue.snapshot().items():
+                    _stats['shadow_open_' + key] = value
+                if shadow_queue.snapshot()['closed']:
+                    _SHADOW_OPEN_QUEUE = None
             if candidate_writer is not None:
                 try:
                     await candidate_writer.close()
@@ -10319,7 +10385,7 @@ async def _runner() -> None:
             from runtime.owned_dispatch import drain_dispatch
             await drain_dispatch()
             if any(writer is not None and not writer.snapshot()['closed']
-                   for writer in (candidate_writer, policy_writer)):
+                   for writer in (shadow_queue, candidate_writer, policy_writer)):
                 raise RuntimeError('An owned writer is still live; stopped publication withheld')
             _runtime_process_state = "stopped"
             try:

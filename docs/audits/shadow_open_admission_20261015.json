@@ -1,0 +1,196 @@
+{
+  "status": "SHADOW_OPEN_ADMISSION_OWNER_NATIVE_FOCUSED_VERIFIED_CURRENT_FULL_CI_PENDING_WHOLE_GOAL_INCOMPLETE",
+  "implementation_parent": "1973e9f3a1cde17652434ee8a3b46a0ade0697a5",
+  "implementation_revision": "Commit containing this audit; normalized source identity follows verification",
+  "summary": "Actual _open_shadow admission now snapshots the original vector/proof attrs, rank metadata, runtime context, fixed runner profile and request time into a bounded owner-loop queue instead of awaiting auxiliary price lookup and shadow checkpoint IO in the entry caller. One supervised consumer owns the original nonfinancial IO handler, waits for bootstrap, applies bounded queue/time budgets and drains admitted ready work before stopped publication. Active plus waiting jobs occupy capacity, pending addresses deduplicate without replacing the first original vector, and research caps include pending/open address union without double counting or waiting on the journal IO lock. The research adapter no longer strips the three original Series proof attrs and reports actual admission failure instead of unconditional success. Original T0 is retained; request/open latency is diagnostic local availability, not market-asof or execution proof. Strict True confirms handler completion; overload, expiry, startup abort, failure and callback errors are distinct from completed openings. Native held-price entry and complete runtime-shutdown probes verify nonblocking admission and owned drain. No financial buy/sell, quote/birth/risk/filter/sizing, 0.1 SOL amount, exit policy, model fitting/activation or historical data rewrite is added. Original real provider/full-strategy/financial/profitability acceptance remains incomplete; all operational bot/training/AutoResearch/API/UI/LIVE processes remain off.",
+  "source_proof": [
+    {
+      "checkout": "working",
+      "files": 831,
+      "sha256": "a01dcccad3d463b75360e6a74194bd01c8eb44f893607d9df6f2eeead6719510"
+    },
+    {
+      "checkout": "publishing",
+      "files": 831,
+      "sha256": "a01dcccad3d463b75360e6a74194bd01c8eb44f893607d9df6f2eeead6719510"
+    }
+  ],
+  "acceptance": {
+    "baseline": {
+      "tests": 2,
+      "failures": 2,
+      "passed": 0,
+      "seconds": 8.79,
+      "exit_code": 1,
+      "scope": "Actual old native price wait retains caller; old research adapter strips original Series attrs"
+    },
+    "new_repository_cases": 38,
+    "intermediate_focused": {
+      "tests": 189,
+      "failures": 0,
+      "passed": 189,
+      "seconds": 25.84,
+      "exit_code": 0
+    },
+    "first_broader_observation": {
+      "tests_each": 671,
+      "failures_each": 2,
+      "passed_each": 669,
+      "working_seconds": 217.16,
+      "publishing_seconds": 215.13,
+      "scope": "The older isolated _runner fixture omitted the newly introduced handler; repaired without removing its original owner-drain assertions and then revalidated"
+    },
+    "focused": {
+      "working": {
+        "tests": 671,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 228.612
+      },
+      "publishing": {
+        "tests": 671,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_seconds": 225.54
+      }
+    },
+    "current_full_python_matrix": "PENDING_FOR_THIS_REVISION",
+    "qa_harness_repairs": [
+      "A newly authored test had an unmatched parenthesis and failed collection; repaired before validation, not counted as a product defect reproduction",
+      "The initial cold-import test replaced socket.socket and broke normal stdlib SSL class loading; audit events now deny actual socket/subprocess operations without changing the socket class",
+      "The old AST runtime fixture now supplies the newly owned handler and existing _stats dependency; original execution-thread drain assertions remain intact"
+    ],
+    "repository_cases": 6536,
+    "working_collected_cases": 6537,
+    "working_only_case": "work/fixtures/preflight-timeout/test_deadline_case.py::test_owned_preflight_deadline"
+  },
+  "admission_contract": {
+    "owner": "Exactly one runtime-created async opening consumer; no task, thread, disk state or provider action on module import",
+    "capacity": "Default 64 pending addresses, including active work; configurable validated capacity 1 through 256",
+    "bytes": "Per-request UTF-8 and structural budget, at most 2 MiB; preserve the original vector's separate snapshot semantics",
+    "time": "Default 120-second per-handler async timeout and 120-second maximum queued wait; native cancellation cleanup can exceed the nominal deadline while owned IO drains",
+    "bootstrap": "Do not start provider/checkpoint work before readiness; shutdown before readiness fails queued memory work without inventing observations",
+    "identity": "Pending address deduplication retains the first detached request; actual durable instance/event ownership remains in the native handler/checkpoint",
+    "research_limits": "Pending and already-open address union applies original global/per-regime caps without double counting; admission reads a detached IO-owned address snapshot",
+    "source": "Original feature values and three proof attrs survive the research adapter and queue transport; model validation remains independently responsible for accepting their provenance",
+    "clock": "Original decision T0 is not rebased; requested_at and shadow_open_latency_sec describe local admission/open availability, not provider freshness or a fill",
+    "shutdown": "Supervision watches the opening owner; repeated cancellation drains the original active operation and readiness owner before stopped publication",
+    "durability": "Memory admission is not durability. The existing atomic native state checkpoint is the first durable boundary; a pre-admission or memory-queue process crash can lose unacknowledged diagnostic work"
+  },
+  "limits": [
+    "This removes a reproduced auxiliary wait from one actual entry-caller path; production throughput, profitable capture and latency/SLA are not measured",
+    "Queue saturation/expiry can omit nonfinancial shadow samples and must not be interpreted as observed losses or as complete opportunity coverage",
+    "No unmanaged fallback starts provider work when the actual runtime owner is absent or closed",
+    "Existing source receipts are retained, not independently authenticated as complete executing-process, provider/market-asof or financial evidence",
+    "No historical portfolio, dataset, model, policy or registry is rewritten or activated",
+    "The historical isolated Windows original model/birth-input consistency failure cause remains unresolved despite passing later revisions",
+    "The parent revision has a successful complete two-OS matrix, but the new revision needs its own full matrix and separate prospective financial acceptance"
+  ],
+  "preceding_ci_observation": {
+    "observed_at_utc": "2026-10-15T05:44:00.215984+00:00",
+    "commit": "1973e9f3a1cde17652434ee8a3b46a0ade0697a5",
+    "runs": {
+      "tests": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38512694231",
+        "pytest_summaries": [
+          "test (windows-2022)\tUNKNOWN STEP\t2026-10-14T04:43:42.8014767Z 1 passed in 7.07s",
+          "test (windows-2022)\tUNKNOWN STEP\t2026-10-14T05:14:56.3927129Z 6498 passed, 1 warning in 1872.33s (0:31:12)",
+          "test (ubuntu-24.04)\tUNKNOWN STEP\t2026-10-14T04:42:37.2163249Z 1 passed in 4.22s",
+          "test (ubuntu-24.04)\tUNKNOWN STEP\t2026-10-14T05:04:53.3825371Z 6498 passed, 1 warning in 1335.40s (0:22:15)"
+        ]
+      },
+      "ci": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38512694230",
+        "pytest_summaries": [
+          "strategy-regression\tStrategy regression pytest suite\t2026-10-14T04:42:15.0059610Z 41 passed in 2.85s"
+        ]
+      }
+    },
+    "scope": "Actual dated parent observation, not acceptance of this changed revision"
+  },
+  "preceding_capture_ratio_ci_terminal": {
+    "observed_at_utc": "2026-10-14T04:29:10.415976+00:00",
+    "commit": "efaad5b5801eb874733eb05ecba371aa82286adc",
+    "runs": {
+      "tests": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38508770893",
+        "pytest_summaries": [
+          "test (windows-2022)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T03:57:47.1365163Z 1 passed in 6.30s",
+          "test (windows-2022)\tRun python -m pytest -q\t2026-10-14T04:28:37.1653657Z 6463 passed, 1 warning in 1848.85s (0:30:48)",
+          "test (ubuntu-24.04)\tGuarded source-only PAPER lifecycle smoke\t2026-10-14T03:56:49.5855969Z 1 passed in 4.75s",
+          "test (ubuntu-24.04)\tRun python -m pytest -q\t2026-10-14T04:23:33.4907099Z 6463 passed, 1 warning in 1603.16s (0:26:43)"
+        ]
+      },
+      "ci": {
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38508770871",
+        "pytest_summaries": [
+          "strategy-regression\tStrategy regression pytest suite\t2026-10-14T03:56:31.8287225Z 41 passed in 2.69s"
+        ]
+      }
+    },
+    "qualification": "6463 full tests pass on each OS; no reproduction or cause determination of the earlier c771 Windows failure"
+  },
+  "observed_at_utc": "2026-10-15T06:21:49.221004+00:00",
+  "shutdown": {
+    "observed_at_utc": "2026-10-15T06:21:48.3818749+00:00",
+    "runtime_processes": 0,
+    "qa_processes": 0,
+    "qa_process_ids": [],
+    "matching_tasks": 0,
+    "running_tasks": 0,
+    "matching_services": 0,
+    "running_services": 0,
+    "checkouts": [
+      {
+        "checkout": "working",
+        "locks": 0
+      },
+      {
+        "checkout": "publishing",
+        "locks": 0
+      }
+    ],
+    "qualification": "Read-only census. QA is not operational bot/training/AutoResearch approval. SQL checked separately.",
+    "actual_ml_entrypoint_processes": 0,
+    "actual_ml_entrypoint_observed_at_utc": "2026-10-15T06:21:48.9500979+00:00"
+  },
+  "read_only_sql": {
+    "observed_at": "2026-10-15T06:21:49.190223+00:00",
+    "source": "data/memebotdatabase.db",
+    "query": "SELECT closed, COUNT(*) AS positions FROM positions WHERE dry_run=0 AND entry_lane='pump_early_green_candle_sniper' GROUP BY closed",
+    "rows": [],
+    "green_live_risk_file_exists": false,
+    "runtime_state": [
+      {
+        "bot_id": "main",
+        "process_state": "stopped",
+        "reports_refresh_state": "idle",
+        "retrain_state": "idle",
+        "updated_at": "2026-10-13 10:43:54.767270"
+      }
+    ]
+  },
+  "protected_files": {
+    "working": 3766,
+    "publishing": 27,
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "additional_restored_ledger_sha256": "afbcb9a90a254e16d41df52749a1dfcc880b7a51c95045fed144229ed6532cb5"
+  }
+}

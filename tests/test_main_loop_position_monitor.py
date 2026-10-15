@@ -319,11 +319,13 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
     async def export_loop(**kwargs):
         await kwargs["ready"].wait()
         await loop("trade_export")
+    async def shadow_open(*args, **kwargs): return True
     monkeypatch.setattr(trade_learning, "run_export_loop", export_loop)
     monkeypatch.setattr(socials, "stop_background_tasks", stop_social)
     monkeypatch.setattr(research, "stop_background_tasks", stop_research)
     async def publish():
         assert namespace["_runtime_process_state"] == "stopped"
+        assert namespace['_SHADOW_OPEN_QUEUE'] is None and namespace['_stats']['shadow_open_closed'] is True
         expected = {"recovery", "archive_recovery", "main", "monitor", "shadow", "labeler", "state", "background", "social", "research", "trade_export", "dex", "socket"}
         if hot_enabled:
             expected.add("pump")
@@ -334,6 +336,7 @@ async def test_real_runner_drains_owned_loops_and_background_before_stopped_publ
         "DRY_RUN": True, "_repair_paper_archive_evidence": archive_recovery, "PROJECT_ROOT": tmp_path,
         "_stats": {"appended_at_close": 0}, "store_append": lambda *args, **kwargs: True,
         "_policy_feature_write_result": lambda *args: None,
+        '_open_shadow_now': shadow_open,
         "async_init_db": init, "SessionLocal": RecoverySession, "_recover_close_persistence_outbox": recovery,
         "_recover_buy_persistence_outbox": buy_recovery,
         "main_loop": main, "_position_monitor_loop": monitor, "_periodic_labeler": lambda: loop("labeler"),

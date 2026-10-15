@@ -388,8 +388,10 @@ async def test_actual_runner_cannot_publish_stopped_while_execution_thread_is_li
         "_refresh_green_live_risk": AsyncMock(return_value=True),
         "main_loop": main, "_dex_discovery_loop": dex,
         "_position_monitor_loop": monitor, "_shadow_monitor_loop": lambda ready: forever(), "control_command_loop": fault,
+        '_open_shadow_now': AsyncMock(return_value=True),
         "_periodic_labeler": forever, "runtime_state_loop": forever, "_background_tasks": set(),
         "_publish_runtime_state_once": publish, "_note_runtime_error": Mock(),
+        '_stats': {},
         "store_append": Mock(return_value=True), "_policy_feature_write_result": Mock(),
         "log": SimpleNamespace(info=Mock(), error=Mock())}
     tree = ast.parse(Path("run_bot.py").read_text(encoding="utf-8"))

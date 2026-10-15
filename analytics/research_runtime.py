@@ -278,9 +278,12 @@ def _owned_shadow_io(function):
     return owned
 
 
-def _shadow_counts_by_regime() -> dict[str, int]:
+def _shadow_counts_by_regime(shadows: dict[str, dict[str, Any]] | None = None) -> dict[str, int]:
     counts = {"pump_early": 0, "dex_mature": 0, "revival": 0}
-    for data in _OPEN_SHADOWS.values():
+    # The IO owner holds _LOCK while writing files. Admission must not wait on
+    # that lock or iterate its live address map while a thread replaces slots.
+    snapshot = _OPEN_SHADOWS.copy() if shadows is None else shadows
+    for data in snapshot.values():
         regime = _normalize_regime(data.get("regime"))
         counts[regime] = counts.get(regime, 0) + 1
     return counts
@@ -716,6 +719,7 @@ def should_open_shadow(
     threshold: float | None,
     rank_info: dict[str, Any] | None,
     soft_score_min: int = 0,
+    pending_shadows: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[bool, str]:
     if not bool(getattr(CFG, "RESEARCH_LANE_ENABLED", True)):
         return False, "research_disabled"
@@ -727,7 +731,9 @@ def should_open_shadow(
     address = str(token.get("address") or "").strip()
     if not address:
         return False, "missing_address"
-    if address in _OPEN_SHADOWS:
+    pending_shadows = pending_shadows or {}
+    open_shadows = _OPEN_SHADOWS.copy()
+    if address in open_shadows or address in pending_shadows:
         return False, "already_shadowed"
 
     regime = _normalize_regime(token.get("entry_regime") or token.get("discovered_via"))
@@ -738,10 +744,14 @@ def should_open_shadow(
         and str(token.get("entry_lane") or "").strip().lower() == "pump_early_sniper_research"
         and bool(getattr(CFG, "PUMP_EARLY_RESEARCH_ALLOW_PROXY", True))
     )
-    counts = _shadow_counts_by_regime()
+    counts = _shadow_counts_by_regime(open_shadows)
+    pending_only = {address: item for address, item in pending_shadows.items() if address not in open_shadows}
+    for item in pending_only.values():
+        pending_regime = _normalize_regime(item.get('regime'))
+        counts[pending_regime] = counts.get(pending_regime, 0) + 1
     global_cap = max(1, int(getattr(CFG, "RESEARCH_SHADOW_MAX_OPEN", 8) or 8))
     regime_cap = max(1, int(getattr(CFG, "RESEARCH_SHADOW_MAX_OPEN_PER_REGIME", 4) or 4))
-    if len(_OPEN_SHADOWS) >= global_cap:
+    if len(open_shadows) + len(pending_only) >= global_cap:
         return False, "shadow_cap_global"
     if int(counts.get(regime, 0)) >= regime_cap:
         return False, "shadow_cap_regime"

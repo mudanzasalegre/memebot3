@@ -389,6 +389,7 @@ async def test_actual_runner_finishes_other_cleanup_and_stopped_before_reporting
         '_refresh_green_live_risk': AsyncMock(), 'store_append': Mock(return_value=True),
         '_policy_feature_write_result': Mock(), 'main_loop': main, '_dex_discovery_loop': forever,
         '_position_monitor_loop': forever, '_shadow_monitor_loop': forever, '_periodic_labeler': forever,
+        '_open_shadow_now': AsyncMock(return_value=True),
         'control_command_loop': control, 'runtime_state_loop': forever, '_background_tasks': set(),
         'pumpfun': SimpleNamespace(stop_background_tasks=stop_pump), '_stats': {},
         '_note_runtime_error': Mock(), '_publish_runtime_state_once': stopped,
