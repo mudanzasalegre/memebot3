@@ -4,7 +4,7 @@
   "scope": "ML status API and visible provenance of reported research-event diagnostics; not a change in trading, training or financial acceptance",
   "original_defects": [
     "A historical count/AUC/average-return checklist can publish ml_live_ready=true from repeated unverified research events without full-strategy financial acceptance",
-    "Boolean and nonfinite reported returns are accepted as numeric observations; finite extreme returns can overflow their direct sum and fail strict JSON serialization"
+    "Boolean and nonfinite reported returns are accepted as numeric observations; finite extreme returns can overflow their direct sum. The pre-existing native API envelope already converted nonfinite results to null: a native HTTP500 was not established. The demonstrated failures are contaminated return statistics and lost finite means, not missing envelope JSON sanitization"
   ],
   "baseline": {
     "cases": 7,
@@ -202,5 +202,18 @@
         }
       }
     }
-  ]
+  ],
+  "json_response_scope": {
+    "observed_at_utc": "2026-10-15T08:31:37.429603+00:00",
+    "original_service_commit": "b1516f3f7f87e5d45854ae2bd26cb65b9f26db65",
+    "current_service_commit": "d52cb19a33aa3b09439595b05ae4d12eb6883aa2",
+    "native_router_cases_each": 3,
+    "original_http_status": 200,
+    "current_http_status": 200,
+    "preexisting_envelope_json_sanitization": true,
+    "original_defect": "Nonfinite/Boolean observations contaminate reported-return statistics; direct finite-extreme sum can lose a valid mean when the preexisting envelope converts its overflow to null",
+    "correction": "Current metrics reject unsupported observations and keep a finite scaled mean; they do not add the already-existing native envelope sanitizer",
+    "qualification": "Actual ML router under in-process minimal FastAPI and temporary synthetic settings/data; not full main-app/auth/startup, provider, operational server, rendered-browser or financial acceptance",
+    "software_source_unchanged": true
+  }
 }

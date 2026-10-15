@@ -22,8 +22,9 @@ recuentos son eventos de una cola acotada, no operaciones financieras unicas;
 el panel muestra esa limitacion expresamente.
 
 Los porcentajes booleanos/no finitos ya no contaminan la media o la tasa de
-acierto ni rompen JSON. La media conserva valores finitos extremos sin recorte
-y evita el desbordamiento de su suma. No cambian compras, salidas, entrenamiento
+acierto. La envoltura de la API ya protegia JSON convirtiendo no finitos a null;
+no se ha demostrado un HTTP500 previo. La media conserva valores finitos
+extremos sin recorte ni desbordamiento. No cambian compras, salidas, entrenamiento
 ni activacion. [Contrato y evidencia](docs/audits/ml_api_evidence_20261015.json).
 
 ### Apagado: el exportador conserva su hilo hasta terminar (2026-10-15)
