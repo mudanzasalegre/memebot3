@@ -13,6 +13,20 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Monitor: precio vigente tras esperar SQL (2026-10-16)
+
+Se corrige el uso de precio LIVE caducado tras persistir peak/politica, antes
+de decidir parciales o la proteccion por liquidez. Se conserva la validacion
+de caja PAPER y el limite existente de 30 segundos del recibo HTTP; no se
+certifica el instante de mercado del proveedor ni una ejecucion financiera.
+
+Pasan 2.188 regresiones por carpeta, incluidas las 1.914 anteriores; 112 casos
+dirigidos y 7.369 recogidos. CI completa de esta revision pendiente.
+Sin nueva PAPER/LIVE, llamadas a proveedores, cambios de 0,1 SOL, umbrales de
+salida, modelos o configuracion. Operador y AutoResearch apagados.
+La rentabilidad y la auditoria global siguen sin estar completadas.
+[Evidencia y limites](docs/audits/live_monitor_freshness_20261016.json).
+
 ### Riesgo ML: evidencia independiente y probabilidades correctas (2026-10-16)
 
 Un riesgo alto validado ya no depende de que exista el modelo principal de

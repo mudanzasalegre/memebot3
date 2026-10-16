@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "status": "LIVE_MONITOR_POST_SQL_RECEIPT_REPAIRED_2188_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "4d37b65b4a87c9a12104ea62e6be14d45d13ba6b",
+  "previous_stage": "docs/audits/risk_veto_evidence_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "defect": "The native position monitor can await peak or policy SQL persistence after capturing a valid client price receipt. Before partial/liquidity-override decisions it rechecked PAPER cash, but not LIVE price freshness. A now-expired LIVE price/PnL could request a partial, or suppress an independently fresh zero-liquidity crush for a position already partially sold. The later final-close check occurred too late for these branches.",
+  "repair": "At the existing pre-partial boundary, preserve checked PAPER cash and independently re-read LIVE price through the unchanged fresh_market_value contract. If unavailable/expired, clear price_source and PnL to unknown, not zero. Fresh liquidity remains independently assessed. No new request, concurrency, timeout, threshold, size, exit policy, sell journal, recovery, fill interpretation or model authority.",
+  "production_changed_paths": [
+    "run_bot.py"
+  ],
+  "preserved_checks": {
+    "frozen_git_parent_source_exact": true,
+    "whole_run_bot_only_pre_partial_live_receipt_recheck_changes": true,
+    "paper_cash_check_and_unknown_source_pnl_clearing_preserved": true,
+    "all_thresholds_sizing_quote_requests_exit_policy_recovery_dispatch_and_other_code_unchanged": true
+  },
+  "original_new_cases": {
+    "tests": 18,
+    "failures": 8,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 3.062
+  },
+  "directed": {
+    "tests": 112,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 16.532
+  },
+  "focused": {
+    "working": {
+      "tests": 2188,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 490.664
+    },
+    "publishing": {
+      "tests": 2188,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 480.812
+    }
+  },
+  "new_repository_cases": 18,
+  "all_previous1914_cases_preserved": true,
+  "all_directed112_cases_included": true,
+  "official_collected_each": 7369,
+  "source_files_each": 871,
+  "source_sha256": "e6fa8227f750ada2388d37b0a5d7c3985238d70e205c00ba76c6a83708aa8d3e",
+  "native_reproduction_scope": "Whole native _check_positions body, detached synthetic positions and inert provider/session/sell/exit seams. Controlled clock advances during both peak/policy commit paths.8 old failures and10 old controls; fresh/exact30-second boundary, stale, independently fresh zero liquidity and cancellation covered. No actual LIVE invocation, signing, provider/SQL transaction, financial fill or operator PAPER.",
+  "historical_attribution": "NOT_ESTABLISHED: this is a source-level failure reproduction, not proof of a past financial loss or the last run zero-buy cause. Existing entry opportunity/age/snapshot/risk decisions are unchanged.",
+  "older_source_ci": {
+    "databaseId": 38837362605,
+    "headSha": "4790f0559266f50beedf7cf3f4f07d5568213f7f",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38837362605"
+  },
+  "older_ci_limit": "4790f05 full CI passed Windows/Linux. It does not certify the later parent4d37b65 or this revision.",
+  "conservation": {
+    "protected_working_files": 4442,
+    "protected_publishing_files": 28,
+    "changed_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "added_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "prior_sqlite_warning": "Earlier native read-probe SQLite byte warning retained, not reset or restored: 131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33 versus 25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9. Exact immediate pre-probe logical equality and historical cause remain unproved. This stage starts from the declared post-warning state."
+  },
+  "current_full_ci": "PENDING_FOR_THIS_REVISION_NOT_PREAPPROVED",
+  "private_evidence": "work/live-monitor-freshness-stage-20261016: original-monitor-freshness.xml, repaired-monitor-freshness.xml, focused-*.xml, collection-*.json, review.json, after-final-regressions.json, published-tree-review.json and published-handoff.json",
+  "limits": "The30-second bound is unchanged client HTTP-receipt age, not independent provider market-asof or price/route/fill guarantee. Native LIVE financial execution, serial-monitor/real provider latency, current-wallet/finality, full-strategy capital/source/opportunity and prospective net-profit acceptance remain separate incomplete requirements. No runtime/PAPER/LIVE/provider/account/config/models/AutoResearch/exact0.1SOL/exit-threshold activation. Preserve the entire original objective/history and ten remaining requirements; finish all runtime/training/QA processes OFF."
+}

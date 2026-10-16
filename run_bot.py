@@ -8830,11 +8830,11 @@ async def _check_positions(ses: SessionLocal) -> None:
 
         # SQL/policy persistence above may have awaited. Recheck before any
         # price-dependent partial or liquidity-override decision, not just close.
-        if DRY_RUN:
-            price = papertrading.checked_cash_price(mint_key, cash_mark, expected_position=pos)
-            if price is None:
-                price_src = None
-                pnl_pct = None
+        price = (papertrading.checked_cash_price(mint_key, cash_mark, expected_position=pos) if DRY_RUN else
+                 fresh_market_value(price_tick, "price_usd"))
+        if price is None:
+            price_src = None
+            pnl_pct = None
 
         # ── Liquidity crush inmediato (manteniendo tu comportamiento) ────
         liq_now = fresh_market_value(liquidity_tick, "liquidity_usd")
