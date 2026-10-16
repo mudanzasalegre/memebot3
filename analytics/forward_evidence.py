@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 import hashlib
+import json
 import random
 import statistics
 from pathlib import Path
@@ -12,6 +13,20 @@ from typing import Any
 from analytics.current_run import parse_time
 from analytics.report_utils import load_paper_positions, load_sqlite_positions
 from runtime.paper_archive import PaperArchiveError, entry_identity, read_closed_evidence
+
+
+# Only original cash/identity fields, never arbitrary features/provider payloads.
+_CASH_DIGEST_FIELDS = frozenset('''
+entry_intent_id source_position_key buy_signature buy_tx_sig token_address address
+run_id config_profile config_hash dry_run test_event opened_at closed_at closed
+qty_lamports entry_qty amount_sol buy_amount_sol buy_price_usd entry_notional_usd
+quantity_basis entry_route_quote paper_execution_fx_version entry_fx_observation
+entry_valued_at paper_execution_cost_version entry_execution_cost_model entry_costed_at
+execution_cost_model estimated_fees_usd estimated_fees_sol execution_fill_count
+total_pnl_usd net_total_pnl_usd net_total_pnl_pct net_total_pnl_sol total_proceeds_sol
+realized_proceeds_sol realized_proceeds_usd realized_cost_usd realized_pnl_usd
+net_realized_pnl_usd exit_fill_events
+'''.split())
 
 
 def _finite(value: Any) -> float | None:
@@ -200,12 +215,23 @@ def collect_forward_evidence(root: Path, *, run_id: str | None, started_at: Any,
     latest = ordered[-1][0] if ordered else None
     observed_start = min((parse_time(key[1]) for key in selected), default=None)
     lower = statistics.mean(pcts) - 1.96 * statistics.stdev(pcts) / math.sqrt(len(pcts)) if len(pcts) > 1 else None
+    # Bind the selected original financial cohort, not its rounded aggregates or
+    # time-dependent age. A later writer/startup must independently recollect it.
+    cash_digest = None
+    try:
+        cash_rows = [[list(key), {name: row[name] for name in sorted(_CASH_DIGEST_FIELDS) if name in row}]
+                     for key, item in sorted(selected.items()) for row in [item[6]]]
+        cash_digest = hashlib.sha256(json.dumps(cash_rows, sort_keys=True,
+            separators=(',', ':'), allow_nan=False).encode()).hexdigest() if cash_rows else None
+    except (TypeError, ValueError, OverflowError):
+        pass  # Existing diagnostics survive; this source cannot bind approval.
     return {
         "evidence_rejections": sorted(set(reasons)), "run_id": run_id, "cost_basis": "estimated_paper_fills_not_live",
         "closed_archive_integrity_issues": archive_issues,
         "config_hash": config_hash, "profile": profile,
         "window_started_at": started.isoformat() if started else None,
         "evidence_schema": "cost_checked_terminal_trades_v2",
+        "selected_cash_evidence_sha256": cash_digest,
         "closed_trades": len(pnls), "uncosted_records": uncosted,
         "open_positions": len(open_positions),
         "max_daily_buys_observed": max(buys_by_day.values(), default=0),

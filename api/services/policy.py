@@ -16,6 +16,7 @@ from api.services.sources import json_status, jsonl_status, paper_portfolio_stat
 from api.settings import APISettings
 from backtest.policy_replay import POLICIES, build_policy_replay
 from analytics.policy_replay_semantics import diagnostic_comparison, diagnostic_metrics, replay_scope
+from runtime.live_paper_evidence import inspect_paper_evidence
 from config.config import CFG
 from tools.config_effect_audit import build_config_effect_audit
 
@@ -380,6 +381,7 @@ def get_policy_safety_envelope(settings: APISettings) -> Envelope:
     replay_candidate = replay.get("combined_policy_v2") or replay.get("combined_v1") or {}
     replay_candidate = replay_candidate if isinstance(replay_candidate,dict) else {}
     paper_forward = read_json_file(_metrics_path(settings, "paper_forward_report.json")) or {}
+    paper_forward = paper_forward if isinstance(paper_forward, dict) else {}
     model_registry = read_json_file(_model_registry_path(settings)) or {}
     drift = drift_snapshot(events_path=settings.runtime_events_path)
     proposal_counts = _proposal_counts(settings)
@@ -398,7 +400,8 @@ def get_policy_safety_envelope(settings: APISettings) -> Envelope:
     # Heuristic replay cannot certify a financially accepted strategy, even
     # when a supplied artifact claims approval or its comparison looks better.
     replay_candidate_passed = False
-    paper_forward_passed = bool(paper_forward.get("passed"))
+    paper_forward_validation = inspect_paper_evidence(settings.project_root)
+    paper_forward_passed = paper_forward_validation['passed']
     model_families = (model_registry.get("families") or {}) if isinstance(model_registry, dict) else {}
 
     gates = [
@@ -486,6 +489,7 @@ def get_policy_safety_envelope(settings: APISettings) -> Envelope:
             "best_by_total_pnl": _best_policy(replay),
         },
         "paper_forward": paper_forward,
+        "paper_forward_validation": paper_forward_validation,
         "model_registry": {
             "active_model_id": model_registry.get("active_model_id") if isinstance(model_registry, dict) else None,
             "families": model_families,

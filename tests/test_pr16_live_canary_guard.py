@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from live_paper_fixtures import PROPOSAL, write_cohort
+from runtime.live_paper_evidence import inspect_paper_evidence
 
 from api.services.live_promotion import build_live_start_profile_values
 from runtime.live_canary_guard import (
@@ -29,6 +31,7 @@ def _write_live_artifacts(root: Path) -> None:
             "entries": [
                 {
                     "run_id": "ar_live_ok",
+                    "proposal_id": PROPOSAL,
                     "status": "accepted_replay",
                     "objective_score": 4.2,
                     "evaluated_at_utc": "2026-07-07T14:00:00+00:00",
@@ -36,6 +39,7 @@ def _write_live_artifacts(root: Path) -> None:
             ]
         },
     )
+    write_cohort(root)
 
 
 def test_live_guard_blocks_checked_in_template_without_manual_approval() -> None:
@@ -51,7 +55,8 @@ def test_live_guard_blocks_checked_in_template_without_manual_approval() -> None
 
 def test_live_guard_accepts_generated_manual_profile_with_artifacts(tmp_path: Path) -> None:
     _write_live_artifacts(tmp_path)
-    values = build_live_start_profile_values(approved_by="operator", approval_id="approval-1")
+    values = build_live_start_profile_values(approved_by="operator", approval_id="approval-1",
+        paper_evidence_binding=inspect_paper_evidence(tmp_path)['binding'])
 
     result = evaluate_live_start(
         root=tmp_path,
@@ -69,6 +74,7 @@ def test_live_guard_accepts_generated_manual_profile_with_artifacts(tmp_path: Pa
 
 def test_live_guard_blocks_negative_0707_sample(tmp_path: Path) -> None:
     _write_live_artifacts(tmp_path)
+    write_cohort(tmp_path,net=-5.)
     _write_json(
         tmp_path / "data" / "metrics" / "current_run_summary.json",
         {"closed_trades": 30, "buys": 30, "total_pnl_usd": -81.33, "profit_factor": 0.629},

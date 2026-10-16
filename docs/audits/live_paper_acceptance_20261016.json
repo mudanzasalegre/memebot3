@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "status": "ORIGINAL_PAPER_CASH_START_BOUNDARY_REPAIRED_1393_EACH_DB_BYTE_WARNING_CI_PENDING_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "d8d28ab1ca96b0f684ae1e363f0d8fb0abf936e8",
+  "previous_stage": "docs/audits/policy_replay_evidence_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "defects": [
+    "UI preflight and native startup accepted a gross scalar summary plus accepted_replay without original net PAPER fills.",
+    "Profile writer trusted caller passed=true without recollecting source evidence; policy page trusted the cached forward flag.",
+    "UI supported legacy list scoreboards but startup discarded them, breaking a genuine positive native path.",
+    "Future-dated approval/process clocks could be clamped to fresh; caps accepted Boolean/fractional or nonfinite coercions.",
+    "A fresh process heartbeat did not establish freshness of its independently observed wallet balance."
+  ],
+  "repair": {
+    "cash": "Read-only shared original cohort inspection uses only report identity, never its approval/count/PnL claims. Native quote/FX/cost reconstruction and forward acceptance are recollected from raw records, retaining50 closes/24h/20 tokens, settlement, freshness and positive-expectancy diagnostics.",
+    "binding": "Bind proposal, run, prospective start, config hash, profile and selected original financial receipt digest. Recheck at atomic profile export and actual startup. Report regeneration/deletion cannot substitute a different cohort after approval.",
+    "manual_and_wallet": "Keep explicit named manual approval and all existing LIVE caps/auto-promotion bans. Require fresh15s process state and original wallet observation at most60s old; preserve native30s polling. Reject future/expired approvals and malformed numeric caps.",
+    "publication": "Profile publication is fsynced/atomic; failure preserves the previous file. Actor/approval identifiers cannot inject extra environment assignments. Current native operator writer is never invoked.",
+    "paper": "No additional PAPER entry/scanner/ranking gate, trade-size change, upside cap or model/AutoResearch activation."
+  },
+  "original_probe": {
+    "tests": 4,
+    "failures": 4,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 1.736
+  },
+  "focused": {
+    "working": {
+      "tests": 1393,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 332.484
+    },
+    "publishing": {
+      "tests": 1393,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 329.674
+    }
+  },
+  "new_repository_cases": 45,
+  "official_collected_each": 7188,
+  "source_files_each": 865,
+  "source_sha256": "98b3a953e1c4e2ecd38f4e171632fee56c72fc68687fe90344cdf4ccfcaf9d8f",
+  "native_positive_path": "Synthetic exact0.1SOL quote/cost/FX cohort -> UI preflight -> atomic manual profile -> actual startup guard, including rejection on source replacement before write/start. No order or operator profile is created.",
+  "fixtures": "All assertions retained in both original test files. Positive fixtures now carry50 synthetic exact0.1SOL original quote/cost/FX closes over25.5h and a matching proposal; negative checks supply genuinely negative original cash rather than just a negative cached summary. No operator transactions.",
+  "preserved_checks": {
+    "frozen_git_identity_runtime/live_canary_guard.py": true,
+    "frozen_git_identity_api/services/live_promotion.py": true,
+    "frozen_git_identity_analytics/forward_evidence.py": true,
+    "frozen_git_identity_api/services/policy.py": true,
+    "frozen_git_identity_tests/test_live_promotion_preflight.py": true,
+    "frozen_git_identity_tests/test_pr16_live_canary_guard.py": true,
+    "all_existing_assertions_retained_tests/test_live_promotion_preflight.py": true,
+    "all_existing_assertions_retained_tests/test_pr16_live_canary_guard.py": true,
+    "financial_validation_body_unchanged__costed_close": true,
+    "financial_validation_body_unchanged_forward_acceptance": true,
+    "financial_validation_body_unchanged__finite": true,
+    "financial_validation_body_unchanged__true": true,
+    "all_original_forward_sampling_and_aggregation_statements_retained": true,
+    "independent_runtime_and_strategy_unchanged_run_bot.py": true,
+    "independent_runtime_and_strategy_unchanged_config/config.py": true,
+    "independent_runtime_and_strategy_unchanged_research_loop/paper_forward.py": true,
+    "independent_runtime_and_strategy_unchanged_research_loop/policy_promoter.py": true,
+    "independent_runtime_and_strategy_unchanged_scripts/strategy_quality_gate.py": true,
+    "independent_runtime_and_strategy_unchanged_runtime/entry_decision.py": true,
+    "independent_runtime_and_strategy_unchanged_runtime/runner_priority.py": true
+  },
+  "current_operator_probe": {
+    "observed_at_utc": "2026-10-16T00:35:02.903038+00:00",
+    "native_current_preflight_passed": false,
+    "blocked_gate_ids": [
+      "wallet_sol",
+      "accepted_research",
+      "manual_approval",
+      "sample.original_cash_evidence",
+      "sample.closed_trades",
+      "sample.net_pnl",
+      "sample.profit_factor"
+    ],
+    "paper_cash_prerequisite_passed": false,
+    "paper_cash_rejections": [
+      "forward_cost_validation_missing",
+      "insufficient_forward_trades",
+      "insufficient_observed_window",
+      "nonpositive_net_pnl",
+      "paper_exact_quote_coverage_incomplete",
+      "paper_identity_missing_or_invalid:config_hash",
+      "paper_identity_missing_or_invalid:profile",
+      "paper_identity_missing_or_invalid:proposal_id",
+      "paper_identity_missing_or_invalid:run_id",
+      "paper_identity_missing_or_invalid:started_at",
+      "paper_original_cash_digest_missing",
+      "paper_start_invalid",
+      "positive_expectancy_not_established",
+      "stale_forward_trade_evidence",
+      "token_cluster_expectancy_not_established"
+    ],
+    "policy_forward_gate": "warn",
+    "actual_operator_profile_write": false,
+    "operator_start_or_provider_probe": false,
+    "qualification": "Local read-only API service calls against current artifacts, not an operational provider/financial run, wallet refresh or live trading authorization."
+  },
+  "conservation": {
+    "observed_at_utc": "2026-10-16T00:39:49.092607+00:00",
+    "status": "ORIGINAL_DB_BYTE_CONSERVATION_WARNING_RETAINED_ALL_OTHER_PATHS_UNCHANGED",
+    "original_protected_counts": {
+      "working": 4442,
+      "publishing": 28
+    },
+    "changed": {
+      "working": [
+        "data/memebotdatabase.db"
+      ],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "db_before_sha256": "131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33",
+    "db_current_sha256": "25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9",
+    "qualification": "No baseline reset or restore. SQLite byte identity is not claimed. Available pre-PAPER2 backup shows identical schema/non-runtime logical rows, not exact immediate pre-probe equality. Disposable native-reader WAL checkpoint mechanism is reproduced; exact historical cause remains unproved. This supersedes the broad no-operator-data-change phrase in review.json; its scoped source/test checks remain valid."
+  },
+  "database_qualification": {
+    "schema_changes": [],
+    "non_runtime_tables_equal_to_pre_PAPER2_backup": true,
+    "current_runtime_state": [
+      [
+        "main",
+        "stopped",
+        "idle",
+        "idle",
+        "2026-10-15 22:10:11.246730"
+      ]
+    ],
+    "integrity_check": [
+      [
+        "ok"
+      ]
+    ],
+    "checkpoint_reproduction": "Disposable native rw reader changes database bytes with equal logical rows; explicit ro reader does not. This is a demonstrated mechanism, not proven exact historical attribution.",
+    "immediate_pre_probe_logical_snapshot": "NOT_AVAILABLE_NOT_RETRO_CERTIFIED",
+    "original_byte_warning": "RETAINED_NOT_RESTORED_NOT_BASELINED_AWAY"
+  },
+  "retained_intermediate_evidence": [
+    "initial-repair.xml retains2failed39passed because old positive fixtures had only unproved gross summaries.",
+    "expanded-repair.xml retains2failed73passed: actual startup discarded the legacy list scoreboard accepted by UI. Native list/object compatibility is repaired while financial cash prerequisites remain strict.",
+    "fixture-strengthened.xml41passed; repaired-support.xml75passed; repaired-expanded-final.xml78passed precede final full focused integration suites.",
+    "First1389-per-checkout integration source7da619 passed. Subsequent source review distinguished original wallet_checked_at from the process heartbeat; final source independently bounds both clocks and repeats all those cases plus4 wallet-clock cases. Pre-wallet source copies and review-initial.json are retained."
+  ],
+  "previous_full_ci": {
+    "revision": "7b4ac1fd50d13226fdefafe1b4394f2f44b7e234",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38824675910",
+    "status": "FAILURE",
+    "windows": "SUCCESS",
+    "linux": "1failed7074passed9skipped1warning1457.20s",
+    "failed_case": "tests/test_birdeye_throttle.py::test_cancelled_native_request_wait_releases_ownership",
+    "exact_cause": "NOT_YET_DIAGNOSED_NO_RESTART_NO_REPAIR_CLAIM"
+  },
+  "current_full_ci": "PENDING_FOR_NEW_REVISION_NOT_PREAPPROVED",
+  "private_receipts": "work/live-paper-gate-stage-20261016/review.json, review-initial.json, final-focused-working.xml, final-focused-publishing.xml, database-change-review.json, native-read-checkpoint-reproduction.json, final-conservation-review.json, parent-7b4-ci-failure.json and published-handoff.json",
+  "limits": "Selected declared cohort/source binding is not independent original trial-planning authentication, complete strategy-transfer approval, live wallet/transaction/fill finality or profitable rare-opportunity capture. Estimated PAPER costs are not executable LIVE fills. No operator PAPER/LIVE/profile, provider/account/key/plan change, training or activation. Original supervisor/report/watchdog findings and all ten remaining goal requirements remain. Physical SQLite immutability is explicitly not claimed."
+}

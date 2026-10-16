@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
+import os
 from pathlib import Path
+import tempfile
 from typing import Any, TYPE_CHECKING
 
 from config.config import CFG
+from runtime.live_paper_evidence import binding_profile_values, candidate_matches_paper
 from runtime.live_canary_guard import (
     LIVE_CANARY_PROTOCOL_ID,
     latest_accepted_candidate,
@@ -54,7 +58,9 @@ def _runtime_snapshot_freshness(snapshot: dict[str, Any] | None) -> str:
     updated_at = _parse_dt(snapshot.get("updated_at"))
     if updated_at is None:
         return "error"
-    age_s = max(0.0, (dt.datetime.now(dt.timezone.utc) - updated_at).total_seconds())
+    age_s = (dt.datetime.now(dt.timezone.utc) - updated_at).total_seconds()
+    if age_s < 0:
+        return "error"
     if age_s > RUNTIME_ERROR_S:
         return "error"
     if age_s > RUNTIME_STALE_S:
@@ -68,9 +74,10 @@ def _runtime_snapshot_freshness(snapshot: dict[str, Any] | None) -> str:
 
 def _float(value: Any, default: float = 0.0) -> float:
     try:
-        if value is None:
+        if isinstance(value, bool) or value is None:
             return default
-        return float(value)
+        number = float(value)
+        return number if math.isfinite(number) else default
     except Exception:
         return default
 
@@ -118,6 +125,7 @@ def build_live_start_profile_values(
     approved_by: str | None = None,
     approval_id: str | None = None,
     template: bool = False,
+    paper_evidence_binding: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     now = _utc_now()
     live_canary_size = min(_float(getattr(CFG, "LIVE_CANARY_SIZE_SOL", 0.01), 0.01), 0.01)
@@ -168,6 +176,8 @@ def build_live_start_profile_values(
         "ALLOW_LIVE_POLICY_ENFORCE": "false",
         "ML_GATE_MODE": "shadow",
     }
+    if paper_evidence_binding is not None:
+        values.update(binding_profile_values(paper_evidence_binding))
     return values
 
 
@@ -226,6 +236,7 @@ def build_live_promotion_preflight(
         min_closed_trades=min_closed_trades,
         min_net_pnl_usd=min_net_pnl,
         min_profit_factor=min_profit_factor,
+        root=getattr(settings, 'project_root', settings.data_dir.parent),
     )
     proposed_profile = build_live_start_profile_values(
         approved_by=approved_by if manual_approval else None,
@@ -236,15 +247,20 @@ def build_live_promotion_preflight(
         label="generated_live_start_profile",
         require_approval=manual_approval,
     )
+    wallet_freshness = _runtime_snapshot_freshness({'updated_at':(runtime_snapshot or {}).get('wallet_checked_at')})
+    # Native balance polling is30s; accept its original observation for at most
+    # the existing60s stale boundary, independently of the15s process heartbeat.
+    wallet_ok = freshness == 'fresh' and wallet_freshness in {'fresh','stale'} and wallet_sol >= required_wallet_sol
+    candidate_ok = candidate_matches_paper(accepted_candidate, sample_result.evidence or {})
 
     gates = [
         _gate(
             "wallet_sol",
             "Wallet SOL",
-            wallet_sol >= required_wallet_sol,
+            wallet_ok,
             "Enough SOL is available for one live canary buy plus gas reserve."
-            if wallet_sol >= required_wallet_sol
-            else "Wallet balance is missing or below the live canary reserve.",
+            if wallet_ok
+            else "Wallet balance is missing, stale, future-dated or below the live canary reserve.",
             value=None if wallet_sol < 0 else round(wallet_sol, 6),
             required=round(required_wallet_sol, 6),
         ),
@@ -261,17 +277,17 @@ def build_live_promotion_preflight(
         _gate(
             "accepted_research",
             "Accepted research candidate",
-            accepted_candidate is not None,
-            "AutoResearch has an accepted positive candidate."
-            if accepted_candidate is not None
-            else "AutoResearch has not accepted a positive candidate yet.",
+            candidate_ok,
+            "Positive research matches the independently revalidated PAPER proposal."
+            if candidate_ok
+            else "Positive research and original PAPER proposal/cash evidence do not match or are missing.",
             value={
                 "run_id": accepted_candidate.get("run_id"),
                 "objective_score": accepted_candidate.get("objective_score"),
             }
             if accepted_candidate
             else None,
-            required="accepted_replay_or_accepted_paper_with_positive_score",
+            required="positive_research_proposal_matching_original_paper_cohort",
         ),
         _gate(
             "runtime_not_live",
@@ -304,6 +320,8 @@ def build_live_promotion_preflight(
         "gates": gates,
         "profile_path": str(settings.runtime_dir / LIVE_PROFILE_NAME),
         "accepted_candidate": accepted_candidate,
+        "paper_sample": sample_result.evidence,
+        "approved_by": approved_by if manual_approval else None,
     }
 
 
@@ -314,14 +332,29 @@ def write_live_start_profile(
     approved_by: str | None = None,
     approval_id: str | None = None,
 ) -> Path:
-    if not bool(preflight.get("passed")):
+    actor_valid = (isinstance(approved_by, str) and bool(approved_by.strip())
+                   and len(approved_by) <= 256 and not any(ord(c) < 32 for c in approved_by))
+    approval_valid = (approval_id is None or (isinstance(approval_id, str)
+        and bool(approval_id.strip()) and len(approval_id) <= 256 and not any(ord(c) < 32 for c in approval_id)))
+    if (preflight.get('passed') is not True or not actor_valid or not approval_valid
+            or preflight.get('approved_by') != approved_by):
         raise RuntimeError("live_preflight_not_passed")
+    # This write is a new financial boundary, not permission conveyed by a
+    # caller's mutable passed flag. Read current local runtime and cash again.
+    from api.services.runtime import get_runtime_snapshot
+    fresh = build_live_promotion_preflight(settings, runtime_snapshot=get_runtime_snapshot(settings),
+        manual_approval=True, approved_by=approved_by)
+    old_sample = preflight.get('paper_sample')
+    if (fresh.get('passed') is not True or not isinstance(old_sample, dict)
+            or old_sample.get('binding') != (fresh.get('paper_sample') or {}).get('binding')):
+        raise RuntimeError('live_preflight_original_evidence_changed_or_not_passed')
     path = settings.runtime_dir / LIVE_PROFILE_NAME
     path.parent.mkdir(parents=True, exist_ok=True)
     values = build_live_start_profile_values(
         approved_by=approved_by or "ui",
         approval_id=approval_id,
         template=False,
+        paper_evidence_binding=fresh['paper_sample']['binding'],
     )
     lines = [
         "# Generated by UI live promotion preflight. Do not store secrets here.",
@@ -329,7 +362,15 @@ def write_live_start_profile(
     ]
     for key, value in values.items():
         lines.append(f"{key}={value}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=f'.{path.name}.', suffix='.tmp')
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8', newline='\n') as stream:
+            stream.write('\n'.join(lines)+'\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
     return path
 
 

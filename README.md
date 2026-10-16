@@ -13,6 +13,24 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Aceptacion PAPER original antes de preparar LIVE (2026-10-16)
+
+El preflight, el escritor de perfiles y el arranque reconstruyen ahora la caja
+PAPER neta original, con quotes, FX y costes; un resumen positivo o un flag
+guardado no bastan. La aprobacion manual queda ligada a su cohorte original y se
+revalida antes de escribir y arrancar. Los relojes de proceso y saldo son distintos.
+No se anaden filtros a las compras PAPER ni se cambian los 0,1 SOL o las salidas.
+
+Pasan 1.393 regresiones por carpeta, con 45 casos nuevos y 7.188 recogidos.
+La comprobacion local actual sigue bloqueando LIVE, sin crear perfiles ni operar.
+Se conserva una excepcion: SQLite cambio de bytes durante la lectura nativa.
+El esquema y las tablas no operativas coinciden con el backup anterior a PAPER2;
+se reproduce un checkpoint por lectura, pero la causa historica exacta no queda
+probada. No se restaura ni se oculta el aviso. La CI anterior 7b4ac1f termina con
+Windows aprobado y un fallo Linux de espaciado Birdeye, aun sin resolver.
+La nueva CI completa y la rentabilidad siguen pendientes; el operador queda OFF.
+[Pruebas, excepcion SQLite y limites](docs/audits/live_paper_acceptance_20261016.json).
+
 ### Replay: diagnostico sin falsa aprobacion financiera (2026-10-16)
 
 El replay conserva los ceros originales y los retornos desconocidos, calcula la

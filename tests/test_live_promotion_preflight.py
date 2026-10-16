@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from api.services.live_promotion import build_live_promotion_preflight, write_live_start_profile
+from live_paper_fixtures import PROPOSAL, snapshot, write_cohort
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -14,6 +15,8 @@ def _write_json(path: Path, payload: object) -> None:
 
 def _settings(tmp_path: Path):
     return SimpleNamespace(
+        project_root=tmp_path,
+        db_path=tmp_path / 'data' / 'memebotdatabase.db',
         data_dir=tmp_path / "data",
         metrics_dir=tmp_path / "data" / "metrics",
         runtime_dir=tmp_path / "data" / "runtime",
@@ -30,6 +33,7 @@ def _healthy_artifacts(root: Path) -> None:
         [
             {
                 "run_id": "ar_ok",
+                "proposal_id": PROPOSAL,
                 "status": "accepted_replay",
                 "objective_score": 12.5,
                 "evaluated_at_utc": "2026-06-04T20:00:00+00:00",
@@ -40,6 +44,7 @@ def _healthy_artifacts(root: Path) -> None:
         root / "data" / "research_runs" / "api_budget.json",
         {"birdeye_429_count": 0, "gecko_429_count": 0, "jupiter_rate_limit_count": 0, "provider_degraded_minutes": 0},
     )
+    write_cohort(root)
 
 
 def test_live_promotion_preflight_blocks_api_budget(tmp_path) -> None:
@@ -51,7 +56,7 @@ def test_live_promotion_preflight_blocks_api_budget(tmp_path) -> None:
 
     preflight = build_live_promotion_preflight(
         _settings(tmp_path),
-        runtime_snapshot={"wallet_sol": 1.0, "dry_run": True},
+        runtime_snapshot=snapshot(),
         manual_approval=True,
         approved_by="operator",
     )
@@ -67,7 +72,7 @@ def test_live_promotion_preflight_writes_live_profile_after_gates_pass(tmp_path)
 
     preflight = build_live_promotion_preflight(
         settings,
-        runtime_snapshot={"wallet_sol": 1.0, "dry_run": True},
+        runtime_snapshot=snapshot(),
         manual_approval=True,
         approved_by="operator",
     )
@@ -93,7 +98,7 @@ def test_live_promotion_preflight_blocks_without_manual_approval(tmp_path) -> No
 
     preflight = build_live_promotion_preflight(
         _settings(tmp_path),
-        runtime_snapshot={"wallet_sol": 1.0, "dry_run": True},
+        runtime_snapshot=snapshot(),
     )
 
     assert not preflight["passed"]
@@ -103,6 +108,7 @@ def test_live_promotion_preflight_blocks_without_manual_approval(tmp_path) -> No
 
 def test_live_promotion_preflight_blocks_negative_paper_sample(tmp_path) -> None:
     _healthy_artifacts(tmp_path)
+    write_cohort(tmp_path,net=-5.)
     _write_json(
         tmp_path / "data" / "metrics" / "current_run_summary.json",
         {"buys": 30, "closed_trades": 30, "total_pnl_usd": -81.33, "profit_factor": 0.629},
@@ -110,7 +116,7 @@ def test_live_promotion_preflight_blocks_negative_paper_sample(tmp_path) -> None
 
     preflight = build_live_promotion_preflight(
         _settings(tmp_path),
-        runtime_snapshot={"wallet_sol": 1.0, "dry_run": True},
+        runtime_snapshot=snapshot(),
         manual_approval=True,
         approved_by="operator",
     )

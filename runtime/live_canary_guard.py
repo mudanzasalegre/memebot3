@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+from runtime.live_paper_evidence import binding_from_profile, candidate_matches_paper, inspect_paper_evidence
 
 
 TRUE_TEXT = {"1", "true", "yes", "y", "on"}
@@ -76,6 +79,7 @@ class LiveCanaryGuardResult:
     gates: tuple[LiveCanaryGate, ...]
     errors: tuple[str, ...]
     mode: str
+    evidence: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -83,6 +87,7 @@ class LiveCanaryGuardResult:
             "mode": self.mode,
             "gates": [gate.to_dict() for gate in self.gates],
             "errors": list(self.errors),
+            "evidence": self.evidence,
         }
 
 
@@ -100,20 +105,17 @@ def _falsey(value: Any) -> bool:
 
 def _float(value: Any, default: float | None = None) -> float | None:
     try:
-        if value is None or str(value).strip() == "":
+        if isinstance(value, bool) or value is None or str(value).strip() == "":
             return default
-        return float(str(value).strip())
+        number = float(str(value).strip())
+        return number if math.isfinite(number) else default
     except Exception:
         return default
 
 
 def _int(value: Any, default: int | None = None) -> int | None:
-    try:
-        if value is None or str(value).strip() == "":
-            return default
-        return int(float(str(value).strip()))
-    except Exception:
-        return default
+    number = _float(value)
+    return int(number) if number is not None and number.is_integer() else default
 
 
 def _parse_dt(value: Any) -> dt.datetime | None:
@@ -343,7 +345,7 @@ def validate_live_canary_profile_values(
     approval_time = _parse_dt(values.get("LIVE_CANARY_APPROVED_AT_UTC"))
     approval_age_h = None
     if approval_time is not None:
-        approval_age_h = max(0.0, (now - approval_time).total_seconds() / 3600.0)
+        approval_age_h = (now - approval_time).total_seconds() / 3600.0
     if require_approval:
         gates.extend(
             [
@@ -377,7 +379,7 @@ def validate_live_canary_profile_values(
                 ),
                 _gate(
                     "manual.approval_freshness",
-                    approval_age_h is not None and approval_age_h <= LIVE_CANARY_APPROVAL_TTL_HOURS,
+                    approval_age_h is not None and 0 <= approval_age_h <= LIVE_CANARY_APPROVAL_TTL_HOURS,
                     "Manual approval must be timestamped and less than 24h old",
                     value=None if approval_age_h is None else round(approval_age_h, 3),
                     required=f"<= {LIVE_CANARY_APPROVAL_TTL_HOURS}h",
@@ -395,17 +397,29 @@ def validate_paper_sample(
     min_closed_trades: int = DEFAULT_MIN_PAPER_CLOSED_TRADES,
     min_net_pnl_usd: float = DEFAULT_MIN_PAPER_NET_PNL_USD,
     min_profit_factor: float = DEFAULT_MIN_PAPER_PROFIT_FACTOR,
+    root: Path | None = None,
+    binding: dict[str, Any] | None = None,
 ) -> LiveCanaryGuardResult:
-    closed_trades = _int(current_summary.get("closed_trades") or current_summary.get("closed_positions"), 0) or 0
-    buys = _int(current_summary.get("buys") or current_summary.get("buy_count"), 0) or 0
-    total_pnl_usd = _float(current_summary.get("total_pnl_usd"))
-    profit_factor = _float(current_summary.get("profit_factor"))
+    # Legacy summaries remain display data. Only freshly reconstructed original
+    # quote/cost/FX terminal evidence can satisfy this financial prerequisite.
+    sample = inspect_paper_evidence(root, binding=binding) if root is not None else {
+        'passed': False, 'binding': {}, 'evidence': {},
+        'rejection_reasons': ['original_paper_source_root_missing'], 'can_authorize_trading': False}
+    evidence = sample['evidence']
+    closed_trades = _int(evidence.get('closed_trades'), 0) or 0
+    total_pnl_usd = _float(evidence.get('total_pnl_usd'))
+    profit_factor = _float(evidence.get('profit_factor'))
+    no_losses = (_float(evidence.get('loss_usd')) == 0
+                 and (_float(evidence.get('win_usd')) or 0) > 0)
     gates = [
+        _gate('sample.original_cash_evidence', sample['passed'],
+              'Original prospective PAPER quote/cost/FX cash must be revalidated',
+              value=sample['rejection_reasons'], required='fresh_cost_checked_prospective_cohort'),
         _gate(
             "sample.closed_trades",
             closed_trades >= min_closed_trades,
             "Paper sample must contain enough closed trades before live canary",
-            value={"closed_trades": closed_trades, "buys": buys},
+            value={"closed_trades": closed_trades},
             required={"min_closed_trades": min_closed_trades},
         ),
         _gate(
@@ -417,14 +431,14 @@ def validate_paper_sample(
         ),
         _gate(
             "sample.profit_factor",
-            profit_factor is not None and profit_factor >= min_profit_factor,
+            no_losses or (profit_factor is not None and profit_factor >= min_profit_factor),
             "Paper sample must meet the profit-factor floor before live canary",
-            value=profit_factor,
+            value='no_observed_losses' if no_losses else profit_factor,
             required=f">= {min_profit_factor:g}",
         ),
     ]
     errors = tuple(gate.detail for gate in gates if not gate.passed)
-    return LiveCanaryGuardResult(not errors, tuple(gates), errors, "paper_sample" if not errors else "blocked")
+    return LiveCanaryGuardResult(not errors, tuple(gates), errors, "paper_sample" if not errors else "blocked", sample)
 
 
 def latest_accepted_candidate(scoreboard: Any) -> dict[str, Any] | None:
@@ -436,6 +450,7 @@ def latest_accepted_candidate(scoreboard: Any) -> dict[str, Any] | None:
         for row in entries
         if isinstance(row, dict)
         and str(row.get("status") or "").strip().lower() in {"accepted_replay", "accepted_paper"}
+        and type(row.get('objective_score')) in (int, float)
         and (_float(row.get("objective_score"), 0.0) or 0.0) > 0.0
     ]
     if not accepted:
@@ -472,19 +487,24 @@ def evaluate_live_start(
         min_closed_trades=int(min_closed or DEFAULT_MIN_PAPER_CLOSED_TRADES),
         min_net_pnl_usd=float(min_pnl if min_pnl is not None else DEFAULT_MIN_PAPER_NET_PNL_USD),
         min_profit_factor=float(min_pf if min_pf is not None else DEFAULT_MIN_PAPER_PROFIT_FACTOR),
+        root=root,
+        binding=binding_from_profile(values),
     )
-    scoreboard = read_json_object(root / "data" / "research_runs" / "scoreboard.json")
+    try:
+        scoreboard = json.loads((root / 'data/research_runs/scoreboard.json').read_text(encoding='utf-8'))
+    except (OSError, UnicodeError, ValueError):
+        scoreboard = {}
     accepted = latest_accepted_candidate(scoreboard)
     candidate_gate = _gate(
         "sample.accepted_candidate",
-        accepted is not None,
-        "AutoResearch must have an accepted positive replay or paper candidate before live canary",
+        candidate_matches_paper(accepted, sample_result.evidence or {}),
+        "Accepted positive research must match the revalidated PAPER proposal; a replay score is not financial proof",
         value={"run_id": accepted.get("run_id"), "objective_score": accepted.get("objective_score")} if accepted else None,
-        required="accepted_replay_or_accepted_paper_with_positive_score",
+        required="positive_research_proposal_matching_original_paper_cohort",
     )
     gates = [*profile_result.gates, *sample_result.gates, candidate_gate]
     errors = tuple(gate.detail for gate in gates if not gate.passed)
-    return LiveCanaryGuardResult(not errors, tuple(gates), errors, "live_canary" if not errors else "blocked")
+    return LiveCanaryGuardResult(not errors, tuple(gates), errors, "live_canary" if not errors else "blocked", sample_result.evidence)
 
 
 def ensure_live_start_allowed(*, root: Path, cfg: Any) -> None:
