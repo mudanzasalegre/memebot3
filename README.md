@@ -13,6 +13,24 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Replay: diagnostico sin falsa aprobacion financiera (2026-10-16)
+
+El replay conserva los ceros originales y los retornos desconocidos, calcula la
+mediana par correctamente y no fabrica captura sin un pico observado. Sus sumas
+son puntos porcentuales de observaciones historicas, no SOL, dolares ni retorno
+de cartera. La API y la interfaz separan la comparacion heuristica de cualquier
+aceptacion financiera; vacios y datos malformados no aprueban el replay.
+
+El original falla 44 de 46 casos iniciales; pasan 1.258 regresiones por carpeta,
+sin retirar las 948 anteriores. Hay 59 casos nuevos y se recogen 7.143 oficiales.
+Ambos builds UI pasan; esto no equivale a aceptacion visual completa. El cuaderno
+ejecuta cinco celdas, con revision visual limitada por el viewport disponible.
+La nueva CI completa sigue pendiente. No se regenera el informe del operador,
+no se oculta su aviso de cambios ni se toca el supervisor original. Todos los
+servicios quedan apagados, con 0,1 SOL y las colas extremas sin techo conservados.
+No se ha probado rentabilidad ni autorizado otra PAPER.
+[Evidencia y limites](docs/audits/policy_replay_evidence_20261016.json).
+
 ### Relojes de nacimiento y discovery sin redondear recibos (2026-10-16)
 
 La fusion de nacimiento, la referencia local de PumpPortal y la admision de

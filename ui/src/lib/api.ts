@@ -940,6 +940,9 @@ export interface PolicySafetyData {
     current: Record<string, unknown>;
     candidate: Record<string, unknown>;
     candidate_passed: boolean;
+    diagnostic_candidate_passed?: boolean;
+    diagnostic_comparison?: Record<string, unknown>;
+    evidence_scope?: Record<string, unknown>;
     best_by_total_pnl: string | null;
   };
   paper_forward: Record<string, unknown>;
@@ -953,6 +956,7 @@ export interface PolicyReplayData {
   best_by_total_pnl: string | null;
   policies: PolicyMetricRow[];
   raw: Record<string, Record<string, unknown>>;
+  evidence_scope?: Record<string, unknown>;
 }
 
 export interface PolicyCountRow {

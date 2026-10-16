@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "status": "POLICY_REPLAY_DIAGNOSTIC_BOUNDARY_REPAIRED_1258_PASS_EACH_FULL_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "7b4ac1fd50d13226fdefafe1b4394f2f44b7e234",
+  "previous_stage": "docs/audits/birth_clock_sources_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "source_quality": {
+    "cache_sha256": "60253383dd827cd2d0fdcbedc8e29c905a0855a241721f07d1e6cf85d55ba724",
+    "candidate_jsonl_sha256": "e62bd0edadf831c9d66b3d7c6011526295ea26865a21342b0e69fc981d685041",
+    "cached_policy_scenarios": 22,
+    "cached_reported_outcome_rows_each": 2439,
+    "cached_evidence_scope_present": false,
+    "current_candidate_object_rows": 25214,
+    "current_candidate_terminal_observations": 2522,
+    "terminal_known_return_rows": 2522,
+    "terminal_known_positive_peak_rows": 259,
+    "terminal_without_known_positive_peak": 2263,
+    "qualification": "Read-only native-normalized/test-filtered candidate JSONL profile, not the replay's separate positions/archive/SQL inputs or a shared financial cohort. Cache and JSONL are different snapshots/populations; counts are not trades, distinct tokens, profitable opportunities or current-PAPER fills. Source hashes before and after match. No historical financial gain or no-buy cause is inferred."
+  },
+  "defects": [
+    "Truthy alias fallback replaced a canonical zero realized return with a positive alias. Invalid supplied canonical values became zeros or fell through to a more convenient alias.",
+    "Even-sized medians used the upper observation. Ordinary summation overflowed on finite extreme tails; missing peaks could manufacture perfect capture.",
+    "The API displayed an empty replay as candidate_passed and accepted heuristic comparisons as a pass gate. Arbitrary dictionary metadata could become a policy or best-policy row. Certain malformed candidate values produced native HTTP500.",
+    "The native forward replay prescreen also treated empty zero-default metrics as passed. Its independent prospective financial evidence requirements already existed and remain unchanged.",
+    "The UI formatted unweighted reported percentage-point sums as portfolio percentages and called the scenario a passed candidate without declaring the nonfinancial basis."
+  ],
+  "repair": {
+    "arithmetic": "Preserve canonical zero and invalid supplied values; skip unknown/invalid outcomes with explicit counts. Use finite normalized fsum arithmetic, correct even median and None for unrepresentable aggregates. Capture needs a known positive original peak and exposes its denominator. No upper-return cap is introduced.",
+    "population_and_units": "Fixed non-caller-controlled diagnostic scope declares mixed historical outcome/position grain, posthoc heuristics, unweighted reported percentage-point sums, unverified costs and no trading or financial approval. Existing heuristic exit rules remain diagnostic, not executable counterfactual fills.",
+    "api": "Only known policy keys retain their authoritative identity. Best-policy and comparison require valid finite nonempty metrics; comparison support is count-checked, not certified paired financial evidence. Legacy candidate_passed is false for this diagnostic replay regardless of artifact claims. Empty/malformed input stays non-authorizing; native HTTP routes are exercised.",
+    "forward": "Share strict diagnostic comparison before the existing independent run/config/time/quote-cash/settlement/sample/expectancy/freshness acceptance. A replay improvement alone cannot pass paper forward.",
+    "ui": "Label outcome rows, reported returns, percentage-point sums and capture proxy. Show an explicit not-financial-acceptance warning, separate diagnostic comparison and financial approval, and never infer trading permission from this page.",
+    "research_compatibility": "Selecting no observations keeps only its known decision-ranking penalty, while financial returns remain unknown. Selecting unknown returns has no return-based objective score. Existing AutoResearch positive-effect assertions and activation guards are retained."
+  },
+  "immutable_original_probe": {
+    "tests": 46,
+    "failures": 44,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 2.463,
+    "source": "All five retained pre-edit source files match immutable7b4ac1f Git blobs. Original strict tests reproduce canonical-zero inflation, empty false approval and native HTTP500 for Boolean/string candidate metrics."
+  },
+  "focused": {
+    "working": {"tests": 1258, "failures": 0, "errors": 0, "skipped": 0, "junit_seconds": 319.448},
+    "publishing": {"tests": 1258, "failures": 0, "errors": 0, "skipped": 0, "junit_seconds": 317.562}
+  },
+  "new_repository_cases": 59,
+  "official_collected_each": 7143,
+  "source_files_each": 862,
+  "source_sha256": "8ab3c8314f8b583a8a1e06ae0d96859cdd26f650d61b532c5198ee3fd8b6852c",
+  "ui_build_each": "TypeScript and Vite pass with identical three-file outputs. Existing >500kB bundle warning retained; full frontend browser acceptance NOT_PERFORMED.",
+  "notebook": {
+    "path": "work/policy-replay-evidence-stage-20261016/policy-replay-evidence.ipynb",
+    "executed_code_cells": 5,
+    "execution_and_format_validation": "PASSED",
+    "presentation": "Initial truncated long text and extreme-number display were repaired; original notebook/HTML and execution receipt are retained. Final HTML DOM contains all five tables and complete qualifications. Screenshot inspection is limited to actual330x185 browser viewport; intended-width/full visual acceptance remains NOT_ESTABLISHED. No chart is needed for these small exact semantic mappings.",
+    "financial_acceptance": false
+  },
+  "preservation": {
+    "all_previous948_focused_cases_retained": true,
+    "all_existing_test_files_unchanged": true,
+    "independent_forward_financial_acceptance_unchanged": true,
+    "strategy_quality_gate_policy_tuner_research_replay_unchanged": true,
+    "operator_policy_replay_not_regenerated": true,
+    "original_supervisor_and_495_changed_report_fields_not_rewritten": true,
+    "protected_working_files": 4442,
+    "protected_publishing_files": 28,
+    "changed_protected_files": 0,
+    "added_protected_files": 0,
+    "original_scope_and_ten_remaining_requirements_preserved": true
+  },
+  "retained_intermediate_evidence": [
+    "arithmetic-only.xml retains18failed28passed before API/forward consumer repair.",
+    "initial-repaired.xml retains1failed136passed: the empty-selection diagnostic objective regression. Its existing positive-effect assertion is preserved and the ranking-only penalty is restored without fabricating financial zeros.",
+    "repaired-expanded.xml retains146passed before four final unknown/peak/extreme-tail additions and both complete focused integration runs."
+  ],
+  "previous_ci_observed": {
+    "72ced40_full_matrix": "SUCCESS https://github.com/mudanzasalegre/memebot3/actions/runs/38822164593",
+    "7b4ac1f_strategy": "SUCCESS https://github.com/mudanzasalegre/memebot3/actions/runs/38824675954",
+    "7b4ac1f_full_matrix_at_prepublication_cut": "IN_PROGRESS https://github.com/mudanzasalegre/memebot3/actions/runs/38824675910",
+    "qualification": "Specific original handles were observed; no rerun or restart. Prior success does not approve this new source."
+  },
+  "private_receipts": "work/policy-replay-evidence-stage-20261016/source-profile.json, review.json, original-evidence.xml, focused-working.xml, focused-publishing.xml, notebook-execution.json and notebook-presentation-review.json",
+  "current_full_source_ci": "PENDING_NOT_PREAPPROVED",
+  "operator_provider_retest": "NOT_AUTHORIZED_NOT_RUN",
+  "limits": "No fresh operator PAPER, provider probe, training, model activation, AutoResearch, API/UI runtime, LIVE or account/key/paid-plan mutation. Original data, .env, models, registries, policies, supervisors and backup remain intact;0.1SOL sizing and uncapped execution exits are unchanged. This stage does not certify the other safety-page gates/cached approval flags or change the supervisor's immutable-report classification. A future separately authorized operator profile must resolve that mutable-report/watchdog boundary without erasing the original failure. Current provider access, rare-opportunity coverage, full-strategy prospective net profitability and zero future errors remain unproved."
+}

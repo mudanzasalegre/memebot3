@@ -22,6 +22,9 @@ from analytics.shadow_followup_micro import evaluate_shadow_followup_micro
 from analytics.token_time import historical_age_snapshot
 from config.config import PROJECT_ROOT
 from analytics.report_utils import is_closed_trade, load_deduped_positions
+from analytics.policy_replay_semantics import (
+    finite_number, reported_value, linear_sum, moments, rounded, replay_scope,
+)
 
 
 POLICIES = (
@@ -72,8 +75,13 @@ SHADOW_FOLLOWUP_REPLAY_KEYS = {
 }
 
 
-def _base_pnl(row: dict[str, Any]) -> float:
-    return fnum(row.get("realized_pnl_pct") or row.get("total_pnl_pct") or row.get("pnl_pct") or row.get("target_total_pnl_pct"), 0.0)
+def _base_pnl(row: dict[str, Any]) -> float | None:
+    return reported_value(row, ("realized_pnl_pct","total_pnl_pct","pnl_pct","target_total_pnl_pct"))
+
+
+def _peak(row: dict[str, Any], default: float | None=None) -> float | None:
+    value=reported_value(row,("max_pnl_pct_seen","peak_pnl_pct","max_pnl_pct"))
+    return default if value is None else value
 
 
 def _parse_env_scalar(raw: str) -> str:
@@ -178,8 +186,9 @@ def _shadow_followup_candidate_summary(rows: list[dict[str, Any]], cfg: Any) -> 
     decisions = [evaluate_shadow_followup_micro(historical_age_snapshot(row), cfg=cfg) for row in rows]
     allowed_items = [(row, decision) for row, decision in zip(rows, decisions) if decision.allowed]
     blocked_items = [(row, decision) for row, decision in zip(rows, decisions) if not decision.allowed]
-    pnls = [_base_pnl(row) for row, _decision in allowed_items]
-    severe = sum(1 for row, pnl in zip((row for row, _decision in allowed_items), pnls) if is_severe_exit(row) or pnl <= -25.0)
+    valid_items=[(row,decision) for row,decision in allowed_items if _base_pnl(row) is not None]
+    pnls = [_base_pnl(row) for row, _decision in valid_items]
+    severe = sum(1 for row, pnl in zip((row for row, _decision in valid_items), pnls) if is_severe_exit(row) or pnl <= -25.0)
     liquidity_crush = sum(1 for row, _decision in allowed_items if str(row.get("exit_reason") or row.get("reason") or "").upper() == "LIQUIDITY_CRUSH")
     adverse_tick = sum(1 for row, _decision in allowed_items if str(row.get("exit_reason") or row.get("reason") or "").upper() == "ADVERSE_TICK")
     risk_blocked = sum(
@@ -187,14 +196,23 @@ def _shadow_followup_candidate_summary(rows: list[dict[str, Any]], cfg: Any) -> 
         for _row, decision in blocked_items
         if any(failure != "no_followup_trigger" for failure in decision.failures)
     )
-    total = round(sum(pnls), 3)
-    avg = round(total / len(pnls), 3) if pnls else 0.0
-    median = round(sorted(pnls)[len(pnls) // 2], 3) if pnls else 0.0
+    stats=moments(pnls)
+    total,avg,median=(stats[key] for key in ('total_pnl','avg_pnl','median_pnl'))
     win_rate = round(100.0 * sum(1 for pnl in pnls if pnl > 0) / len(pnls), 3) if pnls else 0.0
-    objective_score = round(total + avg * 2.0 + win_rate * 0.05 - severe * 40.0 - liquidity_crush * 35.0 - adverse_tick * 20.0 - risk_blocked * 0.5, 3)
+    # Selecting no observations has a known decision-only penalty. It does not
+    # turn unknown financial returns into zero. Selecting rows whose return is
+    # unknown, or an unrepresentable aggregate, has no return-based score.
+    if not allowed_items:
+        objective_score = rounded(-.5 * risk_blocked)
+    elif len(valid_items) != len(allowed_items) or total is None or avg is None:
+        objective_score = None
+    else:
+        objective_score = rounded(linear_sum([(total,1.),(avg,2.),(win_rate,.05),
+            (severe,-40.),(liquidity_crush,-35.),(adverse_tick,-20.),(risk_blocked,-.5)]))
     return {
         "allowed_shadow_followup": len(allowed_items),
-        "simulated_buys": len(allowed_items),
+        "simulated_buys": len(valid_items),
+        "allowed_with_unknown_return": len(allowed_items)-len(valid_items),
         "shadow_followup_total_pnl": total,
         "shadow_followup_avg_pnl": avg,
         "shadow_followup_median_pnl": median,
@@ -209,33 +227,19 @@ def _shadow_followup_candidate_summary(rows: list[dict[str, Any]], cfg: Any) -> 
 
 
 def _merge_candidate_current(base_rows: list[dict[str, Any]], shadow_rows: list[dict[str, Any]], cfg: Any) -> dict[str, Any]:
-    base = _summarize(base_rows, "current")
     effect = _shadow_followup_candidate_summary(shadow_rows, cfg)
-    base_trades = int(base.get("trades") or 0)
-    simulated_buys = int(effect["simulated_buys"])
-    total_trades = base_trades + simulated_buys
-    base_total = fnum(base.get("total_pnl"), 0.0)
-    candidate_total = round(base_total + fnum(effect.get("shadow_followup_total_pnl"), 0.0), 3)
-    base_wins = round(base_trades * fnum(base.get("win_rate"), 0.0) / 100.0)
-    candidate_wins = round(simulated_buys * fnum(effect.get("shadow_followup_win_rate"), 0.0) / 100.0)
-    merged = dict(base)
+    allowed=[row for row in shadow_rows if evaluate_shadow_followup_micro(historical_age_snapshot(row),cfg=cfg).allowed]
+    merged = _summarize(base_rows+allowed, "current")
     merged.update(effect)
-    merged["trades"] = total_trades
-    merged["total_pnl"] = candidate_total
-    merged["avg_pnl"] = round(candidate_total / total_trades, 3) if total_trades else 0.0
-    if simulated_buys and not base_trades:
-        merged["median_pnl"] = effect["shadow_followup_median_pnl"]
-    merged["win_rate"] = round(100.0 * (base_wins + candidate_wins) / total_trades, 3) if total_trades else 0.0
-    merged["severe_loss_count"] = int(base.get("severe_loss_count") or 0) + int(effect["shadow_followup_severe_loss_count"])
-    merged["liq_crush_count"] = int(base.get("liq_crush_count") or 0) + int(effect["shadow_followup_liquidity_crush_count"])
-    merged["adverse_tick_count"] = int(base.get("adverse_tick_count") or 0) + int(effect["shadow_followup_adverse_tick_count"])
     return merged
 
 
-def _simulate(row: dict[str, Any], policy: str) -> float:
+def _simulate(row: dict[str, Any], policy: str) -> float | None:
     pnl = _base_pnl(row)
+    if pnl is None:
+        return None
     reason = str(row.get("exit_reason") or row.get("reason") or "").upper()
-    peak = fnum(row.get("max_pnl_pct_seen") or row.get("peak_pnl_pct") or row.get("max_pnl_pct"), pnl)
+    peak = _peak(row,pnl)
     combined = policy in {"combined_v1", "combined_policy_v1", "combined_policy_v2"}
     if policy in {"risk_guard", "risk_guard_v2", "risk_model_only"} or combined:
         if reason in {"ADVERSE_TICK", "LIQUIDITY_CRUSH"}:
@@ -247,7 +251,7 @@ def _simulate(row: dict[str, Any], policy: str) -> float:
     if policy == "ev_model_only" and fnum(row.get("ev_pred_pct"), pnl) < 0:
         return 0.0
     if policy == "runner_model_only":
-        peak = fnum(row.get("max_pnl_pct_seen") or row.get("peak_pnl_pct") or row.get("max_pnl_pct"), pnl)
+        peak = _peak(row,pnl)
         return max(pnl, peak * 0.30) if peak >= 100 else pnl
     if policy == "pumpswap_prime_strict":
         if is_pumpswap_prime(row) and not evaluate_pumpswap_prime_strict(row).allowed:
@@ -269,10 +273,12 @@ def _simulate(row: dict[str, Any], policy: str) -> float:
     return pnl
 
 
-def _simulate_post_adjustment(row: dict[str, Any], policy: str) -> float:
+def _simulate_post_adjustment(row: dict[str, Any], policy: str) -> float | None:
     pnl = _base_pnl(row)
+    if pnl is None:
+        return None
     reason = str(row.get("exit_reason") or row.get("reason") or "").upper()
-    peak = fnum(row.get("max_pnl_pct_seen") or row.get("peak_pnl_pct") or row.get("max_pnl_pct"), pnl)
+    peak = _peak(row,pnl)
     category = classify_policy_category(row)
     if policy in {"baseline_48h", "research_rank_priority"}:
         return pnl
@@ -305,77 +311,51 @@ def _simulate_post_adjustment(row: dict[str, Any], policy: str) -> float:
     return pnl
 
 
-def _summarize(rows: list[dict[str, Any]], policy: str) -> dict[str, Any]:
-    pnls = [_simulate(row, policy) for row in rows]
+def _summarize_scenarios(rows: list[dict[str, Any]], policy: str, *, post: bool=False) -> dict[str, Any]:
+    simulate=_simulate_post_adjustment if post else _simulate
+    items=[(row,pnl) for row in rows if (pnl:=finite_number(simulate(row,policy))) is not None]
+    pnls=[pnl for _,pnl in items]
     if not pnls:
-        return {"trades": 0}
-    by_category: dict[str, dict[str, Any]] = {}
-    grouped: dict[str, list[tuple[dict[str, Any], float]]] = {}
-    for row, pnl in zip(rows, pnls):
-        grouped.setdefault(classify_policy_category(row), []).append((row, pnl))
-    for category, items in grouped.items():
-        cat_pnls = [pnl for _, pnl in items]
-        by_category[category] = {
-            "trades": len(cat_pnls),
-            "win_rate": round(100.0 * sum(1 for value in cat_pnls if value > 0) / len(cat_pnls), 3),
-            "avg_pnl": round(sum(cat_pnls) / len(cat_pnls), 3),
-            "severe_loss_count": sum(1 for row, pnl in items if is_severe_exit(row) or pnl <= -25),
-        }
-    severe = sum(1 for row, pnl in zip(rows, pnls) if is_severe_exit(row) or pnl <= -25)
-    return {
-        "trades": len(pnls),
-        "win_rate": round(100.0 * sum(1 for value in pnls if value > 0) / len(pnls), 3),
-        "avg_pnl": round(sum(pnls) / len(pnls), 3),
-        "median_pnl": round(sorted(pnls)[len(pnls) // 2], 3),
-        "total_pnl": round(sum(pnls), 3),
-        "severe_loss_count": severe,
-        "missed_confirmed_winners": sum(1 for row in rows if str(row.get("classification") or "") == "confirmed_missed_winner"),
-        "avoided_losers": sum(1 for row in rows if str(row.get("classification") or "") == "confirmed_avoided_loser"),
-        "max_drawdown_proxy": round(min(0.0, min(pnls)), 3),
-        "adverse_tick_count": sum(1 for row in rows if str(row.get("exit_reason") or row.get("reason")).upper() == "ADVERSE_TICK"),
-        "liq_crush_count": sum(1 for row in rows if str(row.get("exit_reason") or row.get("reason")).upper() == "LIQUIDITY_CRUSH"),
-        "lane_policy_category_breakdown": dict(sorted(by_category.items())),
-        "runner_capture_ratio": round(
-            sum(max(_simulate(row, policy), 0.0) / max(fnum(row.get("max_pnl_pct_seen") or row.get("peak_pnl_pct"), _simulate(row, policy)), 1.0) for row in rows)
-            / len(rows),
-            4,
-        ),
-    }
+        return {'trades':0,'invalid_return_rows':len(rows),
+            'runner_capture_ratio':None,'runner_capture_denominator':0}
+    def severe(row,pnl): return pnl<=-25 or (not post and is_severe_exit(row))
+    grouped={}
+    for row,pnl in items:
+        grouped.setdefault(classify_policy_category(row),[]).append((row,pnl))
+    by_category={category:{'trades':len(group),**moments([pnl for _,pnl in group]),
+        'win_rate':round(100.*sum(pnl>0 for _,pnl in group)/len(group),3),
+        'severe_loss_count':sum(severe(row,pnl) for row,pnl in group)}
+        for category,group in sorted(grouped.items())}
+    captures=[]
+    for row,pnl in items:
+        peak=_peak(row)
+        if peak is not None and peak>0:
+            ratio=finite_number(max(pnl,0.)/peak)
+            if ratio is not None: captures.append(ratio)
+    capture=linear_sum((value,1./len(captures)) for value in captures) if captures else None
+    result={'trades':len(items),'invalid_return_rows':len(rows)-len(items),**moments(pnls),
+        'win_rate':round(100.*sum(value>0 for value in pnls)/len(pnls),3),
+        'severe_loss_count':sum(severe(row,pnl) for row,pnl in items),
+        'max_drawdown_proxy':round(min(0.,min(pnls)),3),
+        'runner_capture_ratio':rounded(capture,4),'runner_capture_denominator':len(captures),
+        'lane_policy_category_breakdown':by_category}
+    if post:
+        result['delta_total_pnl_vs_baseline']=None
+    else:
+        result.update({
+            'missed_confirmed_winners':sum(row.get('classification')=='confirmed_missed_winner' for row,_ in items),
+            'avoided_losers':sum(row.get('classification')=='confirmed_avoided_loser' for row,_ in items),
+            'adverse_tick_count':sum(str(row.get('exit_reason') or row.get('reason')).upper()=='ADVERSE_TICK' for row,_ in items),
+            'liq_crush_count':sum(str(row.get('exit_reason') or row.get('reason')).upper()=='LIQUIDITY_CRUSH' for row,_ in items)})
+    return result
+
+
+def _summarize(rows: list[dict[str, Any]], policy: str) -> dict[str, Any]:
+    return _summarize_scenarios(rows,policy)
 
 
 def _summarize_post_adjustment(rows: list[dict[str, Any]], policy: str) -> dict[str, Any]:
-    pnls = [_simulate_post_adjustment(row, policy) for row in rows]
-    if not pnls:
-        return {"trades": 0}
-    grouped: dict[str, list[tuple[dict[str, Any], float]]] = {}
-    for row, pnl in zip(rows, pnls):
-        grouped.setdefault(classify_policy_category(row), []).append((row, pnl))
-    by_category: dict[str, dict[str, Any]] = {}
-    for category, items in grouped.items():
-        cat_pnls = [pnl for _, pnl in items]
-        by_category[category] = {
-            "trades": len(cat_pnls),
-            "win_rate": round(100.0 * sum(1 for value in cat_pnls if value > 0) / len(cat_pnls), 3),
-            "avg_pnl": round(sum(cat_pnls) / len(cat_pnls), 3),
-            "total_pnl": round(sum(cat_pnls), 3),
-            "severe_loss_count": sum(1 for value in cat_pnls if value <= -25),
-        }
-    return {
-        "trades": len(pnls),
-        "win_rate": round(100.0 * sum(1 for value in pnls if value > 0) / len(pnls), 3),
-        "avg_pnl": round(sum(pnls) / len(pnls), 3),
-        "median_pnl": round(sorted(pnls)[len(pnls) // 2], 3),
-        "total_pnl": round(sum(pnls), 3),
-        "delta_total_pnl_vs_baseline": 0.0,
-        "severe_loss_count": sum(1 for value in pnls if value <= -25),
-        "max_drawdown_proxy": round(min(0.0, min(pnls)), 3),
-        "runner_capture_ratio": round(
-            sum(max(pnl, 0.0) / max(fnum(row.get("max_pnl_pct_seen") or row.get("peak_pnl_pct"), pnl), 1.0) for row, pnl in zip(rows, pnls))
-            / len(rows),
-            4,
-        ),
-        "lane_policy_category_breakdown": dict(sorted(by_category.items())),
-    }
+    return _summarize_scenarios(rows,policy,post=True)
 
 
 def build_policy_replay(
@@ -417,6 +397,9 @@ def build_policy_replay(
                 )
             },
         }
+    report['_evidence']=replay_scope(input_rows=len(rows))
+    report['_evidence'].update(valid_return_rows=sum(_base_pnl(row) is not None for row in rows),
+        invalid_return_rows=sum(_base_pnl(row) is None for row in rows))
     return report
 
 
@@ -441,15 +424,23 @@ def build_post_adjustment_policy_replay(root: Path | None = None) -> dict[str, A
     root = root or PROJECT_ROOT
     rows = [row for row in load_candidate_outcomes(root) + load_deduped_positions(root) if is_closed_trade(row)]
     policies = {policy: _summarize_post_adjustment(rows, policy) for policy in POST_ADJUSTMENT_POLICIES}
-    baseline_total = float((policies.get("baseline_48h") or {}).get("total_pnl") or 0.0)
+    baseline_total = finite_number((policies.get("baseline_48h") or {}).get("total_pnl"))
     baseline_severe = int((policies.get("baseline_48h") or {}).get("severe_loss_count") or 0)
     for stats in policies.values():
-        stats["delta_total_pnl_vs_baseline"] = round(float(stats.get("total_pnl") or 0.0) - baseline_total, 3)
+        total=finite_number(stats.get('total_pnl'))
+        stats["delta_total_pnl_vs_baseline"] = (rounded(linear_sum([(total,1.),(baseline_total,-1.)]))
+            if total is not None and baseline_total is not None else None)
         stats["delta_severe_loss_vs_baseline"] = int(stats.get("severe_loss_count") or 0) - baseline_severe
     return {
+        '_evidence':replay_scope(input_rows=len(rows)),
         "baseline_reference": _baseline_reference(root),
         "policies": policies,
     }
+
+
+def _display(value: Any,digits: int=2) -> str:
+    number=finite_number(value)
+    return f'{number:.{digits}f}' if number is not None else 'unknown'
 
 
 def write_policy_replay(
@@ -467,11 +458,14 @@ def write_policy_replay(
         candidate_env_path=candidate_env_path,
     )
     write_json(metrics_dir(root) / "policy_replay.json", report)
-    lines = ["# Policy Replay", "", "| Policy | Trades | Win rate | Avg PnL | Total PnL | Severe | Runner capture |", "|---|---:|---:|---:|---:|---:|---:|"]
-    for key, stats in report.items():
+    lines = ["# Policy Replay", "", "Diagnostic scenarios, not net financial evidence or trading approval.",
+        "Total is an unweighted sum of reported percentage points, not portfolio return.", "",
+        "| Policy | Outcome rows | Positive rows | Avg reported return | Sum (pp) | Severe | Capture proxy |", "|---|---:|---:|---:|---:|---:|---:|"]
+    for key in POLICIES:
+        stats=report[key]
         lines.append(
-            f"| {key} | {stats.get('trades', 0)} | {stats.get('win_rate', 0):.2f}% | {stats.get('avg_pnl', 0):.2f}% | "
-            f"{stats.get('total_pnl', 0):.2f} | {stats.get('severe_loss_count', 0)} | {stats.get('runner_capture_ratio', 0):.3f} |"
+            f"| {key} | {stats.get('trades', 0)} | {_display(stats.get('win_rate'))}% | {_display(stats.get('avg_pnl'))}% | "
+            f"{_display(stats.get('total_pnl'))} | {stats.get('severe_loss_count', 0)} | {_display(stats.get('runner_capture_ratio'),3)} |"
         )
     write_markdown(root / "docs" / "POLICY_REPLAY.md", lines)
     return report
@@ -484,15 +478,18 @@ def write_post_adjustment_policy_replay(root: Path | None = None) -> dict[str, A
     lines = [
         "# Post-adjustment Policy Replay",
         "",
-        "| Policy | Trades | Win rate | Avg PnL | Total PnL | Delta PnL | Severe | Delta Severe | Runner capture |",
+        "Diagnostic scenarios, not net financial evidence or trading approval.",
+        "Total and delta are unweighted reported percentage-point sums, not portfolio returns.",
+        "",
+        "| Policy | Outcome rows | Positive rows | Avg reported return | Sum (pp) | Delta (pp) | Severe | Delta Severe | Capture proxy |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for key, stats in report["policies"].items():
         lines.append(
-            f"| {key} | {stats.get('trades', 0)} | {stats.get('win_rate', 0):.2f}% | "
-            f"{stats.get('avg_pnl', 0):.2f}% | {stats.get('total_pnl', 0):.2f} | "
-            f"{stats.get('delta_total_pnl_vs_baseline', 0):.2f} | {stats.get('severe_loss_count', 0)} | "
-            f"{stats.get('delta_severe_loss_vs_baseline', 0)} | {stats.get('runner_capture_ratio', 0):.3f} |"
+            f"| {key} | {stats.get('trades', 0)} | {_display(stats.get('win_rate'))}% | "
+            f"{_display(stats.get('avg_pnl'))}% | {_display(stats.get('total_pnl'))} | "
+            f"{_display(stats.get('delta_total_pnl_vs_baseline'))} | {stats.get('severe_loss_count', 0)} | "
+            f"{stats.get('delta_severe_loss_vs_baseline', 0)} | {_display(stats.get('runner_capture_ratio'),3)} |"
         )
     baseline = report.get("baseline_reference", {}).get("global", {})
     if baseline:

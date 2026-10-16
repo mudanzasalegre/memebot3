@@ -14,7 +14,8 @@ from api.schemas.common import Envelope, SourceStatus
 from api.services.common import build_envelope, iso_or_none, make_source_status, utc_now
 from api.services.sources import json_status, jsonl_status, paper_portfolio_status, sqlite_main_status
 from api.settings import APISettings
-from backtest.policy_replay import build_policy_replay
+from backtest.policy_replay import POLICIES, build_policy_replay
+from analytics.policy_replay_semantics import diagnostic_comparison, diagnostic_metrics, replay_scope
 from config.config import CFG
 from tools.config_effect_audit import build_config_effect_audit
 
@@ -105,11 +106,11 @@ def _count_by(rows: list[dict[str, Any]], key: str, *, limit: int = 20) -> list[
 def _policy_rows(replay: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     ordered = [policy for policy in DISPLAY_POLICIES if policy in replay]
-    ordered.extend(policy for policy in replay if policy not in ordered)
+    ordered.extend(policy for policy in POLICIES if policy in replay and policy not in ordered)
     for policy in ordered:
         metrics = replay.get(policy)
         if isinstance(metrics, dict):
-            rows.append({"policy": policy, **metrics})
+            rows.append({**metrics, "policy": policy})
     return rows
 
 
@@ -159,7 +160,7 @@ def _load_funnel_rows(settings: APISettings) -> tuple[list[dict[str, Any]], Sour
 
 
 def _best_policy(replay: dict[str, Any]) -> str | None:
-    rows = _policy_rows(replay)
+    rows = [row for row in _policy_rows(replay) if diagnostic_metrics(row) is not None]
     if not rows:
         return None
     return max(rows, key=lambda row: _safe_number(row.get("total_pnl"))).get("policy")
@@ -307,6 +308,7 @@ def get_policy_replay_envelope(settings: APISettings) -> Envelope:
         "best_by_total_pnl": _best_policy(replay),
         "policies": rows,
         "raw": replay,
+        "evidence_scope": replay_scope(),
     }
     statuses = [
         replay_status,
@@ -376,6 +378,7 @@ def get_policy_safety_envelope(settings: APISettings) -> Envelope:
     replay, replay_status = _load_policy_replay(settings)
     replay_current = replay.get("current") if isinstance(replay.get("current"), dict) else {}
     replay_candidate = replay.get("combined_policy_v2") or replay.get("combined_v1") or {}
+    replay_candidate = replay_candidate if isinstance(replay_candidate,dict) else {}
     paper_forward = read_json_file(_metrics_path(settings, "paper_forward_report.json")) or {}
     model_registry = read_json_file(_model_registry_path(settings)) or {}
     drift = drift_snapshot(events_path=settings.runtime_events_path)
@@ -391,13 +394,10 @@ def get_policy_safety_envelope(settings: APISettings) -> Envelope:
     live_require_provider_health = _env_bool("LIVE_REQUIRE_PROVIDER_HEALTH", True)
 
     replay_present = bool(replay_current)
-    replay_candidate_passed = bool(
-        replay_present
-        and _safe_number(replay_candidate.get("total_pnl")) >= _safe_number(replay_current.get("total_pnl"))
-        and _safe_int(replay_candidate.get("severe_loss_count")) <= _safe_int(replay_current.get("severe_loss_count"))
-        and _safe_number(replay_candidate.get("runner_capture_ratio"))
-        >= _safe_number(replay_current.get("runner_capture_ratio"))
-    )
+    comparison=diagnostic_comparison(replay_current,replay_candidate)
+    # Heuristic replay cannot certify a financially accepted strategy, even
+    # when a supplied artifact claims approval or its comparison looks better.
+    replay_candidate_passed = False
     paper_forward_passed = bool(paper_forward.get("passed"))
     model_families = (model_registry.get("families") or {}) if isinstance(model_registry, dict) else {}
 
@@ -410,9 +410,9 @@ def get_policy_safety_envelope(settings: APISettings) -> Envelope:
         },
         {
             "id": "policy_replay",
-            "label": "Policy replay",
-            "status": "pass" if replay_candidate_passed else "warn" if replay_present else "missing",
-            "detail": f"best={_best_policy(replay) or 'n/a'}",
+            "label": "Policy replay (diagnostic)",
+            "status": "warn" if replay_present else "missing",
+            "detail": "Posthoc reported-return scenarios; not net financial approval or trading permission",
         },
         {
             "id": "paper_forward",
@@ -480,6 +480,9 @@ def get_policy_safety_envelope(settings: APISettings) -> Envelope:
             "current": replay_current,
             "candidate": replay_candidate,
             "candidate_passed": replay_candidate_passed,
+            "diagnostic_candidate_passed": comparison['passed'],
+            "diagnostic_comparison": comparison,
+            "evidence_scope": replay_scope(),
             "best_by_total_pnl": _best_policy(replay),
         },
         "paper_forward": paper_forward,

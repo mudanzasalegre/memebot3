@@ -144,26 +144,26 @@ const replayColumns: DataColumn<PolicyMetricRow>[] = [
   {
     id: "trades",
     align: "right",
-    header: "Trades",
+    header: "Outcome rows",
     render: (row) => formatCount(numericValue(row.trades)),
   },
   {
     id: "win",
     align: "right",
-    header: "Win",
+    header: "Positive rows",
     render: (row) => formatDecimal(numericValue(row.win_rate), "%"),
   },
   {
     id: "avg",
     align: "right",
-    header: "Avg PnL",
+    header: "Avg reported",
     render: (row) => formatSignedPct(numericValue(row.avg_pnl)),
   },
   {
     id: "total",
     align: "right",
-    header: "Total",
-    render: (row) => formatSignedPct(numericValue(row.total_pnl)),
+    header: "Sum (pp)",
+    render: (row) => formatDecimal(numericValue(row.total_pnl), " pp"),
   },
   {
     id: "severe",
@@ -174,7 +174,7 @@ const replayColumns: DataColumn<PolicyMetricRow>[] = [
   {
     id: "runner",
     align: "right",
-    header: "Runner capture",
+    header: "Capture proxy",
     render: (row) => formatDecimal(numericValue(row.runner_capture_ratio)),
   },
 ];
@@ -373,9 +373,9 @@ export function PolicyCenterPage() {
         eyebrow="Inspect / learned policy"
         meta={
           <>
-            <StatusChip label={blockCount ? `${formatCount(blockCount)} blocking gates` : "live gates closed"} tone={blockCount ? "danger" : "success"} compact />
+            <StatusChip label={blockCount ? `${formatCount(blockCount)} blocking gates` : "diagnostic evidence only"} tone={blockCount ? "danger" : "warn"} compact />
             <StatusChip label={`${formatCount(warnCount)} warnings`} tone={warnCount ? "warn" : "neutral"} compact />
-            <StatusChip label={`best ${safety?.policy_replay.best_by_total_pnl || replay?.best_by_total_pnl || "n/a"}`} tone="info" compact mono />
+            <StatusChip label={`diagnostic max ${safety?.policy_replay.best_by_total_pnl || replay?.best_by_total_pnl || "n/a"}`} tone="info" compact mono />
             <StatusChip label={`proposals ${formatCount(proposals?.count)}`} tone="neutral" compact />
           </>
         }
@@ -393,6 +393,12 @@ export function PolicyCenterPage() {
       ) : null}
 
       {queryError ? <Banner detail={queryError} title="Policy query failed" tone="danger" /> : null}
+
+      <Banner
+        title="Replay is not financial acceptance"
+        detail="Reported outcomes and posthoc heuristic scenarios are diagnostic only. Totals sum percentage points, not net cash or portfolio return. This page does not authorize trading or model promotion."
+        tone="warn"
+      />
 
       <div className="editorial-grid">
         <Surface className="grid-span-8" eyebrow="Safety" title="Rollout gate posture">
@@ -425,16 +431,20 @@ export function PolicyCenterPage() {
         >
           <div className="kv-grid">
             <div className="kv-cell">
-              <span>Candidate passed</span>
-              <strong>{boolLabel(safety?.policy_replay.candidate_passed)}</strong>
+              <span>Financial approval</span>
+              <strong>{boolLabel(safety?.policy_replay.evidence_scope?.financial_acceptance)}</strong>
             </div>
             <div className="kv-cell">
-              <span>Current total</span>
-              <strong>{formatSignedPct(numericValue(currentReplay?.total_pnl))}</strong>
+              <span>Diagnostic comparison</span>
+              <strong>{boolLabel(safety?.policy_replay.diagnostic_candidate_passed)}</strong>
             </div>
             <div className="kv-cell">
-              <span>Candidate total</span>
-              <strong>{formatSignedPct(numericValue(candidateReplay?.total_pnl))}</strong>
+              <span>Current sum (pp)</span>
+              <strong>{formatDecimal(numericValue(currentReplay?.total_pnl), " pp")}</strong>
+            </div>
+            <div className="kv-cell">
+              <span>Scenario sum (pp)</span>
+              <strong>{formatDecimal(numericValue(candidateReplay?.total_pnl), " pp")}</strong>
             </div>
             <div className="kv-cell">
               <span>Current severe</span>
