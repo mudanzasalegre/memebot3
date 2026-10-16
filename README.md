@@ -13,6 +13,21 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Ensayo nativo Windows: clasificar intentos bloqueados (2026-10-16)
+
+El fallo previo se reproduce antes de importar el bot: la dependencia intenta
+tres consultas de version de Windows y el sondeo CPU de NumPy, todos denegados.
+Ahora se informan por separado solo las consultas nativas exactas durante ese
+bootstrap. Ningun subproceso queda permitido; las acciones desconocidas,
+incompletas, repetidas, desordenadas o sin propietario siguen fallando.
+
+Pasan 54 pruebas dirigidas y 1.460 regresiones por carpeta, conservando las
+1.435 anteriores. Se recogen 7.219 casos oficiales; la nueva CI sigue pendiente.
+No cambian produccion, estrategia, 0,1 SOL ni salidas. No se ha arrancado el
+operador ni otra PAPER; bot, entrenamiento y AutoResearch quedan apagados.
+Se conservan los fallos CI y el aviso SQLite anteriores. Rentabilidad no probada.
+[Evidencia y alcance del guardia](docs/audits/native_bootstrap_guard_20261016.json).
+
 ### Birdeye: medir la admision, no una observacion posterior (2026-10-16)
 
 Cuatro pruebas podian fallar aun con admisiones estrictamente espaciadas: tres

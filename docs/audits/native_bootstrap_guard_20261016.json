@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "status": "NATIVE_WINDOWS_BOOTSTRAP_GUARD_CLASSIFICATION_REPAIRED_1460_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "806367741bf3900993967b0aaef9e0cb94f3b8fe",
+  "previous_stage": "docs/audits/birdeye_pacing_measurement_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "defect": "The source-only guarded lifecycle bootstrap rejected known denied Windows platform version attempts as unknown dependency actions before any project runtime was imported. Two matching-source Windows CI jobs recorded three blocked cmd.exe attempts from platform._syscmd_ver and one blocked NumPy lscpu attempt; the old checker only accepted the latter.",
+  "repair": "Keep the original strict NumPy checker and unconditional process/network denials. Separately report exactly three denied version probes in their native order, only while bootstrapping the real NumPy utils module, with the actual stdlib function code/globals identity and exact normalized command line, no custom cwd or environment. Unknown/unowned/incomplete/repeated/reordered attempts still fail. Bootstrap classification closes before project imports.",
+  "all_processes_still_denied": true,
+  "production_changed": false,
+  "preserved_checks": {
+    "frozen_git_source_tests/native_paper_lifecycle_case.py": true,
+    "same_original_as_failed_ci_tests/native_paper_lifecycle_case.py": true,
+    "frozen_git_source_tests/test_native_paper_lifecycle.py": true,
+    "same_original_as_failed_ci_tests/test_native_paper_lifecycle.py": true,
+    "original_numpy_probe_checker_exactly_unchanged": true,
+    "all_original_native_harness_assert_statements_retained": true,
+    "native_exercise_function_exactly_unchanged": true,
+    "external_network_deny_branch_exactly_unchanged": true,
+    "every_child_process_still_unconditionally_denied": true,
+    "no_new_return_or_process_allow_branch": true,
+    "all_native_phase_statements_except_final_report_exactly_unchanged": true,
+    "final_report_only_adds_separate_blocked_platform_receipts": true,
+    "all_original_native_test_assert_statements_retained": true,
+    "all_original_native_test_functions_except_fixture_exactly_unchanged": true
+  },
+  "original_forced_fallback": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 1.07
+  },
+  "original_guard_reproduction": {
+    "attempts_denied": 4,
+    "windows_version_attempts": 3,
+    "numpy_cpu_attempts": 1,
+    "project_runtime_imported": false,
+    "original_checker_failed": true,
+    "qualification": "Actual installed scientific bootstrap and Windows stdlib fallback. WMI unavailability injected; the exact original CI WMI failure cause is not established."
+  },
+  "initial_focused": {
+    "tests": 54,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 121.889
+  },
+  "focused": {
+    "working": {
+      "tests": 1460,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 347.702
+    },
+    "publishing": {
+      "tests": 1460,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 341.196
+    }
+  },
+  "new_repository_cases": 25,
+  "new_case_scope": {
+    "native_guarded_full_entry_with_forced_windows_fallback": 1,
+    "known_complete_denied_sequence_variants": 4,
+    "unknown_or_mutated_sequence_rejections": 14,
+    "actual_process_network_stdlib_outside_numpy_and_forged_owner_denials": 6
+  },
+  "all_previous1435_cases_preserved": true,
+  "official_collected_each": 7219,
+  "source_files_each": 867,
+  "source_sha256": "69a4fb32f1a0567904a5040e8cb2802fb35d5b62c4b8749d4b40187efb00c3ea",
+  "parent_ci_observed_at_utc": "2026-10-16T01:12:56.131064+00:00",
+  "parent_ci": [
+    {
+      "revision": "dee4bcabc925e3c3cdf8b295a85923f1bfcbfe36",
+      "id": 38830993556,
+      "status_at_observation": "completed",
+      "conclusion_at_observation": "failure",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38830993556",
+      "jobs": [
+        {
+          "name": "test (windows-2022)",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "test (ubuntu-24.04)",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "failure_logs_retained": [
+        {
+          "job_id": 116749481176,
+          "log": "parent-38830993556-job-116749481176.log",
+          "bytes": 87452
+        }
+      ]
+    },
+    {
+      "revision": "806367741bf3900993967b0aaef9e0cb94f3b8fe",
+      "id": 38832964168,
+      "status_at_observation": "in_progress",
+      "conclusion_at_observation": "",
+      "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38832964168",
+      "jobs": [
+        {
+          "name": "test (windows-2022)",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "test (ubuntu-24.04)",
+          "status": "in_progress",
+          "conclusion": ""
+        }
+      ],
+      "failure_logs_retained": [
+        {
+          "job_id": 116755617258,
+          "log": "parent-38832964168-job-116755617258.log",
+          "bytes": 87460
+        }
+      ]
+    }
+  ],
+  "conservation": {
+    "protected_working_files": 4442,
+    "protected_publishing_files": 28,
+    "changed_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "added_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "baseline_scope": "Fresh declared post-disclosed-SQLite-warning state, not retroactive byte immutability.",
+    "prior_sqlite_warning": "docs/audits/live_paper_acceptance_20261016.json retains old131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33 versus25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9; no reset or restoration. Exact immediate pre-probe logical equality and historical attribution remain unproved."
+  },
+  "private_evidence": "work/native-bootstrap-guard-stage-20261016/review.json, original-bootstrap-reproduction.json, original-forced-fallback.xml, repaired-native-bootstrap.xml, parent-ci-observation.json, parent-*-job-*.log, focused-working.xml, focused-publishing.xml, after-final-regressions.json and published-handoff.json",
+  "current_full_ci": "PENDING_FOR_THIS_REVISION_NOT_PREAPPROVED",
+  "limits": "Test-harness compatibility and blocked-action accounting only, not an operator launch. Windows WMI unavailability is injected for deterministic reproduction; the exact historical reason WMI fell back in CI is unknown. Full native lifecycle assertions and financial strategy are unchanged. No real HTTP/provider, new PAPER, account/key/plan change, LIVE, training, model activation, AutoResearch, configuration, 0.1SOL sizing or exit change. Historical failed jobs and SQLite warning remain retained. Prospective profitability and universal first-launch correctness are not established."
+}

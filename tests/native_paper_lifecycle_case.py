@@ -14,6 +14,7 @@ if options.get('log'):
     sys.argv.append('--log')
 case = options['case']
 attempts = []
+bootstrap_in_progress = True
 
 def checked_numpy_bootstrap_attempts(items):
     # Nothing is allowed to execute. NumPy1.26's test utilities catch the
@@ -26,6 +27,22 @@ def checked_numpy_bootstrap_attempts(items):
     return [{'program':'lscpu','source':'numpy.testing._private.utils.check_support_sve',
         'blocked':True} for item in items]
 
+def checked_dependency_bootstrap_attempts(items):
+    """Report the exact denied Windows fallback, never allow its execution."""
+    windows = [item for item in items if isinstance(item, dict)
+        and item.get('stdlib_windows_version_probe') is True]
+    if windows:
+        assert items[:3] == windows and len(windows) == 3, items
+        assert all(item.get('event') == 'subprocess.Popen'
+            and item.get('program') == 'cmd.exe' for item in windows), items
+        assert [item.get('version_probe_command') for item in windows] == [
+            'ver', 'command /c ver', 'cmd /c ver'], items
+    remaining = items[len(windows):]
+    numpy = checked_numpy_bootstrap_attempts(remaining)
+    return numpy, [{'program':'cmd.exe','source':'platform._syscmd_ver',
+        'command':item['version_probe_command'],'blocked':True} for item in windows]
+
+
 def audit(event, args):
     if event in {'socket.getaddrinfo', 'socket.connect'}:
         address = args[0] if event == 'socket.getaddrinfo' else args[1][0]
@@ -35,26 +52,58 @@ def audit(event, args):
     if event == 'subprocess.Popen':
         frame = sys._getframe()
         numpy_testing_probe = False
+        numpy_bootstrap_owner = False
+        version_probe_command = None
+        platform_module = sys.modules.get('platform')
+        numpy_module = sys.modules.get('numpy.testing._private.utils')
+        version_code = getattr(getattr(platform_module, '_syscmd_ver', None), '__code__', None)
         while frame is not None:
             if (frame.f_code.co_name == 'check_support_sve'
                     and frame.f_globals.get('__name__') == 'numpy.testing._private.utils'):
                 numpy_testing_probe = True
+            if (numpy_module is not None and frame.f_globals is vars(numpy_module)
+                    and frame.f_code.co_name == '<module>'):
+                numpy_bootstrap_owner = True
+            if (platform_module is not None and frame.f_globals is vars(platform_module)
+                    and frame.f_code is version_code
+                    and frame.f_locals.get('cmd') in ('ver', 'command /c ver', 'cmd /c ver')):
+                version_probe_command = frame.f_locals['cmd']
             frame = frame.f_back
         # Windows exposes executable=None and the normalized command line;
         # POSIX exposes executable='lscpu'. Recognize only the exact probe.
         program = Path(args[0]).name if isinstance(args[0], str) else None
         if args[0] is None and args[1] == 'lscpu':
             program = 'lscpu'
+        version_probe = (bootstrap_in_progress and sys.platform == 'win32'
+            and numpy_bootstrap_owner and version_probe_command is not None
+            and program == 'cmd.exe' and isinstance(args[0], str)
+            and args[1] == f'{args[0]} /c "{version_probe_command}"'
+            and args[2] is None and args[3] is None)
         attempts.append({'event':event,'program':program,
             'numpy_testing_probe':numpy_testing_probe,
+            'stdlib_windows_version_probe':bool(version_probe),
+            'version_probe_command':version_probe_command if version_probe else None,
             'callers':[{'file':Path(frame.filename).name,'function':frame.name}
                        for frame in traceback.extract_stack(limit=8)]})
         raise PermissionError('Child process forbidden in isolated integration')
 sys.addaudithook(audit)
 # Bootstrap only the installed scientific testing dependency under the SAME
 # no-network/no-child guard. No native project module has executed yet.
+if options.get('bootstrap_windows_fallback') and sys.platform == 'win32':
+    import platform as _bootstrap_platform
+    _bootstrap_original_wmi = getattr(_bootstrap_platform, '_wmi_query', None)
+    def _bootstrap_unavailable_wmi(*args, **kwargs):
+        raise OSError('Owned test: WMI unavailable')
+    _bootstrap_platform._wmi_query = _bootstrap_unavailable_wmi
+    _bootstrap_platform._uname_cache = None
 import numpy.testing
-dependency_probes = checked_numpy_bootstrap_attempts(attempts)
+dependency_probes, platform_probes = checked_dependency_bootstrap_attempts(attempts)
+bootstrap_in_progress = False
+if options.get('bootstrap_windows_fallback') and sys.platform == 'win32':
+    if _bootstrap_original_wmi is None:
+        del _bootstrap_platform._wmi_query
+    else:
+        _bootstrap_platform._wmi_query = _bootstrap_original_wmi
 attempts.clear()
 from config.config import CFG, PROJECT_ROOT
 assert PROJECT_ROOT.resolve() == expected and CFG.DRY_RUN is True
@@ -361,6 +410,7 @@ print(json.dumps({**report,'native_complete_entry':True,'boundary_calls':calls,'
         'clock_diagnostic':e.get('clock_diagnostic')} for e in events],
     'stats':run_bot._stats,'external_attempts':attempts,
     'blocked_dependency_probes':dependency_probes,
+    'blocked_platform_probes':platform_probes,
     'isolated_native_import':True,'scoped_modules':len(scoped),
     'operator_files_copied':0,'outbound_network_attempts':len(attempts),
     'dry_run':CFG.DRY_RUN,'exact_paper_size':CFG.PAPER_EXACT_TRADE_SIZE_SOL,
