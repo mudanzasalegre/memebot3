@@ -11,9 +11,10 @@ if str(ROOT) not in sys.path:
 
 from research_loop.candidate_generator import GENERATION_MODES
 from research_loop.batch_runner import run_research_batch
+from research_loop.cycle_ownership import AutoResearchAlreadyRunning
 
 
-def main() -> int:
+def _main() -> int:
     parser = argparse.ArgumentParser(description="Generate, replay, evaluate and checkpoint an AutoResearch batch.")
     parser.add_argument("--space", required=True, help="Search space name, or 'auto'/'bandit'.")
     parser.add_argument("--n", type=int, required=True, help="Number of candidates.")
@@ -39,6 +40,14 @@ def main() -> int:
     )
     print(json.dumps(result.as_dict(), indent=2, sort_keys=True, default=str))
     return 0 if result.failed == 0 else 1
+
+
+def main() -> int:
+    try:
+        return _main()
+    except AutoResearchAlreadyRunning:
+        print('autoresearch_already_running',file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

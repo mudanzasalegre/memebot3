@@ -10,9 +10,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from research_loop.replay_runner import run_research_replay, run_research_replay_from_sandbox
+from research_loop.cycle_ownership import AutoResearchAlreadyRunning
 
 
-def main() -> int:
+def _main() -> int:
     parser = argparse.ArgumentParser(description="Run a local AutoResearch replay for one candidate.")
     parser.add_argument("candidate", nargs="?", help="Candidate policy JSON path.")
     parser.add_argument("--candidate", dest="candidate_option", help="Candidate policy JSON path.")
@@ -41,6 +42,14 @@ def main() -> int:
         parser.error("candidate or --run-dir is required")
     print(json.dumps(result.as_dict(), indent=2, sort_keys=True, default=str))
     return 0 if result.status != "failed" else 1
+
+
+def main() -> int:
+    try:
+        return _main()
+    except AutoResearchAlreadyRunning:
+        print('autoresearch_already_running',file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

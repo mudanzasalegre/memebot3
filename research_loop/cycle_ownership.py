@@ -1,6 +1,8 @@
 """Root-scoped AutoResearch ownership; time/diagnostic JSON never grant it."""
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import wraps
+from inspect import signature
 import os
 from pathlib import Path
 import threading
@@ -79,3 +81,38 @@ def mutation_scope(root: str|Path|None=None):
     else:
         with autoresearch_session(resolved):
             yield
+
+
+def owned_mutation(function):
+    """Freeze a synchronous management API's root before its first read/write.
+
+    Bind using the original signature so positional roots and argument errors
+    keep their normal contract. Nested management calls borrow the actual
+    thread's owner; a competing process/thread fails before entering the body.
+    APIs with explicit output paths must also bind them with owned_artifact.
+    """
+    parameters=signature(function)
+    if 'root' not in parameters.parameters:
+        raise TypeError('owned_research_mutation_requires_root')
+    @wraps(function)
+    def owned(*args,**kwargs):
+        bound=parameters.bind(*args,**kwargs)
+        root=project_root(bound.arguments.get('root')).resolve()
+        bound.arguments['root']=root
+        with mutation_scope(root):
+            return function(*bound.args,**bound.kwargs)
+    return owned
+
+
+def owned_artifact(path: str|Path,root: str|Path) -> Path:
+    """Resolve project-relative artifacts inside the actual owned project.
+
+    Canonical resolution also rejects an existing symlink into another root.
+    This is cooperative management ownership, not a hostile filesystem sandbox.
+    """
+    root=project_root(root).resolve()
+    path=Path(path)
+    path=(path if path.is_absolute() else root/path).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError('research_artifact_outside_owned_root')
+    return path

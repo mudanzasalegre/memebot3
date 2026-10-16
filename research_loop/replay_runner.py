@@ -14,6 +14,8 @@ from research_loop.api_budget import build_api_budget_report, metrics_from_api_b
 from research_loop.candidate_diff import write_candidate_diff
 from research_loop.paths import metrics_dir, project_root
 from research_loop.sandbox import SandboxResult, create_candidate_sandbox
+from research_loop.cycle_ownership import owned_mutation, owned_artifact
+from research_loop.storage import write_json_document
 
 REPLAY_REPORTS = (
     "policy_replay.json",
@@ -71,8 +73,7 @@ def _read_json(path: Path) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
+    write_json_document(path,payload)
 
 
 def _copy_snapshot(root: Path, snapshot_dir: Path, *, skip: set[str] | None = None) -> list[str]:
@@ -486,6 +487,7 @@ def extract_replay_metrics(snapshot_dir: str | Path, *, api_budget: dict[str, An
     return metrics
 
 
+@owned_mutation
 def run_research_replay(
     candidate_policy: str | Path | dict[str, Any],
     *,
@@ -504,6 +506,7 @@ def run_research_replay(
     )
 
 
+@owned_mutation
 def run_research_replay_from_sandbox(
     sandbox: SandboxResult | str | Path,
     *,
@@ -519,6 +522,9 @@ def run_research_replay_from_sandbox(
     else:
         run_dir = Path(sandbox)
         run_id = run_dir.name
+        candidate_policy_path = run_dir / "candidate_policy.json"
+    run_dir = owned_artifact(run_dir,resolved_root)
+    if not isinstance(sandbox,SandboxResult):
         candidate_policy_path = run_dir / "candidate_policy.json"
     candidate_env_path = _candidate_env_path(sandbox, run_dir)
 

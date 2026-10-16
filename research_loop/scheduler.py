@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 from research_loop.cycle_ownership import cycle_scope, mutation_scope
+from research_loop.storage import write_json_document
 
 from research_loop.bandit import DEFAULT_SPACES, suggest_spaces
 from research_loop.candidate_generator import applicable_generation_spaces
@@ -219,8 +220,7 @@ def _read_json(path: Path) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
+    write_json_document(path,payload)
 
 
 def _bool_value(value: Any, default: bool = False) -> bool:

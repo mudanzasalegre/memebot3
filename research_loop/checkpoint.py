@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from research_loop.paths import project_root, research_runs_dir
+from research_loop.cycle_ownership import owned_mutation, owned_artifact
+from research_loop.storage import write_json_document
 
 CHECKPOINT_JSON = "checkpoint.json"
 
@@ -31,8 +33,7 @@ def utc_now() -> str:
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
+    write_json_document(path,payload)
 
 
 def _read_json(path: Path) -> Any:
@@ -69,14 +70,15 @@ def load_checkpoint(root: str | Path | None = None, *, path: str | Path | None =
     return payload
 
 
+@owned_mutation
 def save_checkpoint(
     checkpoint: dict[str, Any],
     *,
     root: str | Path | None = None,
     path: str | Path | None = None,
 ) -> Path:
+    output = owned_artifact(path,root) if path is not None else checkpoint_path(root)
     checkpoint["generated_at_utc"] = utc_now()
-    output = Path(path) if path is not None else checkpoint_path(root)
     _write_json(output, checkpoint)
     return output
 

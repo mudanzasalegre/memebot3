@@ -23,6 +23,8 @@ from research_loop.replay_runner import REPLAY_REPORTS, ReplayRunResult, extract
 from research_loop.sandbox import SandboxResult, create_candidate_sandbox
 from research_loop.scoreboard import load_scoreboard, record_evaluation
 from research_loop.api_budget import build_api_budget_report
+from research_loop.cycle_ownership import owned_mutation, owned_artifact
+from research_loop.storage import write_json_document
 
 
 @dataclass(frozen=True)
@@ -93,8 +95,7 @@ def _default_batch_id(space: str, seed: int | None) -> str:
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
+    write_json_document(path,payload)
 
 
 def _copy_baseline_snapshot(root: Path, snapshot_dir: Path) -> list[str]:
@@ -109,6 +110,7 @@ def _copy_baseline_snapshot(root: Path, snapshot_dir: Path) -> list[str]:
     return failures
 
 
+@owned_mutation
 def build_batch_baseline(
     *,
     root: str | Path | None = None,
@@ -117,7 +119,7 @@ def build_batch_baseline(
     regenerate_func: Callable[[Path], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     resolved_root = project_root(root)
-    resolved_batch_dir = Path(batch_dir)
+    resolved_batch_dir = owned_artifact(batch_dir,resolved_root)
     warnings: list[str] = []
     failures: list[str] = []
     if regenerate:
@@ -170,6 +172,7 @@ def _objective_score(result: EvaluationResult) -> float | None:
     return result.objective.score if result.objective is not None else None
 
 
+@owned_mutation
 def run_research_batch(
     *,
     space_name: str,

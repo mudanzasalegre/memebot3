@@ -10,6 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from research_loop.scoreboard import load_scoreboard, record_run_evaluation, write_scoreboard
+from research_loop.cycle_ownership import mutation_scope, AutoResearchAlreadyRunning
 
 
 def main() -> int:
@@ -21,7 +22,18 @@ def main() -> int:
     parser.add_argument("--rewrite", action="store_true", help="Rewrite scoreboard.md from existing JSON.")
     args = parser.parse_args()
 
-    root = Path(args.root)
+    root = Path(args.root).resolve()
+    if args.run_dir or args.rewrite:
+        try:
+            with mutation_scope(root):
+                return _run(args,root)
+        except AutoResearchAlreadyRunning:
+            print('autoresearch_already_running',file=sys.stderr)
+            return 2
+    return _run(args,root)
+
+
+def _run(args,root: Path) -> int:
     if args.run_dir:
         entry = record_run_evaluation(
             Path(args.run_dir),

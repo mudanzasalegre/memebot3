@@ -7,6 +7,8 @@ from typing import Any
 
 from research_loop.evaluator import EvaluationResult, evaluate_replay_run
 from research_loop.paths import project_root, research_runs_dir
+from research_loop.cycle_ownership import owned_mutation
+from research_loop.storage import write_json_document, write_text_document
 
 SCOREBOARD_JSON = "scoreboard.json"
 SCOREBOARD_MD = "scoreboard.md"
@@ -26,13 +28,11 @@ def _read_json(path: Path) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
+    write_json_document(path,payload)
 
 
 def _write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text.rstrip() + "\n", encoding="utf-8")
+    write_text_document(path,text.rstrip() + "\n")
 
 
 def _load_candidate_policy(candidate_policy: str | Path | dict[str, Any] | None) -> dict[str, Any]:
@@ -118,6 +118,7 @@ def _entry_key(entry: dict[str, Any]) -> tuple[str, str]:
     return (str(entry.get("run_id") or ""), str(entry.get("proposal_id") or ""))
 
 
+@owned_mutation
 def upsert_scoreboard_entry(
     entry: dict[str, Any],
     *,
@@ -180,6 +181,7 @@ def render_scoreboard_markdown(entries: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+@owned_mutation
 def write_scoreboard(entries: list[dict[str, Any]], *, root: str | Path | None = None) -> dict[str, Any]:
     resolved_root = project_root(root)
     payload = {
@@ -192,6 +194,7 @@ def write_scoreboard(entries: list[dict[str, Any]], *, root: str | Path | None =
     return payload
 
 
+@owned_mutation
 def record_evaluation(
     *,
     run_id: str,
@@ -208,6 +211,7 @@ def record_evaluation(
     return entry
 
 
+@owned_mutation
 def record_run_evaluation(
     run_dir: str | Path,
     baseline_metrics: dict[str, Any] | str | Path | None = None,

@@ -13,6 +13,21 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### AutoResearch: resultados y escritores independientes (2026-10-16)
+
+Batch, replay, checkpoint, scoreboard y estado del servicio comparten ahora la
+propiedad real de AutoResearch antes de leer/modificar/escribir. Las herramientas
+ocupadas salen con codigo 2 sin pisar el trabajo ajeno. Los destinos explicitos
+quedan dentro del proyecto declarado. Los documentos se sustituyen completos;
+un fallo previo al reemplazo conserva el original y limpia su temporal unico.
+
+Pasan 3612 regresiones por carpeta, incluidas las 3.547 anteriores: 65 nuevas,
+129 dirigidas y 7.971 recogidas. La CI completa de esta revision sigue pendiente.
+No cambia la seleccion financiera, la activacion, modelos, salidas ni 0,1 SOL.
+Todo operativo queda apagado, sin otra PAPER ni entrenamiento real. No es una
+transaccion de varios informes ni certifica todos los escritores o rentabilidad.
+[Evidencia y limites](docs/audits/research_state_ownership_20261016.json).
+
 ### AutoResearch: propiedad y parada del ciclo (2026-10-16)
 
 El control espera al hilo original incluso al cancelar repetidamente. Una

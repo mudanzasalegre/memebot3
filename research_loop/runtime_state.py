@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from research_loop.paths import project_root, research_runs_dir
+from research_loop.cycle_ownership import owned_mutation
+from research_loop.storage import write_json_document
 
 RUNTIME_STATE_NAME = "autoresearch_runtime_state.json"
 EVENTS_NAME = "autoresearch_events.jsonl"
@@ -89,13 +91,14 @@ def read_events(root: str | Path | None = None) -> list[dict[str, Any]]:
     return events
 
 
+@owned_mutation
 def write_runtime_state(root: str | Path | None, state: Mapping[str, Any]) -> Path:
     path = runtime_state_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(dict(state), indent=2, sort_keys=True, default=str), encoding="utf-8")
+    write_json_document(path,dict(state))
     return path
 
 
+@owned_mutation
 def update_runtime_state(root: str | Path | None, updates: Mapping[str, Any]) -> dict[str, Any]:
     state = read_runtime_state(root)
     state.update(dict(updates))
@@ -103,6 +106,7 @@ def update_runtime_state(root: str | Path | None, updates: Mapping[str, Any]) ->
     return state
 
 
+@owned_mutation
 def append_event(
     root: str | Path | None,
     event_type: str,
@@ -222,6 +226,7 @@ def summarize_cycle_result(cycle_result: Any) -> dict[str, Any]:
     }
 
 
+@owned_mutation
 def record_runtime_start(
     root: str | Path | None,
     config: Any,
@@ -245,6 +250,7 @@ def record_runtime_start(
     return state
 
 
+@owned_mutation
 def record_cycle_completion(
     root: str | Path | None,
     config: Any,
@@ -278,6 +284,7 @@ def record_cycle_completion(
     return update_runtime_state(root, updates)
 
 
+@owned_mutation
 def record_cycle_start(
     root: str | Path | None,
     config: Any,
@@ -298,6 +305,7 @@ def record_cycle_start(
     return update_runtime_state(root, updates)
 
 
+@owned_mutation
 def record_runtime_error(root: str | Path | None, error: str) -> dict[str, Any]:
     return update_runtime_state(root, {"last_status": "error", "last_error": error})
 

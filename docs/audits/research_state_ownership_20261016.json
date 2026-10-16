@@ -1,0 +1,423 @@
+{
+  "schema_version": 1,
+  "status": "RESEARCH_NATIVE_STATE_OWNERSHIP_AND_ATOMIC_DOCUMENTS_3612_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "73b5f2013494cc1a791ec69cf4b09b86d62a76e7",
+  "previous_stage": "docs/audits/autoresearch_ownership_20261016.json",
+  "operator_acceptance_unchanged": "docs/audits/paper_acceptance_20261016.json",
+  "defect": "Standalone native batch/replay/checkpoint/scoreboard/runtime writers bypassed the cycle owner. Controlled concurrent upserts actually lost the second entry; direct document overwrite left truncated original JSON on injected write failure.20 pre-repair cases establish software mechanisms, not historical financial loss.5 later bounded target cases reject cross-root destinations and bind project-relative artifacts.",
+  "repair": "Sixteen synchronous management APIs bind their original signature and canonical root before any body work, sharing the actual OS-held cycle owner across nested thread calls. Full scoreboard read-modify-write and batch checkpoint lifetime remain owned. Replay/batch/checkpoint explicit outputs are canonical and restricted to the declared project; CLI rewrite owns before reading, busy tools exit2. Unique sibling temporary files are flushed/fsynced/atomically replaced; errors preserve original documents and clean only the owned temporary. Original JSON serialization, evaluation, financial thresholds and activation rules are unchanged.",
+  "original_red": {
+    "tests": 20,
+    "failures": 20,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.315
+  },
+  "destination_refinement_red": {
+    "tests": 5,
+    "failures": 5,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.167
+  },
+  "directed": {
+    "tests": 129,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 51.106
+  },
+  "new_repository_cases": 65,
+  "focused": {
+    "working": {
+      "tests": 3612,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 590.97
+    },
+    "publishing": {
+      "tests": 3612,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 565.969
+    }
+  },
+  "all_previous3547_and20_parent_plus5_refinement_cases_preserved": true,
+  "official_collected_each": 7971,
+  "production_changed_paths": [
+    "research_loop/scoreboard.py",
+    "research_loop/checkpoint.py",
+    "research_loop/batch_runner.py",
+    "research_loop/replay_runner.py",
+    "research_loop/runtime_state.py",
+    "research_loop/scheduler.py",
+    "research_loop/cycle_ownership.py",
+    "research_loop/storage.py",
+    "tools/run_research_batch.py",
+    "tools/run_research_replay.py",
+    "tools/research_scoreboard.py"
+  ],
+  "preserved_checks": {
+    "original_scoreboard_ast_except_declared_ownership_and_document_io": true,
+    "original_checkpoint_ast_except_declared_ownership_and_document_io": true,
+    "original_batch_runner_ast_except_declared_ownership_and_document_io": true,
+    "original_replay_runner_ast_except_declared_ownership_and_document_io": true,
+    "original_runtime_state_ast_except_declared_ownership_and_document_io": true,
+    "original_scheduler_ast_except_declared_ownership_and_document_io": true,
+    "original_cycle_ownership_ast_except_declared_ownership_and_document_io": true,
+    "original_cli_run_research_batch_body_preserved_except_prewrite_scope_and_busy_exit": true,
+    "original_cli_run_research_replay_body_preserved_except_prewrite_scope_and_busy_exit": true,
+    "original_cli_research_scoreboard_body_preserved_except_prewrite_scope_and_busy_exit": true,
+    "unchanged_run_bot.py": true,
+    "unchanged_research_loop/evaluator.py": true,
+    "unchanged_research_loop/objectives.py": true,
+    "unchanged_research_loop/bandit.py": true,
+    "unchanged_research_loop/candidate_generator.py": true,
+    "unchanged_research_loop/sandbox.py": true,
+    "unchanged_research_loop/policy_promoter.py": true,
+    "unchanged_research_loop/paper_forward.py": true,
+    "unchanged_research_loop/rollback.py": true,
+    "unchanged_ml/train.py": true,
+    "unchanged_ml/retrain.py": true,
+    "unchanged_ml/training_lock.py": true,
+    "unchanged_ml/primary_activation.py": true,
+    "unchanged_trader/buyer.py": true,
+    "unchanged_trader/seller.py": true
+  },
+  "decorated_management_apis": {
+    "scoreboard": [
+      "upsert_scoreboard_entry",
+      "write_scoreboard",
+      "record_evaluation",
+      "record_run_evaluation"
+    ],
+    "checkpoint": [
+      "save_checkpoint"
+    ],
+    "batch_runner": [
+      "build_batch_baseline",
+      "run_research_batch"
+    ],
+    "replay_runner": [
+      "run_research_replay",
+      "run_research_replay_from_sandbox"
+    ],
+    "runtime_state": [
+      "write_runtime_state",
+      "update_runtime_state",
+      "append_event",
+      "record_runtime_start",
+      "record_cycle_completion",
+      "record_cycle_start",
+      "record_runtime_error"
+    ],
+    "scheduler": [],
+    "cycle_ownership": []
+  },
+  "native_batch_chain": {
+    "observed_at_utc": "2026-10-16T05:17:59.053454+00:00",
+    "actual_batch_owner_held_through_replay": true,
+    "competing_native_batch_rejected_before_writes": true,
+    "native_checkpoint_and_scoreboard_original_run_agree": true,
+    "original_replay_calls": 1,
+    "next_disabled_cycle_reacquired": true,
+    "qualification": "Native batch/sandbox/checkpoint/scoreboard/scheduler, fake replay with empty diagnostic metrics and a temporary absolute root only. No provider, real fit/model activation or operational bot/PAPER/LIVE/AutoResearch daemon. Not profitability or all-writer acceptance."
+  },
+  "next_identity_boundary_pending": {
+    "observed_at_utc": "2026-10-16T05:15:21.020573+00:00",
+    "same_default_batch_id": true,
+    "first_original_baseline_bytes_preserved": false,
+    "first_sha256": "0d25fea2a2a40a4222f4f5543b918b0934795fcc0a02a7d37513cf38ec886488",
+    "later_sha256": "3628a6debe6ab6e6ac546e87a84b526a2db4b05553d10b91847474acf8de7860",
+    "qualification": "Two empty native batches at one controlled second, temporary absolute root, supplied diagnostic baselines, no candidates/replay/training/provider/model/PAPER/LIVE or operator files. Demonstrates default sequential batch identity overwrite, not historical financial impact. Remains pending outside current ownership/atomic-document acceptance."
+  },
+  "limits": "Not a multi-file report transaction, append-journal crash-recovery protocol, checkpoint stale-snapshot CAS, hostile-filesystem sandbox or every research writer. Direct candidate/sandbox/promoter/forward/rollback/report-bundle/API-budget/core-report writers remain separate boundaries. Sequential batch/run identity immutability remains pending: the retained next-identity-boundary.json probe uses two empty temporary native batches at one controlled second and observes default-ID reuse overwriting the first diagnostic baseline. No historical financial impact is established. Explicit external inputs and full-strategy source/capital/profitability acceptance are not certified. Atomic rename/fsync is not every hardware/power-loss guarantee. No actual bot/provider, new PAPER/LIVE, operator fit/activation/AutoResearch daemon was run. Exact0.1SOL/data/env/models/exit policies untouched. Prior SQLite and escaped-fixture warnings retained, not erased.",
+  "source_files_each": 879,
+  "source_sha256": "bb3988f668aebe8255a7eff59c1df52f57a7ef9951c0a33d4fb364328972ee78",
+  "parent_source_ci": {
+    "conclusion": "",
+    "databaseId": 38853660722,
+    "headSha": "73b5f2013494cc1a791ec69cf4b09b86d62a76e7",
+    "jobs": [
+      {
+        "completedAt": "0001-01-01T00:00:00Z",
+        "conclusion": "",
+        "databaseId": 116820216477,
+        "name": "test (windows-2022)",
+        "startedAt": "2026-10-16T05:02:02Z",
+        "status": "in_progress",
+        "steps": [
+          {
+            "completedAt": "2026-10-16T05:02:04Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-16T05:02:03Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:02:09Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@v4",
+            "number": 2,
+            "startedAt": "2026-10-16T05:02:04Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:02:09Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-python@v5",
+            "number": 3,
+            "startedAt": "2026-10-16T05:02:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:02:14Z",
+            "conclusion": "success",
+            "name": "Run python -m pip install --upgrade pip",
+            "number": 4,
+            "startedAt": "2026-10-16T05:02:09Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:03:41Z",
+            "conclusion": "success",
+            "name": "Run pip install -r requirements.txt",
+            "number": 5,
+            "startedAt": "2026-10-16T05:02:14Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:03:42Z",
+            "conclusion": "success",
+            "name": "Run python -m pip check",
+            "number": 6,
+            "startedAt": "2026-10-16T05:03:41Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:03:44Z",
+            "conclusion": "success",
+            "name": "Native dependency and source import smoke",
+            "number": 7,
+            "startedAt": "2026-10-16T05:03:42Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:03:44Z",
+            "conclusion": "success",
+            "name": "Native signing SDK import smoke",
+            "number": 8,
+            "startedAt": "2026-10-16T05:03:44Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:03:51Z",
+            "conclusion": "success",
+            "name": "Guarded source-only PAPER lifecycle smoke",
+            "number": 9,
+            "startedAt": "2026-10-16T05:03:44Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Run python -m pytest -q",
+            "number": 10,
+            "startedAt": "2026-10-16T05:03:51Z",
+            "status": "in_progress"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Run python tools/ml_status.py --no-fail-if-missing-model",
+            "number": 11,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Run python backtest/replay.py --policy rules_only --no-fail-if-no-data",
+            "number": 12,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Post Run actions/setup-python@v5",
+            "number": 23,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Post Run actions/checkout@v4",
+            "number": 24,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          }
+        ],
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38853660722/job/116820216477"
+      },
+      {
+        "completedAt": "0001-01-01T00:00:00Z",
+        "conclusion": "",
+        "databaseId": 116820216752,
+        "name": "test (ubuntu-24.04)",
+        "startedAt": "2026-10-16T05:02:02Z",
+        "status": "in_progress",
+        "steps": [
+          {
+            "completedAt": "2026-10-16T05:02:04Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-16T05:02:03Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:02:05Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@v4",
+            "number": 2,
+            "startedAt": "2026-10-16T05:02:04Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:02:05Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-python@v5",
+            "number": 3,
+            "startedAt": "2026-10-16T05:02:05Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:02:08Z",
+            "conclusion": "success",
+            "name": "Run python -m pip install --upgrade pip",
+            "number": 4,
+            "startedAt": "2026-10-16T05:02:05Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:02:53Z",
+            "conclusion": "success",
+            "name": "Run pip install -r requirements.txt",
+            "number": 5,
+            "startedAt": "2026-10-16T05:02:08Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:02:53Z",
+            "conclusion": "success",
+            "name": "Run python -m pip check",
+            "number": 6,
+            "startedAt": "2026-10-16T05:02:53Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:02:54Z",
+            "conclusion": "success",
+            "name": "Native dependency and source import smoke",
+            "number": 7,
+            "startedAt": "2026-10-16T05:02:53Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:02:54Z",
+            "conclusion": "success",
+            "name": "Native signing SDK import smoke",
+            "number": 8,
+            "startedAt": "2026-10-16T05:02:54Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:02:58Z",
+            "conclusion": "success",
+            "name": "Guarded source-only PAPER lifecycle smoke",
+            "number": 9,
+            "startedAt": "2026-10-16T05:02:54Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Run python -m pytest -q",
+            "number": 10,
+            "startedAt": "2026-10-16T05:02:58Z",
+            "status": "in_progress"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Run python tools/ml_status.py --no-fail-if-missing-model",
+            "number": 11,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Run python backtest/replay.py --policy rules_only --no-fail-if-no-data",
+            "number": 12,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Post Run actions/setup-python@v5",
+            "number": 23,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Post Run actions/checkout@v4",
+            "number": 24,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          }
+        ],
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38853660722/job/116820216752"
+      }
+    ],
+    "name": "tests",
+    "status": "in_progress",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38853660722"
+  },
+  "current_full_ci": "PENDING_FOR_THIS_REVISION_NOT_PREAPPROVED",
+  "conservation": {
+    "counts": {
+      "working": 4442,
+      "publishing": 28
+    },
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "prior_sqlite_warning": "Earlier SQLite byte warning retained, not reset/restored:131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33 versus25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9. Exact immediate pre-probe logical equality and historical cause remain unproved. Declared post-warning baseline only.",
+    "prior_escaped_fixture_warning": {
+      "status": "OWNED_NEW_FIXTURE_FILE_PRESERVED_AND_EMPTY_NEW_DIRECTORY_REMOVED",
+      "bytes": 311,
+      "sha256": "3f049ad478b1f14607ccd3185a8b3256c7a62ca637cd1b3fcfbd358e3cf7e5ab",
+      "qualification": "This warning is retained separately from the original SQLite byte warning. Project-level protected-file conservation does not by itself certify absence of outside-project fixture side effects. No financial trade/model/config or operator dataset is established as changed by this escaped diagnostic.",
+      "cleanup": "Exact hash, creation times and resolved source/destination were checked in one PowerShell session. Moved only the verified new file intact to this stage; removed only its verified empty new directory, without recursive deletion."
+    },
+    "qualification": "Declared post-warning protected baseline. Prior warnings and their uncertainty remain unchanged; no rollback or data repair."
+  },
+  "private_evidence": "work/research-state-stage-20261016:original.xml,original-expanded.xml,destination-refinement-red.xml,repaired-directed.xml,expanded-directed.xml,final-directed.xml,focused-*.xml,collection-*.json,native-batch-chain.json,next-identity-boundary.json,review.json,after-final-regressions.json,published-tree-review.json,published-handoff.json. Only final-directed/focused/collection receipts accept the final source; earlier124 directed receipt predates explicit-target binding.",
+  "operator_run_or_provider_probe": false
+}
