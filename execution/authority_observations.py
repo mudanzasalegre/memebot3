@@ -1,4 +1,4 @@
-"""Reject observed wallet delegation/authority changes, not a total IDL verifier.
+"""Reject observed wallet authority/account mutations, not a total IDL verifier.
 
 Check original top-level binary instructions and recorded simulation CPIs.
 An unknown router/program or unexamined extension is NOT certified safe here.
@@ -11,6 +11,55 @@ from execution import jupiter_managed_contract as managed
 from execution.wallet_effects import TOKEN_PROGRAMS, token_map
 
 
+SYSTEM_PROGRAM = "11111111111111111111111111111111"
+# Original SystemInstruction u32 discriminants and Agave jsonParsed targets.
+# Protect the taker itself, not a payer merely funding a separate new account.
+# CreateAccountAllowPrefund (13) targets account0, unlike CreateAccount (0/3).
+_SYSTEM_MUTATIONS = {
+    0: (1, "createAccount", "newAccount"),
+    1: (0, "assign", "account"),
+    3: (1, "createAccountWithSeed", "newAccount"),
+    4: (0, "advanceNonce", "nonceAccount"),
+    5: (0, "withdrawFromNonce", "nonceAccount"),
+    6: (0, "initializeNonce", "nonceAccount"),
+    7: (0, "authorizeNonce", "nonceAccount"),
+    8: (0, "allocate", "account"),
+    9: (0, "allocateWithSeed", "account"),
+    10: (0, "assignWithSeed", "account"),
+    12: (0, "upgradeNonce", "nonceAccount"),
+    13: (0, "createAccountAllowPrefund", "newAccount"),
+}
+
+
+def _system_binary(accounts, data, wallet):
+    if len(data) < 4:
+        raise ValueError("Observed system instruction lacks its discriminator")
+    opcode = int.from_bytes(data[:4], "little")
+    spec = _SYSTEM_MUTATIONS.get(opcode)
+    if spec is None:
+        return  # Transfers/unknown opcodes are not certified semantically here.
+    target = spec[0]
+    if len(accounts) <= max(target, 1 if opcode == 7 else target):
+        raise ValueError("Observed system mutation lacks account identity")
+    if accounts[target] == wallet or opcode == 7 and accounts[1] == wallet:
+        raise ValueError("Unrequested wallet system-account mutation")
+
+
+def _system_parsed(parsed, keys, wallet):
+    if (not isinstance(parsed, dict) or not isinstance(parsed.get("type"), str)
+            or not isinstance(parsed.get("info"), dict)):
+        raise ValueError("Invalid parsed system instruction")
+    spec = next((row for row in _SYSTEM_MUTATIONS.values() if row[1] == parsed["type"]), None)
+    if spec is None:
+        return  # Not a complete current/future System Program decoder.
+    fields = [spec[2]] + (["nonceAuthority"] if parsed["type"] == "authorizeNonce" else [])
+    subjects = [managed.address(parsed["info"].get(field)) for field in fields]
+    if any(subject not in keys for subject in subjects):
+        raise ValueError("Recorded system mutation account is unresolved")
+    if wallet in subjects:
+        raise ValueError("Unrequested wallet system-account mutation")
+
+
 def check(order, meta):
     loaded = meta["loadedAddresses"]
     keys = [str(key) for key in order.transaction.message.account_keys] + loaded["writable"] + loaded["readonly"]
@@ -19,6 +68,9 @@ def check(order, meta):
     wallet = order.request.taker
 
     def binary(program, accounts, data):
+        if program == SYSTEM_PROGRAM:
+            _system_binary(accounts, data, wallet)
+            return
         if program not in TOKEN_PROGRAMS:
             return
         if not data:
@@ -55,6 +107,9 @@ def check(order, meta):
             if program not in keys:
                 raise ValueError("Recorded unsigned instruction program is unresolved")
             if "parsed" in ix:
+                if program == SYSTEM_PROGRAM:
+                    _system_parsed(ix["parsed"], keys, wallet)
+                    continue
                 if program not in TOKEN_PROGRAMS:
                     # Memo and other official parsers may expose strings or a
                     # different JSON schema. This is only a base token-authority

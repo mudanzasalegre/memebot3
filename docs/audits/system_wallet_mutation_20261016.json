@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "status": "MANAGED_SYSTEM_TAKER_MUTATION_REPAIRED_2892_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "f8811544db294406cfbe1a7030fd4d7a5f7970e1",
+  "previous_stage": "docs/audits/live_monitor_freshness_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "defect": "Managed pre-sign projection validates wallet balances and observed SPL approval/authority operations, but ignored System account-state instructions. Synthetic SDK Assign/Allocate targeting the taker pass the old projection with exact input/output/fee balances. Such instructions can change account owner/data independently of balances; this is a validator reproduction, not an observed operator exploit.",
+  "repair": "Reject12 known System state-operation targets that are the original taker, plus unrequested nonce-authority reassignment by that wallet. Check original top-level bytes and recorded binary/parsed CPIs through the existing managed projection and consumer revalidation. Separate funding/base roles from the affected recipient, including prefund variant13 with recipient first. Reject missing/unresolved examined target identity. Preserve every existing SPL/recording/balance/signature/fee check and every original false financial/full-semantics flag.",
+  "scope": "Managed Swap v2 pre-sign projection only; not a full current/future instruction decoder or all wallet signing paths.",
+  "production_changed_paths": [
+    "execution/authority_observations.py"
+  ],
+  "preserved_checks": {
+    "frozen_parent_exact": true,
+    "all_original_token_authority_and_recording_checks_unchanged": true,
+    "unchanged_run_bot.py": true,
+    "unchanged_trader/sol_signer.py": true,
+    "unchanged_trader/buyer.py": true,
+    "unchanged_trader/seller.py": true,
+    "unchanged_trader/gmgn.py": true,
+    "unchanged_fetcher/jupiter_router.py": true,
+    "unchanged_execution/unsigned_projection.py": true,
+    "unchanged_execution/wallet_effects.py": true,
+    "unchanged_execution/chain_reconciliation.py": true,
+    "all12_parsed_targets_and_nonce_authority_match_pinned_official_agave": true
+  },
+  "official_contract": {
+    "agave_commit": "c2453694cecc040594100ba324216ce64c6207f8",
+    "parser_url": "https://github.com/anza-xyz/agave/blob/c2453694cecc040594100ba324216ce64c6207f8/transaction-status/src/parse_system.rs",
+    "parser_sha256": "770bc7f55b452d9ed48073bc87c4439aae6a4259cca453e5975e5754de39723a",
+    "parsed_target_fields_checked": 12,
+    "system_semantics_url": "https://solana.com/docs/core/programs/builtin-programs",
+    "system_variants_url": "https://docs.rs/solana-system-interface/3.3.0/solana_system_interface/instruction/enum.SystemInstruction.html"
+  },
+  "original_new_cases": {
+    "tests": 12,
+    "failures": 12,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 3.376
+  },
+  "directed": {
+    "tests": 484,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 39.605
+  },
+  "focused": {
+    "working": {
+      "tests": 2892,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 529.166
+    },
+    "publishing": {
+      "tests": 2892,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 523.264
+    }
+  },
+  "new_repository_cases": 125,
+  "all_previous2188_cases_preserved": true,
+  "all_directed484_cases_included": true,
+  "official_collected_each": 7494,
+  "source_files_each": 872,
+  "source_sha256": "00dc0af60135ac8a03327438c024ec0b6473fc520651ee60d3ac65edd5390ba0",
+  "validation_refinement": "Initial expanded484-case run did not require the adapter rejection cause and one RFQ fixture used generic order metadata. Retain that artifact but use final-directed only: reconstruct route-specific metadata and assert all24 native adapter cases reach exactly the System guard before signing/POST.",
+  "synthetic_scope": "12 original Assign/Allocate failures,125 new cases total,24 native managed-adapter cases reach exactly the new guard before signing or execute POST. Synthetic signer/HTTP/RPC only. SDK, seed/nonce/prefund structural vectors do not prove all cases executable on a real bank. Benign role tests only establish this guard does not reject an unrelated affected recipient; they do not authenticate router behavior.",
+  "next_required_boundary": "This consumer is managed Swap v2 only. Unchanged legacy Jupiter and GMGN raw signers do not run this projection; native seller may fall back to GMGN after a preparation failure. Other raw signing/fallback protocols need independently scoped unsigned-intent/semantics/financial acceptance. Executed CPI authority may also differ from the pre-sign simulation; current chain reconciliation does not run this authority check over actual CPIs. No LIVE activation is approved.",
+  "historical_attribution": "No past wallet compromise, missed profitable trade, zero-buy cause or financial gain/loss is established by these fixtures.",
+  "conservation": {
+    "protected_working_files": 4442,
+    "protected_publishing_files": 28,
+    "changed_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "added_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "prior_sqlite_warning": "Earlier SQLite byte warning retained, not reset/restored:131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33 versus25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9. Exact immediate pre-probe logical equality and historical cause remain unproved. This stage uses the declared post-warning state."
+  },
+  "current_full_ci": "PENDING_FOR_THIS_REVISION_NOT_PREAPPROVED",
+  "private_evidence": "work/system-wallet-mutation-stage-20261016: original-system-wallet.xml, final-directed-system-wallet.xml, focused-*.xml, collection-*.json, agave-parse_system.rs, review.json, after-final-regressions.json, published-tree-review.json, published-handoff.json",
+  "limits": "Controlled original unsigned SDK packets and synthetic bank vectors, not an actual chain exploit, arbitrary router/extension/IDL verifier, all signing-path approval or future execution proof. Seed/nonce/prefund structural cases need not execute against a real bank. Legacy behavior is not relabeled safe; every existing unsigned/chain/fill false flag and wallet evidence check remains intact. No operator key/signature/provider/PAPER/LIVE/config/data/model/0.1SOL/exit/AutoResearch change. Full original objective/history, ten remaining requirements and SQLite byte warning retained."
+}

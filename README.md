@@ -13,6 +13,20 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Jupiter gestionado: estado de la wallet antes de firmar (2026-10-16)
+
+Se rechazan operaciones System conocidas que afectan a la cuenta del taker
+o reasignan su autoridad nonce, aunque cuadren los saldos simulados. Se
+conserva el papel de pagador/base al crear otra cuenta y todos los controles
+SPL, de saldo, comision y cantidad. Contrato cotejado con Agave fijado.
+
+Pasan 2.892 regresiones por carpeta, incluidas las 2.188 anteriores; 484 casos
+dirigidos y 7.494 recogidos. CI completa de esta revision pendiente.
+La proteccion NO certifica las firmas raw legacy/GMGN, sus fallbacks ni los
+CPI finalmente ejecutados. No se aprueba LIVE ni rentabilidad. Todo apagado,
+sin nueva PAPER/proveedor, cambios de datos/modelos/configuracion o 0,1 SOL.
+[Evidencia y pendientes](docs/audits/system_wallet_mutation_20261016.json).
+
 ### Monitor: precio vigente tras esperar SQL (2026-10-16)
 
 Se corrige el uso de precio LIVE caducado tras persistir peak/politica, antes
