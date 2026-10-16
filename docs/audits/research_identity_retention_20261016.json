@@ -1,0 +1,393 @@
+{
+  "schema_version": 1,
+  "status": "RESEARCH_EXECUTION_IDENTITY_RETENTION_3656_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "61e320c6b2a6a3d463a7ede74ad121d4e91358ee",
+  "previous_stage": "docs/audits/research_state_ownership_20261016.json",
+  "operator_acceptance_unchanged": "docs/audits/paper_acceptance_20261016.json",
+  "defect": "Clock-second batch/sandbox identities and permissive directory reuse overwrote original inputs/snapshots. Replay/baseline retries could mutate earlier completed, failed or partial evidence. Catalog writes overwrote a shared proposal ID, creation receipts or a different destination; standalone catalog/sandbox writes bypassed the actual cycle owner.24 genuine parent failures prove these bounded mechanisms, not historical financial harm.3 refinement failures establish generated IDs omitted objective/hypothesis/risk definition despite equal parameters.",
+  "repair": "Default batch/run IDs include UUIDs; atomic exclusive directory/snapshot creation rejects even forced collisions before callbacks or report writes. Explicit reused IDs and partial/failed attempts are preserved, not auto-deleted/resumed. Each batch attempt separates proposal identity from fresh execution identity; skipped/failed checkpoint receipt IDs include their original batch. Catalog/sandbox borrow the actual root owner. Catalog preflights all definitions and paths, preserves the first creation bytes on equivalent repeats, rejects conflicts/corruption/unsafe names, and publishes new JSON/env atomically. Generated proposal IDs include the complete policy definition except ID/creation time in a deterministic128-bit suffix; legacy four-argument ID helper and bandit grouping remain compatible. All original metadata-independent generation, safety, objective, evaluation, selection, financial and activation decisions are retained.",
+  "original_red": {
+    "tests": 24,
+    "failures": 24,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.932
+  },
+  "semantic_refinement_red": {
+    "tests": 4,
+    "failures": 3,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 5.045
+  },
+  "directed": {
+    "tests": 166,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 58.209
+  },
+  "new_repository_cases": 44,
+  "focused": {
+    "working": {
+      "tests": 3656,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 597.216
+    },
+    "publishing": {
+      "tests": 3656,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 574.735
+    }
+  },
+  "all_previous3612_cases_preserved": true,
+  "official_collected_each": 8015,
+  "production_changed_paths": [
+    "research_loop/batch_runner.py",
+    "research_loop/sandbox.py",
+    "research_loop/replay_runner.py",
+    "research_loop/candidate_generator.py",
+    "research_loop/identities.py",
+    "tools/run_research_replay.py",
+    "tools/run_research_batch.py"
+  ],
+  "preserved_checks": {
+    "whole_original_batch_runner_ast_except_identity_reservation_catalog_and_document_io": true,
+    "whole_original_sandbox_ast_except_identity_reservation_catalog_and_document_io": true,
+    "whole_original_replay_runner_ast_except_identity_reservation_catalog_and_document_io": true,
+    "whole_original_candidate_generator_ast_except_identity_reservation_catalog_and_document_io": true,
+    "whole_original_run_research_batch_ast_except_typed_identity_rejection": true,
+    "whole_original_run_research_replay_ast_except_typed_identity_rejection": true,
+    "original_batch_failure_fixture_assertions_retained": true,
+    "all_other_original_batch_tests_unchanged": true,
+    "unchanged_run_bot.py": true,
+    "unchanged_research_loop/evaluator.py": true,
+    "unchanged_research_loop/objectives.py": true,
+    "unchanged_research_loop/bandit.py": true,
+    "unchanged_research_loop/checkpoint.py": true,
+    "unchanged_research_loop/scoreboard.py": true,
+    "unchanged_research_loop/scheduler.py": true,
+    "unchanged_research_loop/runtime_state.py": true,
+    "unchanged_research_loop/cycle_ownership.py": true,
+    "unchanged_research_loop/storage.py": true,
+    "unchanged_research_loop/paper_forward.py": true,
+    "unchanged_research_loop/policy_promoter.py": true,
+    "unchanged_research_loop/rollback.py": true,
+    "unchanged_ml/train.py": true,
+    "unchanged_ml/retrain.py": true,
+    "unchanged_ml/training_lock.py": true,
+    "unchanged_ml/primary_activation.py": true,
+    "unchanged_trader/buyer.py": true,
+    "unchanged_trader/seller.py": true,
+    "legacy_four_argument_identity_helper_compatible": true
+  },
+  "fixture_refinement": "repaired.xml retains1 real fixture failure/59 passes: its injected failure keyed on the old run_id==proposal_id assumption. It now reads the original sandbox proposal ID; all4 old assertions remain, plus ordered proposal observations and distinct execution-ID assertions. No assertion/case was removed. expanded-directed.xml162 passes predates the complete-definition refinement; only final-directed166 and final focused/collection accept final source.",
+  "catalog_conservation": {
+    "first_capture": "2026-10-16T05:30:49.096945+00:00",
+    "last_capture": "2026-10-16T05:41:07.528288+00:00",
+    "counts": {
+      "working": 111,
+      "publishing": 452
+    },
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "qualification": "The inherited4442D/28C protected baseline did not include strategy_proposals/candidates. These are first byte snapshots taken after initial isolated directed tests, before expanded regressions. Timestamps are diagnostic, not proof of earlier byte equality. No retrospective whole-stage catalog byte-conservation claim."
+  },
+  "limits": "Not a complete immutable financial bundle, per-file source authentication, multi-file transaction, hostile-filesystem sandbox, journal crash recovery or checkpoint stale-snapshot CAS. First creation time is intentionally not experiment-definition identity. Existing duplicate-by-changes/config policy, search distributions, thresholds and exact0.1SOL remain unchanged, not newly optimized/approved. Other direct promoter/forward/rollback/report/API-budget/core-report writers and full-strategy source/capital/forward profitability remain pending. Partial attempt directories are preserved; recovery is a fresh identity, not inferred completion or deletion. Current operator data/catalog artifacts are not backfilled/renamed. Original SQLite and escaped-fixture warnings plus the catalog baseline time limit remain explicit. No operational bot/provider/PAPER/LIVE, operator fit/model activation or AutoResearch daemon was launched.",
+  "source_files_each": 881,
+  "source_sha256": "3488f35b87a7550128d1092ae41ea862610f31625acc13aa19ffeb2f74adea08",
+  "parent_source_ci": {
+    "conclusion": "",
+    "databaseId": 38855344645,
+    "headSha": "61e320c6b2a6a3d463a7ede74ad121d4e91358ee",
+    "jobs": [
+      {
+        "completedAt": "0001-01-01T00:00:00Z",
+        "conclusion": "",
+        "databaseId": 116825430958,
+        "name": "test (ubuntu-24.04)",
+        "startedAt": "2026-10-16T05:21:28Z",
+        "status": "in_progress",
+        "steps": [
+          {
+            "completedAt": "2026-10-16T05:21:29Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-16T05:21:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:21:31Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@v4",
+            "number": 2,
+            "startedAt": "2026-10-16T05:21:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:21:31Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-python@v5",
+            "number": 3,
+            "startedAt": "2026-10-16T05:21:31Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:21:32Z",
+            "conclusion": "success",
+            "name": "Run python -m pip install --upgrade pip",
+            "number": 4,
+            "startedAt": "2026-10-16T05:21:31Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:22:19Z",
+            "conclusion": "success",
+            "name": "Run pip install -r requirements.txt",
+            "number": 5,
+            "startedAt": "2026-10-16T05:21:32Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:22:19Z",
+            "conclusion": "success",
+            "name": "Run python -m pip check",
+            "number": 6,
+            "startedAt": "2026-10-16T05:22:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:22:20Z",
+            "conclusion": "success",
+            "name": "Native dependency and source import smoke",
+            "number": 7,
+            "startedAt": "2026-10-16T05:22:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:22:20Z",
+            "conclusion": "success",
+            "name": "Native signing SDK import smoke",
+            "number": 8,
+            "startedAt": "2026-10-16T05:22:20Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:22:25Z",
+            "conclusion": "success",
+            "name": "Guarded source-only PAPER lifecycle smoke",
+            "number": 9,
+            "startedAt": "2026-10-16T05:22:20Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Run python -m pytest -q",
+            "number": 10,
+            "startedAt": "2026-10-16T05:22:25Z",
+            "status": "in_progress"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Run python tools/ml_status.py --no-fail-if-missing-model",
+            "number": 11,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Run python backtest/replay.py --policy rules_only --no-fail-if-no-data",
+            "number": 12,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Post Run actions/setup-python@v5",
+            "number": 23,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Post Run actions/checkout@v4",
+            "number": 24,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          }
+        ],
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38855344645/job/116825430958"
+      },
+      {
+        "completedAt": "0001-01-01T00:00:00Z",
+        "conclusion": "",
+        "databaseId": 116825431323,
+        "name": "test (windows-2022)",
+        "startedAt": "2026-10-16T05:21:28Z",
+        "status": "in_progress",
+        "steps": [
+          {
+            "completedAt": "2026-10-16T05:21:29Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-16T05:21:28Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:21:35Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@v4",
+            "number": 2,
+            "startedAt": "2026-10-16T05:21:29Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:21:35Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-python@v5",
+            "number": 3,
+            "startedAt": "2026-10-16T05:21:35Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:21:40Z",
+            "conclusion": "success",
+            "name": "Run python -m pip install --upgrade pip",
+            "number": 4,
+            "startedAt": "2026-10-16T05:21:35Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:23:42Z",
+            "conclusion": "success",
+            "name": "Run pip install -r requirements.txt",
+            "number": 5,
+            "startedAt": "2026-10-16T05:21:40Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:23:43Z",
+            "conclusion": "success",
+            "name": "Run python -m pip check",
+            "number": 6,
+            "startedAt": "2026-10-16T05:23:42Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:23:46Z",
+            "conclusion": "success",
+            "name": "Native dependency and source import smoke",
+            "number": 7,
+            "startedAt": "2026-10-16T05:23:43Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:23:46Z",
+            "conclusion": "success",
+            "name": "Native signing SDK import smoke",
+            "number": 8,
+            "startedAt": "2026-10-16T05:23:46Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-16T05:23:55Z",
+            "conclusion": "success",
+            "name": "Guarded source-only PAPER lifecycle smoke",
+            "number": 9,
+            "startedAt": "2026-10-16T05:23:46Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Run python -m pytest -q",
+            "number": 10,
+            "startedAt": "2026-10-16T05:23:55Z",
+            "status": "in_progress"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Run python tools/ml_status.py --no-fail-if-missing-model",
+            "number": 11,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Run python backtest/replay.py --policy rules_only --no-fail-if-no-data",
+            "number": 12,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Post Run actions/setup-python@v5",
+            "number": 23,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          },
+          {
+            "completedAt": "0001-01-01T00:00:00Z",
+            "conclusion": "",
+            "name": "Post Run actions/checkout@v4",
+            "number": 24,
+            "startedAt": "0001-01-01T00:00:00Z",
+            "status": "pending"
+          }
+        ],
+        "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38855344645/job/116825431323"
+      }
+    ],
+    "name": "tests",
+    "status": "in_progress",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38855344645"
+  },
+  "current_full_ci": "PENDING_FOR_THIS_REVISION_NOT_PREAPPROVED",
+  "conservation": {
+    "counts": {
+      "working": 4442,
+      "publishing": 28
+    },
+    "changed": {
+      "working": [],
+      "publishing": []
+    },
+    "added": {
+      "working": [],
+      "publishing": []
+    },
+    "prior_sqlite_warning": "Earlier SQLite byte warning retained, not reset/restored:131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33 versus25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9. Exact immediate pre-probe logical equality and historical cause remain unproved. Declared post-warning baseline only.",
+    "prior_escaped_fixture_warning": {
+      "status": "OWNED_NEW_FIXTURE_FILE_PRESERVED_AND_EMPTY_NEW_DIRECTORY_REMOVED",
+      "bytes": 311,
+      "sha256": "3f049ad478b1f14607ccd3185a8b3256c7a62ca637cd1b3fcfbd358e3cf7e5ab",
+      "qualification": "This warning is retained separately from the original SQLite byte warning. Project-level protected-file conservation does not by itself certify absence of outside-project fixture side effects. No financial trade/model/config or operator dataset is established as changed by this escaped diagnostic.",
+      "cleanup": "Exact hash, creation times and resolved source/destination were checked in one PowerShell session. Moved only the verified new file intact to this stage; removed only its verified empty new directory, without recursive deletion."
+    },
+    "qualification": "Inherited declared post-warning4442D/28C baseline unchanged. Catalog111D/452C has separate later first-byte capture and its limit; no retrospective global byte claim or historical data repair."
+  },
+  "private_evidence": "work/research-identity-stage-20261016:original.xml,repaired.xml,expanded-directed.xml,semantic-refinement-red.xml,final-directed.xml,focused-*.xml,collection-*.json,catalog-before-expanded-regressions.json,catalog-after-final-regressions.json,review.json,after-final-regressions.json,published-tree-review.json,published-handoff.json. Final166 directed and focused/collection receipts accept final source; earlier162 directed predates complete-definition identity.",
+  "operator_run_or_provider_probe": false
+}

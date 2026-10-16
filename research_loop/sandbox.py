@@ -7,10 +7,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from research_loop.experiment_schema import CandidatePolicy, validate_candidate_policy
 from research_loop.paths import project_root, research_runs_dir
 from research_loop.safety import load_safety_config, validate_candidate_safety
+from research_loop.cycle_ownership import owned_mutation
+from research_loop.identities import claim_directory
+from research_loop.storage import write_json_document, write_text_document
 
 SAFE_BASE_ENV = {
     "DRY_RUN": "1",
@@ -80,7 +84,7 @@ def _safe_run_id(value: str) -> str:
 
 def _default_run_id(policy: CandidatePolicy) -> str:
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d_%H%M%S")
-    return _safe_run_id(f"{policy.proposal_id}_{stamp}")
+    return _safe_run_id(f"{policy.proposal_id}_{stamp}_{uuid4().hex}")
 
 
 def _is_secret_key(key: str) -> bool:
@@ -117,8 +121,7 @@ def _candidate_env_values(policy: CandidatePolicy) -> dict[str, str]:
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
+    write_json_document(path,payload)
 
 
 def _write_env(path: Path, env_values: dict[str, str]) -> None:
@@ -128,10 +131,10 @@ def _write_env(path: Path, env_values: dict[str, str]) -> None:
     ]
     for key in sorted(env_values):
         lines.append(f"{key}={_env_quote(env_values[key])}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    write_text_document(path,"\n".join(lines).rstrip() + "\n")
 
 
+@owned_mutation
 def create_candidate_sandbox(
     candidate_policy: str | Path | dict[str, Any],
     *,
@@ -152,6 +155,7 @@ def create_candidate_sandbox(
     config_hash = _config_hash(env_values)
     safety_report["config_hash"] = config_hash
     safety_report["run_id"] = resolved_run_id
+    run_dir = claim_directory(run_dir,root=resolved_root,reason='research_run_identity_already_used')
 
     candidate_policy_path = run_dir / "candidate_policy.json"
     candidate_env_path = run_dir / "candidate.env"

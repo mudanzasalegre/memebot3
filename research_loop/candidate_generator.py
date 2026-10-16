@@ -15,6 +15,8 @@ from research_loop.safety import validate_candidate_safety
 from research_loop.search_space import SearchSpace, get_search_space, iter_grid, validate_search_space
 from research_loop.spaces import entry_quality, lane_sizing, late_momentum, moonshot_micro, rank_canary, runner_exit, shadow_followup
 from config.config import CFG
+from research_loop.cycle_ownership import owned_mutation, owned_artifact
+from research_loop.storage import write_json_document
 
 GENERATION_MODES = {"grid", "random", "seeded_random", "local_search", "bandit_suggested"}
 KNOWN_OBJECTIVE_METRICS = {
@@ -91,19 +93,23 @@ def applicable_generation_spaces(spaces: tuple[str, ...], *, cfg: Any = None) ->
     return tuple(name for name in spaces if _effective_space(load_generation_space(name), cfg).parameters)
 
 
-def _changes_hash(space_name: str, changes: dict[str, Any], index: int, seed: int | None) -> str:
+def _changes_hash(space_name: str, changes: dict[str, Any], index: int, seed: int | None,
+                  definition: dict[str,Any] | None = None) -> str:
     payload = {
         "space": space_name,
         "changes": changes,
         "index": index,
         "seed": seed,
     }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:10]
+    if definition is not None:
+        payload['definition']={k:v for k,v in definition.items() if k not in {'proposal_id','created_at_utc'}}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:32 if definition is not None else 10]
 
 
-def proposal_id_for(space_name: str, changes: dict[str, Any], *, index: int, seed: int | None) -> str:
+def proposal_id_for(space_name: str, changes: dict[str, Any], *, index: int, seed: int | None,
+                    definition: dict[str,Any] | None = None) -> str:
     seed_part = "grid" if seed is None else f"s{seed}"
-    return f"ar_{_safe_id(space_name)}_{seed_part}_{index:04d}_{_changes_hash(space_name, changes, index, seed)}"
+    return f"ar_{_safe_id(space_name)}_{seed_part}_{index:04d}_{_changes_hash(space_name, changes, index, seed, definition)}"
 
 
 def _optimization_targets(space: SearchSpace) -> list[str]:
@@ -127,7 +133,7 @@ def _build_candidate_policy(
     created_at_utc: str | None = None,
 ) -> dict[str, Any]:
     policy = {
-        "proposal_id": proposal_id_for(space.name, changes, index=index, seed=seed),
+        "proposal_id": "",
         "created_at_utc": created_at_utc or utc_now(),
         "experiment_type": "replay",
         "hypothesis": space.hypothesis,
@@ -142,6 +148,7 @@ def _build_candidate_policy(
         "live_allowed": False,
         "risk_notes": list(space.risk_notes),
     }
+    policy['proposal_id']=proposal_id_for(space.name,changes,index=index,seed=seed,definition=policy)
     validate_candidate_policy(policy)
     safety = validate_candidate_safety(policy)
     if not safety.ok:
@@ -237,20 +244,45 @@ def generate_candidate_policies(
     ]
 
 
+def _catalog_definition(candidate: dict[str,Any]) -> str:
+    # A deterministic proposal may be generated again later. Its first creation
+    # receipt is retained, while every actual policy field must still agree.
+    return json.dumps({k:v for k,v in candidate.items() if k!='created_at_utc'},
+        sort_keys=True,separators=(',',':'),default=str)
+
+
+@owned_mutation
 def write_candidate_policies(
     candidates: list[dict[str, Any]],
     *,
     root: str | Path | None = None,
 ) -> list[Path]:
     resolved_root = project_root(root)
-    out_dir = resolved_root / "strategy_proposals" / "candidates"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = owned_artifact(resolved_root / "strategy_proposals" / "candidates",resolved_root)
     paths: list[Path] = []
+    planned: dict[Path,dict[str,Any]] = {}
     for candidate in candidates:
         validate_candidate_policy(candidate)
-        path = out_dir / f"{candidate['proposal_id']}.json"
-        path.write_text(json.dumps(candidate, indent=2, sort_keys=True, default=str), encoding="utf-8")
+        identity=candidate['proposal_id']
+        reserved={'CON','PRN','AUX','NUL'}|{f'{prefix}{i}' for prefix in ('COM','LPT') for i in range(1,10)}
+        if (not re.fullmatch(r'[A-Za-z0-9_.-]+',identity) or identity in {'.','..'}
+                or identity.split('.')[0].upper() in reserved):
+            raise CandidateGenerationError('candidate_identity_invalid')
+        path = out_dir / f"{identity}.json"
+        if path.is_symlink() or path.resolve().parent!=out_dir:
+            raise CandidateGenerationError('candidate_identity_invalid')
+        previous=planned.get(path)
+        if previous is None and path.exists():
+            try:previous=json.loads(path.read_text(encoding='utf-8'))
+            except (OSError,ValueError):raise CandidateGenerationError('candidate_identity_already_used') from None
+            if not isinstance(previous,dict):raise CandidateGenerationError('candidate_identity_already_used')
+        if previous is not None:
+            if _catalog_definition(previous)!=_catalog_definition(candidate):
+                raise CandidateGenerationError('candidate_identity_already_used')
+        else:planned[path]=candidate
         paths.append(path)
+    # Preflight the whole list before creating or publishing any proposal.
+    for path,candidate in planned.items():write_json_document(path,candidate)
     return paths
 
 

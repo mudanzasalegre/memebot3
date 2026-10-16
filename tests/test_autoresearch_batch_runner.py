@@ -123,8 +123,11 @@ def test_batch_runner_skips_duplicate_changes_by_checkpoint(tmp_path) -> None:
 
 
 def test_batch_runner_continues_when_candidate_fails(tmp_path) -> None:
+    observed=[]
     def replay(sandbox):
-        if sandbox.run_id == "ar_batch_fail":
+        proposal_id=json.loads(sandbox.candidate_policy_path.read_text(encoding='utf-8'))['proposal_id']
+        observed.append(proposal_id)
+        if proposal_id == "ar_batch_fail":
             raise RuntimeError("boom")
         return _fake_replay()(sandbox)
 
@@ -146,6 +149,8 @@ def test_batch_runner_continues_when_candidate_fails(tmp_path) -> None:
     assert result.completed == 1
     assert result.results[0].status == "failed"
     assert result.results[1].status == "accepted_replay"
+    assert observed==['ar_batch_fail','ar_batch_ok']
+    assert all(item.run_id!=item.proposal_id for item in result.results)
 
 
 def test_batch_runner_auto_space_uses_bandit(tmp_path) -> None:

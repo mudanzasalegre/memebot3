@@ -7,6 +7,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 from research_loop.bandit import DEFAULT_SPACES, suggest_spaces
 from research_loop.candidate_generator import applicable_generation_spaces, generate_candidate_policies, write_candidate_policies
@@ -25,6 +26,7 @@ from research_loop.scoreboard import load_scoreboard, record_evaluation
 from research_loop.api_budget import build_api_budget_report
 from research_loop.cycle_ownership import owned_mutation, owned_artifact
 from research_loop.storage import write_json_document
+from research_loop.identities import claim_directory, claim_snapshot
 
 
 @dataclass(frozen=True)
@@ -91,7 +93,7 @@ def _safe_id(value: str) -> str:
 def _default_batch_id(space: str, seed: int | None) -> str:
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d_%H%M%S")
     seed_part = "noseed" if seed is None else f"s{seed}"
-    return _safe_id(f"batch_{space}_{seed_part}_{stamp}")
+    return _safe_id(f"batch_{space}_{seed_part}_{stamp}_{uuid4().hex}")
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -120,6 +122,8 @@ def build_batch_baseline(
 ) -> dict[str, Any]:
     resolved_root = project_root(root)
     resolved_batch_dir = owned_artifact(batch_dir,resolved_root)
+    snapshot_dir = claim_snapshot(resolved_batch_dir,'baseline_snapshot',root=resolved_root,
+        artifacts=('baseline_metrics.json','baseline_report.json'),reason='baseline_identity_already_used')
     warnings: list[str] = []
     failures: list[str] = []
     if regenerate:
@@ -143,7 +147,6 @@ def build_batch_baseline(
     except Exception as exc:
         failures.append(f"baseline_event_replay_failed:{exc}")
 
-    snapshot_dir = resolved_batch_dir / "baseline_snapshot"
     failures.extend(_copy_baseline_snapshot(resolved_root, snapshot_dir))
     api_budget = build_api_budget_report(resolved_root, write=True)
     metrics = extract_replay_metrics(snapshot_dir, api_budget=api_budget)
@@ -193,8 +196,8 @@ def run_research_batch(
     resolved_root = project_root(root)
     resolved_space = _choose_space(space_name, resolved_root, seed)
     resolved_batch_id = _safe_id(batch_id or _default_batch_id(resolved_space, seed))
-    batch_dir = research_runs_dir(resolved_root) / "batches" / resolved_batch_id
-    batch_dir.mkdir(parents=True, exist_ok=True)
+    batch_dir = claim_directory(research_runs_dir(resolved_root) / "batches" / resolved_batch_id,
+        root=resolved_root,reason='batch_identity_already_used')
 
     if candidates is None:
         candidates = generate_candidate_policies(space_name=resolved_space, n=n, mode=mode, seed=seed)
@@ -221,7 +224,7 @@ def run_research_batch(
         if duplicate.duplicate:
             record_checkpoint_run(
                 checkpoint,
-                run_id=f"skipped_{proposal_id}",
+                run_id=f"skipped_{resolved_batch_id}_{proposal_id}",
                 candidate_policy=candidate,
                 status="skipped_duplicate",
                 error=",".join(duplicate.reasons),
@@ -239,9 +242,9 @@ def run_research_batch(
             continue
 
         sandbox: SandboxResult | None = None
-        run_id = proposal_id or None
+        run_id = None
         try:
-            sandbox = create_candidate_sandbox(candidate, root=resolved_root, run_id=proposal_id)
+            sandbox = create_candidate_sandbox(candidate, root=resolved_root)
             duplicate_after_sandbox = candidate_duplicate_check(candidate, checkpoint, config_hash=sandbox.config_hash)
             if duplicate_after_sandbox.duplicate:
                 record_checkpoint_run(
@@ -309,7 +312,7 @@ def run_research_batch(
             resolved_run_id = sandbox.run_id if sandbox is not None else run_id
             record_checkpoint_run(
                 checkpoint,
-                run_id=resolved_run_id or f"failed_{proposal_id}",
+                run_id=resolved_run_id or f"failed_{resolved_batch_id}_{proposal_id}",
                 candidate_policy=candidate,
                 status="failed",
                 config_hash=sandbox.config_hash if sandbox is not None else None,

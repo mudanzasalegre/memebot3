@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
 from research_loop.candidate_generator import GENERATION_MODES
 from research_loop.batch_runner import run_research_batch
 from research_loop.cycle_ownership import AutoResearchAlreadyRunning
+from research_loop.identities import ResearchIdentityAlreadyUsed
 
 
 def _main() -> int:
@@ -45,8 +46,8 @@ def _main() -> int:
 def main() -> int:
     try:
         return _main()
-    except AutoResearchAlreadyRunning:
-        print('autoresearch_already_running',file=sys.stderr)
+    except (AutoResearchAlreadyRunning,ResearchIdentityAlreadyUsed) as exc:
+        print(str(exc),file=sys.stderr)
         return 2
 
 

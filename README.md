@@ -13,6 +13,21 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### AutoResearch: conservar identidades y evidencias (2026-10-16)
+
+Las ejecuciones batch/sandbox usan UUID y reserva exclusiva. Un ID o snapshot
+ya utilizado se rechaza antes de regenerar o sobrescribir, incluso si quedo
+parcial o fallo. Propuesta y ejecucion son identidades distintas. El catalogo
+comprueba todos los conflictos antes de publicar y conserva la primera fecha;
+la identidad generada incluye la definicion del experimento, no su fecha.
+
+Pasan 3.656 regresiones por carpeta, incluidas las 3.612 anteriores: 44 nuevas,
+166 dirigidas y 8.015 recogidas. La CI completa de esta revision sigue pendiente.
+No cambia la evaluacion financiera, activacion, semilla, filtros de duplicados,
+modelos, salidas ni 0,1 SOL. Los procesos quedan apagados, sin nueva PAPER.
+No demuestra rentabilidad ni integridad financiera de todo el sistema.
+[Evidencia, limites y captura tardia del catalogo](docs/audits/research_identity_retention_20261016.json).
+
 ### AutoResearch: resultados y escritores independientes (2026-10-16)
 
 Batch, replay, checkpoint, scoreboard y estado del servicio comparten ahora la

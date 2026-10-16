@@ -16,6 +16,7 @@ from research_loop.paths import metrics_dir, project_root
 from research_loop.sandbox import SandboxResult, create_candidate_sandbox
 from research_loop.cycle_ownership import owned_mutation, owned_artifact
 from research_loop.storage import write_json_document
+from research_loop.identities import claim_snapshot
 
 REPLAY_REPORTS = (
     "policy_replay.json",
@@ -527,6 +528,8 @@ def run_research_replay_from_sandbox(
     if not isinstance(sandbox,SandboxResult):
         candidate_policy_path = run_dir / "candidate_policy.json"
     candidate_env_path = _candidate_env_path(sandbox, run_dir)
+    report_snapshot_dir = claim_snapshot(run_dir,'report_snapshot',root=resolved_root,
+        artifacts=('replay_metrics.json','replay_result.json','candidate_diff.md'),reason='replay_identity_already_used')
 
     warnings: list[str] = []
     failures: list[str] = []
@@ -560,7 +563,6 @@ def run_research_replay_from_sandbox(
     except Exception as exc:
         failures.append(f"event_replay_failed:{exc}")
 
-    report_snapshot_dir = run_dir / "report_snapshot"
     failures.extend(_copy_snapshot(resolved_root, report_snapshot_dir, skip={"event_replay.json"}))
     if event_replay_report is None:
         failures.append("missing_report:event_replay.json")

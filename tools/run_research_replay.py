@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from research_loop.replay_runner import run_research_replay, run_research_replay_from_sandbox
 from research_loop.cycle_ownership import AutoResearchAlreadyRunning
+from research_loop.identities import ResearchIdentityAlreadyUsed
 
 
 def _main() -> int:
@@ -47,8 +48,8 @@ def _main() -> int:
 def main() -> int:
     try:
         return _main()
-    except AutoResearchAlreadyRunning:
-        print('autoresearch_already_running',file=sys.stderr)
+    except (AutoResearchAlreadyRunning,ResearchIdentityAlreadyUsed) as exc:
+        print(str(exc),file=sys.stderr)
         return 2
 
 
