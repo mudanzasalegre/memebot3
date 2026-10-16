@@ -13,6 +13,21 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Scanner: las esperas no agotan otro presupuesto (2026-10-16)
+
+Se separan los reencolados totales de los que gastan reintentos. Esperar edad
+o mercado ya no agota por accidente la reevaluacion posterior de liquidez o
+filtros basicos. Se mantienen los limites originales, la edad absoluta y la
+capacidad de cola; datos ausentes no se convierten en permiso de compra.
+
+Pasan 3.483 regresiones por carpeta, incluidas las 3.336 anteriores; 272 dirigidas
+y 7.885 recogidas. Data Analytics distingue eventos, tokens y fills: el run
+guardado no demuestra que este defecto causara las cero compras ni perdidas.
+La CI rapida no equivale a la matriz completa; la de esta revision sigue pendiente.
+Todo apagado, sin nueva PAPER/LIVE/proveedor ni cambios de modelos/config,
+umbrales, salidas o 0,1 SOL. La rentabilidad sigue sin estar demostrada.
+[Evidencia y limites](docs/audits/queue_uncertainty_budget_20261016.json).
+
 ### Firma raw: mutaciones conocidas y paquete original (2026-10-16)
 
 El firmante comun rechaza mutaciones conocidas de la wallet antes de firmar

@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "status": "UNCERTAINTY_WAITS_PRESERVE_NATIVE_RETRY_POLICY_3483_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "bd8c69d77caa1bdcdf2e892cb44fae8d12dcddb4",
+  "previous_stage": "docs/audits/raw_wallet_guard_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "defect": "Budget-preserving uncertainty increased total queue attempts while leaving retries_left unchanged. Two native no-liquidity/basic-filter consumers used that total to exhaust a different retry policy and permanently process a candidate. This could discard later re-evaluation after birth/market data recovered.20 controlled native cases establish the mechanism, not the historical zero-buy or profit cause.",
+  "repair": "Keep total attempts for queue scheduling/fallback/diagnostic/model context; separately count budgeted_attempts only for already-decrementing reasons. Both native no-liquidity and basic-filter retry consumers use this count. Old metadata without it conservatively uses its original attempts; no historical counter is reconstructed as zero.",
+  "red_scope": "16 original actual basic-filter branch cases and4 original common-entry zero-liquidity prefix cases:12 budget-preserving waits had exhausted independent trading retry limits despite retries_left=5. Original mint was permanently processed;20 assertion failures establish this mechanism, not a historical profit/zero-buy attribution.",
+  "validation_refinement": "Initial original-retry-budget.xml has16 genuine assertion failures and4 missing warn_if_nulls test-namespace errors. Preserve it. original-retry-budget-complete.xml supplies that unchanged native dependency/known-age fixture and has20 genuine expected rejection-budget assertion failures. Later4 expanded-prefix cases initially lacked the requeue alias in their isolated test namespace; corrected fixture, unchanged production.",
+  "controls": "Original per-rule charged limits, global retries, absolute residence and original expiry classification remain.4 actual common-prefix/defer/requeue recovery cases preserve first_seen and clear pending ML vectors, emit only waits while unknown, then measured zero consumes1 retry while verified positive market reaches the original freeze boundary. No buy execution is asserted.",
+  "production_changed_paths": [
+    "utils/lista_pares.py",
+    "run_bot.py"
+  ],
+  "preserved_checks": {
+    "frozen_parent_utils/lista_pares.py": true,
+    "frozen_parent_run_bot.py": true,
+    "whole_original_bot_ast_unchanged_except_two_native_retry_budget_readers": true,
+    "all_original_queue_budget_decrement_total_attempts_pacing_expiry_eviction_persistence_and_logs_unchanged": true,
+    "unchanged_analytics/requeue_policy.py": true,
+    "unchanged_analytics/sizing.py": true,
+    "unchanged_analytics/filters.py": true,
+    "unchanged_runtime/token_birth_enrichment.py": true,
+    "unchanged_runtime/rpc_token_birth.py": true,
+    "unchanged_runtime/hot_queue.py": true,
+    "unchanged_runtime/entry_observation.py": true,
+    "unchanged_fetcher/jupiter_router.py": true,
+    "unchanged_trader/buyer.py": true,
+    "unchanged_trader/seller.py": true,
+    "unchanged_trader/sol_signer.py": true,
+    "unchanged_execution/authority_observations.py": true,
+    "unchanged_config/config.py": true
+  },
+  "counter_contract": {
+    "attempts": "Original total requeues, unchanged for telemetry, queue maturity, source fallback and original model context.",
+    "budgeted_attempts": "Only requeues whose existing reason policy decrements retries. New records start0. Both native retry-limit consumers use it.",
+    "legacy_metadata": "Missing new field conservatively falls back to original attempts, never inferred zero or a reconstructed historical financial counter.",
+    "queue_module_snapshot": "The raw module helper adds budgeted_attempts alongside unchanged attempts/retries_left. The existing runtime/UI envelope still explicitly projects its original total-attempt fields; no new UI field or original event/model feature is rewritten."
+  },
+  "original_new_cases": {
+    "tests": 20,
+    "failures": 20,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 4.625
+  },
+  "directed": {
+    "tests": 272,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 19.033
+  },
+  "focused": {
+    "working": {
+      "tests": 3483,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 562.795
+    },
+    "publishing": {
+      "tests": 3483,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 552.739
+    }
+  },
+  "new_repository_cases": 67,
+  "all_previous3336_cases_preserved": true,
+  "all_directed272_cases_included": true,
+  "official_collected_each": 7885,
+  "source_files_each": 875,
+  "source_sha256": "17283513a5ed7ef0d8a2dacf28cc3ce111b2b698be0ca8b4cfdf83e549d5c359",
+  "diagnostic": {
+    "run_id": "20261015-2",
+    "source_sha256": "b3202de828b73a447749978c12441d8a497f6bb3eb5b54198963ca8ed8f14d73",
+    "start_utc": "2026-10-15T21:40:06.856791+00:00",
+    "finish_utc": "2026-10-15T22:10:11.530751+00:00",
+    "event_rows": 2799,
+    "requeue_events": 332,
+    "requeue_distinct_addresses": 207,
+    "requeue_reasons": {
+      "entry_observation:missing_age": 258,
+      "entry_observation:snapshot_unavailable": 74
+    },
+    "max_recorded_total_requeue_attempts": 2,
+    "recorded_basic_or_no_liq_block_events": 0,
+    "historical_attribution": "No logged basic_filter/no_liq blocked event establishes the repaired counter path in this run. The original maximum recorded total retry counter was2. The20 controlled native failures establish software behavior, not a historical zero-buy cause or profitable missed trade.",
+    "grain": "Rows are recorded events, not opportunities, distinct decisions or financial fills. Blocked events are deduplicated by the original logger; sum of per-reason distinct mints can overlap. Base58 mint equality remains case-sensitive.",
+    "quality_correction": "A preliminary PowerShell collection.address expression resolved an array member instead of enumerating row addresses. That preliminary distinct=1 value is invalid and is not used. Original per-row case-sensitive string sets control these counts.",
+    "financial_limit": "Original PAPER recorded zero buys/closes. Checked net PnL and win rate remain unavailable, never measured0. No new PAPER/LIVE/provider/DB write/training/activation."
+  },
+  "data_analytics_effect": "Metric diagnostics and the data-quality companion kept recorded event grain, exact run/time and case-sensitive mint identity separate from unique opportunities and financial fills. No logged targeted branch established historical attribution. The preliminary PowerShell distinct=1 result was rejected after a collection-member ambiguity; the controlling per-row string-set result is207 distinct requeued mints.",
+  "notebook": {
+    "path": "work/queue-uncertainty-budget-stage-20261016/queue-budget-diagnostic.ipynb",
+    "code_cells_executed": 3,
+    "errors": 0,
+    "visual_scope": {
+      "observed_at_utc": "2026-10-16T04:11:54.064Z",
+      "notebook_visual_inspection": "Saved full1100px screenshot inspected:summary, assumptions,3 executed cells,5-row redacted sample,6 intervals and takeaways present/readable.",
+      "chart_visual_inspection": "Saved local standalone1100px preview inspected:two labeled series,0-based events axis,minutes axis and six original interval counts. Not actual native-host/editor acceptance.",
+      "source_overview_opened": true,
+      "source_label_found": true,
+      "notebook_errors": 0,
+      "scope": "Own generated local files, isolated headless profile. No external account/provider/operator process."
+    },
+    "warning": "Native Windows zmq Proactor compatibility warning occurred; kernel execution completed successfully. No actual inline-host/editor or narrow-layout acceptance is claimed."
+  },
+  "parent_source_ci": {
+    "run_id": 38847927975,
+    "head": "bd8c69d77caa1bdcdf2e892cb44fae8d12dcddb4",
+    "status": "in_progress",
+    "conclusion": "",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38847927975",
+    "jobs": [
+      {
+        "name": "test (ubuntu-24.04)",
+        "conclusion": ""
+      },
+      {
+        "name": "test (windows-2022)",
+        "conclusion": ""
+      }
+    ]
+  },
+  "parent_fast_strategy_ci": {
+    "run_id": 38847927973,
+    "conclusion": "success",
+    "qualification": "One strategy-regression job, not the complete Windows/Linux suite."
+  },
+  "ci_correction": "Initial commentary misidentified38847927973(ci,one strategy-regression job) as the full matrix. Corrected before publication:38847927975(tests,Windows/Linux) controls parent full-suite status. Fast strategy success is not full-suite acceptance.",
+  "conservation": {
+    "protected_working_files": 4442,
+    "protected_publishing_files": 28,
+    "changed_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "added_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "prior_sqlite_warning": "Earlier SQLite byte warning retained, not reset/restored:131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33 versus25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9. Exact immediate pre-probe logical equality and historical cause remain unproved. Declared post-warning baseline only."
+  },
+  "current_full_ci": "PENDING_FOR_THIS_REVISION_NOT_PREAPPROVED",
+  "private_evidence": "work/queue-uncertainty-budget-stage-20261016:original-retry-budget*.xml,final-directed-complete.xml,focused-*.xml,collection-*.json,reviewed-run.json,diagnose.py,queue-budget-diagnostic.ipynb,presentation-review.json,presentation-transition-review.json,review.json,after-final-regressions.json,published-tree-review.json,published-handoff.json.",
+  "limits": "No thresholds, filter pass conditions, amounts,0.1SOL, model weights/config/activation, financial signing/execution/exit logic, queue absolute lifetime/capacity or permanent-reject classification changed. Current historical event counters cannot establish a profitable missed opportunity. Full original goal and ten remaining requirements, SQLite warning and prospective provider/financial/profitability gaps remain."
+}

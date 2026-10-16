@@ -106,6 +106,7 @@ def agregar_si_nuevo(addr: str, retries: int | None = None) -> bool:
         "first_seen": now,
         "next_try": now,      # inmediato
         "attempts": 0,        # veces re-encolado
+        "budgeted_attempts": 0,  # excludes already budget-preserving waits
         "reason": "",
     }
     log_queue_add(addr, first_seen_epoch_s=now, retries=int(retries_eff))
@@ -173,6 +174,8 @@ def requeue(addr: str, *, reason: str = "", backoff: int | None = None) -> bool:
         return False
 
     preserve_budget = _preserve_retry_budget(reason)
+    budgeted_attempts = int(meta.get("budgeted_attempts", meta.get("attempts", 0)))
+    meta["budgeted_attempts"] = budgeted_attempts + int(not preserve_budget)
     if not preserve_budget:
         meta["retries"]  -= 1
     meta["attempts"]  = int(meta.get("attempts", 0)) + 1
@@ -278,6 +281,7 @@ def snapshot(limit: int | None = None) -> list[dict[str, Any]]:
                 "address": address,
                 "status": status,
                 "attempts": attempts,
+                "budgeted_attempts": int(meta.get("budgeted_attempts", attempts)),
                 "retries_left": int(meta.get("retries", 0) or 0),
                 "first_seen": first_seen,
                 "next_try": next_try,

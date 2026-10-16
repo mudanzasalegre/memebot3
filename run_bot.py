@@ -5118,7 +5118,8 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             _remember_stream_candidate_cooldown(addr, _PUMPFUN_STREAM_COOLDOWN_NO_LIQ_S)
             return
 
-        attempts = int((meta := lista_pares.meta(addr) or {}).get("attempts", 0))
+        # Receipt waits count for scheduling, not this retry-policy budget.
+        attempts = int((meta := lista_pares.meta(addr) or {}).get("budgeted_attempts", meta.get("attempts", 0)))
         backoff  = [60, 180, 420][min(attempts, 2)]
         backoff  = int(backoff * random.uniform(0.8, 1.2))  # jitter ±20%
         log.info("↩️  Re-queue %s (no_liq, intento %s)",
@@ -5339,7 +5340,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
             or paper_bootstrap_fast_path
         )
     ) and basic_filter_result is not True:
-        attempts = int((meta := lista_pares.meta(addr) or {}).get("attempts", 0))
+        attempts = int((meta := lista_pares.meta(addr) or {}).get("budgeted_attempts", meta.get("attempts", 0)))
         keep, delay, reason = requeue_policy.decide(token, attempts,
                                                     meta.get("first_seen", time.time()))
         if keep:
