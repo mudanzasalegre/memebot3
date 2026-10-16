@@ -1,6 +1,6 @@
 """Reject observed wallet authority/account mutations, not a total IDL verifier.
 
-Check original top-level binary instructions and recorded simulation CPIs.
+Check original top-level bytes and source-typed simulation/execution CPIs.
 An unknown router/program or unexamined extension is NOT certified safe here.
 """
 from __future__ import annotations
@@ -60,7 +60,9 @@ def _system_parsed(parsed, keys, wallet):
         raise ValueError("Unrequested wallet system-account mutation")
 
 
-def check(order, meta):
+def check(order, meta, *, recording="simulation"):
+    if type(recording) is not str or recording not in {"simulation", "transaction"}:
+        raise ValueError("Unknown instruction recording source")
     loaded = meta["loadedAddresses"]
     keys = [str(key) for key in order.transaction.message.account_keys] + loaded["writable"] + loaded["readonly"]
     before, after = token_map(meta["preTokenBalances"], keys), token_map(meta["postTokenBalances"], keys)
@@ -87,7 +89,8 @@ def check(order, meta):
         binary(keys[ix.program_id_index], [keys[i] for i in ix.accounts], bytes(ix.data))
     groups = meta.get("innerInstructions")
     if not isinstance(groups, list) or len(groups) > len(order.transaction.message.instructions):
-        raise ValueError("Unsigned simulation instruction recording is unavailable")
+        label = "Unsigned simulation" if recording == "simulation" else "Executed transaction"
+        raise ValueError(f"{label} instruction recording is unavailable")
     seen, total = set(), 0
     for group in groups:
         if not isinstance(group, dict):
@@ -103,6 +106,17 @@ def check(order, meta):
         for ix in instructions:
             if not isinstance(ix, dict):
                 raise ValueError("Invalid recorded unsigned instruction")
+            if recording == "transaction":
+                program_index, accounts, data = ix.get("programIdIndex"), ix.get("accounts"), ix.get("data")
+                if ("programId" in ix or "parsed" in ix or type(program_index) is not int
+                        or not 0 <= program_index < len(keys) or not isinstance(accounts, list)
+                        or not all(type(index) is int and 0 <= index < len(keys) for index in accounts)
+                        or not isinstance(data, str) or len(data) > 1644):
+                    raise ValueError("Invalid compiled executed instruction")
+                binary(keys[program_index], [keys[index] for index in accounts], base58.b58decode(data))
+                continue
+            if "programIdIndex" in ix:
+                raise ValueError("Simulation instruction recording must use JSON Parsed form")
             program = managed.address(ix.get("programId"))
             if program not in keys:
                 raise ValueError("Recorded unsigned instruction program is unresolved")

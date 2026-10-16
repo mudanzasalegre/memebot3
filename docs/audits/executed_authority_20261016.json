@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "status": "ORIGINAL_EXECUTED_CPI_AUTHORITY_CHECKED_3147_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "a8f7f1fc344aa1fe70912d41a755a2f6fbd2454e",
+  "previous_stage": "docs/audits/system_wallet_mutation_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "defect": "The original executed packet, signatures, wallet quantities and RPC status were reconciled, but recorded actual CPIs were not checked for known System/SPL authority mutations. A clean pre-sign simulation cannot establish those later observations.8 original controlled actual mutation cases were accepted;2 extension cases show the old simulation-only helper cannot be reused unchanged for indexed execution records. The latter2 are not established past runtime rejections.",
+  "repair": "Add an explicit source-typed transaction mode for compiled original account indices/base58 instruction data, retaining simulation JSON Parsed mode. Resolve actual static+loaded keys under the unchanged original message/balance checks; reject wrong/mixed/missing recording and inspect actual known System/SPL operations. Reconcile canonical receipt only after this check, with executed_wallet_authority_observations_checked=true. Existing consumer revalidation recomputes it from original RPC evidence, not flags or a rechecksum.",
+  "official_contract_urls": [
+    "https://solana.com/docs/rpc/json-structures",
+    "https://solana.com/docs/rpc/http/gettransaction"
+  ],
+  "production_changed_paths": [
+    "execution/authority_observations.py",
+    "execution/chain_reconciliation.py"
+  ],
+  "preserved_checks": {
+    "frozen_parent_execution/authority_observations.py": true,
+    "frozen_parent_execution/chain_reconciliation.py": true,
+    "frozen_parent_tests/chain_fixtures.py": true,
+    "all_original_simulation_system_spl_and_recording_logic_preserved_except_explicit_source_guard": true,
+    "all_original_message_signatures_wallet_amounts_source_finality_and_receipt_checks_unchanged": true,
+    "synthetic_fixture_only_adds_explicit_empty_actual_recording": true,
+    "unchanged_run_bot.py": true,
+    "unchanged_fetcher/jupiter_router.py": true,
+    "unchanged_trader/sol_signer.py": true,
+    "unchanged_trader/buyer.py": true,
+    "unchanged_trader/seller.py": true,
+    "unchanged_utils/solana_execution.py": true,
+    "unchanged_runtime/execution_provenance.py": true,
+    "unchanged_runtime/buy_recovery.py": true,
+    "unchanged_runtime/sell_recovery.py": true
+  },
+  "fixture_change": "Only add explicit innerInstructions=[] to the original synthetic no-CPI actual-response generator. Every other fixture field/vector and all old assertions remain unchanged; no operator/history evidence is filled.",
+  "original_new_cases": {
+    "tests": 10,
+    "failures": 10,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 2.377
+  },
+  "directed": {
+    "tests": 574,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 34.189
+  },
+  "focused": {
+    "working": {
+      "tests": 3147,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 514.716
+    },
+    "publishing": {
+      "tests": 3147,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 510.078
+    }
+  },
+  "new_repository_cases": 135,
+  "all_previous2892_cases_preserved": true,
+  "all_directed574_cases_included": true,
+  "official_collected_each": 7629,
+  "source_files_each": 873,
+  "source_sha256": "d1912d09c27da611897620711df087a52b90a15fe7e45e0df9d0eb97547335d0",
+  "red_scope": "8 missed actual-chain System mutation rejections;2 extension cases show the simulation-only reader cannot be reused unchanged for actual indexed CPIs. Those2 cases are not established historical execution rejections: the old reconciler did not inspect actual CPIs at all.",
+  "validation_refinement": "Retain initial expanded574-case artifact. Final tests strengthen native BUY/SELL negatives by asserting the deepest actual guard cause and use requested-side transfer direction/amount in positive source-format fixtures. No old assertion removed.",
+  "native_failure_paths": "8 native BUY/SELL cases,4 actual-evidence faults each. Every case reaches the exact new guard after one GET/one POST and one owned synthetic signing call. Reopened durable intent remains prepared/pending with original provider response, no accepted fill/chain receipt, no rebuy/resell/fallback or leaked dispatch owner. This is simulated HTTP/RPC, not operational LIVE.",
+  "receipt_compatibility": "Explicit empty recording differs from missing/null. Both capsule versions1/2 need original executed recording for current receipts. Old receipts without original captured CPIs/new canonical flag are not grandfathered or rewritten; applicable historical LIVE pending evidence may remain quarantined. No original operator artifact is changed.",
+  "next_required_boundary": "Legacy/GMGN raw pre-sign protocols and pre-submission fallback remain separate and unapproved. Current unsigned projection also requires original same-bank fee/native/token balance vectors; standard RPC Simulation Results documents JSON-Parsed CPIs but does not by itself establish those extra balance-vector capabilities. No actual configured-provider capability/access acceptance is proved here; separately sampled pre-state must not replace an original atomic bank proof. Known System/base-SPL observation checking is not complete arbitrary instruction/extension semantics or cryptographic block inclusion.",
+  "historical_attribution": "No operator exploit, zero-buy cause, missed financial profit or real provider acceptance established. Source-format extension does not prove that the last run attempted an actual swap.",
+  "conservation": {
+    "protected_working_files": 4442,
+    "protected_publishing_files": 28,
+    "changed_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "added_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "prior_sqlite_warning": "Earlier SQLite byte warning retained, not reset/restored:131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33 versus25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9. Exact immediate pre-probe logical equality and historical cause remain unproved. Declared post-warning baseline only."
+  },
+  "current_full_ci": "PENDING_FOR_THIS_REVISION_NOT_PREAPPROVED",
+  "private_evidence": "work/executed-authority-stage-20261016: original-executed-authority.xml, final-directed-executed-authority.xml, focused-*.xml, collection-*.json, review.json, after-final-regressions.json, published-tree-review.json, published-handoff.json",
+  "limits": "Controlled dummy SDK signatures, original-message binding and synthetic node vectors only. No real financial fill/exploit/provider call. Actual confirmation and finality remain distinct; explicit[] is not missing/null recording. Old receipts without original actual recording/new canonical flag are not grandfathered, backfilled or auto-repaired. Original data/weights/config/0.1SOL/exit/AutoResearch and old SQLite byte warning remain unchanged; financial/opportunity/full-strategy acceptance incomplete."
+}

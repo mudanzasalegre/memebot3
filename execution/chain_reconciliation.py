@@ -15,6 +15,7 @@ from solders.signature import Signature
 
 from execution import jupiter_managed_contract as managed
 from execution import wallet_effects
+from execution import authority_observations
 from execution.wallet_effects import SOL, TOKEN_PROGRAMS, units as _units
 
 
@@ -107,6 +108,9 @@ def reconcile(capsule, execution, transaction_result, status_result):
     if "status" in status and status["status"] != {"Ok": None}:
         raise ValueError("RPC signature status fields conflict")
     effects = wallet_effects.inspect(order, tx.get("meta"), max_wallet_fee_lamports=capsule["max_wallet_fee_lamports"])
+    # A successful simulation cannot certify the later program execution's
+    # authority operations. Inspect the original message and actual RPC CPIs.
+    authority_observations.check(order, tx["meta"], recording="transaction")
     if effects["actual_input_units"] != receipt["total_input_units"] or effects["actual_output_units"] != receipt["total_output_units"]:
         raise ValueError("RPC wallet quantities differ from original execution receipt")
     if capsule["version"] == 2:
@@ -116,6 +120,7 @@ def reconcile(capsule, execution, transaction_result, status_result):
                 or effects["output_decimals"] != projected["effects"]["output_decimals"]):
             raise ValueError("Executed account resolution/decimals differ from original simulation")
     return {**receipt, "chain_wallet_verified": True,
+        "executed_wallet_authority_observations_checked": True,
         "requires_reconciliation": confirmation != "finalized", "confirmation_status": confirmation,
         "financial_finality_verified": confirmation == "finalized", "chain_slot": slot,
         **effects,

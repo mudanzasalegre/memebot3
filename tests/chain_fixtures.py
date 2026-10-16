@@ -54,7 +54,7 @@ def evidence(capsule, execution, *, confirmation="finalized"):
         outputs = (1000, output + 1000)
     tx = {"slot": int(execution["slot"]), "version": 0,
         "transaction": [base64.b64encode(bytes(actual)).decode(), "base64"],
-        "meta": {"err": None, "fee": fee, "preBalances": pre, "postBalances": post,
+        "meta": {"err": None, "fee": fee, "preBalances": pre, "postBalances": post, "innerInstructions": [],
             "loadedAddresses": {"writable": [], "readonly": []}, "rewards": [],
             "preTokenBalances": [token(a, req["inputMint"], inputs[0]), token(b, req["outputMint"], outputs[0])],
             "postTokenBalances": [token(a, req["inputMint"], inputs[1]), token(b, req["outputMint"], outputs[1])]}}

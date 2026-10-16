@@ -13,6 +13,20 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Reconciliacion: CPI realmente ejecutados (2026-10-16)
+
+Se comprueban las observaciones originales de autoridad System/SPL en la
+ejecucion, no solo en la simulacion. El lector distingue indices compilados
+de getTransaction y JSON Parsed de simulacion. Sin evidencia original no se
+acepta el recibo; un fallo tras POST queda pendiente y no dispara otro swap.
+
+Pasan 3.147 regresiones por carpeta, incluidas las 2.892 anteriores; 574 casos
+dirigidos y 7.629 recogidos. CI completa de esta revision pendiente.
+Siguen sin aprobarse legacy/GMGN, la capacidad real del proveedor para la
+evidencia de simulacion exigida, semantica completa y rentabilidad. Todo
+apagado, sin nueva PAPER/LIVE ni cambios de datos/modelos/config o 0,1 SOL.
+[Evidencia y limites](docs/audits/executed_authority_20261016.json).
+
 ### Jupiter gestionado: estado de la wallet antes de firmar (2026-10-16)
 
 Se rechazan operaciones System conocidas que afectan a la cuenta del taker
