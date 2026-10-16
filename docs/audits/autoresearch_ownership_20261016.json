@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "status": "AUTORESEARCH_NATIVE_LIFETIME_AND_ROOT_OWNERSHIP_3547_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "8a419e8f2815f8bf5f0a366fd364b103b7c56d51",
+  "previous_stage": "docs/audits/queue_uncertainty_budget_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "defect": "AutoResearch control awaited an unowned native thread: cancellation released its async owner while writes continued. Scheduler/demotion/CLI management had no common root process owner, so a second caller could overwrite reports/runtime state. Sequential cycles shared clock-second identifiers and overwrote original cycle reports.8 controlled original cases establish these software mechanisms, not historical model/financial loss.",
+  "repair": "Root-scoped process/thread ownership via the unchanged OS-held lock helper at a separate research-only path. Canonical absolute root is frozen before both work and guard, including CLI and standalone demotion, so a supported callback changing cwd cannot move writes outside the owned root. CLI owns before runtime writes and across daemon intervals; scheduler owns the full cycle, descendants may borrow only the actual thread service owner, nested cycles reject. Native control drains original worker on repeated cancellation; process-busy maps to rejected, not success/failed. UUID cycle identity plus existing-report rejection preserves old cycle reports.",
+  "root_binding_refinement_red": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 2.167
+  },
+  "destination_binding_red": {
+    "tests": 3,
+    "failures": 3,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 2.178
+  },
+  "escaped_fixture_warning": {
+    "status": "OWNED_NEW_FIXTURE_FILE_PRESERVED_AND_EMPTY_NEW_DIRECTORY_REMOVED",
+    "bytes": 311,
+    "sha256": "3f049ad478b1f14607ccd3185a8b3256c7a62ca637cd1b3fcfbd358e3cf7e5ab",
+    "qualification": "This warning is retained separately from the original SQLite byte warning. Project-level protected-file conservation does not by itself certify absence of outside-project fixture side effects. No financial trade/model/config or operator dataset is established as changed by this escaped diagnostic.",
+    "cleanup": "Exact hash, creation times and resolved source/destination were checked in one PowerShell session. Moved only the verified new file intact to this stage; removed only its verified empty new directory, without recursive deletion."
+  },
+  "red_scope": "4 thread/spawned-process competing cycle/demotion entries,2 cancellation counts,1 same-second report overwrite and1 CLI nonowner state mutation.8 genuine original failures; no operational fit, activation or historical financial loss established.",
+  "validation_refinement": "repaired-ownership.xml retains5 Windows fixture PermissionErrors reading an OS-locked .guard byte; business/diagnostic snapshots exclude those stable guard files and do not claim guard-byte hashing. Pre-canonical3543 and pre-owned-target3544 expanded passes are retained but are NOT final-source acceptance.1 relative-root/cwd-callback failure and3 bounded demotion-destination failures led to the final root/target checks,88 directed cases and fresh final focused/collection receipts. The first traversal fixture omitted a cwd bound and created one new311-byte outside-project diagnostic; exact newly-created artifact was preserved intact and its verified empty new directory removed nonrecursively. A corrected temporary-cwd fixture reproduced all3 target failures before repair. The separate escaped_fixture_warning is retained; project byte conservation does not prove absence of outside-project fixture side effects. All original8 case IDs are retained and pass.",
+  "production_changed_paths": [
+    "run_bot.py",
+    "research_loop/scheduler.py",
+    "tools/run_autoresearch_loop.py",
+    "research_loop/cycle_ownership.py"
+  ],
+  "preserved_checks": {
+    "frozen_parent_run_bot.py": true,
+    "frozen_parent_research_loop/scheduler.py": true,
+    "frozen_parent_tools/run_autoresearch_loop.py": true,
+    "original_run_autoresearch_cycle_decision_and_financial_logic_preserved": true,
+    "original_evaluate_paper_profitability_for_demotion_decision_and_financial_logic_preserved": true,
+    "whole_original_scheduler_ast_preserved_except_ownership_root_binding_and_unique_id_guard": true,
+    "whole_original_bot_ast_preserved_except_owned_autoresearch_wait_and_busy_mapping": true,
+    "whole_original_cli_body_preserved_except_canonical_root_before_lifetime_owner": true,
+    "unchanged_ml/train.py": true,
+    "unchanged_ml/retrain.py": true,
+    "unchanged_ml/training_daemon.py": true,
+    "unchanged_ml/training_lock.py": true,
+    "unchanged_ml/primary_activation.py": true,
+    "unchanged_runtime/owned_thread.py": true,
+    "unchanged_research_loop/evaluator.py": true,
+    "unchanged_research_loop/policy_promoter.py": true,
+    "unchanged_research_loop/batch_runner.py": true,
+    "unchanged_research_loop/scoreboard.py": true,
+    "unchanged_research_loop/paper_forward.py": true,
+    "unchanged_analytics/ai_predict.py": true,
+    "unchanged_trader/buyer.py": true,
+    "unchanged_trader/seller.py": true
+  },
+  "ownership_contract": {
+    "lock_basis": "Unchanged OS-held ml.training_lock primitive reused at separate data/research_runs/autoresearch_cycle.lock. This does not acquire training.lock or authorize fitting.",
+    "borrow": "Only an actual same-process/thread service owner can lend ownership to a cycle; active cycles cannot reenter. Descendant demotion may borrow. Another root is independent.",
+    "cli": "Service lifetime acquired before runtime start/cycle/error/stop writes and held through daemon intervals or demotion-only. Busy CLI exits2 without changing the current owner artifacts.",
+    "native_control": "Owned worker completion, including repeated cancellation and errors, precedes async lock release. Cross-process busy is COMMAND_STATUS_REJECTED, not completed or an incorrectly failed research cycle.",
+    "recovery": "OS release after actual child death permits a new owner despite retained diagnostic marker. Marker age/TTL cannot take over a live owner. A root guard inode is never unlinked.",
+    "identity": "UUID-suffixed cycle ID retains explicit seed behavior and records default effective seed. Existing original report identity is rejected before events or report writes; no historical reports are renamed or backfilled."
+  },
+  "original_new_cases": {
+    "tests": 8,
+    "failures": 8,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 5.442
+  },
+  "directed": {
+    "tests": 88,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 15.407
+  },
+  "focused": {
+    "working": {
+      "tests": 3547,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 549.321
+    },
+    "publishing": {
+      "tests": 3547,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 537.066
+    }
+  },
+  "new_repository_cases": 21,
+  "all_previous3483_cases_preserved": true,
+  "all_directed88_cases_included": true,
+  "official_collected_each": 7906,
+  "source_files_each": 877,
+  "source_sha256": "4e6a6b88359f3f503c06e458ac4cd199ac6f8bd2adbb80c5b7750a8611fe84c7",
+  "joint_native_control_chain": {
+    "repeated_cancellations": 3,
+    "async_control_owner_retained_until_completion": true,
+    "actual_worker_root_remained_busy": true,
+    "original_cycle_start_end_pairs": 1,
+    "cancelled_after_owned_original_report_completion": true,
+    "next_cycle_reacquired_after_drain": true,
+    "observed_at_utc": "2026-10-16T04:48:48.072338+00:00",
+    "qualification": "Actual source-extracted control, native scheduler/root OS guard and local report writer. Fixed no-dataset diagnostic only; no real fit/provider/activation/operator root or daemon."
+  },
+  "unchanged_policy": "Original scheduler and demotion bodies preserve all candidate selection, event-replay financial gates, export/PAPER/LIVE restrictions, timing/config validation and objective/rollback decisions. Whole original bot AST is unchanged outside the owned async call and typed busy mapping; whole original CLI body runs inside the prewrite owner. Entry/model/trainer/activation/buyer/seller/0.1SOL/exit policies remain untouched.",
+  "scope_and_limits": "Normal AutoResearch scheduler/control/CLI/daemon and its demotion boundary are covered. Independently invoked batch/replay/evaluator/scoreboard mutation entrypoints and atomic reader/report-replacement contracts remain separate pending work. Private owned helpers are not authentication against arbitrary monkeypatching. A native unresponsive worker can delay cooperative stop; no hard cleanup SLA is asserted. Existing thresholds, financial acceptance, fit/activation/model policies and forward strategy profitability remain unapproved.",
+  "parent_source_ci": {
+    "run_id": 38849998356,
+    "head": "8a419e8f2815f8bf5f0a366fd364b103b7c56d51",
+    "workflow": "tests",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38849998356",
+    "jobs": [
+      {
+        "name": "test (ubuntu-24.04)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "test (windows-2022)",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "conservation": {
+    "protected_working_files": 4442,
+    "protected_publishing_files": 28,
+    "changed_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "added_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "prior_sqlite_warning": "Earlier SQLite byte warning retained, not reset/restored:131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33 versus25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9. Exact immediate pre-probe logical equality and historical cause remain unproved. Declared post-warning baseline only."
+  },
+  "current_full_ci": "PENDING_FOR_THIS_REVISION_NOT_PREAPPROVED",
+  "private_evidence": "work/autoresearch-ownership-stage-20261016:original-ownership.xml,original-relative-root.xml,original-destination-binding-bounded.xml,repaired-ownership*.xml,final-owned-target-directed.xml,focused-*.xml,collection-*.json,native-cancel-chain-final.json,escaped-fixture-review.json,review.json,after-final-regressions.json,published-tree-review.json,published-handoff.json. Pre-canonical and pre-owned-target receipts are retained but are not acceptance of the final source.",
+  "limits": "All work uses source-extracted native management paths, disabled temp cycles, controlled fake batches and subprocess fixture roots. No actual bot/provider/training/AutoResearch daemon, new PAPER/LIVE, account/key/model/weight/config/0.1SOL/exit change. Preserve full original goal/ten requirements and prior SQLite warning."
+}

@@ -13,6 +13,21 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### AutoResearch: propiedad y parada del ciclo (2026-10-16)
+
+El control espera al hilo original incluso al cancelar repetidamente. Una
+propiedad comun por carpeta protege ciclo, democion y CLI/daemon antes de
+escribir; los procesos concurrentes se rechazan sin pisar el estado ajeno.
+La raiz absoluta queda fijada para el trabajo y el bloqueo; los identificadores
+unicos y el rechazo de colisiones conservan los informes.
+
+Pasan 3547 regresiones por carpeta, incluidas las 3.483 anteriores; 88 dirigidas
+y 7.906 recogidas. La CI completa de esta revision sigue pendiente.
+No se cambian la seleccion financiera, los modelos, la activacion, umbrales,
+salidas ni 0,1 SOL. Todo operativo queda apagado, sin otra PAPER ni fit real.
+Otras herramientas independientes de replay/batch y la rentabilidad siguen
+pendientes. [Evidencia y limites](docs/audits/autoresearch_ownership_20261016.json).
+
 ### Scanner: las esperas no agotan otro presupuesto (2026-10-16)
 
 Se separan los reencolados totales de los que gastan reintentos. Esperar edad

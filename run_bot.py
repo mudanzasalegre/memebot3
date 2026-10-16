@@ -4034,8 +4034,9 @@ async def _run_autoresearch_once_from_control(payload: dict[str, object]) -> dic
 
     async with _autoresearch_lock:
         from research_loop.scheduler import run_autoresearch_cycle
+        from runtime.owned_thread import await_owned_thread
 
-        result = await asyncio.to_thread(
+        result = await await_owned_thread(
             lambda: run_autoresearch_cycle(
                 root=PROJECT_ROOT,
                 config=config,
@@ -4143,9 +4144,13 @@ async def _execute_control_command(command: dict[str, object]) -> tuple[str, dic
         return COMMAND_STATUS_DONE, result, None
 
     if command_type == "run_autoresearch":
+        from research_loop.cycle_ownership import AutoResearchAlreadyRunning
         if _autoresearch_lock.locked():
             return COMMAND_STATUS_REJECTED, {"reason": "autoresearch_already_running"}, "autoresearch_already_running"
-        result = await _run_autoresearch_once_from_control(payload)
+        try:
+            result = await _run_autoresearch_once_from_control(payload)
+        except AutoResearchAlreadyRunning:
+            return COMMAND_STATUS_REJECTED, {"reason": "autoresearch_already_running"}, "autoresearch_already_running"
         result_status = str(result.get("status") or "")
         log.info("Control command: autoresearch cycle status=%s cycle_id=%s", result_status, result.get("cycle_id"))
         if result_status == "failed":

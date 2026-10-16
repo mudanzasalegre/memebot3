@@ -9,6 +9,9 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping
+from uuid import uuid4
+
+from research_loop.cycle_ownership import cycle_scope, mutation_scope
 
 from research_loop.bandit import DEFAULT_SPACES, suggest_spaces
 from research_loop.candidate_generator import applicable_generation_spaces
@@ -460,7 +463,7 @@ def select_research_spaces(
 
 
 def _cycle_id() -> str:
-    return dt.datetime.now(dt.timezone.utc).strftime("autoresearch_%Y%m%d_%H%M%S")
+    return dt.datetime.now(dt.timezone.utc).strftime("autoresearch_%Y%m%d_%H%M%S_") + uuid4().hex
 
 
 def _cycle_seed(cycle_id: str) -> int:
@@ -865,10 +868,29 @@ def run_autoresearch_cycle(
     paper_start_func: Callable[..., Any] | None = None,
     regenerate_func: Callable[[Path], dict[str, Any]] | None = None,
 ) -> AutoResearchCycleResult:
+    resolved_root = project_root(root).resolve()
+    resolved_config = config if isinstance(config, AutoResearchConfig) else load_scheduler_config(overrides=config)
+    validate_scheduler_config(resolved_config)
+    with cycle_scope(resolved_root):
+        return _run_owned_autoresearch_cycle(root=resolved_root, config=resolved_config, seed=seed,
+            batch_runner_func=batch_runner_func, paper_start_func=paper_start_func, regenerate_func=regenerate_func)
+
+
+def _run_owned_autoresearch_cycle(
+    *,
+    root: str | Path | None = None,
+    config: AutoResearchConfig | Mapping[str, Any] | None = None,
+    seed: int | None = None,
+    batch_runner_func: Callable[..., Any] | None = None,
+    paper_start_func: Callable[..., Any] | None = None,
+    regenerate_func: Callable[[Path], dict[str, Any]] | None = None,
+) -> AutoResearchCycleResult:
     resolved_root = project_root(root)
     resolved_config = config if isinstance(config, AutoResearchConfig) else load_scheduler_config(overrides=config)
     validate_scheduler_config(resolved_config)
     cycle = _cycle_id()
+    if _cycle_report_path(resolved_root, cycle).exists():
+        raise AutoResearchSchedulerError("cycle_identity_already_used")
     effective_seed = int(seed) if seed is not None else _cycle_seed(cycle)
     warnings: list[str] = []
     failures: list[str] = []
@@ -1279,6 +1301,22 @@ def evaluate_paper_profitability_for_demotion(
     min_median_delta: float = -3.0,
     rollback_on_degrade: bool = True,
 ) -> PaperDemotionResult:
+    resolved_root = project_root(root).resolve()
+    with mutation_scope(resolved_root):
+        return _evaluate_owned_paper_profitability_for_demotion(root=resolved_root,run_id_or_dir=run_id_or_dir,
+            paper_metrics=paper_metrics,baseline_metrics=baseline_metrics,
+            min_median_delta=min_median_delta,rollback_on_degrade=rollback_on_degrade)
+
+
+def _evaluate_owned_paper_profitability_for_demotion(
+    *,
+    root: str | Path | None = None,
+    run_id_or_dir: str | Path | None = None,
+    paper_metrics: dict[str, Any] | None = None,
+    baseline_metrics: dict[str, Any] | None = None,
+    min_median_delta: float = -3.0,
+    rollback_on_degrade: bool = True,
+) -> PaperDemotionResult:
     resolved_root = project_root(root)
     run_dir = Path(run_id_or_dir) if run_id_or_dir is not None else _latest_paper_run(resolved_root)
     if run_dir is None:
@@ -1292,6 +1330,12 @@ def evaluate_paper_profitability_for_demotion(
         return result
     if not run_dir.is_absolute() and len(run_dir.parts) == 1:
         run_dir = research_runs_dir(resolved_root) / "paper_forward" / str(run_dir)
+    elif not run_dir.is_absolute():
+        run_dir = resolved_root / run_dir
+    run_dir = run_dir.resolve()
+    paper_root = (research_runs_dir(resolved_root) / "paper_forward").resolve()
+    if run_dir == paper_root or not run_dir.is_relative_to(paper_root):
+        raise AutoResearchSchedulerError("paper_run_directory_outside_owned_root")
 
     state = _read_json(run_dir / "paper_forward_state.json")
     if not isinstance(state, dict):

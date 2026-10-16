@@ -16,6 +16,7 @@ from research_loop.scheduler import (
     load_scheduler_config,
     run_autoresearch_cycle,
 )
+from research_loop.cycle_ownership import autoresearch_session, AutoResearchAlreadyRunning
 from research_loop.runtime_state import (
     EVENT_AUTORESEARCH_ERROR,
     EVENT_AUTORESEARCH_STOP,
@@ -65,7 +66,17 @@ def main() -> int:
         if value is not None
     }
     config = load_scheduler_config(overrides=overrides)
-    root = Path(args.root)
+    root = Path(args.root).resolve()
+
+    try:
+        with autoresearch_session(root):
+            return _run_owned(args, config, root)
+    except AutoResearchAlreadyRunning:
+        print("autoresearch_already_running", file=sys.stderr)
+        return 2
+
+
+def _run_owned(args, config, root: Path) -> int:
 
     if args.demotion_only:
         result = evaluate_paper_profitability_for_demotion(root=root)
