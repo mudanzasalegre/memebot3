@@ -58,6 +58,24 @@ def assert_spaced(stamps):
     assert all(right - left >= be._MIN_INTERVAL for left, right in zip(ordered, ordered[1:]))
 
 
+def capture_admissions(monkeypatch):
+    """Capture the native accepted clock under its actual reentrant lock.
+
+    Session setup/caller scheduling is downstream and may observe later or
+    newer shared state. This adds no timing tolerance or future reservation.
+    """
+    admitted=[]
+    original=be._throttle_wait
+    def wait():
+        with be._lock:
+            delay=original()
+            if delay==0:
+                admitted.append(be._last_call_ts)
+            return delay
+    monkeypatch.setattr(be,'_throttle_wait',wait)
+    return admitted
+
+
 def test_reuses_one_limiter_across_different_event_loops():
     stamps = asyncio.run(cycle()) + asyncio.run(cycle())
     assert_spaced(stamps)
@@ -67,6 +85,7 @@ def test_global_spacing_across_four_threads_and_event_loops(monkeypatch):
     # Record clock reads inside the native admission lock, not downstream
     # scheduling timestamps that could move after an OS thread is paused.
     reads = []
+    admissions = capture_admissions(monkeypatch)
     def clock():
         now = time.monotonic()
         reads.append(now)
@@ -80,7 +99,8 @@ def test_global_spacing_across_four_threads_and_event_loops(monkeypatch):
         results = [future.result(timeout=15) for future in [pool.submit(run) for _ in range(4)]]
     # Every admitted value comes from the shared native monotonic clock.
     assert all(value in reads for result in results for value in result)
-    assert_spaced([value for result in results for value in result])
+    assert len(admissions) == sum(len(result) for result in results) == 16
+    assert_spaced(admissions)
     assert reads == sorted(reads)
 
 
@@ -234,6 +254,7 @@ async def settle():
 
 
 def test_native_http_shared_pacing_survives_new_event_loops(monkeypatch):
+    admissions = capture_admissions(monkeypatch)
     calls = install(monkeypatch, lambda n, u, a: Response(data=market(a)))
     async def fetch():
         return await asyncio.gather(be.get_token_info(MINT, force_refresh=True),
@@ -241,11 +262,13 @@ def test_native_http_shared_pacing_survives_new_event_loops(monkeypatch):
     for _ in range(2):
         assert all(row['price_pct_5m'] == 25000 for row in asyncio.run(fetch()))
     assert len(calls) == 4
-    assert_spaced([row[0] for row in calls])
+    assert len(admissions) == len(calls)
+    assert_spaced(admissions)
 
 
 @pytest.mark.asyncio
 async def test_three_resources_share_one_global_admission(monkeypatch):
+    admissions = capture_admissions(monkeypatch)
     def response(n, url, address):
         if url.endswith(be._CREATION_EP):
             return Response(data={'tokenAddress': address, 'slot': 42, 'txHash': '1'*64,
@@ -256,7 +279,8 @@ async def test_three_resources_share_one_global_admission(monkeypatch):
                                be._fetch(be._POOL_EP, 'pacing:pool', address=OTHER),
                                be.get_token_creation_info(MINT))
     assert all(rows) and len(calls) == 3
-    assert_spaced([row[0] for row in calls])
+    assert len(admissions) == len(calls)
+    assert_spaced(admissions)
 
 
 @pytest.mark.asyncio
@@ -276,6 +300,7 @@ async def test_same_request_coalesces_without_consuming_extra_pacing_slot(monkey
 @pytest.mark.asyncio
 async def test_cancelled_native_request_wait_releases_ownership(monkeypatch):
     monkeypatch.setattr(be, '_MIN_INTERVAL', .1)
+    admissions = capture_admissions(monkeypatch)
     calls = install(monkeypatch, lambda n, u, a: Response(data=market(a)))
     assert await be.get_token_info(MINT)
     admitted = be._last_call_ts
@@ -286,9 +311,11 @@ async def test_cancelled_native_request_wait_releases_ownership(monkeypatch):
     with pytest.raises(asyncio.CancelledError): await task
     assert len(calls) == 1 and be._last_call_ts == admitted
     assert be._REQUESTS.snapshot()['owners'] == 0 and not be._latest_request
+    assert len(admissions) == 1
     assert await be.get_token_info(OTHER, force_refresh=True)
     assert len(calls) == 2
-    assert_spaced([row[0] for row in calls])
+    assert len(admissions) == len(calls)
+    assert_spaced(admissions)
 
 
 @pytest.mark.asyncio

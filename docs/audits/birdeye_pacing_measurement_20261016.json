@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "status": "NATIVE_PACING_TEST_MEASUREMENT_REPAIRED_1435_EACH_PRODUCTION_UNCHANGED_CI_PENDING_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "dee4bcabc925e3c3cdf8b295a85923f1bfcbfe36",
+  "previous_stage": "docs/audits/live_paper_acceptance_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "defect": "Downstream HTTP/session/caller observation was incorrectly treated as the native lock-protected admission timestamp. Session setup can compress observed HTTP gaps; a paused thread can read another already-admitted shared value.",
+  "repair": "Only test instrumentation and four spacing-call inputs change. Record each actual native zero-wait admission and its last_call timestamp while holding the existing reentrant lock. Strict interval/uniqueness assertion and all original assert statements remain.",
+  "production_changed": false,
+  "no_tolerance_or_RPM_change": true,
+  "original_probe": {
+    "tests": 4,
+    "failures": 4,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 2.249
+  },
+  "independent_original_admission_proofs": {
+    "tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 2.107
+  },
+  "controlled_original_cases": [
+    {
+      "case": "test_cancelled_native_request_wait_releases_ownership",
+      "native_admission_count": 2,
+      "minimum_seconds": 0.1,
+      "strict_native_admission_passed": true,
+      "original_downstream_observer_assertion_failed": true
+    },
+    {
+      "case": "test_global_spacing_across_four_threads_and_event_loops",
+      "native_admission_count": 16,
+      "minimum_seconds": 0.008,
+      "strict_native_admission_passed": true,
+      "original_downstream_observer_assertion_failed": true
+    },
+    {
+      "case": "test_native_http_shared_pacing_survives_new_event_loops",
+      "native_admission_count": 4,
+      "minimum_seconds": 0.008,
+      "strict_native_admission_passed": true,
+      "original_downstream_observer_assertion_failed": true
+    },
+    {
+      "case": "test_three_resources_share_one_global_admission",
+      "native_admission_count": 3,
+      "minimum_seconds": 0.008,
+      "strict_native_admission_passed": true,
+      "original_downstream_observer_assertion_failed": true
+    }
+  ],
+  "negative_controls": "A genuinely early admitted pair still fails the unchanged strict spacing helper; a positive-wait attempt adds no admission record.",
+  "focused": {
+    "working": {
+      "tests": 1435,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 340.371
+    },
+    "publishing": {
+      "tests": 1435,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 334.815
+    }
+  },
+  "new_repository_cases": 6,
+  "official_collected_each": 7194,
+  "source_files_each": 866,
+  "source_sha256": "040bc17ea5143e46e03d65424a3bc890ede9207ecf0a6e346f257cebe7f2975d",
+  "preserved_checks": {
+    "frozen_git_source_fetcher/birdeye.py": true,
+    "same_original_as_failed_ci_fetcher/birdeye.py": true,
+    "frozen_git_source_tests/test_birdeye_throttle.py": true,
+    "same_original_as_failed_ci_tests/test_birdeye_throttle.py": true,
+    "all_birdeye_production_code_unchanged": true,
+    "all_other_existing_test_functions_helpers_classes_and_imports_unchanged": true,
+    "every_original_assert_statement_retained": true,
+    "strict_interval_and_uniqueness_helper_unchanged": true,
+    "only_four_downstream_spacing_call_inputs_replaced": true
+  },
+  "conservation": {
+    "protected_working_files": 4442,
+    "protected_publishing_files": 28,
+    "changed_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "added_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "baseline_scope": "Fresh post-disclosed-SQLite-warning state, not retroactive byte immutability across prior runs.",
+    "prior_sqlite_warning": "docs/audits/live_paper_acceptance_20261016.json retains old131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33 versus25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9; no reset or restoration. Exact immediate pre-probe logical equality and historical attribution remain unproved."
+  },
+  "earlier_ci": {
+    "revision": "7b4ac1fd50d13226fdefafe1b4394f2f44b7e234",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38824675910",
+    "status": "FAILURE_RETAINED_NOT_RERUN",
+    "failed_case": "test_cancelled_native_request_wait_releases_ownership",
+    "qualification": "Original producer and test sources match. Original log has downstream timestamps but no actual admission trace. Controlled matching-source reproductions establish a measurement-contract defect, not exact historical cause or proof no other production defect exists."
+  },
+  "private_receipts": "work/birdeye-pacing-clock-stage-20261016/review.json, original-measurement-expanded.xml, original-strict-admissions.xml, original-proof-*.json, focused-working.xml, focused-publishing.xml, after-final-regressions.json and published-handoff.json",
+  "current_full_ci": "PENDING_FOR_THIS_REVISION_NOT_PREAPPROVED",
+  "parent_ci_observation": {
+    "revision": "dee4bcabc925e3c3cdf8b295a85923f1bfcbfe36",
+    "url": "https://github.com/mudanzasalegre/memebot3/actions/runs/38830993556",
+    "overall_status_at_observation": "IN_PROGRESS_WITH_WINDOWS_FAILURE",
+    "windows_job": 116749481176,
+    "failed_step": "Guarded source-only PAPER lifecycle smoke",
+    "failed_case": "test_native_no_log_preserves_an_explicit_launcher_identity",
+    "observed_failure": "Isolated test bootstrap rejects four blocked subprocess audit attempts at checked_numpy_bootstrap_attempts len(items)<=1: three cmd.exe attempts with platform.win32_ver/_syscmd_ver frames and one recognized NumPy lscpu attempt. Full Windows pytest was skipped after this failed step. No attempted subprocess was authorized or executed by this harness.",
+    "qualification": "Raw completed job log retrieved through the read-only job-log API while the full run remains in progress. This separate bootstrap failure is retained and not repaired by the Birdeye measurement change; no actual operator first-launch or profitability acceptance.",
+    "private_evidence": "work/birdeye-pacing-clock-stage-20261016/parent-dee4-ci-observation.json and parent-dee4-windows-job.log"
+  },
+  "limits": "No real HTTP/provider quota/billing, operator run, new PAPER, account/key/plan mutation, LIVE, training, model activation or AutoResearch. Scanner/entry/risk/0.1SOL sizing/uncapped exits are unchanged. This test repair does not establish profitable opportunity capture, universal first-launch correctness, current model readiness or net prospective financial acceptance."
+}

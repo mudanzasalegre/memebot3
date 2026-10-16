@@ -13,6 +13,28 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Birdeye: medir la admision, no una observacion posterior (2026-10-16)
+
+Cuatro pruebas podian fallar aun con admisiones estrictamente espaciadas: tres
+median el HTTP despues de preparar la sesion y otra leia un valor global que ya
+habia actualizado otro hilo. Se registran ahora los recibos bajo el lock nativo,
+sin tolerancia, cambio de RPM ni cambios de produccion. Se conservan todas las
+aserciones originales y se comprueba que una admision realmente temprana falla.
+
+Los cuatro contraejemplos originales fallan, mientras sus cuatro cohortes de
+admision pasan la comprobacion estricta. Pasan 1.435 regresiones por carpeta,
+incluidas las 1.393 anteriores, y se recogen 7.194 casos oficiales. La nueva CI
+completa sigue pendiente. El fallo historico y el aviso SQLite previo no se
+ocultan: sin el trace original no se acredita la causa exacta de aquella CI.
+No se ha arrancado otra PAPER ni operado; 0,1 SOL, salidas y modelos no cambian.
+El operador queda apagado y la rentabilidad sigue sin demostrar.
+[Pruebas y limites de la medicion](docs/audits/birdeye_pacing_measurement_20261016.json).
+
+La CI anterior `dee4bca` tambien registra un fallo separado en Windows: el
+bootstrap del ensayo aislado rechaza intentos de sondeo de `platform` bloqueados
+por su guardia de subprocesos. El job no llego a ejecutar la suite completa.
+Se conserva ese registro; esta correccion de Birdeye no resuelve ese fallo.
+
 ### Aceptacion PAPER original antes de preparar LIVE (2026-10-16)
 
 El preflight, el escritor de perfiles y el arranque reconstruyen ahora la caja
