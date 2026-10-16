@@ -60,6 +60,42 @@ def _system_parsed(parsed, keys, wallet):
         raise ValueError("Unrequested wallet system-account mutation")
 
 
+def _binary(program, accounts, data, *, wallet, owned):
+    if program == SYSTEM_PROGRAM:
+        _system_binary(accounts, data, wallet)
+        return
+    if program not in TOKEN_PROGRAMS:
+        return
+    if not data:
+        raise ValueError("Observed token instruction has no discriminator")
+    # SPL base opcodes: Approve=4, SetAuthority=6, ApproveChecked=13.
+    authority_index = {4: 2, 6: 1, 13: 3}.get(data[0])
+    if authority_index is not None:
+        if len(accounts) <= authority_index:
+            raise ValueError("Observed authority instruction lacks account identity")
+        if accounts[0] in owned or wallet in accounts[authority_index:]:
+            raise ValueError("Unrequested wallet token delegation or authority change")
+
+
+def reject_static_wallet_mutations(transaction, wallet):
+    """Reject known original top-level wallet mutations, not approve a swap.
+
+    Required signers and top-level program IDs are static in supported legacy/
+    v0 messages. Unknown lookup accounts stay unresolved; no CPI, amount,
+    lookup ownership or arbitrary program/extension safety is proved here.
+    """
+    wallet = managed.address(wallet)
+    keys = [str(key) for key in transaction.message.account_keys]
+    required = transaction.message.header.num_required_signatures
+    if wallet not in keys[:required]:
+        raise ValueError("Configured wallet is not an original required signer")
+    for ix in transaction.message.instructions:
+        if ix.program_id_index >= len(keys):
+            raise ValueError("Original top-level program is not statically resolved")
+        accounts = [keys[index] if index < len(keys) else None for index in ix.accounts]
+        _binary(keys[ix.program_id_index], accounts, bytes(ix.data), wallet=wallet, owned=frozenset())
+
+
 def check(order, meta, *, recording="simulation"):
     if type(recording) is not str or recording not in {"simulation", "transaction"}:
         raise ValueError("Unknown instruction recording source")
@@ -69,24 +105,8 @@ def check(order, meta, *, recording="simulation"):
     owned = {keys[i] for i, item in {**before, **after}.items() if item[1] == order.request.taker}
     wallet = order.request.taker
 
-    def binary(program, accounts, data):
-        if program == SYSTEM_PROGRAM:
-            _system_binary(accounts, data, wallet)
-            return
-        if program not in TOKEN_PROGRAMS:
-            return
-        if not data:
-            raise ValueError("Observed token instruction has no discriminator")
-        # SPL base opcodes: Approve=4, SetAuthority=6, ApproveChecked=13.
-        authority_index = {4: 2, 6: 1, 13: 3}.get(data[0])
-        if authority_index is not None:
-            if len(accounts) <= authority_index:
-                raise ValueError("Observed authority instruction lacks account identity")
-            if accounts[0] in owned or wallet in accounts[authority_index:]:
-                raise ValueError("Unrequested wallet token delegation or authority change")
-
     for ix in order.transaction.message.instructions:
-        binary(keys[ix.program_id_index], [keys[i] for i in ix.accounts], bytes(ix.data))
+        _binary(keys[ix.program_id_index], [keys[i] for i in ix.accounts], bytes(ix.data), wallet=wallet, owned=owned)
     groups = meta.get("innerInstructions")
     if not isinstance(groups, list) or len(groups) > len(order.transaction.message.instructions):
         label = "Unsigned simulation" if recording == "simulation" else "Executed transaction"
@@ -113,7 +133,7 @@ def check(order, meta, *, recording="simulation"):
                         or not all(type(index) is int and 0 <= index < len(keys) for index in accounts)
                         or not isinstance(data, str) or len(data) > 1644):
                     raise ValueError("Invalid compiled executed instruction")
-                binary(keys[program_index], [keys[index] for index in accounts], base58.b58decode(data))
+                _binary(keys[program_index], [keys[index] for index in accounts], base58.b58decode(data), wallet=wallet, owned=owned)
                 continue
             if "programIdIndex" in ix:
                 raise ValueError("Simulation instruction recording must use JSON Parsed form")
@@ -146,4 +166,4 @@ def check(order, meta, *, recording="simulation"):
                 accounts = [managed.address(x) for x in accounts]
                 if any(x not in keys for x in accounts) or program not in keys:
                     raise ValueError("Recorded unsigned instruction contains unresolved accounts")
-                binary(program, accounts, base58.b58decode(data))
+                _binary(program, accounts, base58.b58decode(data), wallet=wallet, owned=owned)

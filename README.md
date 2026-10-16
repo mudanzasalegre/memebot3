@@ -13,6 +13,22 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Firma raw: mutaciones conocidas y paquete original (2026-10-16)
+
+El firmante comun rechaza mutaciones conocidas de la wallet antes de firmar
+o enviar, tambien desde GMGN/Jupiter legacy. Se validan el paquete original,
+los indices y las cofirmas existentes; no se cambia el mensaje ni se abre
+un reintento tras un resultado incierto. Esto no aprueba la intencion
+financiera completa ni los CPI o fallbacks de las rutas raw.
+
+Pasan 3.336 regresiones por carpeta, incluidas las 3.147 anteriores; 590 casos
+dirigidos y 7.818 recogidos. CI completa de esta revision pendiente.
+La documentacion actual y Agave admiten saldos antes/despues del mismo banco
+de simulacion; falta verificar la capacidad/acceso del proveedor configurado.
+Todo apagado, sin nueva PAPER/LIVE/proveedor, sin cambios de datos, modelos,
+configuracion, salidas ni 0,1 SOL. Rentabilidad no demostrada.
+[Evidencia, contrato y limites](docs/audits/raw_wallet_guard_20261016.json).
+
 ### Reconciliacion: CPI realmente ejecutados (2026-10-16)
 
 Se comprueban las observaciones originales de autoridad System/SPL en la

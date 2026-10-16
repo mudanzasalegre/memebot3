@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "status": "COMMON_RAW_WALLET_MUTATION_GUARD_3336_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "fa601a3119546c3937c448a8571e9cc63bab3556",
+  "previous_stage": "docs/audits/executed_authority_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "defect": "The common raw signer checked wallet signer membership but did not reject the known top-level wallet account/authority mutations already guarded in managed evidence.16 controlled legacy/v0 known System or base SPL legacy/Token22 mutation packets reached dummy private signing;2 extra trailing-byte packets were silently deserialized/reserialized and signed. No actual operator exploit, lost capital, zero-buy cause or missed profit is established.",
+  "repair": "Extract the unchanged original managed binary guard into one shared function. At all raw signing/sending entries, require canonical bytes,0<size<=1232, SDK sanitize, configured wallet as an original required signer and validity of existing nonplaceholder foreign cosignatures. Reject known original static-role System mutations and SPL approve/authority changes before private signing/relay. Legacy Transaction objects are checked before blockhash RPC. Original message/signature slot, existing co-signatures, all-signature broadcast check, one refresh and identical-byte relay remain unchanged.",
+  "raw_scope": "Shared original top-level static wallet-role guard only. Required signer membership, canonical bounded SDK-sanitized packet and existing nonplaceholder foreign signature verification precede private signing/relay; the legacy Transaction object is checked before blockhash RPC. Unknown programs, CPIs, lookup ownership and complete swap input/output/floor intent remain unapproved. send_raw_transaction is now explicitly bot-wallet transport, not generic foreign-wallet relaying.",
+  "native_paths": "12 GMGN BUY/SELL and6 legacy Jupiter controlled cases use actual detached signer and owned dispatch, one fake route/build response, zero private signatures/RPC/relay, no retry/rebuild/leaked owner. Jupiter outer classification deliberately remains SwapSubmissionUncertain; error type alone is not a no-send proof.",
+  "production_changed_paths": [
+    "execution/authority_observations.py",
+    "trader/sol_signer.py"
+  ],
+  "preserved_checks": {
+    "frozen_parent_execution/authority_observations.py": true,
+    "frozen_parent_trader/sol_signer.py": true,
+    "shared_binary_body_identical_to_original_managed_guard": true,
+    "all_original_simulation_and_actual_cpi_logic_preserved_after_shared_guard_extraction": true,
+    "original_required_signer_slot_message_prefix_cosignature_insertion_unchanged": true,
+    "original_all_signature_verification_and_same_byte_jito_rpc_relay_unchanged": true,
+    "original_single_blockhash_refresh_and_raw_dispatch_logic_unchanged": true,
+    "all_other_signer_imports_initialization_helpers_options_and_exports_unchanged": true,
+    "unchanged_run_bot.py": true,
+    "unchanged_fetcher/jupiter_router.py": true,
+    "unchanged_trader/gmgn.py": true,
+    "unchanged_trader/buyer.py": true,
+    "unchanged_trader/seller.py": true,
+    "unchanged_execution/chain_reconciliation.py": true,
+    "unchanged_execution/unsigned_projection.py": true,
+    "unchanged_utils/solana_execution.py": true,
+    "unchanged_runtime/owned_dispatch.py": true,
+    "unchanged_runtime/execution_provenance.py": true,
+    "unchanged_runtime/buy_recovery.py": true,
+    "unchanged_runtime/sell_recovery.py": true
+  },
+  "original_new_cases": {
+    "tests": 18,
+    "failures": 18,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 1.418
+  },
+  "directed": {
+    "tests": 590,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 13.312
+  },
+  "focused": {
+    "working": {
+      "tests": 3336,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 534.681
+    },
+    "publishing": {
+      "tests": 3336,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 527.616
+    }
+  },
+  "new_repository_cases": 189,
+  "all_previous3147_cases_preserved": true,
+  "all_directed590_cases_included": true,
+  "official_collected_each": 7818,
+  "source_files_each": 874,
+  "source_sha256": "21122e8eddf3044e6d2c857cb63b8a4d40e0aced7e65f9f2f8f64fcfa81ecf65",
+  "positive_controls": "Legacy/v0 exact100000000-lamport transfer and v0 loaded recipient preserve original message; valid/placeholder sponsor or other signer is retained while invalid nonplaceholder cosignature is rejected. Separate other-signer mutations are not mistaken for wallet role. Exact1232-byte canonical packets remain supported; oversized/trailing/noncanonical/SDK-unsanitized/count/index faults never reach private signature or relay. These are static SDK controls, not full financial swap approvals.",
+  "protocol_clarification": {
+    "pinned_agave_commit": "c2453694cecc040594100ba324216ce64c6207f8",
+    "rpc_source_sha256": "7822fcab5cb28bb44d3468e8cfb7bfd7e995c8234d2d19bed2585b64bcfdc106",
+    "bank_source_sha256": "452eb64962f996d9f75424a33922f3251f9835b73a06fa6f5d66209f79e7705f",
+    "finding": "Current official Simulation Results and pinned Agave support fee, original same-frozen-bank pre/post native/token vectors and loadedAddresses. Agave enables balance recording without a new balance opt-in, forwards vectors and JSON-Parsed CPIs. The prior audit capability wording was an uncertainty, not proof that standard RPC lacks them. No production relaxation or separate sampled pre-state is needed.",
+    "urls": [
+      "https://solana.com/docs/rpc/json-structures",
+      "https://solana.com/docs/rpc/http",
+      "https://docs.rs/solana-client/latest/solana_client/rpc_response/struct.RpcSimulateTransactionResult.html",
+      "https://github.com/anza-xyz/agave/blob/c2453694cecc040594100ba324216ce64c6207f8/rpc/src/rpc.rs#L4156-L4313",
+      "https://github.com/anza-xyz/agave/blob/c2453694cecc040594100ba324216ce64c6207f8/runtime/src/bank.rs#L4015-L4164"
+    ],
+    "configured_provider_capability_or_access_accepted": false,
+    "operator_provider_probe": false
+  },
+  "protocol_history": "Supersedes only any inference from the previous next_required_boundary wording that modern standard simulateTransaction lacks original same-bank fee/native/token vectors. Current official docs and pinned Agave explicitly support them. Original reports stay immutable. The configured endpoint/version/plan/access is still NOT verified and no endpoint probe was authorized or performed. Never fabricate an atomic bank proof with separately sampled pre-state.",
+  "compatibility": "send_raw_transaction now deliberately requires the configured bot wallet among original signers, including already-signed packets; it is not a generic foreign-wallet relay API. An invalid nonplaceholder foreign signature is rejected rather than preserved into a new wallet signature. Placeholder managed cosignatures may remain unsigned locally and may not be locally broadcast. Current guards do not certify arbitrary programs, Token22 extensions, CPIs or loaded-account ownership.",
+  "uncertainty_and_fallback": "Native legacy Jupiter still classifies any worker-boundary error conservatively as SwapSubmissionUncertain, even if controlled spies establish no actual send. No type-based bypass, retry, re-quote, fallback or buyer/seller reconciliation change. Full raw amount/mint/floor binding and pre-submit fallback acceptance remain separate pending work.",
+  "conservation": {
+    "protected_working_files": 4442,
+    "protected_publishing_files": 28,
+    "changed_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "added_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "prior_sqlite_warning": "Earlier SQLite byte warning retained, not reset/restored:131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33 versus25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9. Exact immediate pre-probe logical equality and historical cause remain unproved. Declared post-warning baseline only."
+  },
+  "current_full_ci": "PENDING_FOR_THIS_REVISION_NOT_PREAPPROVED",
+  "private_evidence": "work/raw-wallet-guard-stage-20261016: original-raw-wallet.xml, final-directed-complete.xml, focused-*.xml, collection-*.json, review.json, after-final-regressions.json, published-tree-review.json, published-handoff.json. Pinned public Agave sources:work/simulation-balance-protocol-stage-20261016.",
+  "limits": "All financial SDK operations use public synthetic fixture keys and fake HTTP/RPC, never operator signing keys or a new PAPER/LIVE run. Preserve0.1SOL/config/weights/data/exits/AutoResearch and old SQLite warning. Static top-level rejection is not full raw intent/financial acceptance, arbitrary instruction semantics, configured-provider acceptance, finality, prospective opportunity capture or profitability evidence."
+}

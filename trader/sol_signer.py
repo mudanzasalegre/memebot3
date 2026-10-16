@@ -208,12 +208,35 @@ def _send_via_jito(signed_bytes: bytes, *, bundle_only: bool | None = None) -> s
         return expected_signature
 
 
-def sign_raw_transaction(raw_tx: bytes) -> bytes:
-    vtx = VersionedTransaction.from_bytes(raw_tx)  # Supports legacy and v0.
+def _checked_wallet_packet(raw_tx: bytes) -> VersionedTransaction:
+    """Bound/canonicalize original bytes without altering or signing them."""
+    if not isinstance(raw_tx, bytes) or not 0 < len(raw_tx) <= 1232:
+        raise ValueError("Unsupported original transaction packet size/type")
+    try:
+        vtx = VersionedTransaction.from_bytes(raw_tx)
+        vtx.sanitize()
+    except Exception:
+        raise ValueError("Invalid original transaction packet") from None
+    if bytes(vtx) != raw_tx:
+        raise ValueError("Noncanonical original transaction packet")
     required = vtx.message.header.num_required_signatures
     signers = list(vtx.message.account_keys[:required])
     if KEYPAIR.pubkey() not in signers or len(vtx.signatures) != required:
         raise ValueError("Configured wallet is not an original required signer")
+    wallet_index = signers.index(KEYPAIR.pubkey())
+    verified = vtx.verify_with_results()
+    if any(i != wallet_index and sig != Signature.default() and not verified[i]
+           for i, sig in enumerate(vtx.signatures)):
+        raise ValueError("Original transaction cosignature is invalid")
+    from execution.authority_observations import reject_static_wallet_mutations
+    reject_static_wallet_mutations(vtx, str(KEYPAIR.pubkey()))
+    return vtx
+
+
+def sign_raw_transaction(raw_tx: bytes) -> bytes:
+    vtx = _checked_wallet_packet(raw_tx)  # Supports original legacy and v0.
+    required = vtx.message.header.num_required_signatures
+    signers = list(vtx.message.account_keys[:required])
     signatures = list(vtx.signatures)
     # Versioned signing includes the version prefix. Preserve fee-payer and
     # other original signatures; managed providers may supply a co-signature.
@@ -241,7 +264,7 @@ def send_raw_transaction(
     bundle_only: bool | None = None,
 ) -> str:
     signed_bytes = signed if isinstance(signed, bytes) else base64.b64decode(signed, validate=True)
-    tx = VersionedTransaction.from_bytes(signed_bytes)
+    tx = _checked_wallet_packet(signed_bytes)
     if not tx.signatures or not all(tx.verify_with_results()):
         raise ValueError("RPC broadcast requires all original transaction signatures")
     try_jito = JITO_BROADCAST_ENABLED if prefer_jito is None else bool(prefer_jito)
@@ -272,6 +295,7 @@ def sign_and_send(
         header = message.header
         if header.num_required_signatures != 1 or message.account_keys[0] != KEYPAIR.pubkey():
             raise ValueError("Blockhash refresh requires one original configured signer")
+        _checked_wallet_packet(bytes(tx))  # Reject before even refreshing over RPC.
         last_error: Exception | None = None
         blockhash = None
         for rpc_url in RPC_URLS:
