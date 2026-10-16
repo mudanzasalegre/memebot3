@@ -4731,7 +4731,10 @@ def _score_entry_inputs(token: dict, *, captured_at: dt.datetime):
     decision = decide_ml_action(token=token, feature_row=payload, proba=proba,
         base_rules_passed=True, dry_run=DRY_RUN, live=not DRY_RUN, risk_proba=risk,
         ev_pred_pct=ev, entry_model_activation_ready=state["activation_ready"],
-        entry_model_metadata=state["metadata"])
+        entry_model_metadata=state["metadata"],
+        # predict_risk returns only a checked calibrated risk-head probability;
+        # its readiness does not depend on the separate primary entry model.
+        risk_prediction_ready=risk is not None)
     threshold = (float(decision.threshold) if decision.threshold is not None
                  else filters.effective_ai_threshold(token, AI_THRESHOLD))
     rank = research_runtime.score_candidate(payload, proba=proba, threshold=threshold)

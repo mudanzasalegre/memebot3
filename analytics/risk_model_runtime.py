@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from analytics.model_runtime_common import predict_model
+from analytics.model_runtime_common import predict_probability_model as predict_model
 from analytics.risk_predict import predict_risk
 from analytics.inference_scope import ensure_inference_scope
 

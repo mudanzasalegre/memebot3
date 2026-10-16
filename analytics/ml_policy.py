@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from numbers import Real
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -138,14 +139,22 @@ def _risk_veto_signal(risk_proba: float | None) -> bool:
     return float(risk_proba) >= _float_cfg("ML_RISK_VETO_THRESHOLD", 0.70)
 
 
-def _risk_veto_can_enforce(risk_proba: float | None, *, activation_ready: bool) -> bool:
+def _risk_veto_can_enforce(risk_proba: float | None, *, prediction_ready: bool) -> bool:
     if not _risk_veto_signal(risk_proba):
         return False
     if not _bool_cfg("ML_RISK_VETO_ENABLED", False):
         return False
     if _bool_cfg("ML_RISK_SHADOW_ONLY", True):
         return False
-    return bool(activation_ready)
+    return prediction_ready is True
+
+
+def _risk_probability(value: Any) -> float | None:
+    """Unknown or malformed risk is not a healthy probability or a veto."""
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return None
+    result = float(value)
+    return result if math.isfinite(result) and 0 <= result <= 1 else None
 
 
 def _edge_score(ev_pred_pct: float | None, risk_proba: float | None) -> float | None:
@@ -193,11 +202,16 @@ def decide_ml_action(
     ev_pred_pct: float | None = None,
     entry_model_activation_ready: bool = False,
     entry_model_metadata: dict[str, Any] | None = None,
+    risk_prediction_ready: bool = False,
 ) -> MlPolicyDecision:
     lane = _resolve_lane(token, feature_row)
     global_mode = _mode_cfg("ML_GATE_MODE", "shadow")
     if global_mode not in {"off", "shadow", "legacy", "enforce", "lane_aware", "sizing_only", "risk_veto_only"}:
         global_mode = "legacy"
+    risk_proba = _risk_probability(risk_proba)
+    # Only the checked risk reader supplies this independent readiness. A
+    # primary-entry threshold or a scalar supplied on its own cannot do so.
+    risk_prediction_ready = bool(risk_prediction_ready is True and risk_proba is not None)
     threshold, activation_ready, threshold_reason, source = (
         _snapshot_threshold_payload(entry_model_metadata, lane) if entry_model_metadata is not None
         else _threshold_payload(lane))
@@ -216,7 +230,7 @@ def decide_ml_action(
     # Global observation authority cannot be upgraded by a lane or risk flag.
     observation_only = global_mode in {"off", "shadow"}
     risk_veto_enforced = bool(not observation_only
-        and _risk_veto_can_enforce(risk_proba, activation_ready=activation_ready))
+        and _risk_veto_can_enforce(risk_proba, prediction_ready=risk_prediction_ready))
     edge = _edge_score(ev_pred_pct, risk_proba)
     sizing_mult = _sizing_multiplier(lane, proba, ev_pred_pct, risk_proba)
 
@@ -234,7 +248,7 @@ def decide_ml_action(
             live
             and _bool_cfg("GREEN_SNIPER_RISK_CAN_VETO_LIVE", False)
             and not _bool_cfg("ML_RISK_SHADOW_ONLY", True)
-            and bool(activation_ready)
+            and risk_prediction_ready
             and risk_proba is not None
             and float(risk_proba) >= _float_cfg("ML_RISK_VETO_THRESHOLD", 0.70)
         )

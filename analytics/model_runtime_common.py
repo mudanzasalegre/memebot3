@@ -363,6 +363,19 @@ def predict_model(family: str, target: str, vec: Any, *, default_features: list[
                              expected_metadata={"family": family, "target": target})
 
 
+def predict_probability_model(family: str, target: str, vec: Any) -> float | None:
+    """Require a checked calibrated probability, not an in-range regression.
+
+    Keep the same scoped reader, original-input checks, OOS/financial evidence
+    and query recording. This does not activate a trading policy or a model.
+    """
+    path, model, features, metadata = _load_family(family, target,
+        require_temporal_validation=True)
+    return _predict_snapshot(path, model, features, metadata, vec,
+        expected_metadata={"family": family, "target": target,
+                           "prediction_kind": "calibrated_binary_probability"})
+
+
 def predict_regression_estimate(family: str, target: str, vec: Any) -> dict[str, Any]:
     # Read one verified snapshot. A concurrent retrain must not combine an old
     # point prediction with a new model's error metadata.

@@ -13,6 +13,21 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Riesgo ML: evidencia independiente y probabilidades correctas (2026-10-16)
+
+Un riesgo alto validado ya no depende de que exista el modelo principal de
+entrada para aplicar un veto habilitado. Los lectores de riesgo rechazan las
+regresiones aunque devuelvan un numero entre 0 y 1: requieren probabilidades
+binarias calibradas con los controles financieros/temporales existentes.
+Shadow/off conserva su autoridad de observacion; no se activa ningun modelo.
+
+Pasan 1.914 regresiones por carpeta, incluidas las 1.560 anteriores; 194 casos
+dirigidos y 7.351 recogidos. La CI de esta revision sigue pendiente.
+Son correcciones de software, no prueba de ganancias ni causa demostrada de
+las cero compras anteriores. Sin nueva PAPER/LIVE, proveedores, cambios de
+0,1 SOL, datos, pesos, configuracion o salidas. Operador y AutoResearch OFF.
+[Evidencia y limites](docs/audits/risk_veto_evidence_20261016.json).
+
 ### Politica ML: shadow/off sin autoridad de veto (2026-10-16)
 
 Se reproduce y corrige un veto ML indebido por flags de riesgo/green en modo

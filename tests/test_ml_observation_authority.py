@@ -17,7 +17,8 @@ def decide(monkeypatch, *, mode, lane='pump_early_pumpswap_profit', proba=.1,
     return ml_policy.decide_ml_action(token={'entry_lane':lane},feature_row={},
         proba=proba,risk_proba=risk,base_rules_passed=base,dry_run=paper,live=not paper,
         entry_model_activation_ready=True,
-        entry_model_metadata={'activation_ready':True,'ai_threshold_recommended':.5})
+        entry_model_metadata={'activation_ready':True,'ai_threshold_recommended':.5},
+        risk_prediction_ready=True)
 
 
 @pytest.mark.parametrize('mode',['off','shadow'])

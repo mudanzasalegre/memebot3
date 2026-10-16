@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "status": "INDEPENDENT_RISK_PROBABILITY_BOUNDARY_REPAIRED_1914_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "4790f0559266f50beedf7cf3f4f07d5568213f7f",
+  "previous_stage": "docs/audits/ml_observation_authority_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "defects": [
+    "A separately checked risk probability could not enforce an enabled active risk veto when the unrelated primary entry model/probability/threshold was unavailable. The green-specific risk veto had the same coupling.",
+    "Risk family and compatibility readers used a generic reader accepting checked percentage-point regressions. A genuinely accepted synthetic risk regression predicting1.0 was emitted as a100-percent risk probability. Numeric range alone does not establish probability semantics."
+  ],
+  "repairs": [
+    "Explicit risk_prediction_ready defaultsFalse; only the native checked risk-reader result supplies independent readiness. Preserve primary activation_ready semantics, all primary/financial/temporal/threshold/input/provenance checks and global shadow/off observation authority.",
+    "A new strict probability family reader requires calibrated_binary_probability through the existing checked/scoped inference path. All four risk-family heads and configured compatibility risk require this kind. Generic regression workflows remain unchanged.",
+    "Malformed, Boolean, non-real, nonfinite and out-of-range risk values remain unknown. A scalar or truthy readiness flag alone cannot acquire enforcement. Unknown risk never bypasses separate base strategy/execution guards."
+  ],
+  "production_changed_paths": [
+    "analytics/ml_policy.py",
+    "analytics/model_runtime_common.py",
+    "analytics/risk_predict.py",
+    "analytics/risk_model_runtime.py",
+    "run_bot.py"
+  ],
+  "preserved_checks": {
+    "frozen_parent_analytics/ml_policy.py": true,
+    "frozen_parent_analytics/model_runtime_common.py": true,
+    "frozen_parent_analytics/risk_predict.py": true,
+    "frozen_parent_analytics/risk_model_runtime.py": true,
+    "frozen_parent_run_bot.py": true,
+    "frozen_parent_tests/test_ml_observation_authority.py": true,
+    "generic_reader_all_existing_functions_and_checks_unchanged": true,
+    "risk_wrapper_only_reader_import_changes": true,
+    "risk_compatibility_only_reader_and_probability_kind_changes": true,
+    "entire_run_bot_only_new_independent_reader_readiness_keyword": true,
+    "all_prior_observation_test_cases_and_assertions_unchanged": true,
+    "all_other_policy_functions_types_thresholds_and_configuration_unchanged": true,
+    "only_probability_normalization_and_independent_risk_readiness_in_policy_decision": true
+  },
+  "original_failures": {
+    "coupling": {
+      "tests": 20,
+      "failures": 20,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 1.058
+    },
+    "wrong_kind": {
+      "tests": 3,
+      "failures": 3,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 7.607
+    }
+  },
+  "directed": {
+    "tests": 194,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 25.756
+  },
+  "focused": {
+    "working": {
+      "tests": 1914,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 458.901
+    },
+    "publishing": {
+      "tests": 1914,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 453.454
+    }
+  },
+  "new_repository_cases": 94,
+  "all_previous1560_cases_preserved": true,
+  "all_directed194_cases_included": true,
+  "official_collected_each": 7351,
+  "source_files_each": 870,
+  "source_sha256": "474ef507ff837efb57c5931c8b7d5ad3d064ce479a4788cc9e6a491fca7959d4",
+  "declared_synthetic_grid": {
+    "observed_at_utc": "2026-10-16T02:10:05.970317+00:00",
+    "cases": 43008,
+    "native_permission_comparisons": 86016,
+    "observation_cases": 12288,
+    "new_independent_veto_decisions": 2720,
+    "additional_native_rejections": 3232,
+    "new_native_permissions": 0,
+    "primary_activation_unchanged": true,
+    "thresholds_primary_enforcement_and_sizing_unchanged": true,
+    "qualification": "Declared synthetic grid assumes an independently checked reader for each nonmissing valid risk probability, matching the native caller. No operator trades/provider probes, real artifact activation, opportunity or net-profit evidence. Unchecked standalone scalars and wrong-kind artifacts are covered separately by unit/synthetic fixture tests."
+  },
+  "checked_synthetic_fixture": {
+    "observed_at_utc": "2026-10-16T02:11:33.033799+00:00",
+    "source": "160 owned synthetic token observations, net_financial_fixtures only",
+    "probabilities": {
+      "5.0": 0.9642856984678772,
+      "80.0": 0.03448275261638502
+    },
+    "policy_decisions": {
+      "5.0": {
+        "risk_veto_enforced": true,
+        "allow_buy": false,
+        "primary_activation_ready": false
+      },
+      "80.0": {
+        "risk_veto_enforced": false,
+        "allow_buy": true,
+        "primary_activation_ready": false
+      }
+    },
+    "operator_inputs_or_artifacts_used": false,
+    "operator_model_activated": false,
+    "qualification": "Synthetic calibration/reader and policy integration proof, not trading performance or permission for a real fit."
+  },
+  "historical_no_buy_attribution": "NOT_ESTABLISHED: the last operator run did not apply a primary model or enforced ML risk. Neither defect is demonstrated as its zero-buy cause. Existing age/snapshot/strategy/risk rejections are not relaxed by this stage.",
+  "financial_readiness": "Previous canonical-data audit remains unchanged:7961 nonfinancial shadow/reject observations, zero checked-net training rows, no current accepted operator fit. Synthetic training fixtures prove code boundaries only; they are not financial-performance evidence or operator model activation.",
+  "conservation": {
+    "protected_working_files": 4442,
+    "protected_publishing_files": 28,
+    "changed_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "added_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "prior_sqlite_warning": "Earlier native read-probe SQLite byte warning retained, not reset or restored: 131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33 versus 25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9. Exact immediate pre-probe logical equality and historical cause remain unproved. This stage starts from the declared post-warning state."
+  },
+  "current_full_ci": "PENDING_FOR_THIS_REVISION_NOT_PREAPPROVED",
+  "private_evidence": "work/risk-veto-evidence-stage-20261016: original-risk-coupling.xml, original-risk-probability.xml, expanded-risk-boundary.xml, focused-*.xml, collection-*.json, policy-grid-review.json, checked-risk-fixture.json, review.json, after-final-regressions.json, published-tree-review.json and published-handoff.json",
+  "limits": "Bounded probability semantics and risk veto readiness, not entire-strategy or financial acceptance. No operator/provider/PAPER/LIVE, account/key/plan, config, models/weights/registry, AutoResearch, exact0.1SOL sizing or exit change. Only owned temporary synthetic fitting. Current CI, remaining full-strategy evidence, prospective net profitability and universally error-free first launch remain unproved. Entire original objective/history and ten remaining requirements retained; leave all runtime/training/AutoResearch OFF."
+}

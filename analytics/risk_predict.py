@@ -4,7 +4,9 @@ import math
 from typing import Any
 
 from config.config import CFG, PROJECT_ROOT
-from analytics.model_runtime_common import invalidate_model_cache, predict_artifact, predict_model
+from analytics.model_runtime_common import (
+    invalidate_model_cache, predict_artifact, predict_probability_model as predict_model,
+)
 
 MODEL_PATH = PROJECT_ROOT / "ml" / "risk_model.pkl"
 META_PATH = PROJECT_ROOT / "ml" / "risk_model.meta.json"
@@ -21,7 +23,8 @@ def predict_risk(vec: Any, *, severe_loss_pct: float | None = None) -> float | N
             if probability is not None:
                 return float(probability)
         probability = predict_artifact(MODEL_PATH, vec, expected_metadata={
-            "family": "risk", "target": "severe_loss_configured", "severe_loss_pct": threshold})
+            "family": "risk", "target": "severe_loss_configured", "severe_loss_pct": threshold,
+            "prediction_kind": "calibrated_binary_probability"})
         return None if probability is None else float(probability)
     except (TypeError, ValueError, OverflowError):
         return None
