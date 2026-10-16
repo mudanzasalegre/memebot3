@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "status": "ML_POLICY_OBSERVATION_AUTHORITY_REPAIRED_1560_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "0091117f1974c671aab1a9ae9de658b1bcdcd07e",
+  "previous_stage": "docs/audits/native_bootstrap_guard_20261016.json",
+  "original_operator_acceptance": "docs/audits/paper_acceptance_20261016.json",
+  "defect": "At the ML policy boundary, an accepted primary probability/threshold and enabled risk or green blocking flags could veto a base-passing candidate despite global shadow/off. Active green could also emit allow_buy=true while risk_veto_enforced made the unchanged native final guard reject that same decision.",
+  "repair": "Global shadow/off cannot acquire ML veto authority from risk or green flags. Preserve advisory values, every existing acceptance/threshold/configuration helper and all run_bot source. For active green generic risk vetoes, align allow_buy/reason with the rejection the unchanged native final guard already enforces. All hard strategy/provider/routing/capital controls remain separate.",
+  "production_changed_paths": [
+    "analytics/ml_policy.py"
+  ],
+  "preserved_checks": {
+    "frozen_git_source_analytics/ml_policy.py": true,
+    "frozen_git_source_run_bot.py": true,
+    "all_run_bot_source_and_final_dispatch_guards_unchanged": true,
+    "all_other_policy_helpers_types_imports_and_configuration_unchanged": true,
+    "only_observation_authority_and_green_veto_reporting_changed": true
+  },
+  "original_new_cases": {
+    "tests": 38,
+    "failures": 18,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 3.632
+  },
+  "directed": {
+    "tests": 100,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit_seconds": 13.479
+  },
+  "focused": {
+    "working": {
+      "tests": 1560,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 364.831
+    },
+    "publishing": {
+      "tests": 1560,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "junit_seconds": 359.213
+    }
+  },
+  "new_repository_cases": 38,
+  "official_collected_each": 7257,
+  "all_previous1460_cases_preserved": true,
+  "all_current100_directed_cases_included": true,
+  "source_files_each": 868,
+  "source_sha256": "ead091e4ae561985183124c9d71739feeb1966ac3c10586eaecd84650b9af572",
+  "synthetic_policy_grid": {
+    "active_mode_cases": 15360,
+    "active_native_guard_comparisons": 30720,
+    "observation_cases": 6144,
+    "original_observation_veto_cases": 190,
+    "green_decision_explanations_corrected": 120,
+    "green_false_allow_flags_corrected": 45,
+    "green_existing_reject_reason_refinements": 75,
+    "active_mode_native_permissions_identical": true,
+    "observation_decision_respects_base_rules": true,
+    "qualification": "Exhaustive declared synthetic policy-state grid, actual unchanged native final guard. Not operator observations, real model acceptance, profitable missed opportunities, or proof of all dynamic configurations. Off with injected probability tests the standalone policy API; native scoring already omits the primary probability in off mode."
+  },
+  "canonical_feature_profile": {
+    "canonical_partitions": [
+      {
+        "file": "features_202607.parquet",
+        "rows": 7779,
+        "columns": 81,
+        "sample_types": {
+          "policy_reject": 5422,
+          "shadow_close": 2357
+        },
+        "timestamp_null_or_invalid": 0,
+        "scalar_valid_but_native_vector_invalid": 0,
+        "first_t0_utc": "2026-07-13T12:06:18.556288+00:00",
+        "last_t0_utc": "2026-07-15T18:18:25.152834+00:00",
+        "missing_address": 0,
+        "unique_addresses": 7025,
+        "exact_duplicate_rows": 0,
+        "declared_financial_rows": 0,
+        "checked_net_training_rows": 0,
+        "financial_proof_columns_present": []
+      },
+      {
+        "file": "features_202610.parquet",
+        "rows": 182,
+        "columns": 93,
+        "sample_types": {
+          "shadow_close": 165,
+          "policy_reject": 17
+        },
+        "timestamp_null_or_invalid": 0,
+        "scalar_valid_but_native_vector_invalid": 0,
+        "first_t0_utc": "2026-10-04T10:42:34.857526+00:00",
+        "last_t0_utc": "2026-10-15T22:09:49.730887+00:00",
+        "missing_address": 0,
+        "unique_addresses": 180,
+        "exact_duplicate_rows": 0,
+        "declared_financial_rows": 0,
+        "checked_net_training_rows": 0,
+        "financial_proof_columns_present": [
+          "outcome_return_basis",
+          "outcome_execution_proof",
+          "outcome_trade_id",
+          "outcome_source_sha256"
+        ]
+      }
+    ],
+    "canonical_rows": 7961,
+    "sample_types": {
+      "policy_reject": 5439,
+      "shadow_close": 2522
+    },
+    "canonical_checked_net_training_rows": 0,
+    "excluded_replica_files": [
+      "features_202607.csv"
+    ],
+    "full_original_proof_validator_needed_rows": 0,
+    "inputs_unchanged_during_read": true,
+    "configured_primary": {
+      "gate_mode": "shadow",
+      "configured_model_exists": false,
+      "configured_metadata_exists": false,
+      "primary_selector_exists": false,
+      "operator_inference_executed": false,
+      "model_deserialized": false
+    },
+    "historical_train_status": {
+      "status": "trained",
+      "last_train_status": "trained",
+      "last_train_attempt_at": "2026-10-04T10:42:21.815222+00:00",
+      "historical_rows": 2147,
+      "historical_sample_types": {
+        "policy_reject": 5422,
+        "shadow_close": 2357
+      },
+      "activation_ready": false
+    },
+    "qualification": "Canonical feature observations are not unique financial trades. Same-stem CSV replicas are excluded by the unchanged native partition selector. The exact native checked_net_return function returns unknown for every row before full receipt validation; no financial proof candidate was skipped or labelled invalid. Historical train status is not a fresh fit or financial acceptance. No models are loaded, no datasets rewritten, and no prospective return is estimated."
+  },
+  "quality_decision": "7961 canonical observations are nonfinancial diagnostic/ranking inputs, not7961 trades or checked net outcomes. No current financial proof candidate is skipped. Missing net training population is a financial-readiness gap, not permission to fabricate losses/zero return, backfill proofs or activate the Oct4 artifact.",
+  "historical_no_buy_attribution": "NOT_ESTABLISHED: the last operator run had absent primary model/metadata and no enforced ML veto. This policy defect is not demonstrated as the cause of its age/snapshot/prior-risk rejections.",
+  "original_run_boundary_recheck": {
+    "observed_at_utc": "2026-10-16T01:50:02.759954+00:00",
+    "run_id": "20261015-2",
+    "original_event_delta_sha256": "b8d618d978456a9db8beb9df0f31f2512f6a108491eb248bf5d1456833fe2c09",
+    "event_rows": 2799,
+    "ml_decision_events": 0,
+    "native_startup_ml_flags": {
+      "mode": "shadow",
+      "enforce": false,
+      "activation_ready": false,
+      "model_loaded": false
+    },
+    "native_console_sha256": "6457b64d8ad64c6de263e2dd76f1a8307de8e87fe7ca09c95efc18d7b31b2807",
+    "qualification": "Original operator event bytes and native startup log, not a regenerated report. These facts do not establish this newly reproduced model-ready policy defect as the historical no-buy cause. No new operator, provider or fit execution."
+  },
+  "notebook": {
+    "path": "work/ml-observation-authority-stage-20261016/ml-observation-readiness.ipynb",
+    "execution": "passed",
+    "code_cells": 4,
+    "format_validation": "passed",
+    "presentation_review": {
+      "notebook": "ml-observation-readiness.ipynb",
+      "executed_code_cells": 4,
+      "rendered_html_dom_review": "All six tables, one embedded figure, expected summaries, assumptions and takeaways are present in the local browser accessibility tree.",
+      "static_figure_visual_review": "The complete feature-sample-types.png was inspected: two truthful count bars, zero baseline, direct values, readable labels and no observed clipping.",
+      "available_browser_screenshot_pixels": {
+        "width": 203,
+        "height": 185
+      },
+      "full_notebook_visual_layout_verified": false,
+      "visual_limit": "The default available browser surface is only203x185. DOM completeness and the full static figure do not certify all notebook tables at normal desktop or narrow reading sizes. No viewport override was used merely to enlarge a screenshot.",
+      "inline_chart_browser_dom": "Two reviewed categories and corresponding counts render with the shared compiled runtime. This localhost preview is not proof of native host insertion.",
+      "source_receipt_browser_dom": "Initially collapsed Sources opens to the expected definition, two canonical source files and three material caveats. No raw addresses, credentials or absolute local paths are projected.",
+      "preview_repair": "A text/html response without a charset initially misdecoded accents for the standalone fragment. After the first owned server terminated normally, one targeted second preview adds UTF-8 response headers; the same unchanged fragment then displays correct Spanish labels.",
+      "native_inline_delivery": "Prepared fragments must be emitted in this turn final response. No visual delivery is claimed before that handoff.",
+      "financial_acceptance": false
+    }
+  },
+  "analytical_repairs_retained": [
+    "Initial manual env reader included an inline comment; corrected with native-family dotenv_values without mutating config or environment. Initial source-profile.json is preserved and not used.",
+    "Initial grid checker wrongly required every green reporting change to flip allow_buy. A captured false-base case showed a reason-only refinement. Final checker separately verifies45 false-allow corrections and75 existing-rejection reason refinements, with all30720 active native permissions still identical."
+  ],
+  "conservation": {
+    "protected_working_files": 4442,
+    "protected_publishing_files": 28,
+    "changed_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "added_this_stage": {
+      "working": [],
+      "publishing": []
+    },
+    "baseline_scope": "Declared post-disclosed-SQLite-warning state, not retroactive byte immutability.",
+    "prior_sqlite_warning": "docs/audits/live_paper_acceptance_20261016.json retains old131d3cec5d667155dffea1416bffaca09095d49cf38c29cfce9ce71182594a33 versus25e1536a9fbc9ab3b7e2990ab912791b520c7c68beba451cab6953fca65e11b9. No reset or restoration; exact immediate pre-probe logical equality and historical attribution remain unproved."
+  },
+  "current_full_ci": "PENDING_FOR_THIS_REVISION_NOT_PREAPPROVED",
+  "private_evidence": "work/ml-observation-authority-stage-20261016/review.json, original-expanded-authority.xml, repaired-observation-authority.xml, policy-grid-review.json, source-profile-reviewed.json, profile_inputs.py, notebook-execution.json, presentation-review.json, focused-*.xml, after-final-regressions.json and published-handoff.json",
+  "limits": "Bounded policy authority and source-quality work, not a complete full-strategy or model acceptance. The active-risk readiness coupling and other applicable dynamic source/input/capital/execution boundaries remain independent incomplete requirements. The off case with an injected probability exercises the standalone API; native off scoring already omits that primary probability. No operator run/provider/PAPER/LIVE, training, model activation, AutoResearch, account/key/plan, configuration, exact0.1SOL sizing, exit or run_bot change. Fresh financial closed evidence still requires separate authority; prospective profitability and universal error-free first launch remain unproved."
+}

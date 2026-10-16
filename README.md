@@ -13,6 +13,23 @@ replay, y solo despues considerar canaries live manuales y pequenos.
 
 ## Estado Actual
 
+### Politica ML: shadow/off sin autoridad de veto (2026-10-16)
+
+Se reproduce y corrige un veto ML indebido por flags de riesgo/green en modo
+global shadow/off. El permiso del guardia nativo en modos activos no cambia;
+green ahora informa el rechazo de riesgo que ese guardia ya aplicaba.
+Pasan 1.560 regresiones por carpeta, incluidas las 1.460 anteriores, y se
+recogen 7.257 casos oficiales. La CI de esta revision sigue pendiente.
+
+Las particiones canonicas contienen 7.961 observaciones shadow/rechazos y
+ninguna muestra de cierre financiero neto validado. No son trades rentables ni
+permiten activar un modelo antiguo. No se atribuyen a este defecto las cero
+compras de la ultima PAPER, donde no habia modelo principal aplicado.
+El cuaderno se ejecuta; la revision visual completa queda limitada por la vista
+disponible. Operador, entrenamiento y AutoResearch apagados; sin otra PAPER,
+LIVE, cambios de 0,1 SOL ni de salidas. Rentabilidad futura no demostrada.
+[Evidencia y limites](docs/audits/ml_observation_authority_20261016.json).
+
 ### Ensayo nativo Windows: clasificar intentos bloqueados (2026-10-16)
 
 El fallo previo se reproduce antes de importar el bot: la dependencia intenta

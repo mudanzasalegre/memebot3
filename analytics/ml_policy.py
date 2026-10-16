@@ -213,7 +213,10 @@ def decide_ml_action(
                             and threshold is not None and math.isfinite(threshold) and 0 <= threshold <= 1)
     proba_pass = bool(proba is not None and threshold is not None and float(proba) >= float(threshold))
     risk_veto = _risk_veto_signal(risk_proba)
-    risk_veto_enforced = _risk_veto_can_enforce(risk_proba, activation_ready=activation_ready)
+    # Global observation authority cannot be upgraded by a lane or risk flag.
+    observation_only = global_mode in {"off", "shadow"}
+    risk_veto_enforced = bool(not observation_only
+        and _risk_veto_can_enforce(risk_proba, activation_ready=activation_ready))
     edge = _edge_score(ev_pred_pct, risk_proba)
     sizing_mult = _sizing_multiplier(lane, proba, ev_pred_pct, risk_proba)
 
@@ -222,7 +225,7 @@ def decide_ml_action(
     allow = bool(base_rules_passed)
     reason = "rules_passed"
 
-    if lane == LANE_PUMP_EARLY_GREEN_SNIPER:
+    if lane == LANE_PUMP_EARLY_GREEN_SNIPER and not observation_only:
         mode = _mode_cfg("GREEN_SNIPER_ML_MODE", "sizing_only")
         enforce = bool(_bool_cfg("GREEN_SNIPER_ML_BLOCK_ENABLED", False) and activation_ready)
         allow = bool(base_rules_passed and (not enforce or proba_pass))
@@ -240,6 +243,11 @@ def decide_ml_action(
             reason = "green_sniper_risk_veto"
             risk_veto = True
             risk_veto_enforced = True
+        elif risk_veto_enforced:
+            # The final native guard already rejects this generic risk veto;
+            # the emitted decision must not claim that the same buy is allowed.
+            allow = False
+            reason = "risk_veto"
         return MlPolicyDecision(
             mode=mode,
             lane=lane or LANE_UNKNOWN,
