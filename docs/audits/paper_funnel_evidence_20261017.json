@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "status": "PAPER_FUNNEL_DIAGNOSTIC_105_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "4766c6d374962c8a83c563cf804b63cc827dfb6c",
+  "previous_stage": "docs/audits/research_identity_retention_20261016.json",
+  "scope": "Evidence-quality repair in the native funnel report consumed by research bundles; not a trading-policy relaxation, new run or profitable-strategy acceptance.",
+  "original_current_run": {
+    "start_utc": "2026-10-17T07:50:48.205109+00:00",
+    "finish_utc": "2026-10-17T08:20:53.278464+00:00",
+    "original_source_sha256": "3488f35b87a7550128d1092ae41ea862610f31625acc13aa19ffeb2f74adea08",
+    "verified_event_rows": 1821,
+    "malformed_duplicate_missing_identity_missing_timestamp_test_rows": 0,
+    "timestamps_in_window": true,
+    "original_event_and_ledger_prefixes_unchanged": true,
+    "actual_paper_buy_attempts": 0,
+    "actual_paper_buys": 0,
+    "new_positions": 0,
+    "blocked_events": 262,
+    "blocked_distinct_tokens": 259,
+    "missing_age_events": 139,
+    "snapshot_unavailable_events": 38,
+    "model_mode": "shadow",
+    "model_enforced": false,
+    "model_loaded": false,
+    "qualification": "Counters and event types are different grains, not an offered-demand census or a common exclusive funnel. Missing age includes denied Birdeye creation access and locally budget-limited RPC attempts; this does not establish billed quota exhaustion. A non-enforced missing model is not an established veto cause. No size-in-fill, win rate or net financial return can be observed without trades."
+  },
+  "established_defects": [
+    "The original native report omitted missing_age, snapshot_unavailable and current green-signal blockers from its fixed blocker vocabulary.",
+    "Missing outcomes were converted to zero returns/peaks; zero could be replaced by a more optimistic alias; booleans and infinity were accepted as measurements.",
+    "Targets, realized position fields and ending returns could masquerade as shadow outcomes or independently observed peaks.",
+    "would_pass_if_relaxed was simply the number of matching rows, without evaluating any remaining gate, route, depth, capital admission, exit or cost.",
+    "A large historical shadow peak could recommend micro_probe or allow_small_paper without a checked full-strategy counterfactual. Substring matching admitted unrelated reason labels, and missing identities were counted as tokens."
+  ],
+  "repair": "Native report schema2 preserves nullable finite explicit shadow outcome measurements and true zero/sign/extreme tails. Ending return does not manufacture peak. It separates rows from distinct identified tokens, matches reason vocabulary by complete terms, includes actual observation/signal blockers and publishes recognized versus unrecognized runtime-block coverage. Counterfactual eligibility stays unknown; financial_evidence remains false. Recommendations request counterfactual evaluation rather than unsupported trading/policy relaxation; known safety blocks remain blocked. The report remains a labeled historical diagnostic, not current-run or offered-demand evidence by default.",
+  "baseline": {
+    "original_regressions_failed": 26,
+    "additional_missing_coverage_regressions_failed": 2,
+    "existing_assertions_or_tests_removed": 0
+  },
+  "validation": {
+    "new_repository_cases": 28,
+    "directed_with_existing_core_case": 29,
+    "official_collected_each": 8043,
+    "official_nodeids_sha256_each": "318f9e6d1926038ee1a41b107b9e74fcf31a126abf2cd06cc91f3cdce0d7dd8d",
+    "official_nodeids_identical_between_checkouts": true,
+    "integration_working": {"passed": 105, "failed": 0, "skipped": 0},
+    "integration_publishing": {"passed": 105, "failed": 0, "skipped": 0},
+    "integration_scope": ["native funnel reporter", "core report scheduling", "funnel attribution", "research report bundles", "AutoResearch replay runner", "policy replay evidence"],
+    "native_original_current_comparison": {
+      "input": "Exact original current-run events in an isolated private root",
+      "original_soft_score_would_pass": 15,
+      "current_soft_score_would_pass": null,
+      "original_soft_score_return_and_peak": 0.0,
+      "current_soft_score_return_and_peak": null,
+      "recognized_block_events": 253,
+      "unrecognized_block_events": 9,
+      "interpretation": "Vocabulary coverage, not causal explanation, accuracy, full eligibility or profitability."
+    },
+    "notebook": {"cells": 15, "execution_errors": 0, "figures_visually_inspected": 2, "html_browser_review": "UNAVAILABLE_NO_CONNECTED_BROWSER"},
+    "original_validation_incidents_retained": [
+      "The first isolated native probe used the stage parent instead of the frozen input root and correctly failed its139-token assertion; the root was corrected, not the assertion.",
+      "The publishing checkout has no local .venv; its first test launcher did not start pytest. The verified working runtime was then used with publishing cwd and all105 passed.",
+      "Inline rendering was first attempted while the notebook handle was still running, yielding missing-input errors; the same notebook handle completed and rendering was retried only after inputs existed.",
+      "The dependency locator had no registered handler; existing installed Node was used. Native inline rendering verified the shipped runtime without installing packages."
+    ],
+    "new_revision_full_matrix": "PENDING_AFTER_PUBLICATION",
+    "parent_full_matrix": "tests38857108505 terminal SUCCESS on ubuntu24.04 and windows2022 for4766c6d; not acceptance of this changed source"
+  },
+  "source_proof": {"files_each": 882, "sha256": "cf36aca6eb49756a2ef7e0d156fb408802aa22db560ca2433578496c76b5171e"},
+  "operator_preservation": {
+    "working_files": 4997,
+    "publishing_files": 510,
+    "changed": 0,
+    "added": 0,
+    "scope": "All inventoried data/logs/models/ml-models/config-profiles/strategy-proposals, .env, root weights/meta and ml JSON, captured before this source-only stage. This is not retrospective proof for earlier stages."
+  },
+  "original_runtime_receipt_preserved": {"supervisor_exit_code": 1, "changed_file": "data/metrics/policy_replay.json", "stop_exit_code": 0, "qualification": "Original bounded PAPER diagnostic-file warning retained; no restore or predicate relaxation was used to manufacture a clean run."},
+  "private_evidence": ["work/paper30-20261017/reviewed-analysis.json", "work/paper30-20261017/paper30-entry-diagnostic.ipynb", "work/paper-funnel-20261017/native-window-comparison.json", "work/paper-funnel-20261017/baseline.xml", "work/paper-funnel-20261017/coverage-baseline.xml", "work/paper-funnel-20261017/integration-D.xml", "work/paper-funnel-20261017/integration-C.xml", "work/paper-funnel-20261017/after-integration.json"],
+  "remaining": "Original architecture goal and its ten remaining requirements stay active. Real provider access/response/depth, opportunity capture, full-strategy financial acceptance, model/strategy prospective generalization and actual profitable execution remain unproved. No new PAPER, training, AutoResearch, API/UI, model activation or LIVE was started during this source stage."
+}
