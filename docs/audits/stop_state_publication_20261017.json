@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "status": "STOP_STATE_PUBLICATION_342_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "566c96b695c97a2ec30bd35f05a803186d7c163e",
+  "previous_stage": "docs/audits/shadow_observation_feed_20261017.json",
+  "defect": "The native runner swallowed an ordinary final stopped-state snapshot/SQL publication error after draining resources. An internally raised publication CancelledError could also be mistaken for the expected caller stop cancellation. The real run_with_local_stop boundary could consequently return LocalStopRequested and permit the original native launcher to acknowledge a stop whose final state commit had failed. This is a shutdown integrity defect, not an established historical no-buy or profitability cause.",
+  "parent_reproduction": {
+    "direct_native_composition": {"failed": 9, "controls_passed": 3},
+    "real_owned_sqlite": {"failed": 1, "controls_passed": 1},
+    "original_publishing_runner_used_for_sql_reproduction": true,
+    "scope": "Original _runner and _publish_runtime_state_once execute with real supervised managed writers and the real local-stop protocol. Startup services are inert boundary stubs. A real temporary SQLite trigger refuses the native state publisher's final update in the SQL counterexample. This is not a complete operational startup/provider test."
+  },
+  "repair": "Final stopped-state publication failures are fatal to native cleanup acknowledgement. Ordinary errors propagate unchanged. An internal publication cancellation is normalized through the existing cleanup-failure helper, retaining its original cause so the stop boundary cannot mistake it for the expected parent cancellation. All original resource draining and successful stopped-state publication remain in place. A rejected SQL update is not rewritten, fabricated or silently accepted. No entry, sizing, exit, learning, provider, model, quota or automatic activation policy changes.",
+  "verification": {
+    "new_repository_cases": 14,
+    "focused_each": 342,
+    "working": {"passed": 342, "failed": 0, "errors": 0, "skipped": 0, "seconds": 243.876},
+    "publishing": {"passed": 342, "failed": 0, "errors": 0, "skipped": 0, "seconds": 243.952},
+    "official_collected_each": 8128,
+    "official_nodeids_sha256_each": "634d139a3b48d27912c84cdd2a4cc43141bce7b9504f4e44e25800304ba5ff34",
+    "all_original_8114_cases_retained": true,
+    "new_revision_full_matrix": "PENDING_AFTER_PUBLICATION",
+    "scope": "Native stop success, snapshot failure, database failure, internally cancelled snapshot/publication, PAPER/non-PAPER branch composition, waiting until publication completes and releasing a blocked failed publication. Every directed case checks managed writer/resource draining. Integration includes original local stop/request/finalizer contracts, HTTP/export/execution/writer ownership, shadow openings, position monitor and all native isolated PAPER entry/runner/close/export cases. No operator runtime or live financial transaction was executed."
+  },
+  "durable_owned_sqlite_probe": {
+    "cases": [
+      {"database_refused_final_update": false, "persisted_state": "stopped", "completion_receipts": 1},
+      {"database_refused_final_update": true, "persisted_state": "running", "completion_receipts": 0}
+    ],
+    "qualification": "One row per controlled temporary database, not per token or trade. The refused case intentionally preserves its earlier committed running row; it demonstrates why a failed commit cannot certify final state. Real operator databases, state rows and historical receipts are not changed or backfilled."
+  },
+  "source_proof": {"files_each": 886, "sha256": "8848f15cad7ce129db1c4d07ab02d4d23ee8e506d2faeb4d2c37f3068af6bb3c"},
+  "operator_preservation": {"working_files": 4997, "publishing_files": 510, "source_frozen_changed": 0, "source_frozen_added": 0, "final_changed": 0, "final_added": 0, "final_verification": "UNCHANGED_AFTER_ALL_LOCAL_VALIDATION", "operator_runtime_memebot_qa_tasks_services_locks": "ALL_ZERO_AT_FINAL_LOCAL_CHECK", "foreign_qa": "SEPARATE_PREVIOUSLY_OBSERVED_ENVIRONMENT_RETAINED_NOT_STOPPED", "sql_state": "main/stopped/idle/idle"},
+  "goal_acceptance_reconciliation": [
+    {"requirement": "Complete architecture/scanner/sniper/data/model/AutoResearch audit and implementation", "acceptance": "INCOMPLETE", "evidence_boundary": "Current source and accumulated audit history support specific implemented contracts. The original ten outstanding whole-goal requirements are preserved; a passing component suite does not certify the complete executing strategy or every failure path."},
+    {"requirement": "Maximize cost-executable profitable opportunities, including uncapped extreme token runs", "acceptance": "NOT_ESTABLISHED", "evidence_boundary": "Current native synthetic entry/partial-runner/close/net-export cases pass. The last retained operational PAPER used4766c6d, predating these scanner/shutdown changes, and recorded no new positions. It is not a prospective performance sample of the current code. No future-profit or optimal-capture claim follows."},
+    {"requirement": "Minimal-intervention learning and bounded automatic PAPER adaptation", "acceptance": "NOT_ACCEPTED_AS_A_FULL_STRATEGY", "evidence_boundary": "Source contains training and research scheduling/promotion controls, but no fresh whole-strategy generalization/profitable activation evidence is supplied by these shutdown probes. No fitting, model activation, AutoResearch daemon or operator policy change occurs during this stage."},
+    {"requirement": "Correct first-launch integration, lifecycle and error handling", "acceptance": "PARTIAL_SOFTWARE_ACCEPTANCE", "evidence_boundary": "This stage establishes a previously missing native stop-acknowledgement contract, including real owned SQL commit rejection. It does not replace full matching-revision CI, authenticated provider acceptance or a complete first operational launch. Future absence of all errors cannot be guaranteed."},
+    {"requirement": "Synchronize, commit and publish in the separate Git checkout", "acceptance": "SOURCE_PARITY_VERIFIED_PUBLICATION_RECEIPT_REQUIRED", "evidence_boundary": "Both source trees have the same886-file fingerprint. The private publication receipt must additionally prove clean publishing checkout and HEAD equal to origin/main after commit/push."},
+    {"requirement": "Leave every operational bot service stopped", "acceptance": "SCOPED_LOCAL_OFF_VERIFIED", "evidence_boundary": "Final scoped census confirms no operational runtime, memebot QA, tasks, services or locks. Read-only operator SQL remains main/stopped/idle/idle and protected files are unchanged. The separately observed foreign QA environment is retained without interference. Repeat exact OFF/SQL/publication checks at handoff."}
+  ],
+  "authority": "The original single operational PAPER permission was already consumed and is not reused. No new operational PAPER, LIVE, training, model activation, AutoResearch, API or UI is started.",
+  "private_evidence": ["work/stop-publication-20261017/native-parent-baseline.xml", "work/stop-publication-20261017/real-sql-parent.xml", "work/stop-publication-20261017/repaired-directed-D.xml", "work/stop-publication-20261017/frozen-integration-D.xml", "work/stop-publication-20261017/frozen-integration-C.xml", "work/stop-publication-20261017/durable-sql-probe.json", "work/stop-publication-20261017/source-frozen.json", "work/stop-publication-20261017/final-operator-check.json", "work/stop-publication-20261017/collection-working.json", "work/stop-publication-20261017/collection-publishing.json"],
+  "remaining": "Keep the whole original objective and its ten outstanding requirements. Independently authorized prospective operational/provider/full-strategy financial acceptance, other source/ownership/learning/generalization boundaries and the current complete CI matrix remain separate. This source-only shutdown repair does not establish profitability, full first-launch correctness or universal no-error behavior."
+}

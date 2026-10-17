@@ -10491,8 +10491,12 @@ async def _runner() -> None:
             _runtime_process_state = "stopped"
             try:
                 await _publish_runtime_state_once()
-            except Exception as publish_exc:
-                log.error("runtime state final publish → %s", publish_exc)
+            except BaseException as publish_exc:
+                # A failed final state commit is not an acknowledged stop.
+                # In particular, an INTERNAL publication cancellation must
+                # not masquerade as the caller's expected stop cancellation.
+                log.error("runtime state final publish → %s", type(publish_exc).__name__)
+                raise_cleanup_failure(publish_exc)
             if writer_errors:
                 raise_cleanup_failure(writer_errors[0])
         cleanup = asyncio.create_task(finish_shutdown(), name="owned-runtime-shutdown")
