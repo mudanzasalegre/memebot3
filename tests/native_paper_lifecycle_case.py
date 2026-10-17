@@ -2,6 +2,7 @@
 import asyncio
 import datetime as dt
 import json
+import subprocess
 import sys
 import time
 import traceback
@@ -15,6 +16,17 @@ if options.get('log'):
 case = options['case']
 attempts = []
 bootstrap_in_progress = True
+allowed_report_children = []
+
+
+def owned_report_child(args):
+    command = [sys.executable, str(expected/'tools/regenerate_core_reports.py')]
+    return (options.get('supervised_runtime') is True and not allowed_report_children
+        and Path(sys.argv[0]).resolve() == expected/'tests/native_supervised_case.py'
+        and args[1] in (command, subprocess.list2cmdline(command))
+        and args[2] is not None and Path(args[2]).resolve() == expected
+        and (args[0] is None or Path(args[0]).resolve() == Path(sys.executable).resolve())
+        and args[3] is None)
 
 def checked_numpy_bootstrap_attempts(items):
     # Nothing is allowed to execute. NumPy1.26's test utilities catch the
@@ -50,6 +62,9 @@ def audit(event, args):
             attempts.append(event)
             raise PermissionError('External network forbidden in isolated integration')
     if event == 'subprocess.Popen':
+        if owned_report_child(args):
+            allowed_report_children.append('tools/regenerate_core_reports.py')
+            return
         frame = sys._getframe()
         numpy_testing_probe = False
         numpy_bootstrap_owner = False
@@ -463,18 +478,22 @@ async def exercise():
         await jupiter_price.aclose()
         await engine.dispose()
     return report
-report = asyncio.run(exercise())
-assert not attempts, attempts
-events_path = expected/'data/metrics/runtime_events.jsonl'
-events = [json.loads(line) for line in events_path.read_text(encoding='utf-8-sig').splitlines()] if events_path.exists() else []
-print(json.dumps({**report,'native_complete_entry':True,'boundary_calls':calls,'causal_clock_trace':clock_trace,
-    'events':[{'event':e.get('event_type') or e.get('event'),'reason':e.get('reason'),
-        'stage':e.get('stage'),'hard_failures':e.get('hard_failures'),
-        'clock_diagnostic':e.get('clock_diagnostic')} for e in events],
-    'stats':run_bot._stats,'external_attempts':attempts,
-    'blocked_dependency_probes':dependency_probes,
-    'blocked_platform_probes':platform_probes,
-    'isolated_native_import':True,'scoped_modules':len(scoped),
-    'operator_files_copied':0,'outbound_network_attempts':len(attempts),
-    'dry_run':CFG.DRY_RUN,'exact_paper_size':CFG.PAPER_EXACT_TRADE_SIZE_SOL,
-    'scope':'Native source-only PAPER lifecycle; no operational main loop, wallet or providers. Scientific testing bootstrap probes are separately recorded and blocked; the native phase permits no child process or external network.'}))
+def emit_report(report):
+    assert not attempts, attempts
+    events_path = expected/'data/metrics/runtime_events.jsonl'
+    events = [json.loads(line) for line in events_path.read_text(encoding='utf-8-sig').splitlines()] if events_path.exists() else []
+    print(json.dumps({**report,'native_complete_entry':True,'boundary_calls':calls,'causal_clock_trace':clock_trace,
+        'events':[{'event':e.get('event_type') or e.get('event'),'reason':e.get('reason'),
+            'stage':e.get('stage'),'hard_failures':e.get('hard_failures'),
+            'clock_diagnostic':e.get('clock_diagnostic')} for e in events],
+        'stats':run_bot._stats,'external_attempts':attempts,
+        'blocked_dependency_probes':dependency_probes,
+        'blocked_platform_probes':platform_probes,
+        'isolated_native_import':True,'scoped_modules':len(scoped),
+        'operator_files_copied':0,'outbound_network_attempts':len(attempts),
+        'dry_run':CFG.DRY_RUN,'exact_paper_size':CFG.PAPER_EXACT_TRADE_SIZE_SOL,
+        'scope':report.get('scope', 'Native source-only PAPER lifecycle; no operational main loop, wallet or providers. Scientific testing bootstrap probes are separately recorded and blocked; the native phase permits no child process or external network.')}))
+
+
+if __name__ == '__main__':
+    emit_report(asyncio.run(exercise()))

@@ -23,7 +23,8 @@ SUPPORT = {'tests/quote_fixtures.py', 'tests/native_paper_lifecycle_case.py'}
 
 def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log=False, run_id=None,
                 expected_failure=None, coarse_clock=False, bootstrap_windows_fallback=False,
-                stream_reconsideration=False, shadow_feed=False):
+                stream_reconsideration=False, shadow_feed=False, supervised_runtime=False,
+                supervised_veto=None, supervised_hold_report=False):
     assert (SOURCE/'run_bot.py').is_file() and (SOURCE/'config/config.py').is_file()
     isolated = (tmp_path/'owned-source-only').resolve()
     assert isolated.is_relative_to(tmp_path.resolve()) and isolated != SOURCE
@@ -49,6 +50,10 @@ def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log
         target = isolated/relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(HERE.parent/relative, target)
+    if supervised_runtime:
+        for relative in ('tests/native_supervised_case.py', 'tests/native_supervised_guard.py'):
+            shutil.copy2(HERE.parent/relative, isolated/relative)
+        shutil.copy2(HERE/'native_supervised_guard.py', isolated/'sitecustomize.py')
     if case.startswith('rpc_birth'):
         # The signed dummy packet helper is explicit and contains no operator
         # key, real blockhash, data, wallet or provider configuration.
@@ -74,14 +79,22 @@ def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log
         env['PUMP_EARLY_EXECUTION_MODE'] = case
     if case == 'whitelist':
         env['DEX_WHITELIST'] = 'raydium,orca,meteora'
+    if supervised_veto not in {None, 'missing_route'} or supervised_veto and not supervised_runtime:
+        raise ValueError('Unknown supervised native boundary')
+    if supervised_runtime:
+        env.update(PYTHONPATH=str(isolated), MEMEBOT_SUPERVISED_TEST_ROOT=str(isolated),
+            MEMEBOT_HOLD_REPORT_CHILD='1' if supervised_hold_report else '0')
     if expected_failure not in {None,'rpc_unavailable'}:
         raise ValueError('Unknown isolated native failure injection')
     options = dict(case=case,momentum=momentum,monitor=monitor,log=log,failure=expected_failure,
         coarse_clock=coarse_clock,bootstrap_windows_fallback=bootstrap_windows_fallback,
-        stream_reconsideration=stream_reconsideration, shadow_feed=shadow_feed)
-    result = subprocess.run([sys.executable,str(isolated/'tests/native_paper_lifecycle_case.py'),
+        stream_reconsideration=stream_reconsideration, shadow_feed=shadow_feed,
+        supervised_runtime=supervised_runtime, supervised_veto=supervised_veto,
+        supervised_hold_report=supervised_hold_report)
+    script = 'native_supervised_case.py' if supervised_runtime else 'native_paper_lifecycle_case.py'
+    result = subprocess.run([sys.executable,str(isolated/'tests'/script),
         str(isolated),json.dumps(options)],cwd=isolated,env=env,
-        capture_output=True,text=True,timeout=90)
+        capture_output=True,text=True,timeout=150 if supervised_runtime else 90)
     if expected_failure is not None:
         assert result.returncode==1, 'Expected a retained native assertion failure, not a successful buy'
         marker='native_paper_entry_diagnostic='

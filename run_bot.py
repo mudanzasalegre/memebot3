@@ -947,26 +947,36 @@ def _oldest_core_report_timestamp(freshness: dict[str, object]) -> Optional[dt.d
 
 async def _run_core_reports_regeneration_isolated() -> dict[str, object]:
     """Regenerate analytical reports outside the latency-sensitive bot process."""
-    tool = PROJECT_ROOT / "tools" / "regenerate_core_reports.py"
-    creationflags = subprocess.BELOW_NORMAL_PRIORITY_CLASS if os.name == "nt" else 0
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        str(tool),
-        cwd=str(PROJECT_ROOT),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        creationflags=creationflags,
-    )
-    stdout, stderr = await process.communicate()
-    if process.returncode != 0:
-        detail = stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"core report subprocess exit={process.returncode}: {detail[:500]}")
+    from runtime.owned_thread import await_owned_task
 
-    summary = _read_json_file(PROJECT_ROOT / "data" / "metrics" / "core_reports_regeneration.json")
-    if isinstance(summary, dict):
-        return summary
-    output = stdout.decode("utf-8", errors="replace").strip()
-    return {"warnings": {"summary_missing": output[-500:] or "no subprocess summary"}}
+    async def regenerate():
+        tool = PROJECT_ROOT / "tools" / "regenerate_core_reports.py"
+        creationflags = subprocess.BELOW_NORMAL_PRIORITY_CLASS if os.name == "nt" else 0
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            str(tool),
+            cwd=str(PROJECT_ROOT),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            creationflags=creationflags,
+        )
+        try:
+            stdout, stderr = await process.communicate()
+        finally:
+            # Even a pipe failure must not orphan the exact admitted child.
+            if process.returncode is None:
+                await process.wait()
+        if process.returncode != 0:
+            detail = stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"core report subprocess exit={process.returncode}: {detail[:500]}")
+
+        summary = _read_json_file(PROJECT_ROOT / "data" / "metrics" / "core_reports_regeneration.json")
+        if isinstance(summary, dict):
+            return summary
+        output = stdout.decode("utf-8", errors="replace").strip()
+        return {"warnings": {"summary_missing": output[-500:] or "no subprocess summary"}}
+
+    return await await_owned_task(regenerate(), name='owned-core-report-regeneration')
 
 
 async def _maybe_regenerate_core_reports(
