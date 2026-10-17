@@ -847,6 +847,7 @@ _stats = {
     "appended_shadow":   0,
     "filtered_immediate_0": 0,
     "actual_paper_buy_attempts": 0,
+    "stream_cooldown_reconsidered": 0,
     "actual_paper_buys": 0,
     "shadow_only": 0,
     "blocked_before_buy": 0,
@@ -4992,7 +4993,7 @@ def _build_entry_position(token: dict, size_decision, *, addr: str, amount_sol: 
     return pos
 
 
-async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
+async def _evaluate_and_buy(token: dict, ses: SessionLocal, *, stream_reconsideration: bool = False) -> None:
     """Evalúa un token y, si pasa los filtros + IA, lanza la compra."""
     global _wallet_sol_balance
 
@@ -5000,7 +5001,18 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
     addr = token["address"]
     _stats["raw_discovered"] += 1
     if str(token.get("discovered_via") or "").strip().lower() == "pumpfun" and _stream_candidate_is_cooled(addr):
-        return
+        if stream_reconsideration is not True:
+            return
+        # A changed, rate-limited native queue dispatch may collect a NEW
+        # observation instead of being silently discarded by the old blackout.
+        # Retain that blackout for every other caller. All fresh-data, birth,
+        # toxicity, model, capacity and execution gates below still apply.
+        _stats["stream_cooldown_reconsidered"] = _stats.get("stream_cooldown_reconsidered", 0) + 1
+        try:
+            record_runtime_event("stream_cooldown_reconsidered", addr,
+                source="hot_queue", basis="changed_owned_dispatch_not_buy_permission")
+        except Exception:
+            pass
 
     # 0) — gate horario (24/7 si no hay ventanas; BLOCK_HOURS siempre aplica si define) —
     if not _in_trading_window():
@@ -7447,6 +7459,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal) -> None:
 async def _evaluate_and_buy_guarded(token: dict, ses: SessionLocal, *, source: str) -> None:
     addr = str((token or {}).get("address") or "???")
     try:
+        # Consume before policy enrichment mutates this original popped object.
+        # Source text and feed-carried flags alone cannot request reevaluation.
+        reconsider = source == "hot_queue" and GLOBAL_HOT_QUEUE.consume_reconsideration(token)
         from research_loop.entry_gate_policy import selected_scope
         from research_loop.entry_gate_forward import capture_scope
         from runtime.paper_entry_policy import snapshot
@@ -7458,10 +7473,12 @@ async def _evaluate_and_buy_guarded(token: dict, ses: SessionLocal, *, source: s
             if (selected := snapshot()) is not None:
                 token["paper_entry_policy"] = selected
             async def dispatch(session):
+                operation = (_evaluate_and_buy(token, session, stream_reconsideration=True)
+                    if reconsider else _evaluate_and_buy(token, session))
                 if EVALUATE_TOKEN_TIMEOUT_S > 0:
-                    await asyncio.wait_for(_evaluate_and_buy(token, session), timeout=EVALUATE_TOKEN_TIMEOUT_S)
+                    await asyncio.wait_for(operation, timeout=EVALUATE_TOKEN_TIMEOUT_S)
                 else:
-                    await _evaluate_and_buy(token, session)
+                    await operation
             if ses is None:
                 # Production entries own their transaction/session. A timeout
                 # or failed commit cannot poison later entries or the monitor.

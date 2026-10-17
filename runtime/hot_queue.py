@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections import OrderedDict
 import heapq
 import itertools
 import math
@@ -52,6 +53,9 @@ class HotQueue:
         self._evaluated_at: dict[str, float] = {}
         self._evaluated_signals: dict[str, tuple[Any, ...]] = {}
         self._evaluated_generations: dict[str, str] = {}
+        # Process-local scheduling evidence, deliberately outside feed payloads.
+        # At most one unconsumed original dispatch per mint, bounded by capacity.
+        self._reconsiderations: OrderedDict[str, tuple[dict[str, Any], str, float, str]] = OrderedDict()
         self._priority_generation: str | None = None
         self._priority_refreshes = 0
         self._last_priority_refresh_at: float | None = None
@@ -114,6 +118,7 @@ class HotQueue:
 
     def _restore_evaluated_history(self, address: str) -> None:
         """An admission/eviction is not an evaluation of its market signal."""
+        self._reconsiderations.pop(address, None)
         stamp, signal = self._evaluated_at.get(address), self._evaluated_signals.get(address)
         if stamp is None or signal is None:
             self._seen.pop(address, None)
@@ -157,6 +162,7 @@ class HotQueue:
                 self._evaluated_at.pop(address, None)
                 self._evaluated_signals.pop(address, None)
                 self._evaluated_generations.pop(address, None)
+                self._reconsiderations.pop(address, None)
         self._last_prune_at = now
 
     def add(self, token: dict[str, Any], *, source: str = "pumpfun", reason: str = "hot_candidate") -> bool:
@@ -316,6 +322,9 @@ class HotQueue:
     def _add(self, token: dict[str, Any], *, source: str, reason: str, now: float,
              generation: str, prepared_ranking=None) -> bool:
         address = str(token.get("address") or token.get("mint") or "").strip()
+        # A newer admission attempt supersedes an unconsumed old dispatch, even
+        # when the incoming update is eventually deduplicated or expires.
+        self._reconsiderations.pop(address, None)
         self._prune_history(now)
         last_seen = self._seen.get(address)
         pending_version = self._pending.get(address)
@@ -372,7 +381,8 @@ class HotQueue:
         max_items = max(1, int(limit or getattr(CFG, "HOT_QUEUE_BATCH_SIZE", 12) or 12))
         if expand and bool(getattr(CFG, "HOT_QUEUE_DYNAMIC_BATCH_ENABLED", True)) and len(self._pending) > max_items * 2:
             max_items = min(max_items * 3, len(self._pending), 100)
-        now = dt.datetime.fromtimestamp(self._now(), dt.timezone.utc)
+        timestamp = self._now()
+        now = dt.datetime.fromtimestamp(timestamp, dt.timezone.utc)
         while self._heap and len(out) < max_items:
             neg_score, sequence, token = heapq.heappop(self._heap)
             address = str(token.get("address") or token.get("mint") or "")
@@ -387,12 +397,50 @@ class HotQueue:
                 self._event("hot_queue_drop", token, source, score, "max_age")
                 continue
             self._event("hot_queue_eval", token, source, score, "green_candidate")
+            old_time = self._evaluated_at.get(address)
+            old_signal = self._evaluated_signals.get(address)
+            signal = _market_signal(token)
+            interval = max(1.0, float(getattr(CFG, "HOT_QUEUE_RECHECK_INTERVAL_S", 15.0)))
+            if (old_time is not None and old_signal is not None
+                    and now.timestamp() - old_time >= interval
+                    and (signal != old_signal or generation != self._evaluated_generations.get(address))):
+                # Keep the actual numeric observation. UTC microsecond
+                # rounding may otherwise make an immediate consumer appear
+                # to run before its own original dispatch.
+                self._reconsiderations[address] = (token, _dispatch_input_identity(token), timestamp, generation)
+                self._reconsiderations.move_to_end(address)
+                while len(self._reconsiderations) > self.max_size:
+                    self._reconsiderations.popitem(last=False)
             self._evaluated_at[address] = now.timestamp()
-            self._evaluated_signals[address] = _market_signal(token)
+            self._evaluated_signals[address] = signal
             self._evaluated_generations[address] = generation
             self._seen[address] = now.timestamp()
             out.append(token)
         return out
+
+    def consume_reconsideration(self, token: dict[str, Any]) -> bool:
+        """One original changed dispatch may request fresh entry evaluation.
+
+        This is NOT a buy/risk permission or trust in queued market values.
+        Copies, payload flags, replay, mutation, supersession and old dispatches
+        cannot cancel the legacy stream cooldown. Only the serial native entry
+        owner consumes the exact popped object before its own payload changes.
+        """
+        if not isinstance(token, dict):
+            return False
+        address = str(token.get("address") or token.get("mint") or "").strip()
+        receipt = self._reconsiderations.get(address)
+        if receipt is None or receipt[0] is not token:
+            return False
+        self._reconsiderations.pop(address, None)
+        try:
+            elapsed = self._now() - receipt[2]
+            interval = max(1.0, float(getattr(CFG, "HOT_QUEUE_RECHECK_INTERVAL_S", 15.0)))
+            return (math.isfinite(elapsed) and 0 <= elapsed <= interval
+                and token.get("_hot_queue_priority_generation") == receipt[3]
+                and _dispatch_input_identity(token) == receipt[1])
+        except (TypeError, ValueError, OverflowError):
+            return False
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -420,6 +468,12 @@ def _ranking_input_identity(view: dict[str, Any]) -> str:
     # buckets. Never accept a receipt carried by an external token.
     return json.dumps({k: v for k, v in view.items() if not k.startswith("_hot_queue_")
         and k != "learned_runner_priority"}, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _dispatch_input_identity(token: dict[str, Any]) -> str:
+    # Unlike prediction reuse, dispatch ownership includes internal clocks,
+    # learned annotations and every payload field. No post-pop edit is blessed.
+    return json.dumps(token, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _valid_age(value: Any) -> bool:

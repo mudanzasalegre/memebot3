@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "status": "STREAM_RECONSIDERATION_580_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "cb8f93212964db3b731fcb3433fa6f2ef0ae99b2",
+  "previous_stage": "docs/audits/paper_funnel_evidence_20261017.json",
+  "defect": "Native HotQueue admits a materially changed market/birth/learned signal after its existing recheck interval, but the native entry immediately discards it under the separate fixed Pump.fun stream cooldown, before collecting fresh market observations. A real initial weak-signal rejection can therefore black out a later changed opportunity for the original900-second reject cooldown. Controlled software reproduction establishes this mechanism, not its historical financial impact.",
+  "native_parent_reproduction": {
+    "directed": {"failures": 3, "controls_passed": 2},
+    "whole_source_only_case": {"failures": 1, "snapshot_calls": 1, "paper_buy_attempts": 0, "external_attempts": 0, "operator_files_copied": 0},
+    "whole_case_repeated_after_controlling_independent_price_admission_clock": "SAME_ORIGINAL_FAILURE",
+    "scope": "Original committed publishing runtime plus the explicit new test harness, without patching or relaxing the original entry assertions."
+  },
+  "repair": "HotQueue issues bounded process-local reconsideration evidence only for an actual popped changed-input or checked-generation dispatch after the existing recheck interval. Evidence is kept outside feed payloads, binds the exact original object and every serialized field, expires, is superseded by another admission, and is consumed once. The native guarded entry consumes it before policy mutation. This one dispatch may pass the generic stream blackout to request new observations; the original cooldown remains for every other dispatch. Queue dedup/expiry/waiting order, independent price-attempt pacing and all fresh-source/birth/toxicity/model/capital/execution/exit checks remain in place. A dedicated event/counter explicitly denotes reconsideration, not a purchase.",
+  "ownership_boundary": "Serial in-process scheduling evidence, not authentication of the whole executing process, provider market truth, a full-strategy financial approval or LIVE permission. Arbitrary code execution is outside this object-identity boundary. Raw payload flags and the source string alone do not supply dispatch evidence.",
+  "clock_refinement": {
+    "established_regressions": {"failures": 2, "control_passed": 1},
+    "defect": "Converting the actual numeric dispatch time to UTC microseconds could round it forward and make an immediate consumer falsely appear earlier than its own dispatch.",
+    "repair": "Retain the original numeric dispatch observation; do not add epsilon, shift time or fabricate a later capture. Existing unrelated queue-history clock semantics are not universally certified by this scoped fix."
+  },
+  "verification": {
+    "directed_current_cases_passed": 25,
+    "native_reconsideration_and_negative_controls_passed": 5,
+    "new_repository_cases": 30,
+    "official_collected_each": 8073,
+    "official_nodeids_sha256_each": "ef45a909a8c0bad0312c954a1deab504b977e11ef639493b84fdd560427495ac",
+    "all_original_8043_cases_retained": true,
+    "working_integration": {"passed": 580, "failed": 0, "skipped": 0, "seconds": 400.137},
+    "publishing_integration": {"passed": 580, "failed": 0, "skipped": 0, "seconds": 399.623},
+    "new_revision_full_matrix": "PENDING_AFTER_PUBLICATION",
+    "scope": "Current directed checks cover exact object, copied object, fake source/payload flags, replay, full post-pop mutation, changed/unchanged/first dispatch, recheck interval, expiration/invalid clocks, supersession, bounded unconsumed state and missing fresh snapshot/original age. Native whole-source cases retain actual route, cluster-risk, FX and price-freshness denials after second fresh collection."
+  },
+  "durable_native_probe": {
+    "initial_weak_signal_rejected": true,
+    "initial_paper_attempts": 0,
+    "controlled_scheduling_clock_advance_seconds": 26.0,
+    "price_admission_parameters_and_reservations_reset": false,
+    "original_stream_cooldown_retained": true,
+    "new_paper_buys": 1,
+    "exact_size_sol": 0.1,
+    "extreme_signal_pct": 1000000.0,
+    "runner_retained_before_terminal_giveback": true,
+    "position_closed": true,
+    "idempotent_original_net_export_rows": 1,
+    "external_attempts": 0,
+    "operator_files_copied": 0,
+    "qualification": "Synthetic native quote/PAPER/runner/net-export software only. This is not a new operational PAPER, evidence of real profitable capture, provider access/depth or market performance."
+  },
+  "validation_incidents_preserved": [
+    "The first operator-census attempt rejected source parity because the new test had not yet been copied to publishing. No baseline was replaced. After test synchronization, the earlier full operator baseline was independently reconciled with zero changes/additions and this stage captured its separate baseline.",
+    "The first full native negative pass exposed the dispatch UTC-rounding issue. Two deterministic submicrosecond regressions reproduced it and the original numeric clock fixed it.",
+    "The first full native positive refinement passed the stream blackout but correctly waited on the independent25-second local price-attempt cooldown. The synthetic fixture now advances both retained scheduling clocks by26seconds; no production price limits or reservation state were relaxed. Negative cases additionally require two snapshots and their actual subject boundary, avoiding unrelated-wait false positives.",
+    "The durable probe initially failed before starting because its test-helper import omitted the project root from sys.path. The private launcher was corrected; no owned probe attempt was replaced."
+  ],
+  "source_proof": {"files_each": 883, "sha256": "c1069adbc68d7e44d4603f632759e1441ebf61b3daa044b6a56076bc202786c6"},
+  "operator_preservation": {"working_files": 4997, "publishing_files": 510, "source_frozen_check_changed": 0, "source_frozen_check_added": 0, "final_verification": "UNCHANGED_AFTER_ALL_LOCAL_VALIDATION"},
+  "private_evidence": ["work/stream-reconsideration-20261017/baseline.xml", "work/stream-reconsideration-20261017/full-native-parent-baseline.xml", "work/stream-reconsideration-20261017/full-native-parent-controlled-clock.xml", "work/stream-reconsideration-20261017/submicro-baseline.xml", "work/stream-reconsideration-20261017/complete-directed-D.xml", "work/stream-reconsideration-20261017/full-native-final-D.xml", "work/stream-reconsideration-20261017/durable-native-probe.json", "work/stream-reconsideration-20261017/collection-working.json", "work/stream-reconsideration-20261017/collection-publishing.json"],
+  "remaining": "Keep the original whole-goal scope and all ten remaining requirements. Real opportunity coverage/profitable capture, provider access/asof/depth, independent financial execution/finality, full-strategy prospective validation, other clocks/ownership boundaries and generalization remain unproved. No operator bot, model fit/activation, AutoResearch, API/UI or LIVE is started by this source-only stage."
+}

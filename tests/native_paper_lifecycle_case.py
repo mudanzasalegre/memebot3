@@ -153,6 +153,8 @@ def diagnose_original_clock_capture(vector, token):
 native_clock.capture_clock_proof = diagnose_original_clock_capture
 calls = []
 factor = 1.
+stream_ready = not options.get('stream_reconsideration', False)
+assert type(stream_ready) is bool
 born = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=3)
 birth = {'version':'birdeye_mint_creation_receipt_v1','source':'birdeye','chain':'solana',
     'address':TOKEN,'created_at':born.isoformat(),'slot':123,'tx_hash':'1'*64,
@@ -232,9 +234,9 @@ async def snapshot(address, **kwargs):
     calls.append('snapshot')
     return stamp_market_observation({'address':address,'chain':'solana','symbol':'SYNTHETIC',
         'dex_id':'pumpswap','price_usd':.01,'liquidity_usd':50000.,'market_cap_usd':100000.,
-        'fdv_usd':150000.,'volume_24h_usd':10000000.,'holders':10000,
-        'txns_last_5m':1000,'txns_last_5m_buys':900,'txns_last_5m_sells':100,
-        'price_pct_5m':options.get('momentum',5000.),'price_pct_1m':500.,'volume_pct_5m':1000.,
+        'fdv_usd':150000.,'volume_24h_usd':10000000. if stream_ready else 0.,'holders':10000,
+        'txns_last_5m':1000 if stream_ready else 1,'txns_last_5m_buys':900 if stream_ready else 1,'txns_last_5m_sells':100 if stream_ready else 1,
+        'price_pct_5m':options.get('momentum',5000.) if stream_ready else 0.,'price_pct_1m':500. if stream_ready else 0.,'volume_pct_5m':1000. if stream_ready else 0.,
         'liquidity_usd_is_proxy':False,'liquidity_is_proxy':False,
         'price_source':'dexscreener','price_confidence':'high'}, 'dexscreener')
 async def rug(address):
@@ -287,7 +289,7 @@ jupiter_router.get_routing_quote = quote
 jupiter_price._fetch_batch_with_status = price_batch
 sol_price.get_sol_usd_observation = fx
 async def exercise():
-    global factor, entry_token
+    global factor, entry_token, stream_ready
     await run_bot.async_init_db()
     from analytics import research_runtime as candidate_runtime
     from runtime.candidate_events import CandidateEventWriter
@@ -309,7 +311,41 @@ async def exercise():
                 'discovered_via':'dex','dex_id':'pumpswap'}
             calls.append('cached_unreferenced_entry')
         async with run_bot.SessionLocal() as ses:
-            await run_bot._evaluate_and_buy_guarded(entry_token,ses,source='dex')
+            entry_source = 'dex'
+            if options.get('stream_reconsideration'):
+                from runtime.hot_queue import HotQueue
+                queue = HotQueue(persist_events=False)
+                clock = [time.time()]
+                admission_clock = [time.monotonic()]
+                queue._now = lambda: clock[0]
+                # Advance the SAME retained local admission owner, not its
+                # quota/cooldown parameters or reservation state. Queue wall
+                # time alone cannot expire an independent monotonic budget.
+                run_bot._PF_PRICE_ADMISSION.clock = lambda: admission_clock[0]
+                run_bot.GLOBAL_HOT_QUEUE = queue
+                initial = {**entry_token, 'discovered_via':'pumpfun',
+                    'price_pct_5m':0., 'txns_last_5m':1}
+                assert queue.add(initial)
+                first = queue.pop_batch(1)[0]
+                await run_bot._evaluate_and_buy_guarded(first,ses,source='hot_queue')
+                assert (await ses.execute(select(Position))).scalars().all() == []
+                assert run_bot._stats['actual_paper_buy_attempts'] == 0
+                assert calls.count('snapshot') == 1 and run_bot._stream_candidate_is_cooled(TOKEN)
+                report['stream_reconsideration'] = {'initial_attempts':0,
+                    'initial_weak_snapshot_observed':True}
+                stream_ready = True
+                advance = max(1., float(getattr(CFG,'HOT_QUEUE_RECHECK_INTERVAL_S',15.)),
+                    run_bot._PF_PRICE_ADMISSION.cooldown_s, run_bot._PF_PRICE_ADMISSION.window_s) + 1.
+                assert advance < 900.
+                clock[0] += advance
+                admission_clock[0] += advance
+                report['stream_reconsideration']['controlled_scheduling_clock_advance_s'] = advance
+                assert queue.add({**initial,'price_pct_5m':options.get('momentum',5000.),'txns_last_5m':1000})
+                entry_token = queue.pop_batch(1)[0]
+                entry_source = 'hot_queue'
+            await run_bot._evaluate_and_buy_guarded(entry_token,ses,source=entry_source)
+            if options.get('stream_reconsideration'):
+                report['stream_reconsideration']['original_cooldown_still_active'] = run_bot._stream_candidate_is_cooled(TOKEN)
             positions = (await ses.execute(select(Position))).scalars().all()
             if case in {'positive','rpc_birth','rpc_birth_cached_unreferenced'}:
                 if not (len(positions)==1 and positions[0].buy_amount_sol==.1 and positions[0].dry_run is True):

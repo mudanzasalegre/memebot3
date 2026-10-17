@@ -22,7 +22,8 @@ SUPPORT = {'tests/quote_fixtures.py', 'tests/native_paper_lifecycle_case.py'}
 
 
 def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log=False, run_id=None,
-                expected_failure=None, coarse_clock=False, bootstrap_windows_fallback=False):
+                expected_failure=None, coarse_clock=False, bootstrap_windows_fallback=False,
+                stream_reconsideration=False):
     assert (SOURCE/'run_bot.py').is_file() and (SOURCE/'config/config.py').is_file()
     isolated = (tmp_path/'owned-source-only').resolve()
     assert isolated.is_relative_to(tmp_path.resolve()) and isolated != SOURCE
@@ -76,7 +77,8 @@ def native_case(tmp_path, *, case='positive', momentum=5000., monitor=False, log
     if expected_failure not in {None,'rpc_unavailable'}:
         raise ValueError('Unknown isolated native failure injection')
     options = dict(case=case,momentum=momentum,monitor=monitor,log=log,failure=expected_failure,
-        coarse_clock=coarse_clock,bootstrap_windows_fallback=bootstrap_windows_fallback)
+        coarse_clock=coarse_clock,bootstrap_windows_fallback=bootstrap_windows_fallback,
+        stream_reconsideration=stream_reconsideration)
     result = subprocess.run([sys.executable,str(isolated/'tests/native_paper_lifecycle_case.py'),
         str(isolated),json.dumps(options)],cwd=isolated,env=env,
         capture_output=True,text=True,timeout=90)
@@ -172,6 +174,32 @@ def test_full_native_extreme_runner_close_and_idempotent_net_learning(tmp_path,l
 def test_native_no_log_preserves_an_explicit_launcher_identity(tmp_path):
     row = native_case(tmp_path,run_id='synthetic-owned-fixture')
     assert row['entry_run_id']=='synthetic-owned-fixture'
+
+
+def test_full_native_changed_stream_signal_reconsiders_real_initial_rejection(tmp_path):
+    row = native_case(tmp_path, stream_reconsideration=True)
+    assert row['stream_reconsideration']['initial_attempts'] == 0
+    assert row['stream_reconsideration']['original_cooldown_still_active'] is True
+    assert row['stream_reconsideration']['initial_weak_snapshot_observed'] is True
+    assert row['stats']['stream_cooldown_reconsidered'] == 1
+    assert row['stats']['actual_paper_buy_attempts'] == row['stats']['actual_paper_buys'] == 1
+    assert len(row['positions']) == 1 and row['positions'][0]['amount_sol'] == .1
+    assert row['positions'][0]['dry_run'] is True and row['entry_identity_matches'] is True
+    assert row['boundary_calls'].count('snapshot') == 2
+    assert row['pending_buys'] == row['pending_sells'] == 0
+
+
+@pytest.mark.parametrize('case', ['missing_route', 'bad_cluster', 'missing_fx', 'stale_price'])
+def test_full_native_stream_reconsideration_keeps_execution_and_risk_guards(tmp_path, case):
+    row = native_case(tmp_path, case=case, stream_reconsideration=True)
+    assert row['stream_reconsideration']['initial_attempts'] == 0
+    assert row['stream_reconsideration']['original_cooldown_still_active'] is True
+    assert row['stats']['stream_cooldown_reconsidered'] == 1
+    assert row['positions'] == [] and row['stats']['actual_paper_buys'] == 0
+    assert row['boundary_calls'].count('snapshot') == 2
+    required_boundary = {'missing_route':'quote', 'bad_cluster':'cluster', 'missing_fx':'fx', 'stale_price':'price_batch'}[case]
+    assert required_boundary in row['boundary_calls']
+    assert row['pending_buys'] == row['pending_sells'] == 0
 
 
 def test_full_native_unconfirmed_causal_clock_defers_without_an_attempt_and_keeps_diagnostics(tmp_path):
