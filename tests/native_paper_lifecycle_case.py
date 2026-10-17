@@ -230,8 +230,7 @@ if case == 'clock_ahead':
             utc=lambda:utc()+dt.timedelta(seconds=5),**kwargs)
     entry_clock.capture_causal_utc = ahead_capture
 
-async def snapshot(address, **kwargs):
-    calls.append('snapshot')
+def snapshot_value(address):
     return stamp_market_observation({'address':address,'chain':'solana','symbol':'SYNTHETIC',
         'dex_id':'pumpswap','price_usd':.01,'liquidity_usd':50000.,'market_cap_usd':100000.,
         'fdv_usd':150000.,'volume_24h_usd':10000000. if stream_ready else 0.,'holders':10000,
@@ -239,6 +238,9 @@ async def snapshot(address, **kwargs):
         'price_pct_5m':options.get('momentum',5000.) if stream_ready else 0.,'price_pct_1m':500. if stream_ready else 0.,'volume_pct_5m':1000. if stream_ready else 0.,
         'liquidity_usd_is_proxy':False,'liquidity_is_proxy':False,
         'price_source':'dexscreener','price_confidence':'high'}, 'dexscreener')
+async def snapshot(address, **kwargs):
+    calls.append('snapshot')
+    return snapshot_value(address)
 async def rug(address):
     calls.append('rug')
     stamp = time.time()-.001
@@ -280,6 +282,8 @@ async def fx():
 price_service.get_entry_snapshot = snapshot
 async def market_price(address, **kwargs):
     calls.append('market_price')
+    if options.get('shadow_feed'):
+        return snapshot_value(address)
     return stamp_market_observation({'address':address,'price_usd':.01 * factor,
         'liquidity_usd':50000.,'price_source':'dexscreener'},'dexscreener')
 price_service.get_price = market_price
@@ -327,7 +331,22 @@ async def exercise():
                     'price_pct_5m':0., 'txns_last_5m':1}
                 assert queue.add(initial)
                 first = queue.pop_batch(1)[0]
+                if options.get('shadow_feed'):
+                    from runtime.shadow_openings import ShadowOpeningQueue
+                    ready = asyncio.Event()
+                    ready.set()
+                    opener = ShadowOpeningQueue(run_bot._open_shadow_now, ready=ready)
+                    opener.start()
+                    run_bot._SHADOW_OPEN_QUEUE = opener
                 await run_bot._evaluate_and_buy_guarded(first,ses,source='hot_queue')
+                if options.get('shadow_feed'):
+                    await opener.close()
+                    run_bot._SHADOW_OPEN_QUEUE = None
+                    assert opener.snapshot()['completed'] == 1, opener.snapshot()
+                    original = run_bot._shadow_positions[TOKEN]
+                    assert native_clock.checked_row_clock(original['vec']) is not None
+                    report['shadow_feed'] = {'opening_completed':opener.snapshot()['completed'],
+                        'original_shadow_clock_valid':True}
                 assert (await ses.execute(select(Position))).scalars().all() == []
                 assert run_bot._stats['actual_paper_buy_attempts'] == 0
                 assert calls.count('snapshot') == 1 and run_bot._stream_candidate_is_cooled(TOKEN)
@@ -340,8 +359,16 @@ async def exercise():
                 clock[0] += advance
                 admission_clock[0] += advance
                 report['stream_reconsideration']['controlled_scheduling_clock_advance_s'] = advance
-                assert queue.add({**initial,'price_pct_5m':options.get('momentum',5000.),'txns_last_5m':1000})
+                if options.get('shadow_feed'):
+                    before_monitor_calls = calls.count('market_price')
+                    await run_bot._tick_shadows()
+                    report['shadow_feed']['monitor_market_calls'] = calls.count('market_price') - before_monitor_calls
+                    assert queue.snapshot()['size'] == 1, 'Observed shadow update never reached native scanner'
+                else:
+                    assert queue.add({**initial,'price_pct_5m':options.get('momentum',5000.),'txns_last_5m':1000})
                 entry_token = queue.pop_batch(1)[0]
+                if options.get('shadow_feed'):
+                    report['shadow_feed']['queued_source'] = entry_token['discovered_via']
                 entry_source = 'hot_queue'
             await run_bot._evaluate_and_buy_guarded(entry_token,ses,source=entry_source)
             if options.get('stream_reconsideration'):

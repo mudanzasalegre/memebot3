@@ -240,3 +240,22 @@ def test_native_runtime_snapshot_uses_the_actual_admission_owner():
     admission.admit('A')
     actual = eval(compile(ast.fix_missing_locations(ast.Expression(expression)), 'native-stats', 'eval'), {'_PF_PRICE_ADMISSION': admission})
     assert actual['counts'] == {'admitted': 1} and actual['quota'] == 4
+
+
+@pytest.mark.asyncio
+async def test_native_shadow_followup_shares_original_pump_price_admission_and_waits_without_io():
+    helpers = runpy.run_path('tests/test_entry_observation.py')
+    ns, waits, market = helpers['preparation_namespace'](helpers['observed']())
+    admission, now = controlled(quota=1, cooldown_s=25)
+    ns['_PF_PRICE_ADMISSION'] = admission
+    session = SimpleNamespace(scalar=AsyncMock(return_value=None))
+    token = {'address': helpers['MINT'], 'discovered_via':'pumpfun'}
+    await ns['prepare'](token, session)
+    now[0] += 5
+    await ns['prepare']({**token, 'discovered_via':'shadow_followup'}, session)
+    assert market.await_count == ns['enrich_token_birth'].await_count == 1
+    assert waits[-1] == {'reason':'local_pumpfun_wait:token_and_window_wait',
+        'stage':'entry_snapshot', 'retry_after_s':20.}
+    now[0] += 20
+    await ns['prepare']({**token, 'discovered_via':'shadow_followup'}, session)
+    assert market.await_count == ns['enrich_token_birth'].await_count == 2

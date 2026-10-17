@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "status": "SHADOW_OBSERVATION_FEED_854_EACH_CI_PENDING_OPERATOR_OFF",
+  "whole_goal_complete": false,
+  "profitability_status": "NOT_ESTABLISHED_NO_LIVE_GO",
+  "parent_commit": "e1803051097c04b6df9678c978159987c420117e",
+  "previous_stage": "docs/audits/stream_reconsideration_20261017.json",
+  "defect": "PumpPortal discovery subscribes only to new-token events. The native shadow monitor already obtains later market observations, but those observations never return to HotQueue. Changed-signal reconsideration alone therefore cannot supply an update that no scanner producer ever admits. This source-level defect is reproduced, not established as the historical financial cause of zero buys.",
+  "parent_reproduction": {
+    "native_tick_regression_failed": 1,
+    "pause_disable_controls_passed": 2,
+    "whole_native_source_case_failed": 1,
+    "whole_native_subject_boundary": "Original native weak rejection opens an actual prospective durable shadow through ShadowOpeningQueue. Its later native monitor observes current market data but the scanner queue stays empty. No manual strong queue update supplies the missing observation.",
+    "scope": "Original committed publishing runtime plus explicit test-only support; no original entry assertion was relaxed."
+  },
+  "repair": {
+    "bridge": "A stateless no-IO helper retains only the original validated T0 birth-clock context and a current address-bound positive-price HTTP receipt. The native shadow tick offers that observation to the existing bounded HotQueue under the honest shadow_followup source. Original birth is not renewed. PnL, peak, partial returns, targets, labels, old model scores, original entry policies and T0 market features never become scanner momentum.",
+    "entry": "The ordinary guarded entry still discards queued market/model decisions and recollects fresh observations. shadow_followup shares the existing process-wide early price-attempt owner and generic stream cooldown. Only the existing exact owned changed dispatch may reconsider that blackout. No quota, recheck interval, reservation, risk/model/capital rule, exact0.1SOL sizing or exit threshold is relaxed.",
+    "lifecycle": "Discovery pause and HOT_QUEUE_ENABLED are respected. Optional bridge/queue failures are counted without interrupting original durable shadow checkpoint, close publication or retirement. Existing restored original proof is usable without a new schema, worker, subscriptions, state backfill or regenerated labels.",
+    "provider_usage": "The bridge adds no lookup to a monitor tick and adds no subscription. An admitted ordinary reevaluation can still perform its normal fresh provider requests under the existing local admission budget. Local pacing is not a provider entitlement, wire-quota guarantee or zero incremental operational consumption."
+  },
+  "verification": {
+    "new_repository_cases": 41,
+    "direct_bridge_cases_passed": 33,
+    "official_collected_each": 8114,
+    "official_nodeids_sha256_each": "8feffc249f0c90a56eda91d05b3a1f03c69a6cfb709993b6552486930d9696e1",
+    "all_original_8073_cases_retained": true,
+    "focused_integration_each": 854,
+    "working_integration": {"passed": 854, "failed": 0, "errors": 0, "skipped": 0, "seconds": 423.003},
+    "publishing_integration": {"passed": 854, "failed": 0, "errors": 0, "skipped": 0, "seconds": 418.175},
+    "all_previous_580_focused_cases_retained_and_passed": true,
+    "new_whole_native_cases_passed": 5,
+    "new_owned_dispatch_and_shared_budget_cases_passed": 3,
+    "dependency_check": "NO_BROKEN_REQUIREMENTS",
+    "full_current_revision_ci": "PENDING_AFTER_PUBLICATION",
+    "scope": "Invalid or absent original identity/birth proof, measured-only age, wrong/future original clocks, missing/wrong/stale/future/mutated/nonpositive price receipts, unknown versus observed-zero current fields, original typed birth retention, no old outcome/predictor leakage, deep detachment, restart, pause/disable, optional bridge/queue faults, ordinary close completion, native dedup/recheck, source-text forgery and shared retained price pacing. Whole native cases require the actual route, cluster-risk, FX and price-freshness boundaries after fresh reevaluation, not an unrelated wait."
+  },
+  "durable_native_probe": {
+    "original_weak_rejection_and_managed_shadow_opening": true,
+    "original_t0_clock_valid": true,
+    "native_monitor_market_calls": 1,
+    "manual_strong_queue_update": false,
+    "scanner_source": "shadow_followup",
+    "controlled_scheduling_clock_advance_seconds": 26.0,
+    "original_price_admission_parameters_and_reservations_reset": false,
+    "original_generic_cooldown_retained": true,
+    "simulated_buys": 1,
+    "exact_size_sol": 0.1,
+    "synthetic_signal_pct": 1000000.0,
+    "partial_runner_retained_before_terminal_giveback": true,
+    "closed_position": true,
+    "original_net_export_rows": 1,
+    "first_publish": "written",
+    "second_publish": "already_written",
+    "external_attempts": 0,
+    "operator_files_copied": 0,
+    "qualification": "Native source-only synthetic entry/monitor/close/export software. Not a new operational PAPER, profitable market capture, provider access/depth acceptance or independent on-chain execution."
+  },
+  "validation_incidents_preserved": [
+    "An initial close test transported the clock proof as a dict into a Parquet string column. The fixture now uses the same canonical JSON transport as the native builder. No production feature/storage schema or assertion about successful close was weakened.",
+    "Two close-event checks initially named candidate_close instead of the actual candidate_outcome contract. The exact single outcome and TIMEOUT reason are now checked alongside original successful feature persistence and shadow retirement.",
+    "An initial test-only append accidentally displaced the existing missing-age assertions into a new test. The original assertions were restored verbatim before source freezing and final integration; no previous node id was removed.",
+    "The first private durable probe completed native execution but its private wrapper expected a nonexistent complete field in the publication response. Its original owned directory is preserved. A separately owned refined probe checks the actual written/already_written contract and records its original result before assertions."
+  ],
+  "source_proof": {"files_each": 885, "sha256": "f65f2fbd3d49ea55a6dcb953e8d26568651c2689f2b2eddcb82ba490028d79d3"},
+  "operator_preservation": {"working_files": 4997, "publishing_files": 510, "source_frozen_changed": 0, "source_frozen_added": 0, "final_changed": 0, "final_added": 0, "final_verification": "UNCHANGED_AFTER_ALL_LOCAL_VALIDATION", "operator_runtime_qa_tasks_services_locks": "ALL_ZERO_AT_FINAL_LOCAL_CHECK"},
+  "operational_authority": "The exact previously granted single PAPER permission has a matching original consumption hash and a completed1800-second runtime receipt. It is not reused by this source-only implementation. No operational bot, PAPER, LIVE, training, model activation, AutoResearch, API or UI is started.",
+  "private_evidence": ["work/shadow-observation-feed-20261017/native-parent-baseline.xml", "work/shadow-observation-feed-20261017/native-full-parent.xml", "work/shadow-observation-feed-20261017/bridge-final-directed-D.xml", "work/shadow-observation-feed-20261017/frozen-integration-D.xml", "work/shadow-observation-feed-20261017/frozen-integration-C.xml", "work/shadow-observation-feed-20261017/durable-native-probe.json", "work/shadow-observation-feed-20261017/source-frozen.json", "work/shadow-observation-feed-20261017/final-operator-check.json", "work/shadow-observation-feed-20261017/collection-working.json", "work/shadow-observation-feed-20261017/collection-publishing.json", "work/shadow-observation-feed-20261017/authority-reconciliation.json"],
+  "remaining": "All original whole-goal requirements remain. This feed covers only existing open shadows with usable original birth and fresh current receipts, under native queue capacity/expiry and downstream constraints. It is not an exhaustive trade-stream subscription or guarantee of opportunity coverage, real market-asof, birth/creator authentication, rare-event generalization or net profitability. Full matching-revision CI, independently authorized operational/provider acceptance and prospective full-strategy financial evidence remain separate."
+}

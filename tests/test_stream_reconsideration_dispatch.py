@@ -240,3 +240,25 @@ async def test_changed_dispatch_still_waits_for_verified_original_age(native_dis
     assert n.waits == [{'reason': 'missing_age', 'stage': 'entry_snapshot'}]
     await n.dispatch(row)
     assert n.errors == [] and n.fresh.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_shadow_followup_source_cannot_claim_owned_changed_dispatch(native_dispatch):
+    n = native_dispatch
+    n.namespace['_stream_candidate_cooldown_until'][MINT] = n.now[0] + 900
+    token = {**n.candidate(), 'discovered_via':'shadow_followup', 'stream_reconsideration':True}
+    await n.dispatch(token)
+    assert n.errors == [] and n.fresh.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_owned_changed_shadow_followup_collects_fresh_inputs_without_erasing_blackout(native_dispatch):
+    n = native_dispatch
+    initial = {**n.candidate(), 'discovered_via':'shadow_followup'}
+    assert n.queue.add(initial) and n.queue.pop_batch(1)
+    n.namespace['_stream_candidate_cooldown_until'][MINT] = n.now[0] + 900
+    n.now[0] += 16
+    assert n.queue.add({**initial, 'price_pct_5m':300.})
+    await n.dispatch(n.queue.pop_batch(1)[0])
+    assert n.errors == [] and n.fresh.await_count == 1
+    assert n.namespace['_stream_candidate_is_cooled'](MINT)

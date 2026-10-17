@@ -848,6 +848,9 @@ _stats = {
     "filtered_immediate_0": 0,
     "actual_paper_buy_attempts": 0,
     "stream_cooldown_reconsidered": 0,
+    "shadow_feed_admitted": 0,
+    "shadow_feed_not_admitted": 0,
+    "shadow_feed_failed": 0,
     "actual_paper_buys": 0,
     "shadow_only": 0,
     "blocked_before_buy": 0,
@@ -4512,6 +4515,23 @@ async def _tick_shadows() -> None:
         # This is local receipt time, not independent provider market-asof proof.
         now = utc_now()
 
+        # Reuse this already-owned observation, not a new provider request or
+        # a shadow PnL/peak as an entry signal. Queue and actual entry retain
+        # their independent freshness, pacing, source and financial checks.
+        try:
+            from runtime.shadow_observation_feed import shadow_market_candidate
+            followup = shadow_market_candidate(addr, sd, tok)
+            if (followup is not None and not _runtime_discovery_paused
+                    and bool(getattr(CFG, 'HOT_QUEUE_ENABLED', True))):
+                admitted = GLOBAL_HOT_QUEUE.add(followup, source='shadow_followup', reason='observed_shadow_market_update')
+                key = 'shadow_feed_admitted' if admitted else 'shadow_feed_not_admitted'
+                _stats[key] = _stats.get(key, 0) + 1
+        except Exception as exc:
+            # Optional discovery feedback cannot interrupt durable shadow
+            # checkpoint/close publication or its original observations.
+            _stats['shadow_feed_failed'] = _stats.get('shadow_feed_failed', 0) + 1
+            log.debug('Shadow discovery feedback unavailable %s: %s', addr[:6], type(exc).__name__)
+
         pnl_pct_total = None
         label = None  # No final observation is not an observed losing trade.
         peak = float(sd.get("highest_pnl_pct") or 0.0)
@@ -5000,7 +5020,7 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal, *, stream_reconsider
     token = sanitize_token_data(discovery_candidate(token))
     addr = token["address"]
     _stats["raw_discovered"] += 1
-    if str(token.get("discovered_via") or "").strip().lower() == "pumpfun" and _stream_candidate_is_cooled(addr):
+    if str(token.get("discovered_via") or "").strip().lower() in {"pumpfun", "shadow_followup"} and _stream_candidate_is_cooled(addr):
         if stream_reconsideration is not True:
             return
         # A changed, rate-limited native queue dispatch may collect a NEW
@@ -5071,7 +5091,9 @@ async def _evaluate_and_buy(token: dict, ses: SessionLocal, *, stream_reconsider
 
     # Every production source enters here. A cached queue snapshot is discovery
     # context only, never the market input used by gates, ranking or learning.
-    is_pumpfun = token.get("discovered_via") == "pumpfun"
+    # Reusing a shadow observation must not evade the existing local early
+    # price-attempt budget just because its honest discovery source is new.
+    is_pumpfun = token.get("discovered_via") in {"pumpfun", "shadow_followup"}
     if is_pumpfun:
         admission = _PF_PRICE_ADMISSION.admit(addr)
         if not admission.allowed:
